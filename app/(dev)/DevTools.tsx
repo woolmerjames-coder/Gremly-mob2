@@ -23,19 +23,16 @@ export default function DevTools() {
   const [lastAction, setLastAction] = useState<string | null>(null);
 
   /**
-   * Trigger age-up celebration via CelebrationController.
-   * This does NOT modify the actual gremlyAge in the store.
+   * Play a fed day (1, 2) or the third day that runs into the age up, on the
+   * Drop page, without touching the store. The age up's server confirmation
+   * is stood in for a second after the start, as it would arrive.
    */
-  const handleTriggerAgeUpCelebration = () => {
-    const displayAge = gremlyAge + 1;
-
-    // Dismiss DevTools modal first
+  const handlePlayMoment = (day: 1 | 2 | 3) => {
     navigation.goBack();
-
-    // Small delay to let the modal dismiss, then trigger celebration
     setTimeout(() => {
-      celebrationController.showAgeUpCelebration(displayAge);
-    }, 300);
+      celebrationController.startMoment({ day, age: gremlyAge });
+      if (day === 3) setTimeout(() => celebrationController.confirmAgeUp(gremlyAge + 1), 1000);
+    }, 400);
   };
 
   /**
@@ -57,17 +54,14 @@ export default function DevTools() {
   };
 
   /**
-   * Trigger age-up celebration for a specific milestone age.
-   * This does NOT modify the actual gremlyAge in the store.
+   * The age up on its own at a given age, the way it plays when the server
+   * confirms after a fed day has finished.
    */
   const handleSetMilestone = (age: number) => {
-    // Dismiss DevTools modal first
     navigation.goBack();
-
-    // Small delay to let the modal dismiss, then trigger celebration
     setTimeout(() => {
-      celebrationController.showAgeUpCelebration(age);
-    }, 300);
+      celebrationController.startAgeUp({ age: age - 1, nextAge: age });
+    }, 400);
   };
 
   return (
@@ -128,18 +122,34 @@ export default function DevTools() {
           />
         </View>
 
-        {/* Age-Up Celebration */}
+        {/* The fed moment and the age up */}
         <View style={styles.section}>
           <Text variant="title" style={styles.sectionTitle}>
-            Age-Up Celebration
+            The moment
           </Text>
           <Text variant="subtle" style={styles.hint}>
-            Test the celebration modal with video and haptics
+            Plays on the Drop page with haptics. Day 3 runs on into the age up.
           </Text>
 
+          <View style={styles.buttonRow}>
+            <Button
+              label="Fed, day 1"
+              size="sm"
+              variant="secondary"
+              onPress={() => handlePlayMoment(1)}
+              style={styles.smallButton}
+            />
+            <Button
+              label="Fed, day 2"
+              size="sm"
+              variant="secondary"
+              onPress={() => handlePlayMoment(2)}
+              style={styles.smallButton}
+            />
+          </View>
           <Button
-            label={`Trigger Age-Up (${gremlyAge} → ${gremlyAge + 1})`}
-            onPress={handleTriggerAgeUpCelebration}
+            label={`Day 3, then the age up (${gremlyAge} to ${gremlyAge + 1})`}
+            onPress={() => handlePlayMoment(3)}
             testID="trigger-age-up-button"
             style={styles.button}
           />
@@ -156,10 +166,10 @@ export default function DevTools() {
         {/* Milestone Celebrations */}
         <View style={styles.section}>
           <Text variant="title" style={styles.sectionTitle}>
-            Milestone Celebrations
+            The age up on its own
           </Text>
           <Text variant="subtle" style={styles.hint}>
-            Test specific milestone ages (10, 50, 100, etc.)
+            At a given age, the way it plays when the server confirms late
           </Text>
 
           <View style={styles.buttonRow}>

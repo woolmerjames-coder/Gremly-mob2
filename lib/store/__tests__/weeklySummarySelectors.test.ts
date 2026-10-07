@@ -152,6 +152,28 @@ describe('weekly summary selectors', () => {
       const state = makeState({ weeklySummaries: [old, current] });
       expect(selectCurrentWeekSummary(state)!.id).toBe('current');
     });
+
+    it('finds the summary of their own week when it does not start on a Monday', () => {
+      // a Wednesday weekly day: Thursday 11 to Wednesday 17, and today is Monday 15
+      const own = makeSummary({ week_start_date: '2025-12-11', week_end_date: '2025-12-17' });
+      expect(selectCurrentWeekSummary(makeState({ weeklySummaries: [own] }))).toBe(own);
+      // today is the last of its seven days
+      const ending = makeSummary({ week_start_date: '2025-12-09', week_end_date: '2025-12-15' });
+      expect(selectCurrentWeekSummary(makeState({ weeklySummaries: [ending] }))).toBe(ending);
+      // a week that ended yesterday, and one still to start, are not this week's
+      const gone = makeSummary({ week_start_date: '2025-12-08', week_end_date: '2025-12-14' });
+      const ahead = makeSummary({ week_start_date: '2025-12-16', week_end_date: '2025-12-22' });
+      expect(
+        selectCurrentWeekSummary(makeState({ weeklySummaries: [gone, ahead] })),
+      ).toBeUndefined();
+    });
+
+    it('takes the later one when two weeks overlap, after the weekly day moved', () => {
+      const before = makeSummary({ id: 'before', week_start_date: '2025-12-09' });
+      const after = makeSummary({ id: 'after', week_start_date: '2025-12-11' });
+      const state = makeState({ weeklySummaries: [before, after] });
+      expect(selectCurrentWeekSummary(state)!.id).toBe('after');
+    });
   });
 
   // ── selectPastSummaries ──────────────────────────────────────────────────

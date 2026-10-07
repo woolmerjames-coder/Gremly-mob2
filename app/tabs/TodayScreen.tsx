@@ -16,7 +16,6 @@ import { useTheme } from '../../providers/ThemeProvider';
 import { useRepo } from '../../providers/RepoProvider';
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
-import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useTodayData, type Suggestion, type TodayCommitment } from '../../lib/today/useTodayData';
 import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
@@ -128,8 +127,6 @@ function TodayScreenV2() {
 
   // Unified overlay controller
   const overlayController = useUnifiedOverlayController();
-  const overlayMode =
-    overlayController.state.mode === 'view' ? 'create' : overlayController.state.mode;
 
   // Today data hook
   const todayData = useTodayData();
@@ -262,21 +259,6 @@ function TodayScreenV2() {
     },
     [reloadToday, removingCommitmentId, repo],
   );
-
-  const handleOverlaySaved = useCallback(async () => {
-    // Reload data after overlay save (event bus will also trigger reload)
-    await todayData.reload();
-  }, [todayData]);
-
-  const handleCommitmentsChanged = useCallback(async () => {
-    try {
-      await todayData.reload();
-    } catch (error) {
-      if (__DEV__) {
-        console.warn('[TodayScreen] Failed to reload after commitment change', error);
-      }
-    }
-  }, [todayData]);
 
   // Open journal overlay with evening reflection prompt
   const handleOpenEveningReflection = () => {
@@ -622,19 +604,6 @@ function TodayScreenV2() {
           </>
         )}
       </Box>
-
-      {/* Unified Create/Edit Overlay */}
-      {!isTestLight && (
-        <UnifiedCreateOverlay
-          visible={overlayController.state.visible}
-          mode={overlayMode}
-          initialEntity={overlayController.state.initialEntity}
-          initialSpaceId={overlayController.state.initialSpaceId}
-          onClose={overlayController.close}
-          onSaved={handleOverlaySaved}
-          onCommitmentsChanged={handleCommitmentsChanged}
-        />
-      )}
 
       {/* Celebration Overlay */}
       {celebrationEnabled && (

@@ -74,6 +74,7 @@ export const HELPER_JOB_VARS = {
   item_topics: 'MODEL_ITEM_TOPICS', // itemDetail.js: starters drawn from a note when its chat opens
   correction_check: 'MODEL_CORRECTION_CHECK', // context/corrections.js: did they say Gremly has something wrong
   wrap_words: 'MODEL_WRAP_WORDS', // wrap/words.js: Gremly's own words in the evening wrap up
+  age_words: 'MODEL_AGE_WORDS', // age/words.js: What got me here, the line on the age up page
 };
 
 /**

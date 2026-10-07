@@ -159,14 +159,26 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
       },
     });
   }
+  // Their week, on any day but a return day: a check in on the habit they
+  // planned for today, and the weekly review on the two mornings after their
+  // weekly day. Both ride on the brief's last message as facts, and the app
+  // shows them (lib/brief/checkIn.ts): the check in first, with its own
+  // buttons, then the offer, with Plan my week beside it. An app build that
+  // does not know them shows the offer as it always has.
+  const checkIn = !g.ret && g.checkIn ? { habit_id: g.checkIn.id, title: g.checkIn.title } : null;
+  const reviewOffer = !g.ret && g.reviewOffer === true;
   // With no offer the last message is only a sign-off; when the writer gave
-  // none, the lines end the brief on their own.
+  // none, the lines end the brief on their own. When their week still needs
+  // a message to ride on, it rides on one with no words and no buttons: an
+  // app build that does not know the facts draws nothing for it, so the
+  // brief reads the same there with the facts or without them, and this
+  // worker can be deployed on its own.
   const offerText =
     out.offer || (offer.kind === 'none' && !writerError ? null : fallbackOffer(offer.kind, g.part));
-  if (offerText)
+  if (offerText || checkIn || reviewOffer)
     rows.push({
       role: 'assistant',
-      content: offerText,
+      content: offerText || '',
       metadata_json: {
         type: 'brief-offer',
         kind: offer.kind,
@@ -175,6 +187,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
         held: asking ? true : undefined,
         catch_up: out.catchUp || undefined,
         plan_from: offer.plan?.gapFrom ?? undefined,
+        checkin: checkIn || undefined,
+        review_offer: reviewOffer || undefined,
         brief_id: briefId,
       },
     });
@@ -220,6 +234,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
     offer_kind: offer.kind,
     lines: out.lines.length,
     dropped: out.dropped.length,
+    checkin: checkIn?.habit_id ?? null,
+    review_offer: reviewOffer,
   };
 }
 

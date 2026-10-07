@@ -44,6 +44,8 @@ jest.mock('../../lib/store/useGremlyStore', () => {
 
   const useGremlyStore = (selector: (state: any) => any) => selector(mockStoreState);
   useGremlyStore.getState = () => mockStoreState;
+  // the overlay listens for its item changing while it is open; nothing changes here
+  useGremlyStore.subscribe = () => () => {};
 
   return { useGremlyStore, __mockStoreState: mockStoreState };
 });

@@ -53,7 +53,70 @@ function data(): DayCardData {
   };
 }
 
+describe('DueTodaySheet, with their week', () => {
+  const today = () => {
+    const d = data();
+    return {
+      ...d,
+      todosDue: [
+        ...d.todosDue,
+        {
+          id: 'step',
+          name: 'Draft the cover letter',
+          due_day: d.date,
+          time_estimate_minutes: 30,
+          views: { milestone: { goal: 'Send the grant application', date: '2026-10-20' } },
+        } as any,
+        { id: 'back', name: 'Renew the passport', due_day: null, resurface_at: d.date } as any,
+      ],
+      weekHabits: new Set(['pushups']),
+    };
+  };
+
+  it('says what a milestone step is a step towards, and when a todo is back from Later', () => {
+    const r = render(
+      <DueTodaySheet visible onClose={jest.fn()} data={today()} initialTab="todos" />,
+    );
+    const words = (id: string) =>
+      r
+        .getByTestId(`due-todo-${id}`)
+        .findAll((n: any) => typeof n.props.children === 'string')
+        .map((n: any) => n.props.children as string)
+        .join(' | ');
+    expect(words('step')).toContain('A step towards Send the grant application');
+    expect(words('step')).toContain('30m');
+    expect(words('back')).toContain('Back from Later');
+    expect(words('plumber')).not.toContain('A step towards');
+  });
+
+  it('says which habits they planned for the day in their week', () => {
+    const r = render(
+      <DueTodaySheet visible onClose={jest.fn()} data={today()} initialTab="habits" />,
+    );
+    expect(r.getByTestId('due-planned-pushups')).toBeTruthy();
+    expect(r.queryByTestId('due-planned-messaging')).toBeNull();
+    // a sheet with no week to read shows the habits as it always has
+    const plain = render(
+      <DueTodaySheet visible onClose={jest.fn()} data={data()} initialTab="habits" />,
+    );
+    expect(plain.queryByTestId('due-planned-pushups')).toBeNull();
+  });
+});
+
 describe('DueTodaySheet', () => {
+  it('for the day being planned, says what is due that day by its name', () => {
+    const r = render(
+      <DueTodaySheet
+        visible
+        onClose={jest.fn()}
+        data={{ ...data(), todosDue: [] }}
+        initialTab="todos"
+      />,
+    );
+    // 30 September 2026 is a Wednesday, and not today
+    expect(r.getByText('Nothing due Wednesday')).toBeTruthy();
+  });
+
   it('lists todos due today, with a planned time where the plan placed one', () => {
     const r = render(<DueTodaySheet visible onClose={jest.fn()} data={data()} />);
     expect(r.getByText('Todos (2)')).toBeTruthy();
@@ -75,24 +138,5 @@ describe('DueTodaySheet', () => {
     expect(r.queryByTestId('due-behind-pushups')).toBeNull();
     expect(r.getByText('0 of 3 this week')).toBeTruthy();
     expect(r.getByText('Daily')).toBeTruthy();
-  });
-
-  it('adds to the plan in add mode', () => {
-    const onAdd = jest.fn();
-    const r = render(
-      <DueTodaySheet
-        visible
-        onClose={jest.fn()}
-        data={data()}
-        initialTab="habits"
-        mode="add"
-        inPlan={new Set(['messaging'])}
-        onAdd={onAdd}
-      />,
-    );
-    expect(r.getByText('Add to the plan')).toBeTruthy();
-    expect(r.getByText('In the plan')).toBeTruthy();
-    fireEvent.press(r.getByTestId('due-add-social'));
-    expect(onAdd).toHaveBeenCalledWith('social', 'habit');
   });
 });

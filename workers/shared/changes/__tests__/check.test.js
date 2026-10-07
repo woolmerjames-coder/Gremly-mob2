@@ -15,7 +15,7 @@ import {
   scheduleLabel,
   scheduleOf,
 } from '../check';
-import { GROUPS, OPS, TYPES } from '../fields';
+import { EASE_OPS, GROUPS, OPS, TYPES, WEEK_OPS } from '../fields';
 
 const TODAY = '2026-10-02';
 const todo = {
@@ -63,7 +63,17 @@ describe('values', () => {
     expect(normTime('9:05')).toBe('09:05');
     expect(normTime('14:00:00')).toBe('14:00');
     expect(normTime('24:00')).toBeUndefined();
-    expect(normTime('2pm')).toBeUndefined();
+  });
+
+  it('reads times the way Gremly reads them, with am or pm', () => {
+    expect(normTime('2pm')).toBe('14:00');
+    expect(normTime('2:45pm')).toBe('14:45');
+    expect(normTime('2:45 PM')).toBe('14:45');
+    expect(normTime('12am')).toBe('00:00');
+    expect(normTime('12:30pm')).toBe('12:30');
+    expect(normTime('9 a.m.')).toBe('09:00');
+    expect(normTime('13pm')).toBeUndefined();
+    expect(normTime('2')).toBeUndefined();
   });
 
   it('reads lengths from a minute to a day', () => {
@@ -360,5 +370,681 @@ describe('beforeValue', () => {
       times: 1,
       label: 'daily',
     });
+  });
+});
+
+// ── The week's own changes (the weekly review) ──────────────────────────────
+
+// Friday 2 October: the rest of this week, Friday to Sunday, in the week that started on Monday
+const week = {
+  first: '2026-10-02',
+  last: '2026-10-04',
+  week_start: '2026-09-28',
+  hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+  busy_days: ['2026-10-03'],
+  has_review: true,
+  intention: { id: 'n9', text: 'Protect my mornings' },
+  weekly_day: 0,
+};
+const weekCtx = (item = null, w = week) => ({ ...ctx(item), week: w });
+const weekChange = (raw, item = null, w = week) => checkChange(raw, weekCtx(item, w));
+
+describe("the week's own changes", () => {
+  it('are dropped when the week is not known', () => {
+    expect(
+      checkChange({ op: 'later', type: 'todo', id: 't1', back_on: '2026-10-12' }, ctx(todo)),
+    ).toEqual({
+      ok: false,
+      reason: 'no_week',
+    });
+    expect(checkChange({ op: 'weekly_day', weekday: 3 }, ctx(null))).toEqual({
+      ok: false,
+      reason: 'no_week',
+    });
+  });
+
+  it('are not operations on the general list, so no other surface is offered them', () => {
+    for (const op of Object.keys(WEEK_OPS)) expect(op in OPS).toBe(false);
+    for (const spec of Object.values(TYPES)) {
+      for (const op of Object.keys(WEEK_OPS)) expect(spec.ops).not.toContain(op);
+    }
+  });
+
+  describe('later', () => {
+    const later = (back_on, item = todo) =>
+      weekChange({ op: 'later', type: 'todo', id: item?.id, back_on }, item);
+
+    it('puts a todo off with the day it comes back, and says what it was', () => {
+      expect(later('2026-10-12')).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'later',
+          type: 'todo',
+          id: 't1',
+          title: 'Dentist',
+          fields: { back_on: '2026-10-12' },
+          before: { back_on: null, day: '2026-10-02' },
+        },
+      });
+    });
+
+    it('always has a back day, on a day still to come and within four weeks', () => {
+      expect(later(undefined).reason).toBe('bad_value:back_on');
+      expect(later('soon').reason).toBe('bad_value:back_on');
+      expect(later(TODAY).reason).toBe('back_not_ahead');
+      expect(later('2026-10-01').reason).toBe('back_not_ahead');
+      expect(later('2026-10-30').ok).toBe(true);
+      expect(later('2026-10-31').reason).toBe('back_too_far');
+    });
+
+    it('is only for a todo of theirs that is still open', () => {
+      expect(
+        weekChange({ op: 'later', type: 'habit', id: 'h1', back_on: '2026-10-12' }, habit).reason,
+      ).toBe('op_not_for_type');
+      expect(later('2026-10-12', null).reason).toBe('no_item');
+      expect(later('2026-10-12', { ...todo, archived: true }).reason).toBe('archived');
+      expect(later('2026-10-12', { ...todo, completed_at: '2026-10-01T10:00:00Z' }).reason).toBe(
+        'already_done',
+      );
+    });
+
+    it('is no change when it is already put off until that day', () => {
+      const put = { ...todo, due_day: null, resurface_at: '2026-10-12' };
+      expect(later('2026-10-12', put).reason).toBe('no_change');
+      expect(later('2026-10-19', put).change.before).toEqual({ back_on: '2026-10-12', day: null });
+    });
+  });
+
+  describe('habit days', () => {
+    const planned = { ...habit, planned_days: ['2026-10-02', '2026-09-30'] };
+    const days = (list, item = planned) =>
+      weekChange({ op: 'habit_days', type: 'habit', id: item?.id, days: list }, item);
+
+    it('sets the days a habit is planned on in the week, with the days it was on', () => {
+      expect(days(['2026-10-04', '2026-10-03', '2026-10-03'])).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'habit_days',
+          type: 'habit',
+          id: 'h1',
+          title: 'Run',
+          days: ['2026-10-03', '2026-10-04'],
+          // only the days inside the week count as what it was
+          before: { days: ['2026-10-02'] },
+        },
+      });
+    });
+
+    it('can take a habit off the week', () => {
+      expect(days([]).change).toMatchObject({ days: [], before: { days: ['2026-10-02'] } });
+      expect(days([], habit).reason).toBe('no_change');
+    });
+
+    it('turns away a day the habit is paused on, when their pauses came with the turn', () => {
+      const paused = {
+        weekly_day: 0,
+        rows: [
+          { habit_id: 'h1', mode: 'pause', period_start: '2026-10-03', period_end: '2026-10-03' },
+        ],
+      };
+      const eased = (list, item = planned) =>
+        checkChange(
+          { op: 'habit_days', type: 'habit', id: 'h1', days: list },
+          { ...weekCtx(item), ease: paused },
+        );
+      expect(eased(['2026-10-03', '2026-10-04']).reason).toBe('day_paused');
+      expect(eased(['2026-10-04']).ok).toBe(true);
+      // a day it was already on stays, paused or not: only a new one is turned away
+      const onIt = { ...habit, planned_days: ['2026-10-03'] };
+      expect(eased(['2026-10-03', '2026-10-04'], onIt).ok).toBe(true);
+      // another habit's pause is nothing to this one, and without their pauses nothing is known
+      expect(
+        checkChange(
+          { op: 'habit_days', type: 'habit', id: 'h1', days: ['2026-10-03'] },
+          {
+            ...weekCtx(habit),
+            ease: { weekly_day: 0, rows: [{ ...paused.rows[0], habit_id: 'h2' }] },
+          },
+        ).ok,
+      ).toBe(true);
+      expect(days(['2026-10-03', '2026-10-04']).ok).toBe(true);
+    });
+
+    it('keeps to the days being planned', () => {
+      expect(days(['2026-10-05']).reason).toBe('outside_week');
+      expect(days(['2026-10-01']).reason).toBe('outside_week');
+      expect(days(['Saturday']).reason).toBe('bad_days');
+      expect(days(undefined).reason).toBe('bad_days');
+      expect(days(['2026-10-02']).reason).toBe('no_change');
+    });
+
+    it('leaves a day already gone as it is when it is named beside the new ones', () => {
+      // planned on 30 September, before the days being planned: naming it changes nothing
+      expect(days(['2026-09-30', '2026-10-03']).change).toMatchObject({
+        days: ['2026-10-03'],
+        before: { days: ['2026-10-02'] },
+      });
+      expect(days(['2026-09-30', '2026-10-02']).reason).toBe('no_change');
+      // a day gone that it was never planned on is still turned away
+      expect(days(['2026-09-29', '2026-10-03']).reason).toBe('outside_week');
+    });
+
+    it('is only for a habit of theirs', () => {
+      expect(weekChange({ op: 'habit_days', type: 'todo', id: 't1', days: [] }, todo).reason).toBe(
+        'op_not_for_type',
+      );
+      expect(days(['2026-10-03'], { ...planned, archived: true }).reason).toBe('archived');
+    });
+
+    it('is never for a habit they are breaking', () => {
+      expect(days(['2026-10-03'], { ...planned, subtype: 'break_habit' }).reason).toBe(
+        'days_breaking',
+      );
+    });
+  });
+
+  describe('the shape of the week', () => {
+    const shape = (s, w = week) => weekChange({ op: 'week_shape', shape: s }, null, w);
+
+    it('sets the busy days, keeping what they were', () => {
+      expect(shape({ busy_days: ['2026-10-04', '2026-10-03'] })).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'week_shape',
+          type: null,
+          id: null,
+          title: '',
+          // the week it is kept for, and the first day the busy days were stated for
+          week_start: '2026-09-28',
+          from: '2026-10-02',
+          shape: { busy_days: ['2026-10-03', '2026-10-04'] },
+          before: { busy_days: ['2026-10-03'] },
+        },
+      });
+    });
+
+    it('states the busy days from here on: one already gone is not part of what it was', () => {
+      const r = shape({ busy_days: [] }, { ...week, busy_days: ['2026-09-29', '2026-10-03'] });
+      expect(r.change.shape).toEqual({ busy_days: [] });
+      expect(r.change.before).toEqual({ busy_days: ['2026-10-03'] });
+      // only a day gone was busy: from here on nothing changes
+      expect(shape({ busy_days: [] }, { ...week, busy_days: ['2026-09-29'] }).reason).toBe(
+        'no_change',
+      );
+    });
+
+    it('belongs to the first day it acts on when the week does not say where it starts', () => {
+      const loose = { ...week };
+      delete loose.week_start;
+      expect(shape({ busy_days: [] }, loose).change.week_start).toBe('2026-10-02');
+    });
+
+    it('sets only the hours that change, in half hour steps', () => {
+      const r = shape({ hours: { normal_day: 1.5, busy_day: 1, weekend_day: 3.2 } });
+      expect(r.change.shape).toEqual({ hours: { normal_day: 1.5, weekend_day: 3 } });
+      expect(r.change.before).toEqual({ hours: { normal_day: 2, weekend_day: 4 } });
+    });
+
+    it('takes hours for a week that has none yet', () => {
+      const r = shape({ hours: { normal_day: 2 } }, { ...week, hours: null });
+      expect(r.change.shape).toEqual({ hours: { normal_day: 2 } });
+      expect(r.change.before).toEqual({ hours: { normal_day: null } });
+    });
+
+    it('drops a shape that changes nothing or cannot be read', () => {
+      expect(shape({ busy_days: ['2026-10-03'], hours: { normal_day: 2 } }).reason).toBe(
+        'no_change',
+      );
+      expect(shape({ busy_days: ['2026-10-09'] }).reason).toBe('outside_week');
+      // a busy day already gone, named beside the new ones, stays as it is
+      const gone = { ...week, busy_days: ['2026-09-29', '2026-10-03'] };
+      expect(shape({ busy_days: ['2026-09-29', '2026-10-04'] }, gone).change).toMatchObject({
+        shape: { busy_days: ['2026-10-04'] },
+        before: { busy_days: ['2026-10-03'] },
+      });
+      expect(shape({ busy_days: ['2026-09-28', '2026-10-04'] }, gone).reason).toBe('outside_week');
+      expect(shape({ busy_days: ['Thursday'] }).reason).toBe('bad_days');
+      expect(shape({ hours: { normal_day: 30 } }).reason).toBe('bad_value:hours');
+      expect(shape({ hours: 3 }).reason).toBe('bad_value:hours');
+      expect(shape(null).reason).toBe('bad_shape');
+    });
+
+    it('needs a review to keep the shape on', () => {
+      expect(shape({ busy_days: [] }, { ...week, has_review: false }).reason).toBe('no_review');
+    });
+  });
+
+  describe('the intention', () => {
+    const intend = (text, w = week) => weekChange({ op: 'intention', intention: text }, null, w);
+
+    it("rewrites the week's intention, by its note", () => {
+      expect(intend('  One thing at a time ')).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'intention',
+          type: 'note',
+          id: 'n9',
+          title: 'One thing at a time',
+          week_start: '2026-09-28',
+          fields: { text: 'One thing at a time' },
+          before: { text: 'Protect my mornings' },
+        },
+      });
+    });
+
+    it('is new when the week has none', () => {
+      const r = intend('Rest first', { ...week, intention: null });
+      expect(r.change).toMatchObject({ id: null, before: { text: null } });
+    });
+
+    it('is one short line, and not the one they have', () => {
+      expect(intend('').reason).toBe('bad_value:intention');
+      expect(intend('x'.repeat(201)).reason).toBe('bad_value:intention');
+      expect(intend('Protect my mornings').reason).toBe('no_change');
+    });
+  });
+
+  describe('a milestone', () => {
+    const steps = [
+      { title: 'Draft the outline', by: '2026-10-06', minutes: 45, kind: 'todo' },
+      { title: 'How is the draft going?', by: '2026-10-12', kind: 'check_in' },
+    ];
+    const mile = (m, w = week) => weekChange({ op: 'milestone', milestone: m }, null, w);
+
+    it('sets up its steps in order, each with a day to finish by', () => {
+      expect(mile({ goal: ' Conference talk ', date: '2026-10-20', steps })).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'milestone',
+          type: null,
+          id: null,
+          title: 'Conference talk',
+          week_start: '2026-09-28',
+          milestone: { goal: 'Conference talk', date: '2026-10-20', steps },
+        },
+      });
+    });
+
+    it('is for a date still to come, with steps between now and then', () => {
+      expect(mile({ goal: 'Talk', date: TODAY, steps }).reason).toBe('milestone_not_ahead');
+      expect(mile({ goal: 'Talk', date: '2026-10-20', steps: [] }).reason).toBe(
+        'milestone_needs_steps',
+      );
+      expect(mile({ goal: 'Talk', date: '2026-10-10', steps }).reason).toBe('step_outside');
+      expect(
+        mile({ goal: 'Talk', date: '2026-10-20', steps: [{ ...steps[0], by: '2026-10-01' }] })
+          .reason,
+      ).toBe('step_outside');
+      expect(
+        mile({ goal: 'Talk', date: '2026-10-20', steps: Array(7).fill(steps[0]) }).reason,
+      ).toBe('too_many_steps');
+    });
+
+    it('drops one it cannot read', () => {
+      expect(mile(null).reason).toBe('bad_milestone');
+      expect(mile({ goal: '', date: '2026-10-20', steps }).reason).toBe('bad_milestone');
+      expect(mile({ goal: 'Talk', date: 'later', steps }).reason).toBe('bad_milestone');
+      expect(
+        mile({ goal: 'Talk', date: '2026-10-20', steps: [{ ...steps[0], kind: 'reminder' }] })
+          .reason,
+      ).toBe('bad_step');
+      expect(
+        mile({ goal: 'Talk', date: '2026-10-20', steps: [{ ...steps[0], minutes: -5 }] }).reason,
+      ).toBe('bad_step');
+    });
+
+    it('needs a review to hold a check in, and none for todos alone', () => {
+      const none = { ...week, has_review: false };
+      expect(mile({ goal: 'Talk', date: '2026-10-20', steps }, none).reason).toBe('no_review');
+      expect(mile({ goal: 'Talk', date: '2026-10-20', steps: [steps[0]] }, none).ok).toBe(true);
+    });
+  });
+
+  describe('the weekly day', () => {
+    const move = (weekday, w = week) => weekChange({ op: 'weekly_day', weekday }, null, w);
+
+    it('moves to another day of the week, and says which it was', () => {
+      expect(move(3)).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'weekly_day',
+          type: null,
+          id: null,
+          title: '',
+          fields: { weekday: 3 },
+          before: { weekday: 0 },
+        },
+      });
+    });
+
+    it('is a weekday, and not the one they have', () => {
+      expect(move(0).reason).toBe('no_change');
+      expect(move(7).reason).toBe('bad_value:weekday');
+      expect(move('Wednesday').reason).toBe('bad_value:weekday');
+    });
+  });
+
+  describe('checked a second time', () => {
+    it('reads the same from a checked change as from the one proposed', () => {
+      const cases = [
+        [{ op: 'later', type: 'todo', id: 't1', back_on: '2026-10-12' }, todo],
+        [
+          { op: 'habit_days', type: 'habit', id: 'h1', days: ['2026-10-03'] },
+          { ...habit, planned_days: ['2026-10-02'] },
+        ],
+        [{ op: 'week_shape', shape: { busy_days: [], hours: { normal_day: 1 } } }, null],
+        [{ op: 'intention', intention: 'Rest first' }, null],
+        [
+          {
+            op: 'milestone',
+            milestone: {
+              goal: 'Talk',
+              date: '2026-10-20',
+              steps: [{ title: 'Outline', by: '2026-10-06', kind: 'todo' }],
+            },
+          },
+          null,
+        ],
+        [{ op: 'weekly_day', weekday: 3 }, null],
+      ];
+      for (const [raw, item] of cases) {
+        const first = weekChange({ cid: 'c1', ...raw }, item);
+        expect(first.ok).toBe(true);
+        // the card's own row, checked again against the same week and item
+        expect(weekChange(first.change, item)).toEqual(first);
+      }
+    });
+  });
+
+  describe('on a card', () => {
+    it('holds one shape, one intention and one weekly day', () => {
+      const { changes, dropped } = checkCard(
+        [
+          { op: 'week_shape', shape: { busy_days: [] } },
+          { op: 'week_shape', shape: { hours: { normal_day: 1 } } },
+          { op: 'intention', intention: 'Rest first' },
+          { op: 'intention', intention: 'Move every day' },
+          { op: 'weekly_day', weekday: 2 },
+        ],
+        () => weekCtx(),
+      );
+      expect(changes.map((c) => c.cid)).toEqual(['c1', 'c3', 'c5']);
+      expect(dropped).toEqual([
+        { cid: 'c2', reason: 'conflict' },
+        { cid: 'c4', reason: 'conflict' },
+      ]);
+    });
+
+    it('says one thing about an item: a todo is moved or put off, not both', () => {
+      const { changes, dropped } = checkCard(
+        [
+          { op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-03' } },
+          { op: 'later', type: 'todo', id: 't1', back_on: '2026-10-12' },
+        ],
+        () => weekCtx(todo),
+      );
+      expect(changes).toHaveLength(1);
+      expect(dropped).toEqual([{ cid: 'c2', reason: 'conflict' }]);
+    });
+
+    it('takes several milestones', () => {
+      const one = {
+        op: 'milestone',
+        milestone: {
+          goal: 'Talk',
+          date: '2026-10-20',
+          steps: [{ title: 'Outline', by: '2026-10-06', kind: 'todo' }],
+        },
+      };
+      const two = { ...one, milestone: { ...one.milestone, goal: 'Trip' } };
+      expect(checkCard([one, two], () => weekCtx()).changes).toHaveLength(2);
+    });
+  });
+});
+
+describe('a habit paused, given a lighter version, or set back to usual', () => {
+  // Friday 2 October 2026; their weekly day is Sunday, so their week ends on the 4th
+  const run = { id: 'h1', name: 'Run', cadence: 'weekly', target_per_period: 3 };
+  const row = (mode, period_start, period_end, floor_note = null) => ({
+    id: `${mode}-${period_start}`,
+    habit_id: 'h1',
+    mode,
+    period_start,
+    period_end,
+    floor_note,
+  });
+  const ease = (e, item = run, rows = [], more = {}) =>
+    checkChange(
+      { op: 'ease', type: 'habit', id: item?.id, ease: e },
+      { today: TODAY, item, ease: { weekly_day: 0, rows }, ...more },
+    );
+
+  it('is its own kind, kept out of the lists every surface offers', () => {
+    expect(Object.keys(EASE_OPS)).toEqual(['ease']);
+    expect('ease' in OPS).toBe(false);
+    expect('ease' in WEEK_OPS).toBe(false);
+    // a place that did not say what is eased now cannot make one
+    expect(
+      checkChange({ op: 'ease', type: 'habit', id: 'h1', ease: { mode: 'pause' } }, ctx(run)),
+    ).toEqual({ ok: false, reason: 'unknown_op' });
+  });
+
+  it('pauses from today to the end of their week when no days are given', () => {
+    expect(ease({ mode: 'pause' })).toEqual({
+      ok: true,
+      change: {
+        cid: null,
+        op: 'ease',
+        type: 'habit',
+        id: 'h1',
+        title: 'Run',
+        ease: { mode: 'pause', first: '2026-10-02', last: '2026-10-04', note: '' },
+        before: { eases: [] },
+      },
+    });
+    // their own week: for a Wednesday person it ends on the 7th
+    const wed = checkChange(
+      { op: 'ease', type: 'habit', id: 'h1', ease: { mode: 'pause' } },
+      { today: TODAY, item: run, ease: { weekly_day: 3, rows: [] } },
+    );
+    expect(wed.change.ease).toMatchObject({ first: '2026-10-02', last: '2026-10-07' });
+  });
+
+  it('takes the days they name, and ends a later start at the end of that week', () => {
+    expect(ease({ mode: 'pause', from: '2026-10-05', until: '2026-10-16' }).change.ease).toEqual({
+      mode: 'pause',
+      first: '2026-10-05',
+      last: '2026-10-16',
+      note: '',
+    });
+    expect(ease({ mode: 'pause', from: '2026-10-05' }).change.ease).toMatchObject({
+      first: '2026-10-05',
+      last: '2026-10-11',
+    });
+  });
+
+  it('keeps a stretch to today or later, in order, and within four weeks', () => {
+    expect(ease({ mode: 'pause', from: '2026-10-01' }).reason).toBe('ease_past');
+    expect(ease({ mode: 'pause', from: '2026-10-06', until: '2026-10-05' }).reason).toBe(
+      'ease_ends_first',
+    );
+    expect(ease({ mode: 'pause', until: '2026-10-30' }).ok).toBe(true);
+    expect(ease({ mode: 'pause', until: '2026-10-31' }).reason).toBe('ease_too_far');
+    expect(ease({ mode: 'pause', from: 'Monday' }).reason).toBe('bad_value:from');
+    expect(ease({ mode: 'pause', until: 'the 9th' }).reason).toBe('bad_value:until');
+    expect(ease({ mode: 'rest' }).reason).toBe('bad_ease');
+    expect(ease(undefined).reason).toBe('bad_ease');
+  });
+
+  it('says a lighter version in their words, or the smallest version saved on the habit', () => {
+    expect(ease({ mode: 'lighter', note: '  10 minute   walk ' }).change.ease.note).toBe(
+      '10 minute walk',
+    );
+    const saved = { ...run, floor_note: 'One lap' };
+    expect(ease({ mode: 'lighter' }, saved).change.ease.note).toBe('One lap');
+    expect(ease({ mode: 'lighter', note: 'Walk' }, saved).change.ease.note).toBe('Walk');
+    // none given and none saved: a lighter version all the same
+    expect(ease({ mode: 'lighter' }).change.ease).toMatchObject({ mode: 'lighter', note: '' });
+    // a pause carries no words
+    expect(ease({ mode: 'pause', note: 'Resting' }).change.ease.note).toBe('');
+  });
+
+  it('is only for a habit of theirs that they are building', () => {
+    expect(ease({ mode: 'pause' }, null).reason).toBe('no_item');
+    expect(ease({ mode: 'pause' }, { ...run, archived: true }).reason).toBe('archived');
+    expect(ease({ mode: 'pause' }, { ...run, subtype: 'break_habit' }).reason).toBe(
+      'ease_breaking',
+    );
+    expect(
+      checkChange(
+        { op: 'ease', type: 'todo', id: 't1', ease: { mode: 'pause' } },
+        { today: TODAY, item: todo, ease: { weekly_day: 0, rows: [] } },
+      ).reason,
+    ).toBe('op_not_for_type');
+  });
+
+  it('states what is running now, and drops a change that is already so', () => {
+    const paused = [row('pause', '2026-10-02', '2026-10-04')];
+    expect(ease({ mode: 'pause' }, run, paused).reason).toBe('ease_already');
+    // a pause with no days given, inside a longer one, changes nothing
+    const long = [row('pause', '2026-09-28', '2026-10-18')];
+    expect(ease({ mode: 'pause' }, run, long).reason).toBe('ease_already');
+    expect(ease({ mode: 'pause', until: '2026-10-18' }, run, long).reason).toBe('ease_already');
+    // but a last day stated for one that runs past it is when it should end:
+    // back to usual from the day after
+    expect(ease({ mode: 'pause', until: '2026-10-07' }, run, long).change).toMatchObject({
+      ease: { mode: 'usual', first: '2026-10-08', last: '2026-10-18', note: '' },
+      before: { eases: [{ mode: 'pause', first: '2026-09-28', last: '2026-10-18', note: '' }] },
+    });
+    const lighter = ease({ mode: 'lighter', note: 'Walk' }, run, paused);
+    expect(lighter.change.before).toEqual({
+      eases: [{ mode: 'pause', first: '2026-10-02', last: '2026-10-04', note: '' }],
+    });
+    // another habit's rows are not this one's
+    const other = [{ ...paused[0], habit_id: 'h2' }];
+    expect(ease({ mode: 'pause' }, run, other).change.before).toEqual({ eases: [] });
+  });
+
+  it('usual ends the one that is running, from today, and is nothing when nothing is', () => {
+    expect(ease({ mode: 'usual' }).reason).toBe('no_change');
+    const rows = [
+      row('pause', '2026-09-28', '2026-10-06'),
+      row('floor', '2026-10-12', '2026-10-18', 'Walk'),
+      // over already
+      row('pause', '2026-09-01', '2026-09-07'),
+    ];
+    // the pause that holds today; the lighter version set for later is left as it is
+    expect(ease({ mode: 'usual' }, run, rows).change).toMatchObject({
+      ease: { mode: 'usual', first: '2026-10-02', last: '2026-10-06', note: '' },
+      before: {
+        eases: [
+          { mode: 'pause', first: '2026-09-28', last: '2026-10-06', note: '' },
+          { mode: 'lighter', first: '2026-10-12', last: '2026-10-18', note: 'Walk' },
+        ],
+      },
+    });
+    // nothing holds today: the next one to come is the one it ends
+    expect(ease({ mode: 'usual' }, run, rows.slice(1)).change.ease).toEqual({
+      mode: 'usual',
+      first: '2026-10-02',
+      last: '2026-10-18',
+      note: '',
+    });
+  });
+
+  it('usual from a later day makes a pause end sooner, and a last day given is kept', () => {
+    const rows = [
+      row('pause', '2026-09-28', '2026-10-18'),
+      row('floor', '2026-10-20', '2026-10-25', 'Walk'),
+    ];
+    expect(ease({ mode: 'usual', from: '2026-10-09' }, run, rows).change.ease).toEqual({
+      mode: 'usual',
+      first: '2026-10-09',
+      last: '2026-10-18',
+      note: '',
+    });
+    // through both, when they say until when
+    expect(
+      ease({ mode: 'usual', from: '2026-10-09', until: '2026-10-25' }, run, rows).change.ease,
+    ).toMatchObject({ first: '2026-10-09', last: '2026-10-25' });
+    expect(ease({ mode: 'usual', from: '2026-09-30' }, run, rows).reason).toBe('ease_past');
+    expect(ease({ mode: 'usual', from: 'soon' }, run, rows).reason).toBe('bad_value:from');
+    // days with nothing on them are already as usual
+    expect(ease({ mode: 'usual', from: '2026-10-26', until: '2026-10-28' }, run, rows).reason).toBe(
+      'no_change',
+    );
+  });
+
+  it('keeps the words a lighter version already has when none are given', () => {
+    const saved = { ...run, floor_note: 'One lap' };
+    const rows = [row('floor', '2026-10-01', '2026-10-03', 'Ten minute walk')];
+    // made longer with no words said: theirs stay, over the habit's saved smallest version
+    expect(ease({ mode: 'lighter', until: '2026-10-08' }, saved, rows).change.ease).toMatchObject({
+      note: 'Ten minute walk',
+      last: '2026-10-08',
+    });
+    expect(ease({ mode: 'lighter', until: '2026-10-03' }, saved, rows).reason).toBe('ease_already');
+  });
+
+  it('runs a stretch with no days given over the days a weekly review is planning', () => {
+    const planning = (e, span, rows = []) =>
+      checkChange(
+        { op: 'ease', type: 'habit', id: 'h1', ease: e },
+        { today: TODAY, item: run, ease: { weekly_day: 0, rows, span } },
+      );
+    const next = { first: '2026-10-05', last: '2026-10-11' };
+    expect(planning({ mode: 'pause' }, next).change.ease).toMatchObject({
+      first: '2026-10-05',
+      last: '2026-10-11',
+    });
+    // a review picked up part way through plans from today
+    expect(
+      planning({ mode: 'pause' }, { first: '2026-09-28', last: '2026-10-04' }).change.ease,
+    ).toMatchObject({ first: TODAY, last: '2026-10-04' });
+    // days given are kept, and a week already gone is no week to plan
+    expect(planning({ mode: 'pause', from: TODAY, until: TODAY }, next).change.ease).toMatchObject({
+      first: TODAY,
+      last: TODAY,
+    });
+    expect(
+      planning({ mode: 'pause' }, { first: '2026-09-21', last: '2026-09-27' }).change.ease,
+    ).toMatchObject({ first: TODAY, last: '2026-10-04' });
+  });
+
+  it('never runs a stretch with no last day given past the furthest it may', () => {
+    // from 29 October their week ends on 1 November, past four weeks from 2 October
+    expect(ease({ mode: 'pause', from: '2026-10-29' }).change.ease).toMatchObject({
+      first: '2026-10-29',
+      last: '2026-10-30',
+    });
+    expect(ease({ mode: 'pause', from: '2026-10-31' }).reason).toBe('ease_too_far');
+  });
+
+  it('reads a checked change the same way, so the app can check it again', () => {
+    const first = ease({ mode: 'lighter', from: '2026-10-05', until: '2026-10-09', note: 'Walk' });
+    const again = checkChange(first.change, {
+      today: TODAY,
+      item: run,
+      ease: { weekly_day: 0, rows: [] },
+    });
+    expect(again).toEqual(first);
+  });
+
+  it('says one thing about a habit on a card', () => {
+    const { changes, dropped } = checkCard(
+      [
+        { op: 'ease', type: 'habit', id: 'h1', ease: { mode: 'pause' } },
+        { op: 'skip_today', type: 'habit', id: 'h1' },
+      ],
+      () => ({ today: TODAY, item: run, ease: { weekly_day: 0, rows: [] } }),
+    );
+    expect(changes.map((c) => c.op)).toEqual(['ease']);
+    expect(dropped).toEqual([{ cid: 'c2', reason: 'conflict' }]);
   });
 });

@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SpaceChatMessage } from '../types';
 import type {
+  BriefOfferMeta,
   BriefPlanMeta,
   OfferButton,
   PlanItem,
@@ -37,17 +38,31 @@ import { applyChange } from '../changes/apply';
 import { checkChange } from '../changes/model';
 import { contextFor } from '../changes/snapshot';
 import { applySweepDecision } from '../changes/sweep';
-import { calculateSweepContribution, GAUGE_WEIGHTS } from '../constants/soulDocument';
+import {
+  calculateSweepContribution,
+  GAUGE_WEIGHTS,
+  getTierForAge,
+} from '../constants/soulDocument';
 import { getDateService } from '../date/DateService';
 import { meetingsFromStore } from '../plan/storePlan';
+import { layoutParts } from '../journal/page';
+import {
+  draftFor,
+  draftKey,
+  openJournal,
+  type JournalSaveResult,
+  type JournalWritten,
+} from '../journal/session';
 import type { Mood } from '../shared/moods';
 import { WEEKLY_SKIP_BUDGET, selectWrapUp } from '../store/selectors';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { useMascotStore } from '../store/useMascotStore';
+import { useThisWeek } from '../week/thisWeek';
+import { closeOffersWeek } from '../week/model';
 import { answerQuestion, markQuestionAsked } from '../story/storyApi';
 import { supabase } from '../supabase/client';
 import { markSweepCompleted } from '../sweep/engine';
-import { wrapNow } from './day';
+import { wrapNow, type WrapNow } from './day';
 import {
   answeredMsgs,
   buttonsAgain,
@@ -59,12 +74,15 @@ import {
   leaveRestMsgs,
   moodAskMsgs,
   newSinceMsgs,
-  nightMsgs,
+  nightEndMsgs,
   nightOnlyMsgs,
+  toWeekMsgs,
+  type CloseWeek,
   notTonightMsgs,
   offerAgain,
   openingMsgs,
   partialMsgs,
+  questionAgainMsg,
   questionMsg,
   questionsStartMsgs,
   resumeMsgs,
@@ -76,23 +94,30 @@ import {
   type WrapMsg,
 } from './flow';
 import { habitsToCheckIn, runBefore } from './habits';
-import { journalFor, journalTitle, saveJournal, setJournalMoods } from './journal';
+import { answerCheckIn, fetchCheckInQuestions, isCheckIn, skipCheckIn } from './checkIns';
+import { journalFor, journalTitle, saveJournal, setJournalMoods, updateJournal } from './journal';
 import {
   askableQuestions,
   fetchWrapQuestions,
   itemKindOf,
   pickQuestions,
+  MOST_QUESTIONS,
   type WrapQuestion,
 } from './questions';
 import {
+  cardTitles,
   chosenQuestions,
   gremlyWords,
   journalOf,
   lineOf,
+  questionsIntroOf,
+  saidTonight,
+  todosPlannedFor,
   wrapFacts,
+  type GremlyNow,
   type HabitsTonight,
 } from './gremlyWords';
-import type { WrapMoment } from '../cortex/CortexClient';
+import type { WrapMoment, WrapWordsResponse } from '../cortex/CortexClient';
 import { recapFrom } from './recap';
 import {
   type Awaiting,
@@ -106,17 +131,17 @@ import {
   updateWrap,
   useWrapSession,
 } from './session';
-import {
-  cardsLeft,
-  decidedIds,
-  keptFor,
-  newSince,
-  newWrapState,
-  pastCards,
-  sweepCounts,
-} from './state';
+import { cardsLeft, decidedIds, newSince, newWrapState, pastCards, sweepCounts } from './state';
 import { touchedTonight } from './teaser';
-import { WRAP_COPY, habitsSavedLine, nightLine, partWords } from './words';
+import {
+  WRAP_COPY,
+  checkInIntro,
+  habitMovedEvent,
+  habitsSavedLine,
+  nightLine,
+  partWords,
+} from './words';
+import { briefWeekFacts, moveHabitDay } from '../brief/checkIn';
 
 const STEP_PAUSE_MS = 350;
 
@@ -141,8 +166,10 @@ export interface WrapUpDeps {
   onPaywall: () => void;
   /** Open tonight's cards over the thread */
   openCards: () => void;
-  /** Open the week planner */
-  openWeek: () => void;
+  /** Plan my week, at the close: the weekly review starts in this thread */
+  planWeek: () => void;
+  /** See your week, at the close: the week they planned (Your week) */
+  seeWeek: () => void;
   /** Start the planner for a day, in this thread */
   planDay: (day: string) => void | Promise<void>;
   /** Put words back in the box (an entry that could not be saved) */
@@ -167,6 +194,15 @@ export interface WrapUpDeps {
   ) => Promise<{ answered: boolean; card: boolean }>;
 }
 
+/**
+ * What tonight's close offers about their week: the weekly review, their
+ * week once it is planned, or nothing. Nothing until the week has been read.
+ */
+function closeWeek(day: string): CloseWeek {
+  const w = useThisWeek.getState();
+  return w.loaded ? closeOffersWeek(day, w.weeklyDay, w.review) : null;
+}
+
 function store(): any {
   return useGremlyStore.getState();
 }
@@ -183,6 +219,19 @@ function readNow() {
     cards,
     skipsLeft: Math.max(0, WEEKLY_SKIP_BUDGET - (st.skipsUsedLast7Days ?? 0)),
     firstName: name ? name.split(/\s+/)[0] : null,
+  };
+}
+
+/** Gremly himself as the store has him: his age, his stage and its nature, and whether he is fed today. */
+function gremlyNow(st: any): GremlyNow | null {
+  const age = Number(st.gremlyAge) || 0;
+  if (age <= 0) return null;
+  const tier = getTierForAge(age);
+  return {
+    age,
+    tier: String(st.currentTierName || tier?.name || ''),
+    ...(tier?.personality ? { nature: tier.personality } : {}),
+    fed_today: st.isFedToday === true,
   };
 }
 
@@ -235,10 +284,12 @@ export interface WrapUp {
   undoable: Record<string, true>;
   undoDecision: (cid: string) => Promise<void>;
   habits: {
+    /** moved: habits to move to another day of their week instead, by id, with the day */
     save: (
       message: SpaceChatMessage,
       done: string[],
       held: Record<string, 'held' | 'not'>,
+      moved?: Record<string, string>,
     ) => Promise<void>;
   };
   journal: {
@@ -246,6 +297,10 @@ export interface WrapUp {
     skipMoods: (message: SpaceChatMessage) => Promise<void>;
     editMoods: (message: SpaceChatMessage, moods: Mood[]) => Promise<void>;
     undo: (message: SpaceChatMessage) => Promise<void>;
+    /** Open the journal page for the day's entry, starting with any words already typed */
+    openPage: (carry?: string) => void;
+    /** Open a saved entry on the journal page, to change it */
+    openSaved: (message: SpaceChatMessage) => void;
   };
 }
 
@@ -260,6 +315,20 @@ function liveWrapOffer(messages: SpaceChatMessage[]): LiveOffer | null {
   const m = id ? messages.find((x) => x.id === id) : null;
   const meta = briefMetaOf(m);
   return m && meta?.type === 'brief-offer' && meta.wrap ? { m, meta } : null;
+}
+
+/**
+ * The wrap up's newest question in the thread, when it is still waiting for
+ * its answer: not tapped, typed to or skipped.
+ */
+function waitingQuestion(messages: SpaceChatMessage[]): BriefOfferMeta | null {
+  const visible = visibleThreadMessages(messages);
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const meta = briefMetaOf(visible[i]);
+    if (meta?.type !== 'brief-offer' || !meta.wrap || meta.kind !== 'question') continue;
+    return meta.chosen ? null : meta;
+  }
+  return null;
 }
 
 /** A plan for the day is already in the thread, proposed or set. */
@@ -306,10 +375,16 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const queueRef = useRef<WrapQuestion[]>([]);
   // Gremly is writing his next words: the thread shows him typing
   const [typing, setTyping] = useState(false);
+  // the journal page, opened from a button that is set up before the page's saving is
+  const openPageRef = useRef<(carry?: string) => void>(() => undefined);
   // tonight's questions, chosen while the journal is asked, so none waits on them
   const questionsRef = useRef<Promise<WrapQuestion[]> | null>(null);
   // habits checked in during the wrap up, for what Gremly says after
   const habitsTonightRef = useRef<HabitsTonight | null>(null);
+  // the line before tonight's questions, in Gremly's words when he chose them
+  const questionsIntroRef = useRef<string | null>(null);
+  // Gremly's goodnight, asked for once the close is said, so the tap never waits long
+  const nightRef = useRef<Promise<WrapWordsResponse | null> | null>(null);
   // an answer put a fix on the card: the next question waits for the card
   const cardPendingRef = useRef(false);
 
@@ -380,9 +455,20 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
 
   /** What Gremly is told for a moment, from the day as it stands now. */
   const factsFor = useCallback(
-    (moment: WrapMoment, more: { entry?: string; questions?: WrapQuestion[] } = {}) => {
+    (
+      moment: WrapMoment,
+      more: {
+        entry?: string;
+        questions?: WrapQuestion[];
+        fedByCards?: boolean;
+        /** Lines just said that the thread may not hold yet */
+        alsoSaid?: string[];
+      } = {},
+    ) => {
       const { st, now, cards } = readNow();
       const w = currentWrap();
+      const { alsoSaid = [], ...rest } = more;
+      const said = saidTonight(visibleThreadMessages(depsRef.current.messages), w?.started_at);
       return wrapFacts({
         moment,
         now,
@@ -398,9 +484,14 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           plan: lockedPlan(depsRef.current.messages, now.day),
         }),
         cards: cardsLeft(w, cards).length,
+        cardTitles: cardTitles(cardsLeft(w, cards)),
+        tomorrowTodos: todosPlannedFor(st.todos, now.tomorrow),
+        canPlan: !planFor(depsRef.current.messages, now.tomorrow),
+        said: [...said, ...alsoSaid.filter((x) => !said.includes(x))],
+        gremly: gremlyNow(st),
         wrap: w,
         habits: habitsTonightRef.current,
-        ...more,
+        ...rest,
         aboutOf: (q) => {
           const it = linkedItem(q);
           return it
@@ -422,25 +513,35 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     if (questionsRef.current) return questionsRef.current;
     const work = (async () => {
       const w = currentWrap();
-      let open: WrapQuestion[] = [];
-      try {
-        open = await fetchWrapQuestions();
-      } catch (err) {
-        console.warn("[WrapUp] could not read Gremly's questions:", err);
-      }
+      const day = readNow().now.day;
+      // A milestone's check ins that are due come first (the weekly review):
+      // they set those up themselves, so they are asked whatever Gremly
+      // chooses, and his own questions take the room that is left.
+      const [open, checkIns] = await Promise.all([
+        fetchWrapQuestions().catch((err): WrapQuestion[] => {
+          console.warn("[WrapUp] could not read Gremly's questions:", err);
+          return [];
+        }),
+        fetchCheckInQuestions(day).catch((err): WrapQuestion[] => {
+          console.warn('[WrapUp] could not read the check ins that are due:', err);
+          return [];
+        }),
+      ]);
+      const room = Math.max(0, MOST_QUESTIONS - checkIns.length);
       const askedToday = new Set<string>();
       for (const m of depsRef.current.messages) {
         const meta = briefMetaOf(m);
         if (meta?.type === 'brief-offer' && meta.question_id) askedToday.add(meta.question_id);
       }
-      const ctx = { day: readNow().now.day, decidedIds: decidedIds(w), askedToday };
-      const askable = askableQuestions(open, ctx);
-      if (!askable.length) return [];
-      const chosen = chosenQuestions(
-        await gremlyWords(factsFor('questions', { questions: askable })),
-        askable,
-      );
-      return chosen ?? pickQuestions(open, ctx);
+      const ctx = { day, decidedIds: decidedIds(w), askedToday };
+      const askable = room > 0 ? askableQuestions(open, ctx) : [];
+      questionsIntroRef.current = null;
+      if (!askable.length) return checkIns;
+      const res = await gremlyWords(factsFor('questions', { questions: askable }));
+      const chosen = chosenQuestions(res, askable);
+      // his own words open his own questions; with a check in first the fixed line does
+      if (chosen && !checkIns.length) questionsIntroRef.current = questionsIntroOf(res, chosen);
+      return [...checkIns, ...(chosen ?? pickQuestions(open, ctx)).slice(0, room)];
     })();
     questionsRef.current = work;
     return work;
@@ -471,20 +572,24 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   }, []);
 
   /** Feeding for the cards sorted so far: what the old Sweep gave, credited as it goes. */
-  const creditCards = useCallback(async () => {
+  /** Feeds for the cards sorted since the last credit; true when Gremly was just fed. */
+  const creditCards = useCallback(async (): Promise<boolean> => {
     const w = currentWrap();
-    if (!w) return;
+    if (!w) return false;
     const decided = sweepCounts(w.decisions).decided;
     const had = w.credited ?? 0;
-    if (decided <= had) return;
+    if (decided <= had) return false;
     const delta =
       calculateSweepContribution(decided, false) - calculateSweepContribution(had, false);
     updateWrap((x) => (x ? { ...x, credited: decided } : x));
-    if (delta > 0.0001) {
-      await withFeedAnimation(() => store().addGaugeContribution('sweep', delta)).catch((err) =>
-        console.warn('[WrapUp] could not credit the cards:', err),
-      );
-    }
+    if (delta <= 0.0001) return false;
+    return withFeedAnimation(() => store().addGaugeContribution('sweep', delta)).then(
+      () => true,
+      (err) => {
+        console.warn('[WrapUp] could not credit the cards:', err);
+        return false;
+      },
+    );
   }, []);
 
   /** Put the buttons for the step back when none are live (after a chat turn, or on coming back). */
@@ -501,6 +606,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       journalDone: journalDone(w, st.notes, now.day),
       question: queueRef.current[0] ?? null,
       canPlan: !planFor(d.messages, now.tomorrow),
+      week: closeWeek(now.day),
     });
     if (msgs.length) await save(msgs);
   }, [save]);
@@ -521,17 +627,18 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       ).catch((err) => console.warn('[WrapUp] could not credit the wrap up:', err));
     }
     const words = await withTyping(gremlyWords(factsFor('close')));
-    const { now } = readNow();
-    const lined = keptFor(currentWrap(), now.tomorrow);
-    await save(
-      closeMsgs({
-        day: now.words,
-        meetings: meetingsFromStore(now.tomorrow).length,
-        lined,
-        canPlan: !planFor(depsRef.current.messages, now.tomorrow),
-        gremly: lineOf(words),
-      }),
-    );
+    const { st, now } = readNow();
+    const msgs = closeMsgs({
+      day: now.words,
+      meetings: meetingsFromStore(now.tomorrow).length,
+      todos: todosPlannedFor(st.todos, now.tomorrow),
+      canPlan: !planFor(depsRef.current.messages, now.tomorrow),
+      week: closeWeek(now.day),
+      gremly: lineOf(words),
+    });
+    await save(msgs);
+    // his goodnight is asked for now, so it is there when they tap
+    nightRef.current = gremlyWords(factsFor('night', { alsoSaid: msgs.map((m) => m.content) }));
   }, [save, withTyping, factsFor]);
 
   const nextQuestion = useCallback(async () => {
@@ -551,9 +658,27 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
    * open.
    */
   const answered = useCallback(
-    async (questionId: string | undefined, answer: string) => {
+    async (asked: Pick<BriefOfferMeta, 'question_id' | 'milestone_checkin'>, answer: string) => {
       setAwaiting(null);
+      const questionId = asked.question_id;
       const q = queueRef.current.find((x) => x.id === questionId) ?? null;
+      // A milestone's check in: their words go to the journal as a goal check
+      // in, and it is settled on the review that keeps it. It is read from
+      // the question's own message, so it is the same after the app was closed.
+      const checkIn = asked.milestone_checkin;
+      if (checkIn) {
+        const kept = await answerCheckIn(checkIn, answer).catch((err) => {
+          console.warn('[WrapUp] the check in could not be saved:', err);
+          return false;
+        });
+        await save(
+          kept
+            ? [say(WRAP_COPY.checkInSaved), event(WRAP_COPY.checkInSavedEvent, 'saved')]
+            : [say(WRAP_COPY.checkInFailed)],
+        );
+        await nextQuestion();
+        return;
+      }
       const item = linkedItem(q);
       const ask = depsRef.current.askGremly;
       const [saved, turn] = await Promise.all([
@@ -587,7 +712,14 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     queueRef.current = picked;
     setStep('questions', { questions: picked.map((q) => q.id) });
     setAwaiting('question');
-    await save(questionsStartMsgs(picked.length, picked[0]));
+    const checkIns = picked.filter(isCheckIn).length;
+    await save(
+      questionsStartMsgs(
+        picked.length,
+        picked[0],
+        checkIns ? checkInIntro(checkIns, picked.length - checkIns) : questionsIntroRef.current,
+      ),
+    );
   }, [save, toClose, withTyping, prepareQuestions]);
 
   /** After the journal: good night when only the journal was wanted, the close on a skip night, else his questions. */
@@ -596,8 +728,24 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     if (!w) return;
     setAwaiting(null);
     if (w.journal_only) {
+      const { st, now, firstName } = readNow();
+      // Only the journal was wanted. The evening is still the one place a
+      // habit they are breaking is checked in on, so those are asked after
+      // it, once, and nothing else is. The wrap up itself is over, as on any
+      // Not tonight, so coming back to it works as it always does: the card
+      // is one more thing in the thread, and says good night when it is saved.
+      if (!w.break_asked) {
+        const breaking = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day, {
+          weeklyDay: st.weeklyDay,
+          eases: st.habitAdaptations,
+        }).rows.filter((r) => r.kind === 'break');
+        if (breaking.length) {
+          setStep('declined', { journal_only: false, break_asked: true });
+          await save(habitsMsgs(breaking, [], now.day, now.words.early, true));
+          return;
+        }
+      }
       setStep('declined', { journal_only: false });
-      const { now, firstName } = readNow();
       await save([say(nightLine(firstName, now.words.early))]);
       return;
     }
@@ -622,10 +770,31 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
 
   const toHabits = useCallback(async () => {
     const { st, now } = readNow();
-    const { rows, already } = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day);
+    const checkIn = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day, {
+      weeklyDay: st.weeklyDay,
+      eases: st.habitAdaptations,
+    });
+    const { already } = checkIn;
+    // the habits they are breaking are asked once a day: with a card of their
+    // own already in the thread (after the journal, earlier), not again here
+    const rows = currentWrap()?.break_asked
+      ? checkIn.rows.filter((r) => r.kind !== 'break')
+      : checkIn.rows;
     if (!rows.length) return toJournal();
     setStep('habits');
-    await save(habitsMsgs(rows, already, now.day, now.words.early));
+    // A habit they planned for today in their week can move to another day of
+    // it when today did not happen: the day with the most room, as the
+    // morning's check in offers (lib/brief/checkIn.ts).
+    // Each is given its day in turn, so two are never both sent to a day
+    // that only one of them fits in.
+    const moves = briefWeekFacts(now.day, now.day).moveDays(
+      rows.filter((r) => r.kind === 'build').map((r) => r.id),
+    );
+    const withMoves = rows.map((r) => {
+      const moveTo = moves.get(r.id);
+      return moveTo ? { ...r, move_to: moveTo } : r;
+    });
+    await save(habitsMsgs(withMoves, already, now.day, now.words.early));
   }, [save, toJournal]);
 
   const start = useCallback(async () => {
@@ -644,13 +813,15 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       meetings: meetingsFromStore(now.day).length,
       plan: lockedPlan(d.messages, now.day),
     });
-    updateWrap(() =>
-      newWrapState(
+    updateWrap((was) => ({
+      ...newWrapState(
         getDateService().nowTimestamp(),
         cards.map((c) => c.candidate.id),
         cards.length ? null : 'clear',
       ),
-    );
+      // asked earlier today, on a card of their own: once a day stands
+      ...(was?.break_asked ? { break_asked: true } : {}),
+    }));
     questionsRef.current = null;
     habitsTonightRef.current = null;
     cardPendingRef.current = false;
@@ -718,21 +889,46 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     }
 
     await receiptsAway();
-    await creditCards();
+    const fed = await creditCards();
     const c = sweepCounts(currentWrap()?.decisions ?? []);
     if (left > 0) {
       if (!extra) setStep('partial');
       await save(partialMsgs(c.decided, left, now.words));
       return;
     }
-    await save(sortedMsgs(c.letGo));
+    const words = await withTyping(gremlyWords(factsFor('sorted', { fedByCards: fed })));
+    await save(sortedMsgs(c.letGo, lineOf(words)));
     if (extra) return buttonsBack();
     await settle('cards');
     await pause();
     await toHabits();
-  }, [save, pause, settle, toHabits, receiptsAway, creditCards, buttonsBack]);
+  }, [save, pause, settle, toHabits, receiptsAway, creditCards, buttonsBack, withTyping, factsFor]);
 
   const backFromCards = useCallback(() => run(cardsBack), [run, cardsBack]);
+  /**
+   * The app was closed while tonight's questions were being asked. They were
+   * held in memory and are gone, so the step is picked up from the thread. A
+   * question still waiting for its answer keeps its buttons, or gets them
+   * back from its own message, and what is typed next is its answer again.
+   * With none waiting there is nothing left to ask tonight, so the evening
+   * goes on to its close. False when the questions are still in hand, or the
+   * wrap up is at another step.
+   */
+  const questionsBack = useCallback(async (): Promise<boolean> => {
+    const d = depsRef.current;
+    if (currentWrap()?.step !== 'questions' || queueRef.current.length) return false;
+    const waiting = waitingQuestion(d.messages);
+    if (!waiting) {
+      // an offer still live is not a question's: leave it to its own step
+      if (liveOfferId(visibleThreadMessages(d.messages))) return false;
+      await toClose();
+      return true;
+    }
+    setAwaiting('question');
+    if (!liveOfferId(visibleThreadMessages(d.messages))) await save([questionAgainMsg(waiting)]);
+    return true;
+  }, [save, toClose]);
+
   const resume = useCallback(
     () =>
       run(async () => {
@@ -741,9 +937,10 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           cardPendingRef.current = false;
           return nextQuestion();
         }
+        if (await questionsBack()) return;
         return buttonsBack();
       }),
-    [run, buttonsBack, nextQuestion],
+    [run, buttonsBack, nextQuestion, questionsBack],
   );
 
   const afterPlan = useCallback(
@@ -752,7 +949,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         const d = depsRef.current;
         if (currentWrap()?.step !== 'close') return;
         if (liveOfferId(visibleThreadMessages(d.messages))) return;
-        await save(nightOnlyMsgs(readNow().now.words));
+        const { now } = readNow();
+        await save(nightOnlyMsgs(now.words, closeWeek(now.day)));
       }),
     [run, save],
   );
@@ -798,9 +996,10 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             return;
           }
         }
+        if (await questionsBack()) return;
         await buttonsBack();
       }),
-    [run, save, start, settle, toHabits, cardsBack, buttonsBack],
+    [run, save, start, settle, toHabits, cardsBack, buttonsBack, questionsBack],
   );
 
   // ── the offer's other choices ──────────────────────────────────────────────
@@ -859,12 +1058,16 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
           // nothing is added: the box saves to the journal from here
           setAwaiting('journal');
           return;
+        case 'journal_page':
+          // the offer stays as it is until the page is saved
+          openPageRef.current();
+          return;
         case 'answer_other':
           setAwaiting('question');
           return;
-        case 'plan_week':
-          // the offer stays as it is, for when they come back
-          d.openWeek();
+        case 'see_week':
+          // the offer stays as it is, for when they come back from their week
+          d.seeWeek();
           return;
         default:
           break;
@@ -928,9 +1131,17 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             return afterJournal();
           case 'answer':
             await save([tapped(button)]);
-            return answered(meta.question_id, button.value || button.label);
-          case 'skip':
+            return answered(meta, button.value || button.label);
+          case 'skip': {
             setAwaiting(null);
+            if (meta.milestone_checkin) {
+              // a check in they pass on is marked so on its review, and not asked again
+              skipCheckIn(meta.milestone_checkin).catch((err) =>
+                console.warn('[WrapUp] could not mark the check in skipped:', err),
+              );
+              await save([tapped(button), say(WRAP_COPY.checkInSkipped)]);
+              return nextQuestion();
+            }
             if (meta.question_id) {
               markQuestionAsked(meta.question_id).catch((err) =>
                 console.warn('[WrapUp] could not mark the question asked:', err),
@@ -938,13 +1149,35 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             }
             await save([tapped(button), say(WRAP_COPY.questionSkipped)]);
             return nextQuestion();
+          }
           case 'plan_tomorrow':
             await save([tapped(button)]);
             await depsRef.current.planDay(readNow().now.tomorrow);
             return;
+          case 'plan_week':
+            // Only the close hands the evening over. A Plan my week button on
+            // an offer from before the close (an earlier build put one on the
+            // opening) opens the review and leaves the wrap up where it is.
+            if (currentWrap()?.step !== 'close') {
+              await save([tapped(button)]);
+              depsRef.current.planWeek();
+              return;
+            }
+            // The evening's own work is done, so the wrap up finishes here
+            // and the weekly review takes the thread from its first step:
+            // they have already said yes. The review ends the night itself.
+            await save(toWeekMsgs(button));
+            nightRef.current = null;
+            setStep('done', { finished_at: getDateService().nowTimestamp() });
+            depsRef.current.planWeek();
+            return;
           case 'night': {
             const { now, firstName } = readNow();
-            await save(nightMsgs(button, firstName, now.day, now.words.early));
+            await save([tapped(button)]);
+            const asked = nightRef.current ?? gremlyWords(factsFor('night'));
+            nightRef.current = null;
+            const words = await withTyping(asked);
+            await save(nightEndMsgs(firstName, now.day, now.words.early, lineOf(words)));
             setStep('done', { finished_at: getDateService().nowTimestamp() });
             useMascotStore.getState().requestMode(store().isFedToday ? 'fed' : 'waving');
             return;
@@ -967,6 +1200,8 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       answered,
       nextQuestion,
       buttonsBack,
+      withTyping,
+      factsFor,
     ],
   );
 
@@ -978,6 +1213,92 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       store().addGaugeContribution('journal', GAUGE_WEIGHTS.JOURNAL_BONUS),
     ).catch((err) => console.warn('[WrapUp] could not credit the journal:', err));
   }, []);
+
+  /**
+   * The journal page's Done, when the page was opened from the wrap up. The
+   * entry is saved first, so the page stays open with its words if that
+   * fails. Then the page closes and the thread carries on behind it: the
+   * entry's card, Gremly's reply to it, and whatever comes after the journal.
+   */
+  const savePage = useCallback(
+    async (
+      written: JournalWritten,
+      at: { day: string; weekday: string; part: WrapNow['part']; early: boolean },
+    ): Promise<JournalSaveResult> => {
+      // Gremly is mid step, and the thread could not carry on from the save
+      if (busyRef.current) return { ok: false, message: WRAP_COPY.journalBusy };
+      const text = written.text.trim();
+      // read by Gremly while it saves, as a quick reply is; moods alone have nothing to read
+      const reading = text
+        ? gremlyWords(factsFor('journal_reply', { entry: text }))
+        : Promise.resolve(null);
+      const res = await saveJournal({
+        text,
+        moods: written.moods,
+        day: at.day,
+        weekday: at.weekday,
+        part: at.part,
+        page: written.layout,
+        // only the app's own moods are kept (journal.ts knownMoods)
+        dayMoods: reading.then((r) => (journalOf(r)?.moods ?? []) as Mood[]),
+      });
+      if (!res.ok) return { ok: false, message: res.message };
+      void run(async () => {
+        setAwaiting(null);
+        const live = liveWrapOffer(depsRef.current.messages);
+        if (live?.meta.kind === 'journal') await choose(live.m, 'journal_page');
+        await save([event(WRAP_COPY.journalWrote, 'saved')]);
+        const reply = journalOf(await withTyping(reading));
+        holdUndo(`journal:${res.noteId}`, res.revert);
+        const out = await save(
+          journalSavedMsgs({
+            day: at.day,
+            noteId: res.noteId,
+            title: res.title,
+            text,
+            early: at.early,
+            reply: reply?.journal ? reply.reply : null,
+            moods: written.moods,
+            parts: layoutParts(written.layout),
+          }),
+        );
+        updateWrap((x) => (x ? { ...x, journal: text ? 'written' : 'mood' } : x));
+        creditJournal();
+        // the moods read from their words arrive a little later
+        const card = out[1];
+        void res.moods.then((found) => {
+          if (found?.length && card) void patch(card.id, { moods: found });
+        });
+        await pause();
+        await afterJournal();
+      });
+      return { ok: true, noteId: res.noteId };
+    },
+    [run, choose, save, pause, patch, afterJournal, creditJournal, withTyping, factsFor],
+  );
+
+  /** Open the journal page for the day's entry. It saves through the wrap up. */
+  const openPage = useCallback(
+    (carry?: string) => {
+      const d = depsRef.current;
+      if (!d.canCreate) return d.onPaywall();
+      const { now } = readNow();
+      const at = {
+        day: now.day,
+        weekday: now.words.weekday,
+        part: now.part,
+        early: !!now.words.early,
+      };
+      openJournal({
+        day: now.day,
+        part: now.part,
+        carry,
+        save: (written) => savePage(written, at),
+      });
+    },
+    [savePage],
+  );
+  openPageRef.current = openPage;
 
   const takeTyped = useCallback(
     async (text: string): Promise<boolean> => {
@@ -1004,7 +1325,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         await run(async () => {
           await choose(live.m, 'typed');
           await save([typed(words, 'answer')]);
-          await answered(live.meta.question_id, words);
+          await answered(live.meta, words);
         });
         return true;
       }
@@ -1012,6 +1333,11 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       if (!d.canCreate) {
         d.restoreDraft?.(text);
         d.onPaywall();
+        return true;
+      }
+      // a page is half written for the day: these words join it, and it opens to finish
+      if (draftFor(draftKey({ day: readNow().now.day }))) {
+        openPage(words);
         return true;
       }
       await run(async () => {
@@ -1086,7 +1412,19 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       });
       return true;
     },
-    [run, choose, save, pause, patch, answered, afterJournal, creditJournal, withTyping, factsFor],
+    [
+      run,
+      choose,
+      save,
+      pause,
+      patch,
+      answered,
+      afterJournal,
+      creditJournal,
+      withTyping,
+      factsFor,
+      openPage,
+    ],
   );
 
   const cancelAwaiting = useCallback(() => setAwaiting(null), []);
@@ -1100,7 +1438,12 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
   const habits = {
     /** Log what happened today. Each check in is the change model's log, on the person's day. */
     save: useCallback(
-      (message: SpaceChatMessage, done: string[], held: Record<string, 'held' | 'not'>) =>
+      (
+        message: SpaceChatMessage,
+        done: string[],
+        held: Record<string, 'held' | 'not'>,
+        moved: Record<string, string> = {},
+      ) =>
         run(async () => {
           const meta = briefMetaOf(message);
           if (meta?.type !== 'sweep-habits' || meta.status !== 'open') return;
@@ -1137,31 +1480,60 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
               break;
             }
           }
-          await patch(message.id, { status: 'saved', done: built, held });
-          habitsTonightRef.current = {
+          // Moved to another day of their week instead: only a habit the card
+          // offered that day for, and never one just logged for today.
+          const movedTo: Record<string, string> = {};
+          for (const h of card.habits) {
+            const day = moved[h.id];
+            if (!day || day !== h.move_to || logged.has(h.id)) continue;
+            const ok = await moveHabitDay(h.id, card.date, day).catch((err) => {
+              console.warn('[WrapUp] a habit could not be moved:', err);
+              return false;
+            });
+            if (ok) movedTo[h.id] = day;
+          }
+          await patch(message.id, {
+            status: 'saved',
+            done: built,
+            held,
+            ...(Object.keys(movedTo).length ? { moved: movedTo } : {}),
+          });
+          const movedLines = Object.entries(movedTo).map(([id, day]) =>
+            event(habitMovedEvent(titleOf(id), day), 'moved'),
+          );
+          if (movedLines.length) await save(movedLines);
+          const tonight: HabitsTonight = {
             logged: built.map(titleOf),
             held: heldIds.filter((id) => logged.has(id)).map(titleOf),
             notHeld: Object.keys(held)
               .filter((id) => held[id] === 'not')
               .map(titleOf),
+            streak,
           };
+          habitsTonightRef.current = tonight;
+          const words = await withTyping(gremlyWords(factsFor('habits')));
           await save([
             say(
-              habitsSavedLine({
-                logged: built.length,
-                streak,
-                held: heldIds.filter((id) => logged.has(id)).map(titleOf),
-                notHeld: Object.keys(held)
-                  .filter((id) => held[id] === 'not')
-                  .map(titleOf),
-                early: card.early,
-              }),
+              lineOf(words) ||
+                habitsSavedLine({
+                  logged: built.length,
+                  streak,
+                  held: tonight.held,
+                  notHeld: tonight.notHeld,
+                  early: card.early,
+                }),
             ),
           ]);
           await pause();
+          // asked by itself after the journal: the wrap up is over, so good night from here
+          if (card.after_journal) {
+            const { now, firstName } = readNow();
+            await save([say(nightLine(firstName, now.words.early))]);
+            return;
+          }
           await toJournal();
         }),
-      [run, patch, save, pause, toJournal],
+      [run, patch, save, pause, toJournal, withTyping, factsFor],
     ),
   };
 
@@ -1230,6 +1602,42 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
         if (!(await runUndo(`journal:${meta.note_id}`))) return;
         await patch(message.id, { status: 'removed' });
         updateWrap((x) => (x ? { ...x, journal: 'skipped' } : x));
+      },
+      [patch],
+    ),
+    openPage,
+    /** Open a saved entry on the journal page. Its card in the thread follows what is changed. */
+    openSaved: useCallback(
+      (message: SpaceChatMessage) => {
+        const meta = briefMetaOf(message);
+        if (meta?.type !== 'sweep-journal' || meta.status !== 'saved' || !meta.note_id) return;
+        const noteId = meta.note_id;
+        openJournal({
+          day: meta.date,
+          entryId: noteId,
+          save: async (written) => {
+            const res = await updateJournal({
+              noteId,
+              text: written.text,
+              moods: written.moods,
+              page: written.layout,
+            });
+            if (!res.ok) return res;
+            const shown = {
+              text: written.text.trim(),
+              parts: layoutParts(written.layout),
+              moods: written.moods,
+            };
+            await patch(message.id, shown).catch((err) =>
+              console.warn('[WrapUp] could not update the journal card:', err),
+            );
+            // the moods read from the new words arrive a little later
+            void res.moods.then((found) => {
+              if (found?.length) void patch(message.id, { moods: found });
+            });
+            return { ok: true, noteId };
+          },
+        });
       },
       [patch],
     ),

@@ -38,6 +38,7 @@ jest.mock('lucide-react-native', () => {
     Bell: (props: any) => <View testID="icon-bell" {...props} />,
     Clock: (props: any) => <View testID="icon-clock" {...props} />,
     CalendarDays: (props: any) => <View testID="icon-calendar" {...props} />,
+    CalendarRange: (props: any) => <View testID="icon-calendar-range" {...props} />,
     Brain: (props: any) => <View testID="icon-brain" {...props} />,
     Palette: (props: any) => <View testID="icon-palette" {...props} />,
     Crown: (props: any) => <View testID="icon-crown" {...props} />,
@@ -152,6 +153,13 @@ describe('SettingsScreen', () => {
       const { getByText } = render(<SettingsScreen />);
       fireEvent.press(getByText('Notifications'));
       expect(mockNavigate).toHaveBeenCalledWith('NotificationSettings');
+    });
+
+    it('navigates to Your week, where the weekly day and days off are', () => {
+      const { getByText } = render(<SettingsScreen />);
+      expect(getByText('Your weekly day and days off')).toBeTruthy();
+      fireEvent.press(getByText('Your week'));
+      expect(mockNavigate).toHaveBeenCalledWith('YourWeekSettings');
     });
 
     it('navigates to RitualsSettings when Day boundary is pressed', () => {

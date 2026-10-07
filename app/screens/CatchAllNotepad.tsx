@@ -78,6 +78,7 @@ import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { ReplyTag } from '../../components/wrapup/ReplyTag';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { teaserLine } from '../../lib/wrapup/words';
+import { dismissWrapNudge } from '../../lib/wrapup/dismiss';
 import { weekdayOf } from '../../lib/wrapup/day';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
 import {
@@ -122,8 +123,6 @@ import {
   getReturnSpeech,
   getEmptyStateSpeech,
   getFirstVisitSpeech,
-  getPostAgeUpSpeech,
-  getFedCelebrationSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
 import { getFollowUpMessage } from '../../lib/speech/followUpMessages';
@@ -147,7 +146,8 @@ import {
   getNextTrainingModal,
 } from '../../lib/training/trainingFlow';
 import GaugeExplanationModal from '../components/training/GaugeExplanationModal';
-import FirstFedModal from '../components/training/FirstFedModal';
+import { LadderCaption } from '../features/celebration/LadderCaption';
+import { MORNING_LINE } from '../../lib/speech/momentWords';
 import SweepUnlockModal from '../components/training/SweepUnlockModal';
 import TrainingMeter from '../components/training/TrainingMeter';
 
@@ -157,7 +157,7 @@ import { applyTagQualityFilter } from '../../lib/tags/quality';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
-import { maybeAsk } from '../../lib/notifications/ask';
+import { maybeAsk, putOffOpenAsk } from '../../lib/notifications/ask';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
@@ -402,6 +402,9 @@ type MindDropInputProps = {
   voiceState?: VoiceCaptureState;
   /** Each new value opens the keyboard on the box (the Gremly home asks) */
   focusRequest?: number;
+  /** A row at the top of the box, above the text (Chat's reply tag) */
+  header?: React.ReactNode;
+  headerStyle?: any;
 };
 
 const MindDropInput = React.memo<MindDropInputProps>(
@@ -438,6 +441,8 @@ const MindDropInput = React.memo<MindDropInputProps>(
     onMicPress,
     voiceState = 'idle',
     focusRequest = 0,
+    header,
+    headerStyle,
   }) => {
     const inputRef = React.useRef<TextInput>(null);
     // the box keeps its own text so typing never jumps while the value
@@ -496,6 +501,11 @@ const MindDropInput = React.memo<MindDropInputProps>(
           });
         }}
       >
+        {header ? (
+          <View style={headerStyle} testID="minddrop-input-header">
+            {header}
+          </View>
+        ) : null}
         <View
           testID="minddrop-input-height-wrapper"
           style={[
@@ -1358,10 +1368,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     variant: 'default' | 'celebration';
   } | null>(null);
   const [showGaugeModal, setShowGaugeModal] = useState(false);
-  const [showFirstFedModal, setShowFirstFedModal] = useState(false);
   const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
-  // set when the sweep demo opens from the unlock card; the one ask follows on return
-  const [askSweepTimeAfterDemo, setAskSweepTimeAfterDemo] = useState(false);
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1403,20 +1410,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     };
   }, []);
-
-  // Back from the sweep demo: the one ask for notifications (end of day one)
-  useEffect(() => {
-    if (!askSweepTimeAfterDemo) return;
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (askSweepTimeAfterDemo) {
-        setAskSweepTimeAfterDemo(false);
-        setTimeout(() => {
-          void maybeAsk('onboarding');
-        }, 500);
-      }
-    });
-    return unsubscribe;
-  }, [askSweepTimeAfterDemo, navigation]);
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
@@ -1484,12 +1477,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     [feedingGaugeValue, isFedToday, storeLastDropTime, briefHeadline, dco, lastSweepCompletedAt],
   );
 
-  // Subscribe to post-age-up celebration events
+  // Gremly's bubble once a fed moment has gone, and after an age up
   useEffect(() => {
     const unsubscribe = celebrationController.subscribe((payload) => {
-      if (payload.kind === 'post_age_up' && payload.age) {
-        const speech = getPostAgeUpSpeech(payload.age);
-        showGremlySpeech(speech.message, speech.duration, 'celebration');
+      if (payload.kind !== 'moment' || !payload.moment) return;
+      const m = payload.moment;
+      if (m.phase === 'bubble' || (m.phase === 'end' && m.agesUp && m.nextAge !== null)) {
+        showGremlySpeech(m.bubble, 6000, 'celebration');
       }
     });
     return unsubscribe;
@@ -1520,9 +1514,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return () => clearTimeout(timer);
     }
 
-    // Returning user: same pattern
+    // Returning user: same pattern. On the morning of a third fed day he
+    // says so, instead of the usual greeting.
     hasShownGreetingRef.current = true;
     const timer = setTimeout(() => {
+      const { fedDaysCount: banked, isFedToday: fedNow } = useGremlyStore.getState();
+      if (banked >= 2 && !fedNow) {
+        showGremlySpeech(MORNING_LINE, 8000);
+        return;
+      }
       const ctx = buildSpeechContext('greeting');
       const greeting = getGreetingSpeechV2(ctx);
       if (greeting) {
@@ -2872,35 +2872,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           hasSeenFirstFedModal,
         });
 
-        // Still handle fed celebration if this drop crossed the threshold
+        // The fed moment itself starts in the store, on the gauge preview.
+        // The first fed day still marks Day 1 of training as done.
         if (result.justCrossedFed) {
-          if (!hasSeenFirstFedModal) {
-            setTimeout(() => setShowFirstFedModal(true), 2500);
-          } else {
-            celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
-          }
-          // Mark fed celebration as shown so store path doesn't double-fire
-          useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
+          celebrateFed();
+          if (!hasSeenFirstFedModal) markFirstFedModalSeen();
         }
 
         // Skip all generic speech below
       } else if (result.justCrossedFed) {
         if (isTrainingMode && !hasSeenFirstFedModal) {
           advanceTrainingDropStep();
-          setGremlySpeech(null); // clear "Last one" speech
-
-          celebrateFed();
-          setTimeout(() => setShowFirstFedModal(true), 3500);
-        } else {
-          celebrateFed();
-
-          // Show celebration speech instead of FedToast when user is on MindDrop
-          const fedDaysCount = useGremlyStore.getState().fedDaysCount;
-          const fedSpeech = getFedCelebrationSpeech(fedDaysCount);
-          showGremlySpeech(fedSpeech.message, fedSpeech.duration, 'celebration');
+          markFirstFedModalSeen();
         }
-        // Mark fed celebration as shown so store path doesn't double-fire
-        useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
+        setGremlySpeech(null); // the moment's words take over the bubble
+        celebrateFed();
       } else {
         celebrate();
         // Post-drop speech is now handled by the drop:reaction_ready event listener
@@ -2921,6 +2907,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     trainingDropStep,
     hasSeenGaugeExplanation,
     hasSeenFirstFedModal,
+    markFirstFedModalSeen,
     actionableDropsToday,
     storeLastDropTime,
     dco,
@@ -3254,7 +3241,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             exiting={FadeOut.duration(150)}
           >
             <Pressable
-              style={styles.gremlyMessageBackdrop}
+              style={[styles.gremlyMessageBackdrop, styles.gremlyMessageRow]}
               onPress={() =>
                 navigation.navigate('Tabs', {
                   screen: 'Gremly',
@@ -3265,23 +3252,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               accessibilityLabel={`${briefLine.lead} ${briefLine.rest}`}
               testID={wrapLine ? 'drop-wrap-up' : 'drop-brief-ready'}
             >
-              <Text style={styles.gremlyMessage}>
-                <Text style={styles.gremlyMessageLead}>{briefLine.lead}</Text> {briefLine.rest}
+              {/* one size, all bold */}
+              <Text style={[styles.gremlyMessage, styles.gremlyMessageBold]}>
+                {`${briefLine.lead} ${briefLine.rest}`}
               </Text>
+              {/* the wrap up line can be put away for the day, here and on Today */}
+              {wrapLine ? (
+                <Pressable
+                  onPress={() => void dismissWrapNudge()}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss"
+                  testID="drop-wrap-up-dismiss"
+                  style={styles.gremlyMessageDismiss}
+                >
+                  <X size={14} color="#6B7A72" strokeWidth={2.4} />
+                </Pressable>
+              ) : null}
             </Pressable>
           </Reanimated.View>
         )}
-        {/* In Chat, what the next message is when it is not an ordinary one:
-            saved to the journal, or an answer to Gremly's question */}
-        {chatMode && homeMode?.chatTag ? (
-          <View style={styles.replyTag} pointerEvents="box-none">
-            <ReplyTag
-              label={homeMode.chatTag.label}
-              kind={homeMode.chatTag.kind}
-              onCancel={homeMode.chatTag.onCancel}
-            />
-          </View>
-        ) : null}
         {/* Gremly perched on input - always visible */}
         <Animated.View
           style={[styles.inputGremly, styles.inputGremlyTuckOrigin, gremlyTuckStyle]}
@@ -3337,6 +3327,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           iconColor={c.mossGreen}
           heightWrapperStyle={styles.inputHeightWrapper}
           inputDynHeight={compactTyping ? compactInputHeight : inputDynHeight}
+          // In Chat, what the next message is when it is not an ordinary one
+          // (saved to the journal, or an answer to Gremly's question), as the
+          // box's top row, so it never sits over the thread
+          header={
+            chatMode && homeMode?.chatTag ? (
+              <ReplyTag
+                label={homeMode.chatTag.label}
+                kind={homeMode.chatTag.kind}
+                onCancel={homeMode.chatTag.onCancel}
+                onExpand={
+                  homeMode.chatTag.onExpand
+                    ? () => {
+                        // what is typed goes to the journal page, and leaves the box
+                        const typed = note.trim();
+                        handleChangeText('');
+                        homeMode.chatTag?.onExpand?.(typed);
+                      }
+                    : undefined
+                }
+                expandLabel={homeMode.chatTag.expandLabel}
+                expandHint={homeMode.chatTag.expandHint}
+              />
+            ) : undefined
+          }
+          headerStyle={styles.inputHeader}
           onCameraPress={chatMode ? undefined : handleMindDropPhotoAction}
           showCamera={!chatMode}
           onCalendarPress={chatMode ? undefined : handleCalendarToggle}
@@ -3508,6 +3523,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               </View>
             </Animated.View>
           </Pressable>
+          {/* The count toward the next age, all day on a fed day */}
+          {chatMode ? null : <LadderCaption />}
         </View>
       )}
 
@@ -3599,16 +3616,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }}
       />
 
-      <FirstFedModal
-        visible={showFirstFedModal}
-        onDismiss={() => {
-          setShowFirstFedModal(false);
-          markFirstFedModalSeen();
-          // Immediately show sweep unlock modal
-          setTimeout(() => setShowSweepUnlockModal(true), 300);
-        }}
-      />
-
       <SweepUnlockModal
         visible={showSweepUnlockModal}
         onDismiss={() => {
@@ -3618,8 +3625,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         onTryNow={() => {
           setShowSweepUnlockModal(false);
           markSweepUnlockModalSeen();
-          setAskSweepTimeAfterDemo(true);
-          navigation.navigate('Sweep', { demoMode: true } as any);
+          // Their first wrap up, in today's thread. The ask for notifications
+          // would land on top of it a few seconds in (NotificationResponder
+          // asks once they are past their first day), so it is put off: it
+          // comes the next time the app opens.
+          putOffOpenAsk();
+          navigation.navigate('Tabs', {
+            screen: 'Gremly',
+            params: todayThreadParams('wrap'),
+          });
         }}
         onLater={() => {
           setShowSweepUnlockModal(false);
@@ -3880,10 +3894,20 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       lineHeight: 20,
       fontFamily: 'Inter-Medium',
     },
-    gremlyMessageLead: {
+    // the brief and wrap up line: its words, then the way to put it away
+    gremlyMessageRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    gremlyMessageBold: {
       fontFamily: 'Inter-SemiBold',
       fontWeight: '600',
       color: '#1A3328',
+      flexShrink: 1,
+    },
+    gremlyMessageDismiss: {
+      marginLeft: 10,
+      alignSelf: 'center',
     },
     gremlyMessageCelebration: {
       backgroundColor: '#F2F7F2',
@@ -3922,12 +3946,11 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     inputGremlyPress: {
       flex: 1,
     },
-    // sits just above the box, on the left, clear of Gremly on the right
-    replyTag: {
-      position: 'absolute',
-      top: -38,
-      left: 2,
-      zIndex: 12,
+    // the reply tag's row at the top of the box, clear of Gremly on the right
+    inputHeader: {
+      flexDirection: 'row',
+      paddingRight: INPUT_ICON_PADDING_RIGHT,
+      marginBottom: 8,
     },
     inputContainerCompact: {
       minHeight: 0,

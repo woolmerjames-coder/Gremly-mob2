@@ -13,10 +13,18 @@ import {
   dayContext,
   dayFrameOf,
   dayMeaning,
+  easedWords,
   learnFromTurn,
+  readWeek,
   readWrap,
   renderDay,
+  reviewBlocked,
+  reviewOf,
   runBriefTurn,
+  weekContext,
+  weekFrameOf,
+  weekLine,
+  weekVariant,
   wrapContext,
 } from '../brief.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
@@ -124,6 +132,55 @@ describe('the day the agent knows', () => {
     expect(text).not.toContain('yes busy one');
   });
 
+  it('says what they planned for today in their week, and what came back from Later', () => {
+    const planned = readTurnRequest({
+      ...BODY,
+      intention: 'Ship the submissions,\n  and keep my body in it',
+      items: [
+        {
+          id: PUSHUPS,
+          kind: 'habit',
+          title: 'Pushups',
+          minutes: 10,
+          note: 'planned for today in their week',
+        },
+        { id: MUM, kind: 'todo', title: 'Call Mum', note: 'put off earlier, back today' },
+        {
+          id: 'step-1',
+          kind: 'todo',
+          title: 'Draft the cover letter',
+          due_day: '2026-10-02',
+          minutes: 30,
+          note: 'due today',
+          towards: 'Send the grant application',
+        },
+      ],
+    });
+    const text = renderDay(planned);
+    expect(text).toContain(
+      `${PUSHUPS} | habit | Pushups | no day | - | 10 min | planned for today in their week`,
+    );
+    expect(text).toContain(
+      `${MUM} | todo | Call Mum | no day | - | - | put off earlier, back today`,
+    );
+    expect(text).toContain(
+      'step-1 | todo | Draft the cover letter | 2026-10-02 | - | 30 min | due today, a step towards "Send the grant application"',
+    );
+    expect(text).toContain(
+      'THEIR INTENTION FOR THIS WEEK (their own words, from their weekly review): "Ship the submissions, and keep my body in it"',
+    );
+    // the intention comes with the day, before Gremly's open question
+    expect(text.indexOf('THEIR INTENTION')).toBeLessThan(text.indexOf("GREMLY'S OPEN QUESTION"));
+  });
+
+  it('says nothing of an intention or a goal when the app sent none', () => {
+    const text = renderDay(req);
+    expect(text).not.toContain('THEIR INTENTION');
+    expect(text).not.toContain('a step towards');
+    expect(readTurnRequest({ ...BODY, intention: '   ' }).intention).toBeNull();
+    expect(readTurnRequest({ ...BODY, intention: 'x'.repeat(400) }).intention.length).toBe(201);
+  });
+
   it('marks the small hours as the end of their day', () => {
     const late = readTurnRequest({ ...BODY, now: 46 });
     expect(renderDay(late, 3)).toContain(
@@ -141,8 +198,24 @@ describe('the day the agent knows', () => {
       kind: 'habit',
       title: 'Pushups',
       minutes: 10,
+      breaking: false,
     });
     expect(day.blocks).toEqual([]);
+  });
+
+  it('knows which of their habits is one they are breaking, when the app says so', () => {
+    const withBreaking = readTurnRequest({
+      ...BODY,
+      items: [
+        ...BODY.items,
+        { id: 'sugar', kind: 'habit', title: 'No sugar', breaking: true },
+        // only a habit can be one: the flag on anything else is not taken
+        { id: 'odd', kind: 'todo', title: 'Odd', breaking: true },
+      ],
+    });
+    const day = dayFrameOf(withBreaking);
+    expect(day.items.get('sugar').breaking).toBe(true);
+    expect(day.items.get('odd').breaking).toBe(false);
   });
 
   it("carries Gremly's care rules, voice and the person, the same from one message to the next", () => {
@@ -192,6 +265,24 @@ describe('the day the agent knows', () => {
 });
 
 describe('a turn', () => {
+  it('has nothing to read when the date is not a real day, and asks nobody', async () => {
+    const dayTurn = jest.fn();
+    const agent = jest.fn();
+    for (const date of ['2026-13-01', '2026-02-30', '2026-10-2', 'today', null]) {
+      const r = await runBriefTurn({
+        env: {},
+        userId: USER,
+        body: { ...BODY, date, week: { weekly_day: 0 } },
+        useAgent: true,
+        dayTurn,
+        deps: { person: {}, ctx: {}, dayEndHour: 3, agent: { ask: agent } },
+      });
+      expect(r).toEqual({ engine: 'agent', error: 'nothing to read' });
+    }
+    expect(dayTurn).not.toHaveBeenCalled();
+    expect(agent).not.toHaveBeenCalled();
+  });
+
   it('is the day turn when the agent is switched off', async () => {
     const dayTurn = jest.fn(async () => ({ about_day: true, changes: [], reply: 'Sure.' }));
     const r = await runBriefTurn({ env: {}, userId: USER, body: BODY, useAgent: false, dayTurn });
@@ -336,6 +427,33 @@ describe('the route', () => {
       card: [],
     });
     expect(waited).toHaveLength(1);
+  });
+
+  it('pings while the turn runs, and stops once the result is sent', async () => {
+    const m = scripted(reply('Morning.'));
+    // a model that takes a while to answer
+    const slow = async (...a) => {
+      await new Promise((r) => setTimeout(r, 60));
+      return m.callModel(...a);
+    };
+    const res = briefTurnResponse({
+      env: {},
+      userId: USER,
+      body: { ...BODY, text: 'morning' },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: { person: {}, ctx: fakeCtx, agent: { callModel: slow } },
+      pingEvery: 10,
+    });
+    const events = (await res.text())
+      .split('\n\n')
+      .filter(Boolean)
+      .map((e) => JSON.parse(e.replace(/^data: /, '')));
+    // the first ping, and more while the model was working
+    expect(events.filter((e) => e.ping).length).toBeGreaterThan(2);
+    // the result is the last thing sent: no ping follows it
+    expect(events.at(-1)).toMatchObject({ done: true, reply: 'Morning.' });
+    expect(events.filter((e) => e.done)).toHaveLength(1);
   });
 
   it('learns from the message once the stream has closed', async () => {
@@ -490,7 +608,28 @@ describe('a message typed while the evening wrap up is under way', () => {
     expect(text).toContain(
       `Gremly asked: "Is Bella's vet visit on Friday or Monday?", about their todo "Take Bella to the vet" (id ${VET}), Fri 9 Oct.`,
     );
-    expect(text).toContain('put it on the card with propose_changes, with your reply');
+    // the case that changes nothing comes first, and is the whole turn
+    expect(text).toContain('Then see whether that item already agrees with the answer.');
+    expect(text).toContain(
+      'When it does, the reply is the whole turn: no card, and no remark that nothing changes.',
+    );
+    // else the change goes on the card in this step, to that item alone
+    expect(text).toContain(
+      'put the change to it on the card with propose_changes, with your reply, in this step, and change that item alone, since an item that goes with it stays as it is until they ask.',
+    );
+    // that the answer is saved is not said as if the matter were closed
+    expect(text).toContain('saving the answer to what Gremly knows about them changes no item');
+    expect(text).not.toContain('already saved');
+    // a question about their life names no item, so no item is singled out
+    const life = wrapContext(
+      readWrap({ step: 'questions', decisions: [], answering: { question: 'Friday or Monday?' } }),
+    );
+    expect(life).toContain('Then see whether any of their items disagrees with the answer.');
+    expect(life).toContain('When none does, the reply is the whole turn');
+    expect(life).toContain(
+      'When one does, it is still as it was, because saving the answer to what Gremly knows about them changes no item: put the change to it on the card with propose_changes, with your reply, in this step.',
+    );
+    expect(life).not.toContain('change that item alone');
   });
 
   it('is nothing when no wrap up is under way, and comes after the day', () => {
@@ -534,5 +673,615 @@ describe('a message typed while the evening wrap up is under way', () => {
     });
     expect(out).toEqual({ sent: 0 });
     expect(check).not.toHaveBeenCalled();
+  });
+});
+
+// ── The person's week (the weekly review) ───────────────────────────────────
+
+describe("the person's week, when the app sends it", () => {
+  // Sunday 4 October 2026 is the weekly day; the week it plans is Monday 5 to Sunday 11
+  const SUN = '2026-10-04';
+  const MON = '2026-10-05';
+  const WED = '2026-10-07';
+  const NEXT_SUN = '2026-10-11';
+  const RUN = '55555555-5555-4555-8555-555555555555';
+  const PLAIN = { weekly_day: 0, days_off: [6, 0], review: null, extra_used: false };
+  const done = { week_start: MON, span_start: MON, status: 'done', kind: 'weekly' };
+  const UNDER = {
+    ...PLAIN,
+    review: { week_start: MON, span_start: MON, status: 'started', kind: 'weekly' },
+    hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+    busy_days: ['2026-10-08'],
+    under_way: {
+      step: 'shape',
+      first: MON,
+      last: NEXT_SUN,
+      challenge: { headline: 'The report has no room', why: 'It needs three hours.' },
+      picks: [{ text: 'Write the report', item_ids: [MUM] }],
+      settled: [
+        {
+          kind: 'day',
+          id: MUM,
+          type: 'todo',
+          title: 'Call Mum',
+          outcome: 'on Tuesday 6 Oct',
+          was: 'was due Friday 2 Oct',
+        },
+        { kind: 'intention', title: 'Intention', outcome: 'One thing at a time' },
+        { kind: 'made up', title: 'x', outcome: 'y' },
+      ],
+      habit_days: [{ id: RUN, days: [WED, MON] }],
+    },
+  };
+
+  describe('as it is read', () => {
+    it('is nothing from an app build that does not send it', () => {
+      expect(readWeek(undefined)).toBeNull();
+      expect(readWeek({})).toBeNull();
+      expect(readWeek({ weekly_day: 9 })).toBeNull();
+      expect(readWeek({ weekly_day: 'Sunday' })).toBeNull();
+    });
+
+    it('keeps the weekly day, days off, the review, the shape and the intention', () => {
+      const w = readWeek({
+        weekly_day: 3,
+        days_off: [5, 6, 'x'],
+        review: { week_start: MON, status: 'done', kind: 'extra' },
+        extra_used: true,
+        hours: { normal_day: 2.2, busy_day: 'lots', weekend_day: 4 },
+        busy_days: ['2026-10-08', 'Friday', '2026-10-08'],
+        intention: { id: MUM, text: '  Rest   first ' },
+      });
+      expect(w).toEqual({
+        weekly_day: 3,
+        days_off: [5, 6],
+        review: { week_start: MON, span_start: MON, status: 'done', kind: 'extra' },
+        extra_used: true,
+        hours: { normal_day: 2, weekend_day: 4 },
+        busy_days: ['2026-10-08'],
+        intention: { id: MUM, text: 'Rest first' },
+        under_way: null,
+        // this build did not say which habits are eased: that change is never offered to it
+        eased: null,
+      });
+    });
+
+    it('reads the habits paused or on a lighter version, from a build that sends them', () => {
+      const eased = [
+        { habit_id: MUM, title: ' Run ', mode: 'pause', first: MON, last: NEXT_SUN },
+        {
+          habit_id: MUM,
+          title: 'Swim',
+          mode: 'lighter',
+          first: MON,
+          last: NEXT_SUN,
+          note: 'Two  lengths',
+        },
+        // not ones it can read: no id, no such mode, days the wrong way round, over already
+        { habit_id: 'h1', title: 'A', mode: 'pause', first: MON, last: NEXT_SUN },
+        { habit_id: MUM, title: 'B', mode: 'rest', first: MON, last: NEXT_SUN },
+        { habit_id: MUM, title: 'C', mode: 'pause', first: NEXT_SUN, last: MON },
+        { habit_id: MUM, title: 'D', mode: 'pause', first: '2026-09-01', last: '2026-09-07' },
+      ];
+      const w = readWeek({ ...PLAIN, eased }, MON);
+      expect(w.eased).toEqual([
+        { habit_id: MUM, title: 'Run', mode: 'pause', first: MON, last: NEXT_SUN, note: '' },
+        {
+          habit_id: MUM,
+          title: 'Swim',
+          mode: 'lighter',
+          first: MON,
+          last: NEXT_SUN,
+          note: 'Two lengths',
+        },
+      ]);
+      // none eased is still a build that can apply the change
+      expect(readWeek({ ...PLAIN, eased: [] }, MON).eased).toEqual([]);
+      expect(weekVariant(readWeek({ ...PLAIN, eased: [] }, MON))).toBe('week_ease');
+      expect(weekVariant(readWeek(PLAIN, MON))).toBe('week');
+      expect(weekVariant(null)).toBeUndefined();
+      // a turn that answers a question of Gremly's is not offered it: its one job is that answer
+      expect(weekVariant(readWeek({ ...PLAIN, eased: [] }, MON), { answering: true })).toBe('week');
+      // the tools are handed the same list
+      expect(weekFrameOf(w, MON).eased).toEqual(w.eased);
+      expect(weekFrameOf(readWeek(PLAIN, MON), MON).eased).toBeNull();
+    });
+
+    it('says which habits are eased in what Gremly knows about their week, with their ids', () => {
+      const w = readWeek(
+        {
+          ...PLAIN,
+          eased: [
+            { habit_id: MUM, title: 'Run', mode: 'pause', first: MON, last: NEXT_SUN },
+            {
+              habit_id: MUM,
+              title: 'Swim',
+              mode: 'lighter',
+              first: MON,
+              last: MON,
+              note: 'Two lengths',
+            },
+            { habit_id: MUM, title: 'Walk', mode: 'lighter', first: MON, last: MON },
+          ],
+        },
+        MON,
+      );
+      const line = weekLine(w, MON);
+      expect(line).toContain(
+        'HABITS EASED FOR NOW (habit id | habit | how | first day | last day)',
+      );
+      expect(line).toContain(`${MUM} | Run | paused | ${MON} | ${NEXT_SUN}`);
+      expect(line).toContain(`${MUM} | Swim | lighter version: “Two lengths” | ${MON} | ${MON}`);
+      expect(line).toContain(`${MUM} | Walk | lighter version | ${MON} | ${MON}`);
+      expect(line).not.toMatch(/ — | – | - /);
+      // nothing is said when none are eased, or by a build that does not send them
+      expect(easedWords(readWeek({ ...PLAIN, eased: [] }, MON))).toBe('');
+      expect(weekLine(readWeek(PLAIN, MON), MON)).not.toContain('EASED');
+    });
+
+    it('drops what it cannot read: a review with no week, an id that is not one', () => {
+      const w = readWeek({
+        ...PLAIN,
+        review: { status: 'done' },
+        intention: { id: 'i1', text: 'Rest' },
+        under_way: { step: 'somewhere', first: MON, last: NEXT_SUN },
+      });
+      expect(w.review).toBeNull();
+      expect(w.intention).toEqual({ id: null, text: 'Rest' });
+      expect(w.under_way).toBeNull();
+    });
+
+    it('takes ids only as strings, kinds only from its own list, and lists only to their length', () => {
+      expect(
+        readWeek({ ...PLAIN, intention: { id: [MUM], text: 'Rest' } }).intention.id,
+      ).toBeNull();
+      const week = readWeek({
+        ...UNDER,
+        under_way: {
+          ...UNDER.under_way,
+          picks: [{ text: 'x', item_ids: [[MUM], MUM, 7, null] }],
+          settled: [
+            { kind: 'constructor', title: 'x', outcome: 'y' },
+            { kind: 'toString', title: 'x', outcome: 'y' },
+            { kind: 'day', id: [MUM], title: 'Call Mum', outcome: 'on Tuesday' },
+          ],
+          habit_days: [
+            { id: [RUN], days: [MON] },
+            { id: RUN, days: [MON] },
+          ],
+          placed: Array.from({ length: 5000 }, () => ({ id: MUM, day: MON })),
+        },
+      });
+      const u = week.under_way;
+      expect(u.picks).toEqual([{ text: 'x', item_ids: [MUM] }]);
+      expect(u.settled).toEqual([expect.objectContaining({ kind: 'day', id: null })]);
+      expect(u.habit_days).toEqual([{ id: RUN, days: [MON] }]);
+      expect(u.placed).toHaveLength(200);
+      // nothing that is not a kind of settled thing reaches what Gremly reads
+      expect(weekContext(week)).not.toContain('function');
+    });
+
+    it('is not under way when its days are not a week around now', () => {
+      const under = (over, today) =>
+        readWeek({ ...UNDER, under_way: { ...UNDER.under_way, ...over } }, today).under_way;
+      expect(under({}, SUN)).toBeTruthy();
+      // more than two weeks of days is not a week
+      expect(under({ last: '2026-10-25' }, SUN)).toBeNull();
+      // its days have all gone
+      expect(under({}, '2026-10-12')).toBeNull();
+      // further off than the week after next
+      expect(under({ first: '2026-11-02', last: '2026-11-08' }, SUN)).toBeNull();
+      // the week it belongs to starts on or before its first day
+      expect(under({ first: WED, week_start: MON }, SUN).week_start).toBe(MON);
+      expect(under({ week_start: '2026-10-09' }, SUN).week_start).toBe(MON);
+    });
+
+    it('reads a review under way: where it is, the days, and what is settled', () => {
+      const u = readWeek(UNDER).under_way;
+      expect(u).toMatchObject({ step: 'shape', first: MON, last: NEXT_SUN, hold: '', about: null });
+      expect(u.picks).toEqual([{ text: 'Write the report', item_ids: [MUM] }]);
+      // a kind it does not know is left out
+      expect(u.settled.map((s) => s.kind)).toEqual(['day', 'intention']);
+      expect(u.habit_days).toEqual([{ id: RUN, days: [MON, WED] }]);
+      expect(u.placed).toEqual([]);
+    });
+  });
+
+  describe('for the tools', () => {
+    it('acts from today to the end of this week, and shows the whole week', () => {
+      const f = weekFrameOf(readWeek({ ...PLAIN, review: done }), WED);
+      expect(f).toMatchObject({
+        first: WED,
+        last: NEXT_SUN,
+        view_first: MON,
+        view_last: NEXT_SUN,
+        has_review: true,
+        blocked: false,
+        next_review: NEXT_SUN,
+      });
+    });
+
+    it('on the weekly day shows today with the week ahead: every day a change can act on', () => {
+      const f = weekFrameOf(readWeek(PLAIN), SUN);
+      expect(f).toMatchObject({
+        view_first: SUN,
+        view_last: NEXT_SUN,
+        first: SUN,
+        last: NEXT_SUN,
+        week_start: MON,
+        has_review: false,
+        next_review: SUN,
+      });
+    });
+
+    it('reads what is saved once the review is finished: nothing is under way for the tools', () => {
+      const finished = readWeek({
+        ...UNDER,
+        review: done,
+        under_way: { ...UNDER.under_way, step: 'done' },
+      });
+      const f = weekFrameOf(finished, WED);
+      expect(f.under_way).toBeNull();
+      expect(f).toMatchObject({ first: WED, last: NEXT_SUN, view_first: MON, has_review: true });
+      // the finished review is still told to Gremly in words
+      expect(weekContext(finished)).toContain('THE WEEKLY REVIEW, FINISHED');
+    });
+
+    it('leaves out a review that is for another week, as one is once the weekly day has moved', () => {
+      // the weekly day is now Wednesday: the week they are in starts Thursday 8 October
+      const moved = readWeek({ ...PLAIN, weekly_day: 3, review: done, extra_used: true });
+      expect(reviewOf(moved, WED)).toBeNull();
+      expect(reviewOf(readWeek({ ...PLAIN, review: done }), WED)).toEqual(done);
+      const f = weekFrameOf(moved, WED);
+      expect(f).toMatchObject({ review: null, has_review: false, week_start: '2026-10-08' });
+      // so the review for the new week has not been done, and one can be started
+      expect(weekLine(moved, WED)).toContain('has not been done');
+      expect(reviewBlocked(moved, WED)).toBe(false);
+    });
+
+    it('keeps the week a brought forward review is for, apart from the week today is in', () => {
+      const forward = readWeek({
+        ...UNDER,
+        review: done,
+        under_way: {
+          ...UNDER.under_way,
+          first: '2026-10-12',
+          last: '2026-10-18',
+          week_start: '2026-10-12',
+        },
+      });
+      const f = weekFrameOf(forward, '2026-10-10');
+      expect(f).toMatchObject({
+        first: '2026-10-12',
+        last: '2026-10-18',
+        week_start: '2026-10-12',
+      });
+      expect(weekLine(forward, '2026-10-10')).toContain(
+        'The review for the week ahead, Monday 12 Oct to Sunday 18 Oct, is under way in this thread.',
+      );
+    });
+
+    it('keeps to the days being planned while a review is under way', () => {
+      const f = weekFrameOf(readWeek(UNDER), SUN);
+      expect(f).toMatchObject({
+        first: MON,
+        last: NEXT_SUN,
+        view_first: MON,
+        view_last: NEXT_SUN,
+        has_review: true,
+        hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+        busy_days: ['2026-10-08'],
+      });
+    });
+
+    it('is nothing without a week', () => {
+      expect(weekFrameOf(null, WED)).toBeNull();
+    });
+  });
+
+  describe('whether a review can be started today', () => {
+    const used = (review) => readWeek({ ...PLAIN, review, extra_used: true });
+    it('cannot midweek once the extra is used', () => {
+      expect(reviewBlocked(used(done), WED)).toBe(true);
+      expect(reviewBlocked(readWeek({ ...PLAIN, review: done }), WED)).toBe(false);
+    });
+    it('can midweek while the extra is still under way: opening it picks it up', () => {
+      expect(reviewBlocked(used({ ...done, status: 'started' }), WED)).toBe(false);
+    });
+    it('can on the weekly day and the two days after, until the weekly review is done', () => {
+      expect(reviewBlocked(used(null), MON)).toBe(false);
+      expect(reviewBlocked(used(done), MON)).toBe(true);
+    });
+    it('can the day before the weekly day: next week is brought forward', () => {
+      expect(reviewBlocked(used(done), '2026-10-10')).toBe(false);
+    });
+  });
+
+  describe('the line about their week', () => {
+    it('says their weekly day, the next one, whether the review is done and the extra free', () => {
+      expect(weekLine(readWeek({ ...PLAIN, review: done }), WED)).toBe(
+        'THEIR WEEK: Their weekly review is on Sundays, and the next is Sunday 11 Oct. The review for this week, Monday 5 Oct to Sunday 11 Oct, is done. The one extra review a week is still free.',
+      );
+    });
+
+    it('on the weekly day speaks of the week ahead', () => {
+      const line = weekLine(readWeek(PLAIN), SUN);
+      expect(line).toContain('Today is their weekly day, Sunday');
+      expect(line).toContain(
+        'The review for the week ahead, Monday 5 Oct to Sunday 11 Oct, has not been done.',
+      );
+    });
+
+    it('says when no review can be started, and what can be offered instead', () => {
+      const line = weekLine(readWeek({ ...PLAIN, review: done, extra_used: true }), WED);
+      expect(line).toContain('has been used, so no other review can be started today');
+      expect(line).toContain(
+        'what Gremly can offer instead is to move their weekly day, on the card',
+      );
+      // in Ask Gremly the card cannot move it, and the line says where it can be moved
+      const chat = weekLine(readWeek({ ...PLAIN, review: done, extra_used: true }), WED, {
+        moveOnCard: false,
+      });
+      expect(chat).toContain('has been used, so no other review can be started today.');
+      expect(chat).toContain("can be moved from today's thread, and not from here");
+      expect(chat).not.toContain('on the card');
+      // the day before the weekly day, next week can still be brought forward
+      const sat = weekLine(readWeek({ ...PLAIN, review: done, extra_used: true }), '2026-10-10');
+      expect(sat).toContain('The one extra review a week has been used.');
+    });
+
+    it('follows a weekly day that is not Sunday, and a review under way', () => {
+      const line = weekLine(readWeek({ ...UNDER, weekly_day: 3 }), '2026-10-08');
+      expect(line).toContain(
+        'Their weekly review is on Wednesdays, and the next is Wednesday 14 Oct.',
+      );
+      expect(line).toContain('is under way in this thread');
+    });
+
+    it('joins the day only when the app sent the week', () => {
+      const req = readTurnRequest(BODY);
+      expect(renderDay(req)).not.toContain('THEIR WEEK');
+      const withWeek = renderDay(req, null, readWeek({ ...PLAIN, review: done }));
+      expect(withWeek).toContain('THEIR WEEK: Their weekly review is on Sundays');
+      // the day itself reads the same, with the line added before Gremly's question
+      expect(withWeek.replace(/THEIR WEEK:[^\n]*\n\n/, '')).toBe(renderDay(req));
+    });
+  });
+
+  describe('the review under way', () => {
+    it('says where it is, the challenge, the picks, the habit days and what is settled, with ids', () => {
+      const text = weekContext(readWeek(UNDER));
+      expect(text).toContain('THE WEEKLY REVIEW, UNDER WAY');
+      expect(text).toContain('It plans Monday 5 Oct to Sunday 11 Oct.');
+      expect(text).toContain('Where it is now: the shape of the week');
+      expect(text).toContain(
+        'The challenge Gremly opened with: "The report has no room" It needs three hours.',
+      );
+      expect(text).toContain(`Write the report | ${MUM}`);
+      expect(text).toContain(`${RUN} | Monday 5 Oct, Wednesday 7 Oct`);
+      expect(text).toContain(
+        `a todo given a day | ${MUM} | todo "Call Mum" | on Tuesday 6 Oct | was due Friday 2 Oct`,
+      );
+      expect(text).toContain(
+        'their intention | no id | "Intention" | One thing at a time | not set before',
+      );
+      expect(text).toContain('put back or changed');
+    });
+
+    it('tells Gremly how to answer what they type, to read the board, to hold, and the health rule', () => {
+      const text = weekContext(readWeek(UNDER));
+      expect(text).toContain('They can type anything at any moment of the review.');
+      expect(text).toContain('read with get_week');
+      expect(text).toContain('call hold with your reply');
+      // the review no longer moves on by itself: a button carries it on, and Gremly is told so
+      expect(text).toContain('The review carries on after your reply, from the step it is on');
+      expect(text).not.toContain('by itself');
+      expect(text).toContain(
+        'What carries the review on is a button under the thread, which they tap when they are ready.',
+      );
+      expect(text).toContain('never name a condition, treatment or medication in your own words');
+      // semantic rules only: no dashes used as punctuation
+      expect(text).not.toMatch(/ — | – | - /);
+    });
+
+    it('says when it plans only the rest of a week', () => {
+      const part = readWeek({
+        ...UNDER,
+        under_way: { ...UNDER.under_way, first: WED },
+      });
+      expect(weekContext(part)).toContain(
+        'It plans Wednesday 7 Oct to Sunday 11 Oct, the rest of this week rather than a whole one',
+      );
+    });
+
+    it('says what the review is waiting on, and the one they opened to talk through', () => {
+      const text = weekContext(
+        readWeek({
+          ...UNDER,
+          under_way: {
+            ...UNDER.under_way,
+            step: 'needs_you',
+            hold: 'Which accountant do you want to use?',
+            about: {
+              title: 'Sort out the accountant',
+              item_ids: [MUM],
+              stuck_because: 'It has moved six times',
+              question: 'What is the first small step?',
+            },
+          },
+        }),
+      );
+      expect(text).toContain(
+        'waiting on this step for their answer to what Gremly asked: "Which accountant do you want to use?"',
+      );
+      expect(text).toContain('THEY OPENED ONE TO TALK IT THROUGH');
+      expect(text).toContain(`"Sort out the accountant" (todos ${MUM})`);
+      expect(text).toContain('Gremly asked: "What is the first small step?"');
+    });
+
+    it('once it is finished, keeps what was settled and stops carrying on', () => {
+      const text = weekContext(
+        readWeek({ ...UNDER, under_way: { ...UNDER.under_way, step: 'done' } }),
+      );
+      expect(text).toContain('THE WEEKLY REVIEW, FINISHED');
+      expect(text).toContain('Settled so far in the review');
+      expect(text).not.toContain('What carries the review on');
+      expect(text).not.toContain('hold');
+    });
+
+    it('lets the wrap up put one off too, and leaves the wrap up as it was without the week', () => {
+      const wrap = readWrap({
+        step: 'journal',
+        decisions: [
+          { id: MUM, type: 'todo', title: 'Call Mum', outcome: 'to come back on Monday' },
+        ],
+      });
+      const without = wrapContext(wrap);
+      // word for word what the wrap up said before the week's changes existed
+      expect(without).toContain(
+        "When they want one of tonight's decisions put back or changed, offer the change by its id: its day as it was before tonight, or restore one they let go. Keeping one as it is and bringing one back on a later night are the cards' own and cannot go on a card; to bring one of those sooner, offer it a day.",
+      );
+      expect(without).not.toContain('put off until another day');
+      const withWeek = wrapContext(wrap, readWeek(PLAIN));
+      expect(withWeek).toContain("Keeping one as it is is the cards' own and cannot go on a card.");
+      expect(withWeek).toContain('or put off until another day');
+      expect(withWeek).not.toContain('bringing one back on a later night are');
+    });
+
+    it('is nothing when none is under way, and comes after the day', () => {
+      expect(weekContext(readWeek(PLAIN))).toBe('');
+      expect(weekContext(null)).toBe('');
+      const req = readTurnRequest(BODY);
+      const all = dayContext(req, null, null, null, readWeek(UNDER));
+      expect(all.indexOf('THE WEEKLY REVIEW, UNDER WAY')).toBeGreaterThan(
+        all.indexOf("GREMLY'S OPEN QUESTION"),
+      );
+      // with no week the day ends on Gremly's open question, as it always has
+      expect(dayContext(req).endsWith("GREMLY'S OPEN QUESTION: none")).toBe(true);
+      expect(dayContext(req)).not.toContain('WEEK');
+    });
+  });
+
+  describe('a turn', () => {
+    const turn = (body, m) =>
+      runBriefTurn({
+        env: {},
+        userId: USER,
+        body,
+        useAgent: true,
+        dayTurn: async () => null,
+        deps: { person: { first_name: 'Alex' }, ctx: fakeCtx, agent: { callModel: m.callModel } },
+      });
+    const names = (m) => m.seen[0].tools.map((t) => t.name);
+
+    it("has the week's tools and changes only when the app sent the week", async () => {
+      const without = scripted(reply('Morning.'));
+      await turn({ ...BODY, text: 'morning' }, without);
+      expect(names(without)).toEqual([
+        'get_day',
+        'find_items',
+        'get_item',
+        'recall',
+        'web_search',
+        'propose_changes',
+        'track_tasks',
+      ]);
+      const ops = (m) =>
+        m.seen[0].tools.find((t) => t.name === 'propose_changes').parameters.properties.changes
+          .items.properties.op.enum;
+      expect(ops(without)).not.toContain('later');
+      expect(without.seen[0].system).not.toContain('weekly review');
+
+      const withWeek = scripted(reply('Morning.'));
+      await turn({ ...BODY, text: 'morning', week: { ...PLAIN, review: done } }, withWeek);
+      expect(names(withWeek)).toEqual([
+        'get_day',
+        'find_items',
+        'get_item',
+        'recall',
+        'web_search',
+        'propose_changes',
+        'get_week',
+        'hold',
+        'offer_week',
+        'track_tasks',
+      ]);
+      expect(ops(withWeek)).toEqual(
+        expect.arrayContaining([
+          'later',
+          'habit_days',
+          'week_shape',
+          'intention',
+          'milestone',
+          'weekly_day',
+        ]),
+      );
+      expect(withWeek.seen[0].system).toContain('weekly review');
+      expect(withWeek.seen[0].turns.at(-1).text).toContain(
+        'THEIR WEEK: Their weekly review is on Sundays',
+      );
+    });
+
+    it('holds the review when Gremly asks something the step waits on, in one step', async () => {
+      const m = scripted({
+        ...ask(['hold', { question: 'How many hours do you have on a normal day?' }]),
+        text: 'How many hours do you have on a normal day?',
+      });
+      const r = await turn(
+        { ...BODY, date: SUN, text: 'not sure about the hours', week: UNDER },
+        m,
+      );
+      expect(r).toMatchObject({
+        engine: 'agent',
+        reply: 'How many hours do you have on a normal day?',
+        hold: { question: 'How many hours do you have on a normal day?' },
+        tools: ['hold'],
+      });
+      expect(r.offer).toBeUndefined();
+      expect(m.seen).toHaveLength(1);
+    });
+
+    it("puts the week's button under the reply when they ask to plan their week", async () => {
+      const m = scripted({ ...ask(['offer_week', {}]), text: 'Here you go.' });
+      const r = await turn({ ...BODY, text: 'can we plan my week', week: PLAIN }, m);
+      expect(r).toMatchObject({ reply: 'Here you go.', offer: { kind: 'week', done: false } });
+      expect(r.hold).toBeUndefined();
+      expect(m.seen).toHaveLength(1);
+    });
+
+    it("puts one of the week's changes on the card, checked against the week it was sent", async () => {
+      const m = scripted(
+        ask([
+          'propose_changes',
+          {
+            changes: [
+              { op: 'week_shape', shape: { busy_days: ['2026-10-08', '2026-10-09'] } },
+              { op: 'weekly_day', weekday: 0 },
+            ],
+            reply: "I'd mark Thursday and Friday as busy.",
+          },
+        ]),
+        reply("I'd mark Thursday and Friday as busy."),
+      );
+      const r = await turn(
+        { ...BODY, date: SUN, text: 'thursday and friday are gone', week: UNDER },
+        m,
+      );
+      expect(r.card).toEqual([
+        {
+          cid: 'c1',
+          op: 'week_shape',
+          type: null,
+          id: null,
+          title: '',
+          week_start: MON,
+          from: MON,
+          shape: { busy_days: ['2026-10-08', '2026-10-09'] },
+          before: { busy_days: ['2026-10-08'] },
+        },
+      ]);
+      // the weekly day is already Sunday: the model hears why that row was dropped
+      expect(m.seen[1].turns.at(-1).results[0].text).toContain('c2: it already is that way');
+    });
   });
 });

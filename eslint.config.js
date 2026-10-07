@@ -131,7 +131,7 @@ module.exports = [
             'Use dateService.formatForChip() or formatDateForDisplay() instead of .toLocaleDateString().',
         },
       ],
-      // Phase 7: Prevent imports from legacy/** and direct UnifiedCreateOverlay imports
+      // Phase 7: Prevent imports from legacy/**
       'no-restricted-imports': [
         'error',
         {
@@ -140,14 +140,7 @@ module.exports = [
             {
               group: ['**/legacy/**', '../legacy/**', '../../legacy/**'],
               message:
-                'Importing from legacy/ is deprecated. Use OverlayComponent from the gateway instead. (Allowed in tests only)',
-            },
-          ],
-          // Disallow importing UnifiedCreateOverlay directly — enforce gateway surface
-          paths: [
-            {
-              name: '@/components/overlay/UnifiedCreateOverlay',
-              message: "Import OverlayComponent from '@/components/overlay' instead.",
+                "Importing from legacy/ is deprecated. Use OverlayComponent from '@/components/overlay' instead. (Allowed in tests only)",
             },
           ],
         },
@@ -222,11 +215,7 @@ module.exports = [
   },
   {
     // Phase 7: Exemption for feature flag layer and examples using legacy overlays
-    files: [
-      'examples/ManualAddOverlayExample.tsx',
-      'components/FeatureFlaggedOverlay.tsx',
-      'hooks/useOverlayController.ts',
-    ],
+    files: ['examples/ManualAddOverlayExample.tsx', 'hooks/useOverlayController.ts'],
     rules: {
       'no-restricted-imports': 'off',
       '@typescript-eslint/no-explicit-any': 'off', // Type adapters need any for flexibility

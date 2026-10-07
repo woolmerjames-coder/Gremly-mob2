@@ -29,7 +29,13 @@ export type HomeChatApi = {
 export type ChatTag = {
   label: string;
   kind: 'journal' | 'question';
-  onCancel: () => void;
+  /** Left out when the next message can only be what the pill says */
+  onCancel?: () => void;
+  /** Open the full journal page, given whatever is typed in the box, which is then cleared */
+  onExpand?: (typed: string) => void;
+  /** A word for the expand button ("Open"); two arrows when left out */
+  expandLabel?: string;
+  expandHint?: string;
 };
 
 export type HomeDockApi = {

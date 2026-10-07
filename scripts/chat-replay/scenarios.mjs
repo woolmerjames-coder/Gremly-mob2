@@ -160,6 +160,35 @@ export const SCENARIOS = [
 ];
 
 /** The calendar for the week ahead, for the preload (context/weekAhead.js). */
+// A heavy day: far more todos planned for it than meetings (on 4 Oct a real
+// one had 49 todos, and Ask Gremly named two and called the day mostly open).
+const HEAVY_TITLES = [
+  'Fix the onboarding crash', 'Write the launch email', 'Submit the app for review', 'Reply to the landlord',
+  'Book the dentist', 'Renew the passport', 'Pay the water bill', 'Update the pitch deck',
+  'Call the bank about the card', 'Order the birthday cake', 'Send the invoice to Harbour', 'Plan the team offsite',
+  'Draft the board update', 'Clean out the garage', 'Back up the laptop', 'Return the library books',
+  'Schedule the car service', 'Review the contract changes', 'Prep the QBR slides', 'Buy running shoes',
+  'Sort the tax receipts', 'Email the accountant', 'Fix the shed door', 'Write the blog post',
+  'Test the new build', 'Update the privacy policy', 'Record the demo video', 'Set up the analytics dashboard',
+  'Book flights for Denver', 'Find a present for Sam', 'Call Mum', 'Plan the week',
+  'Tidy the inbox', 'Answer the recruiter', 'Read the onboarding notes', 'Renew the gym membership',
+  'Fix the bike light', 'Order printer ink', 'Cancel the old phone plan', 'Write the thank you cards',
+];
+const HEAVY_DAY = HEAVY_TITLES.map((title, i) => ({ id: `h${i + 1}`, kind: 'todo', title, due_day: '2026-10-05' }));
+
+SCENARIOS.push({
+  id: 'heavy-day',
+  kind: 'A day full of todos',
+  text: "What's on Monday?",
+  items: HEAVY_DAY,
+  expect: {
+    rows: 0,
+    // the day's todos, by number, not only its one meeting
+    mentions: /\b40\b|forty/i,
+    notSaid: /\b(mostly|pretty|fairly|wide|largely) (open|clear|free|light)\b|light day|quiet day/i,
+  },
+});
+
 // After midnight and before their day ends (3am): still Saturday for them.
 SCENARIOS.push(
   {
@@ -205,3 +234,124 @@ export const WEEK = {
   ],
   allDay: [['2026-10-09T00:00:00Z', '2026-10-10T23:59:59Z', 'Office closed']],
 };
+
+/**
+ * Their week (the weekly review), as an app build that can show it sends it
+ * with a message (lib/cortex/CortexClient.ts WeekTurnContext). THEIR_WEEK is
+ * what --with-week gives every scenario that has none of its own: Sunday is
+ * their weekly day, this week's review is not done, and the extra is free.
+ */
+export const THEIR_WEEK = { weekly_day: 0, days_off: [0, 6], review: null, extra_used: false };
+
+// Asking Gremly for their week in Ask Gremly: the button goes under the reply
+// (offer_week), and nothing about their week goes on the card, which cannot
+// change it from here. expect.offer: 'plan' (the button reads Plan your week),
+// 'week' (it reads Your week), 'may' (a button is fine and so is none), or
+// left out (no button).
+SCENARIOS.push(
+  {
+    id: 'week-plan',
+    kind: 'Their week',
+    text: 'Can we plan my week?',
+    items: [],
+    // Thursday is their weekly day, so Saturday is inside the review's window
+    theirWeek: { weekly_day: 4, days_off: [0, 6], review: null, extra_used: false },
+    expect: { rows: 0, offer: 'plan' },
+  },
+  {
+    id: 'week-see',
+    kind: 'Their week',
+    text: 'Show me the week I planned',
+    items: [],
+    theirWeek: {
+      weekly_day: 4,
+      days_off: [0, 6],
+      review: { week_start: '2026-10-02', span_start: '2026-10-02', status: 'done', kind: 'weekly' },
+      extra_used: false,
+    },
+    expect: { rows: 0, offer: 'week' },
+  },
+  {
+    id: 'week-extra-used',
+    kind: 'Their week',
+    text: "I'd like to do another weekly review today",
+    items: [],
+    // Monday is their weekly day, so Saturday would be the extra, and it is used
+    theirWeek: {
+      weekly_day: 1,
+      days_off: [0, 6],
+      review: { week_start: '2026-09-29', span_start: '2026-09-30', status: 'done', kind: 'extra' },
+      extra_used: true,
+    },
+    // no review can be started, and the weekly day cannot be moved from Ask
+    // Gremly, so nothing goes on the card. The button to the week they planned
+    // may be there or not.
+    expect: { rows: 0, offer: 'may' },
+  },
+);
+
+// A habit paused, given a lighter version or set back to usual (the change
+// model's ease). Ask Gremly offers it only to an app build that sends the
+// habits eased now with their week (theirWeek.eased), so the first of these is
+// a build that does not. Saturday 3 October 2026; Sunday is their weekly day.
+const RUN = { id: 'run', kind: 'habit', title: 'Run 3 Times A Week' };
+SCENARIOS.push(
+  {
+    id: 'ease-old-build',
+    kind: 'A habit eased',
+    noEase: true,
+    text: 'Work is flat out. Pause my running until the end of next week',
+    items: [RUN],
+    theirWeek: THEIR_WEEK,
+    // no pause can be made from this build, so none goes on the card
+    expect: { maxRows: 1, row: (c) => c.op !== 'ease' && c.op !== 'archive' },
+  },
+  {
+    id: 'ease-pause',
+    kind: 'A habit eased',
+    text: 'Work is flat out. Pause my running until the end of next week',
+    items: [RUN],
+    theirWeek: { ...THEIR_WEEK, eased: [] },
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'pause' && c.ease.last === '2026-10-11',
+    },
+  },
+  {
+    id: 'ease-lighter',
+    kind: 'A habit eased',
+    text: 'For this next week can my run just be a twenty minute walk instead?',
+    items: [RUN],
+    theirWeek: { ...THEIR_WEEK, eased: [] },
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'lighter' && /walk/i.test(c.ease.note || ''),
+    },
+  },
+  {
+    id: 'ease-usual',
+    kind: 'A habit eased',
+    text: "I'm back from my trip, so I can start running again",
+    items: [RUN],
+    theirWeek: {
+      ...THEIR_WEEK,
+      eased: [{ habit_id: 'run', title: 'Run 3 Times A Week', mode: 'pause', first: '2026-09-28', last: '2026-10-11', note: '' }],
+    },
+    expect: { rows: 1, row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'usual' },
+  },
+  {
+    id: 'ease-sooner',
+    kind: 'A habit eased',
+    text: 'Actually I only need the running pause until Wednesday',
+    items: [RUN],
+    theirWeek: {
+      ...THEIR_WEEK,
+      eased: [{ habit_id: 'run', title: 'Run 3 Times A Week', mode: 'pause', first: '2026-09-28', last: '2026-10-18', note: '' }],
+    },
+    // a pause is made to end sooner by going back to usual from the day after: Thursday 8 October
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'ease' && c.id === 'run' && c.ease?.mode === 'usual' && c.ease.first === '2026-10-08' && c.ease.last === '2026-10-18',
+    },
+  },
+);

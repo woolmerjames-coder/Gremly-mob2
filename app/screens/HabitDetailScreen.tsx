@@ -19,7 +19,9 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { BuildHabitDetail } from '../../src/components/habits/BuildHabitDetail';
 import { BreakHabitDetail } from '../../src/components/habits/BreakHabitDetail';
+import { HabitEaseBanner } from '../../src/components/habits/HabitEaseBanner';
 import { computeCurrentStreak, computeBestStreak } from '../../lib/habits/streakUtils';
+import { countWeeksOnTarget } from '../../lib/habits/weeksOnTarget';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { getDateService } from '../../lib/date';
 
@@ -55,15 +57,33 @@ export default function HabitDetailScreen() {
     [habitProgress, habitId],
   );
 
+  // Their weekly day: a week is the seven days that end on it
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
+
   // ── Derived data ──
   const completedDates = useMemo(
     () => thisHabitProgress.map((p) => p.occurred_day).sort(),
     [thisHabitProgress],
   );
 
-  const currentStreak = useMemo(() => computeCurrentStreak(completedDates), [completedDates]);
+  // The habit's own pauses: a paused day never breaks its run, and a paused week is never a week missed
+  const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
+  const eases = useMemo(
+    () => habitAdaptations.filter((a) => a.habit_id === habitId),
+    [habitAdaptations, habitId],
+  );
 
-  const bestStreak = useMemo(() => computeBestStreak(completedDates), [completedDates]);
+  const currentStreak = useMemo(
+    () => computeCurrentStreak(completedDates, eases),
+    [completedDates, eases],
+  );
+
+  // A run held over a pause can be longer than any run of days in a row: the
+  // best is never shown as less than the one they are on.
+  const bestStreak = useMemo(
+    () => Math.max(computeBestStreak(completedDates), currentStreak),
+    [completedDates, currentStreak],
+  );
 
   const nextMilestone = useMemo(
     () => MILESTONES.find((m) => m > currentStreak) ?? MILESTONES[MILESTONES.length - 1],
@@ -90,32 +110,17 @@ export default function HabitDetailScreen() {
     const start = new Date(startDateStr);
     const now = getDateService().dayNow();
 
-    // Count completed weeks (weeks where user hit their target)
-    let weeksHit = 0;
-    let totalWeeks = 0;
-
-    // Walk backward week by week from current week
-    const currentWeekStart = new Date(now);
-    currentWeekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // Monday
-    currentWeekStart.setHours(0, 0, 0, 0);
-
-    const weekStart = new Date(currentWeekStart);
-    while (weekStart >= start && totalWeeks < 52) {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      const weekEndStr = toLocalISO(weekEnd);
-      const weekStartStr = toLocalISO(weekStart);
-
-      const completionsThisWeek = completedDates.filter(
-        (d) => d >= weekStartStr && d <= weekEndStr,
-      ).length;
-
-      if (completionsThisWeek >= targetPerWeek) {
-        weeksHit++;
-      }
-      totalWeeks++;
-      weekStart.setDate(weekStart.getDate() - 7);
-    }
+    // Count completed weeks (weeks where user hit their target), walking
+    // backward week by week from their current week
+    const { weeksHit, totalWeeks } = countWeeksOnTarget({
+      completedDates,
+      targetPerWeek,
+      start,
+      today: getDateService().today(),
+      weeklyDay,
+      eases,
+      habitId,
+    });
 
     // Total completions since start
     const startISO = toLocalISO(start);
@@ -132,7 +137,7 @@ export default function HabitDetailScreen() {
       thisMonthCompletions,
       targetPerWeek,
     };
-  }, [isDaily, habit, completedDates]);
+  }, [isDaily, habit, completedDates, weeklyDay, eases, habitId]);
 
   // ── Edit handler: open overlay ──
   const handleEdit = useCallback(async () => {
@@ -178,6 +183,9 @@ export default function HabitDetailScreen() {
           <Text style={styles.editButtonText}>Edit</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Paused, or on a lighter version: the days, and the way back to usual */}
+      <HabitEaseBanner habitId={habitId} />
 
       {/* Detail content */}
       {isBreak ? (

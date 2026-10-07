@@ -129,6 +129,9 @@ describe('routeFor', () => {
     expect(routeFor('brief')).toBe('brief');
     expect(routeFor('good_news', 'weekly_summary:2026-09-28')).toBe('summary');
     expect(routeFor('return_note')).toBe('drop');
+    // what came back from Later is part of today: the tap opens today's thread
+    expect(routeFor('nudge', 'came_back')).toBe('brief');
+    expect(routeFor('nudge', 'unfed')).toBe('drop');
   });
 });
 
@@ -462,6 +465,254 @@ describe('decide', () => {
       expect((await decide(ON, ev, { at: AT })).action).toBe('send');
       mockTables.notes = [{ id: 'n1', target_date: '2026-10-01', event_time: '19:00:00' }];
       expect((await decide(ON, ev, { at: AT })).action).toBe('drop');
+    });
+  });
+
+  describe('a habit paused today', () => {
+    const checkin = {
+      user_id: USER,
+      moment: 'habit_checkin',
+      subject: 'h1',
+      dedupe_key: 'k',
+      planned_for: '2026-10-01T16:55:00Z',
+    };
+    // its own reminder, queued for 18:00 London (17:00 UTC)
+    const reminder = {
+      user_id: USER,
+      moment: 'reminder',
+      subject: 'habit:h1:r1',
+      dedupe_key: 'k',
+      planned_for: '2026-10-01T17:00:00Z',
+    };
+    const stretch = (mode, period_start, period_end) => ({
+      id: `${mode}-${period_start}`,
+      habit_id: 'h1',
+      mode,
+      period_start,
+      period_end,
+      floor_note: null,
+    });
+    const pausedRead = () => mockCalls.select.filter((p) => p.startsWith('habit_adaptations'));
+
+    beforeEach(() => {
+      mockTables.habits = [{ id: 'h1', archived: false }];
+      mockTables.reminder_schedule = [
+        {
+          status: 'active',
+          entity_type: 'habit',
+          entity_id: 'h1',
+          next_fire_at: reminder.planned_for,
+          rule: { id: 'r1', frequency: 'daily', time: '18:00' },
+        },
+      ];
+    });
+
+    it('gets no check in', async () => {
+      mockTables.habit_adaptations = [stretch('pause', '2026-09-29', '2026-10-05')];
+      expect(await decide(ON, checkin, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'The habit is paused',
+      });
+      // read for that habit and their day, when the notification wakes
+      expect(pausedRead()).toEqual([
+        'habit_adaptations?owner_id=eq.u1&habit_id=eq.h1&period_start=lte.2026-10-01&period_end=gte.2026-10-01&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200',
+      ]);
+    });
+
+    it('gets no reminder of its own', async () => {
+      mockTables.habit_adaptations = [stretch('pause', '2026-10-01', '2026-10-01')];
+      expect(await decide(ON, reminder, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'The habit is paused',
+      });
+      expect(pausedRead()).toHaveLength(1);
+    });
+
+    it('is checked in on and reminded as usual once the pause is over, or before it begins', async () => {
+      mockTables.habit_adaptations = [
+        stretch('pause', '2026-09-20', '2026-09-30'),
+        stretch('pause', '2026-10-02', '2026-10-09'),
+      ];
+      expect((await decide(ON, checkin, { at: AT })).action).toBe('send');
+      expect((await decide(ON, reminder, { at: AT })).action).toBe('send');
+    });
+
+    it('is checked in on and reminded as usual on a lighter version, or with none', async () => {
+      mockTables.habit_adaptations = [stretch('floor', '2026-09-29', '2026-10-05')];
+      expect((await decide(ON, checkin, { at: AT })).action).toBe('send');
+      expect((await decide(ON, reminder, { at: AT })).action).toBe('send');
+      mockTables.habit_adaptations = [];
+      expect((await decide(ON, checkin, { at: AT })).action).toBe('send');
+      expect((await decide(ON, reminder, { at: AT })).action).toBe('send');
+    });
+
+    it('does not ask about a pause for a reminder of anything else', async () => {
+      mockTables.reminder_schedule = [
+        {
+          status: 'active',
+          entity_type: 'todo',
+          entity_id: 't1',
+          next_fire_at: reminder.planned_for,
+          rule: { id: 'r1', frequency: 'daily', time: '18:00' },
+        },
+      ];
+      mockTables.habit_adaptations = [stretch('pause', '2026-09-29', '2026-10-05')];
+      const todo = { ...reminder, subject: 'todo:t1:r1' };
+      expect((await decide(ON, todo, { at: AT })).action).toBe('send');
+      expect(pausedRead()).toEqual([]);
+    });
+  });
+
+  describe('a nudge that says what came back from Later', () => {
+    const nudge = {
+      ...job,
+      moment: 'nudge',
+      subject: 'came_back',
+      data: { reason: { kind: 'came_back', count: 2 }, eligibleAngles: ['something_waiting'] },
+    };
+    const away = (lastOpen = '2026-09-28T18:00:00Z') => {
+      mockTables.notification_preferences = [prefs({ checkins_enabled: true })];
+      mockTables.user_engagement = [{ user_id: USER, state: 'drifting', days_away: 3 }];
+      mockTables.app_events = lastOpen ? [{ occurred_at: lastOpen }] : [];
+    };
+
+    it('goes with what is still waiting, read again at the moment of sending', async () => {
+      away();
+      mockTables.todos = (path) =>
+        path.includes('resurface_at=gte.')
+          ? [
+              { id: 'old', name: 'Sort the shed', resurface_at: '2026-09-27' },
+              { id: 'a', name: 'Call the plumber', resurface_at: '2026-09-29' },
+              { id: 'b', name: 'Renew passport', resurface_at: '2026-10-01' },
+              { id: 'c', name: 'Book the dentist', resurface_at: '2026-10-01' },
+            ]
+          : [];
+      const v = await decide(ON, nudge, { at: AT });
+      expect(v.action).toBe('send');
+      // only what came back after they were last here, the first two by name
+      expect(v.facts.put_off_earlier_and_back_now).toEqual({
+        count: 3,
+        titles: ['Call the plumber', 'Renew passport'],
+      });
+      // the writer is told the day of the week and what came back, and nothing else of the day
+      expect(v.facts.weekday).toBe('Thursday');
+      expect(Object.keys(v.facts).sort()).toEqual([
+        'part_of_day',
+        'put_off_earlier_and_back_now',
+        'weekday',
+      ]);
+      const read = mockCalls.select.find((q) => q.includes('resurface_at=gte.'));
+      expect(read).toContain(
+        'due_day=is.null&resurface_at=gte.2026-09-25&resurface_at=lte.2026-10-01',
+      );
+    });
+
+    it('goes by Reminders at the moment of sending too', async () => {
+      const todos = (path) =>
+        path.includes('resurface_at=gte.')
+          ? [{ id: 'a', name: 'Call the plumber', resurface_at: '2026-09-29' }]
+          : [];
+      // Notes from Gremly off, reminders on: sent
+      away();
+      mockTables.notification_preferences = [prefs({ checkins_enabled: false })];
+      mockTables.todos = todos;
+      expect((await decide(ON, nudge, { at: AT })).action).toBe('send');
+      // reminders switched off since it was planned: dropped
+      mockTables.notification_preferences = [
+        prefs({ checkins_enabled: true, reminders_enabled: false }),
+      ];
+      expect(await decide(ON, nudge, { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'Switched off in Settings',
+      });
+    });
+
+    it('counts only what came back after the last note that said so', async () => {
+      away();
+      mockTables.todos = (path) =>
+        path.includes('resurface_at=gte.')
+          ? [
+              { id: 'a', name: 'Call the plumber', resurface_at: '2026-09-29' },
+              { id: 'b', name: 'Renew passport', resurface_at: '2026-10-01' },
+            ]
+          : [];
+      const since = (day) => ({
+        ...nudge,
+        data: { ...nudge.data, reason: { ...nudge.data.reason, since: day } },
+      });
+      // a note on Tuesday 29 September already said the plumber was back
+      const v = await decide(ON, since('2026-09-29'), { at: AT });
+      expect(v.facts.put_off_earlier_and_back_now).toEqual({
+        count: 1,
+        titles: ['Renew passport'],
+      });
+      // and nothing is sent when that note covered all of it
+      expect(await decide(ON, since('2026-10-01'), { at: AT })).toMatchObject({
+        action: 'drop',
+        reason: 'Nothing that came back is still waiting',
+      });
+    });
+
+    it('is dropped once they are back, or when nothing that came back is still waiting', async () => {
+      away('2026-10-01T09:00:00Z');
+      mockTables.todos = [{ id: 'a', name: 'Call the plumber', resurface_at: '2026-10-01' }];
+      const back = await decide(ON, nudge, { at: AT });
+      expect(back).toMatchObject({ action: 'drop', reason: 'They came back' });
+
+      away();
+      mockTables.todos = [];
+      const none = await decide(ON, nudge, { at: AT });
+      expect(none).toMatchObject({
+        action: 'drop',
+        reason: 'Nothing that came back is still waiting',
+      });
+    });
+
+    it('has a plain fixed line for when the writer cannot be used', async () => {
+      jsonCall.mockRejectedValue(new Error('down'));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const person = { userId: USER, state: 'drifting', devices: [{ time_sensitive: true }] };
+      const one = await compose({}, nudge, person, {
+        put_off_earlier_and_back_now: { count: 1, titles: ['Call the plumber'] },
+      });
+      expect(one).toMatchObject({
+        body: 'Something you put off has come back.',
+        usedFallback: true,
+        angle: 'something_waiting',
+        route: 'brief',
+      });
+      const few = await compose({}, nudge, person, {
+        put_off_earlier_and_back_now: { count: 3, titles: [] },
+      });
+      expect(few.body).toBe('A few things you put off have come back.');
+      warn.mockRestore();
+    });
+
+    it('tells the writer the reason, and that it is said as something waiting', async () => {
+      jsonCall.mockResolvedValue({
+        output: { title: '', body: 'Call the plumber is back today.' },
+      });
+      const person = { userId: USER, state: 'drifting', devices: [{ time_sensitive: true }] };
+      const out = await compose({}, nudge, person, {
+        weekday: 'Thursday',
+        put_off_earlier_and_back_now: { count: 1, titles: ['Call the plumber'] },
+      });
+      expect(out).toMatchObject({
+        body: 'Call the plumber is back today.',
+        angle: 'something_waiting',
+      });
+      const asked = jsonCall.mock.calls[0][1].user;
+      expect(asked).toContain('things they put off for later have come back while they were away');
+      expect(asked).toContain('"put_off_earlier_and_back_now"');
+      // an everyday nudge is told no reason
+      jsonCall.mockClear();
+      await compose(
+        {},
+        { ...nudge, subject: 'unfed', data: { reason: { kind: 'unfed' } } },
+        person,
+        {},
+      );
+      expect(jsonCall.mock.calls[0][1].user).not.toContain('have come back today');
     });
   });
 

@@ -45,12 +45,14 @@ const up = (m: number) => Math.ceil(m / STEP_MINUTES) * STEP_MINUTES;
  * @param busy meetings (and anything else fixed) on the day
  * @param from nothing starts before this (the time now, rounded up)
  * @param dayEnd nothing ends after this
+ * @param buffer the gap kept either side of what is already there
  */
 export function fitSlots(
   items: FitItem[],
   busy: Busy[],
   from: number,
   dayEnd: number = PLAN_DAY_END,
+  buffer: number = BUFFER_MINUTES,
 ): FitResult {
   const taken: Busy[] = busy
     .filter((b) => b.end > b.start)
@@ -71,13 +73,13 @@ export function fitSlots(
     for (let guard = 0; guard < 500 && start + minutes <= hi; guard++) {
       const end = start + minutes;
       const hit = taken
-        .filter((b) => start < b.end + BUFFER_MINUTES && end > b.start - BUFFER_MINUTES)
+        .filter((b) => start < b.end + buffer && end > b.start - buffer)
         .sort((a, b) => b.end - a.end)[0];
       if (!hit) {
         found = start;
         break;
       }
-      start = up(hit.end + BUFFER_MINUTES);
+      start = up(hit.end + buffer);
     }
     if (found === null) {
       unplaced.push(item.id);
@@ -89,6 +91,27 @@ export function fitSlots(
 
   placed.sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
   return { placed, unplaced };
+}
+
+/**
+ * Minutes still free for something more in [from, to], with the gap kept
+ * either side of every meeting and everything placed. This is the room the
+ * fitter itself has: what freeMinutes counts and the gaps it would leave.
+ */
+export function roomLeft(
+  busy: Busy[],
+  placed: Placed[],
+  from: number,
+  to: number,
+  gap: number = BUFFER_MINUTES,
+): number {
+  const wide = (b: Busy): Busy => ({ start: b.start - gap, end: b.end + gap });
+  return freeMinutes(
+    busy.filter((b) => b.end > b.start).map(wide),
+    placed.map((p) => ({ id: p.id, ...wide(p) })),
+    from,
+    to,
+  );
 }
 
 /** Minutes of free time in [from, to] once meetings and the plan are taken out. */

@@ -23,6 +23,7 @@ import { BRAND } from '../../design/brand';
 import { GremlyMenuButton, GremlyPopupMenu } from './GremlyPopupMenu';
 import type { SweepCandidate, SweepCandidateNote, SweepCardMeta } from '../../lib/sweep/types';
 import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
+import { PrivateImage } from '../PrivateImage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -132,8 +133,14 @@ type SweepCardShellProps = {
   isConverted?: boolean;
   isClarified?: boolean;
   onRequestPhotoPreview?: (url: string) => void;
-  hideGremlyMenu?: boolean;
   onWorldPress?: () => void;
+  /**
+   * Keep does not decide yet: it opens the card's choices instead (a todo
+   * that has come back twice is asked keep or let go before it is offered
+   * days). While this is set, the Keep button and a swipe to the right call
+   * it and the card stays where it is.
+   */
+  keepOpens?: () => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,8 +160,8 @@ export function SweepCardShell({
   isConverted,
   isClarified,
   onRequestPhotoPreview,
-  hideGremlyMenu,
   onWorldPress,
+  keepOpens,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -241,6 +248,10 @@ export function SweepCardShell({
     setTimeout(() => onSwipeLeft(), CARD_EXIT_DELAY);
   }, [onSwipeLeft]);
 
+  // Keep that only opens the card's choices (keepOpens): read by the gesture below
+  const keepHeld = !!keepOpens;
+  const openKeep = useCallback(() => keepOpens?.(), [keepOpens]);
+
   // ── Pan gesture ──
   const panGesture = Gesture.Pan()
     .activeOffsetX([-10, 10])
@@ -272,7 +283,12 @@ export function SweepCardShell({
       const swipedLeft =
         translationX < -SWIPE_THRESHOLD || (translationX < -50 && velocityX < -VELOCITY_THRESHOLD);
 
-      if (swipedRight) {
+      if (swipedRight && keepHeld) {
+        // Keep only opens the choices: the card comes back to rest
+        runOnJS(triggerHaptic)('light');
+        translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
+        runOnJS(openKeep)();
+      } else if (swipedRight) {
         runOnJS(triggerHaptic)('success');
         translateX.value = withSpring(
           SWIPE_OUT_DISTANCE,
@@ -384,8 +400,12 @@ export function SweepCardShell({
 
   // ── Button handlers ──
   const handleKeepPress = useCallback(() => {
+    if (keepOpens) {
+      keepOpens();
+      return;
+    }
     animateCardExit('right', translateX, cardOpacity, onSwipeRight);
-  }, [onSwipeRight, translateX, cardOpacity]);
+  }, [keepOpens, onSwipeRight, translateX, cardOpacity]);
 
   const handleLetGoPress = useCallback(() => {
     animateCardExit('left', translateX, cardOpacity, onSwipeLeft);
@@ -454,11 +474,9 @@ export function SweepCardShell({
             {/* Card content */}
             <View style={styles.contentContainer}>
               {/* Gremly menu button */}
-              {!hideGremlyMenu && (
-                <View style={styles.gremlyButtonPosition}>
-                  <GremlyMenuButton onPress={() => setMenuVisible(true)} />
-                </View>
-              )}
+              <View style={styles.gremlyButtonPosition}>
+                <GremlyMenuButton onPress={() => setMenuVisible(true)} />
+              </View>
               <View style={styles.menuPosition} pointerEvents={menuVisible ? 'auto' : 'box-none'}>
                 <GremlyPopupMenu
                   visible={menuVisible}
@@ -529,8 +547,8 @@ export function SweepCardShell({
                   activeOpacity={0.9}
                   accessibilityLabel="Tap to view full photo"
                 >
-                  <Image
-                    source={{ uri: firstAttachment.url }}
+                  <PrivateImage
+                    uri={firstAttachment.url}
                     style={styles.photoHeroImage}
                     resizeMode="cover"
                   />

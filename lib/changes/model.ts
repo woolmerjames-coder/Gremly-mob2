@@ -10,6 +10,7 @@ export {
   beforeValue,
   checkCard,
   checkChange,
+  checkWeekChange,
   itemTitle,
   normDay,
   normTime,
@@ -19,8 +20,18 @@ export {
 export type {
   Change,
   CheckContext,
+  Milestone,
+  MilestoneStep,
   PlanChange,
   Schedule,
+  WeekCheckContext,
+  WeekShape,
 } from '../../workers/shared/changes/check';
-export { fieldDef, OPS, TYPES } from '../../workers/shared/changes/fields';
-export type { ChangeOp, FieldDef, ItemType } from '../../workers/shared/changes/fields';
+export { EASE_OPS, fieldDef, OPS, TYPES, WEEK_OPS } from '../../workers/shared/changes/fields';
+export type {
+  ChangeOp,
+  EaseOp,
+  FieldDef,
+  ItemType,
+  WeekOp,
+} from '../../workers/shared/changes/fields';

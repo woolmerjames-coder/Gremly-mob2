@@ -1,4 +1,11 @@
-import { BUFFER_MINUTES, fitSlots, freeMinutes, type Busy, type FitItem } from '../slotFitter';
+import {
+  BUFFER_MINUTES,
+  fitSlots,
+  freeMinutes,
+  roomLeft,
+  type Busy,
+  type FitItem,
+} from '../slotFitter';
 
 const MEETINGS: Busy[] = [
   { start: 480, end: 510 },
@@ -90,6 +97,27 @@ describe('the slot fitter', () => {
       600,
     );
     expect(r.placed).toHaveLength(1);
+  });
+
+  it('counts the room left for more, with the gaps it would keep', () => {
+    // noon to 10pm with one meeting, from 12 to 1:15: the 15 minutes after it are its gap
+    const lunch: Busy[] = [{ start: 720, end: 795 }];
+    expect(roomLeft(lunch, [], 720, 1320)).toBe(600 - 75 - 15);
+    // one thing placed at 1:30 for 45 minutes takes its own time and the gap after it
+    // (the gap before it is the meeting's)
+    expect(roomLeft(lunch, [{ id: 'x', start: 810, end: 855 }], 720, 1320)).toBe(
+      600 - 75 - 15 - 45 - 15,
+    );
+    // with no gap kept, it is the plain free time
+    expect(roomLeft(lunch, [{ id: 'x', start: 795, end: 840 }], 720, 1320, 0)).toBe(
+      freeMinutes(lunch, [{ id: 'x', start: 795, end: 840 }], 720, 1320),
+    );
+    // a meeting later in the day keeps a gap either side of it
+    expect(roomLeft(MEETINGS, [], 720, 1320)).toBe(600 - 75 - 15 - 15 - 30 - 15);
+    // after the fitter has placed something, the room it reports is what it could still use
+    const fit = fitSlots([{ id: 'a', minutes: 60, window: [720, 900] }], lunch, 720, 900);
+    expect(fit.placed).toEqual([{ id: 'a', start: 810, end: 870 }]);
+    expect(roomLeft(lunch, fit.placed, 720, 900)).toBe(15);
   });
 
   it('counts the free time left', () => {

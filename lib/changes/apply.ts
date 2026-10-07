@@ -25,6 +25,8 @@ import { createColumns, writeFor } from './patch';
 import { historyLines } from './history';
 import { applyLinks, copyLinks, hasLinks } from './links';
 import { doneWords, type NameLookup } from './words';
+import { applyWeekChange } from './week';
+import { applyEase } from './ease';
 
 export interface ApplyOptions {
   source: ChangeSource;
@@ -104,9 +106,26 @@ export function staleField(type: ItemType, change: Change, snapshot: Item): stri
     if (['tags', 'links', 'list', 'reminder'].includes(def.kind)) continue;
     if (def.kind === 'text' && value && typeof value === 'object') continue;
     const now = beforeValue(type, snapshot, field);
-    if (JSON.stringify(now) !== JSON.stringify(change.before[field])) return field;
+    if (sameValue(now) !== sameValue(change.before[field])) return field;
   }
   return null;
+}
+
+/**
+ * A value as one line to compare, whatever order its fields are in. A card
+ * comes back from where it is kept with the fields of each object in another
+ * order than they were written in, and that is no change to the item.
+ */
+function sameValue(v: unknown): string {
+  return JSON.stringify(v, (_key, val) =>
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(
+          Object.entries(val as Record<string, unknown>).sort(([a], [b]) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        )
+      : val,
+  );
 }
 
 const nothing = async () => {};
@@ -299,6 +318,23 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
     case 'plan':
       // today's plan is re-fitted by the thread from what was applied
       return ok(nothing);
+    // the week's own changes (the weekly review), each with its own writer
+    case 'later':
+    case 'habit_days':
+    case 'week_shape':
+    case 'intention':
+    case 'milestone':
+    case 'weekly_day': {
+      const r = await applyWeekChange(change);
+      if (!r.ok) return { cid: change.cid, ...r };
+      return ok(r.revert, r.createdId);
+    }
+    // a habit paused, given a lighter version, or set back to usual
+    case 'ease': {
+      const r = await applyEase(change);
+      if (!r.ok) return { cid: change.cid, ...r };
+      return ok(r.revert);
+    }
     default:
       throw new Error(`No way to apply ${change.op}`);
   }

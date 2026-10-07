@@ -12,6 +12,9 @@
  * named by its weekday so nobody has to work out which day is meant.
  */
 
+import { weekdayOf } from '../week/model';
+import { dayName, shortDay } from '../week/review/words';
+
 const NUMBERS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
 
 /** "three", then "12" past nine. */
@@ -59,8 +62,13 @@ export function sweepMinutes(cards: number): string {
 export const WRAP_COPY = {
   // the offer's buttons
   sweepNow: 'Sweep now',
-  planWeek: 'Plan my week',
   notTonight: 'Not tonight',
+  // the close, from their weekly day through the two days after: the weekly
+  // review until it is done, and the week they planned once it is
+  planWeek: 'Plan my week',
+  seeWeek: 'See your week',
+  weekHint: "Your week isn't planned yet.",
+  toWeek: "Let's plan your week.",
   finishOne: 'Finish it',
   finishMany: 'Finish them',
   leaveOne: 'Leave it',
@@ -69,6 +77,7 @@ export const WRAP_COPY = {
   journalAsk: 'How was today?',
   journalAskOnly: 'Of course. How was today?',
   journalWrite: 'Write a few lines',
+  journalPage: 'Open my journal',
   journalMood: 'Just pick a mood',
   journalSkip: 'Skip tonight',
   journalOnly: 'Just the journal',
@@ -79,6 +88,11 @@ export const WRAP_COPY = {
   journalFailed: "I couldn't save that just now. It is still in the box if you want to try again.",
   journalPlaceholder: 'Write a few lines…',
   journalTag: 'Saving to your journal',
+  journalExpand: 'Open the full journal page',
+  journalDraftTag: 'Draft in your journal',
+  journalDraftOpen: 'Open',
+  journalWrote: 'Wrote in your journal',
+  journalBusy: 'Gremly is in the middle of something. Press Done again in a moment.',
   // Gremly's questions
   questionTag: 'Answering Gremly',
   questionType: 'Type an answer',
@@ -88,6 +102,11 @@ export const WRAP_COPY = {
   answerFailed: "I couldn't save that just now, so I'll ask again another time.",
   questionSkipped: "No problem, I'll ask another time.",
   savedEvent: 'Saved your answer',
+  // a milestone's check in, from their weekly review (lib/wrapup/checkIns.ts)
+  checkInSaved: "Thanks. That's in your journal as a check in.",
+  checkInSavedEvent: 'Saved your check in',
+  checkInFailed: "I couldn't save that just now, so I'll ask again another time.",
+  checkInSkipped: "No problem. I'll leave that one.",
   // the cards
   allSorted: 'All sorted.',
   everythingPlaced: 'Everything has a place now.',
@@ -218,8 +237,15 @@ export function habitsLine(build: number, breaking: number): string {
       ? 'One habit to check in on. Did it hold today?'
       : `${cap(numberWord(breaking))} habits to check in on. Did they hold today?`;
   }
-  if (build === 1) return 'One habit is still open today. Did it happen?';
-  return `${cap(numberWord(build))} habits are still open today. Did ${build === 2 ? 'either' : 'any'} happen?`;
+  const open =
+    build === 1
+      ? 'One habit is still open today. Did it happen?'
+      : `${cap(numberWord(build))} habits are still open today. Did ${build === 2 ? 'either' : 'any'} happen?`;
+  if (!breaking) return open;
+  // the ones they are breaking are on the card too, and are named so they are not passed over
+  return breaking === 1
+    ? `${open} And the one you're breaking: did it hold?`
+    : `${open} And the ${numberWord(breaking)} you're breaking: did they hold?`;
 }
 
 /** After the habit card is saved. */
@@ -245,6 +271,16 @@ export function habitsSavedLine(p: {
     parts.push(`No worries about ${listWords(p.notHeld)}, tomorrow is a fresh one.`);
   }
   return parts.join(' ');
+}
+
+/**
+ * Before tonight's questions when check ins they set up come first: how many
+ * check ins, and how many of Gremly's own questions follow them.
+ */
+export function checkInIntro(checkIns: number, others: number): string {
+  const first = checkIns === 1 ? 'A check in' : `${cap(numberWord(checkIns))} check ins`;
+  if (others > 0) return `${first} first, then ${things(others)} I'd like to get right.`;
+  return checkIns === 1 ? "One check in, then you're done." : `${first}, then you're done.`;
 }
 
 export function questionsIntro(n: number): string {
@@ -286,17 +322,18 @@ export function sweptEvent(decided: number): string {
   return `Swept ${decided} ${decided === 1 ? 'thing' : 'things'}`;
 }
 
-/** The close: the day wrapped up, and what tomorrow holds. */
-export function closeLine(d: WrapDay, meetings: number, lined: string[]): string {
+/** The close: the day closed out, rest first, and what tomorrow holds in one line, its meetings and every todo planned for it. */
+export function closeLine(d: WrapDay, meetings: number, todos: string[]): string {
   const has: string[] = [];
   if (meetings > 0) has.push(`${numberWord(meetings)} ${meetings === 1 ? 'meeting' : 'meetings'}`);
   let tail: string;
-  if (!lined.length)
-    tail = has.length ? ', and nothing else lined up yet' : ' nothing lined up yet';
-  else if (lined.length <= 3) {
-    tail = `${has.length ? ', and ' : ' '}${listWords(lined)} lined up`;
-  } else tail = `${has.length ? ', and ' : ' '}${things(lined.length)} lined up`;
-  return `That's ${d.weekday} wrapped up. ${tomorrowCap(d)} has${has.length ? ` ${has[0]}` : ''}${tail}.`;
+  if (!todos.length) tail = has.length ? ', and no todos planned yet' : ' nothing planned yet';
+  else if (todos.length <= 3) {
+    tail = `${has.length ? ', and ' : ' '}${listWords(todos)} planned`;
+  } else
+    tail = `${has.length ? ', and ' : ' '}${numberWord(todos.length)} ${todos.length === 1 ? 'todo' : 'todos'} planned`;
+  const next = d.early ? 'Enjoy the rest of your day.' : 'Time to rest now.';
+  return `That's ${d.weekday} closed out, nicely done. ${next} ${tomorrowCap(d)} has${has.length ? ` ${has[0]}` : ''}${tail}.`;
 }
 
 export function planTomorrowButton(d: WrapDay): string {
@@ -426,6 +463,7 @@ export const CARD_COPY = {
   saved: 'Saved',
   journalRemoved: 'Taken back out of your journal',
   journalMoods: 'Moods',
+  journalOpen: 'Open',
   journalSave: 'Save',
   journalSkip: 'Skip',
   journalDone: 'Done',
@@ -436,6 +474,23 @@ export const CARD_COPY = {
   habitLogged: 'Logged',
   habitNotToday: 'Not today',
 } as const;
+
+const longDay = (day: string) => dayName(weekdayOf(day));
+
+/** The button on a habit they planned for today that did not happen: "Move to Sat". */
+export function habitMoveButton(day: string): string {
+  return `Move to ${shortDay(day)}`;
+}
+
+/** Under a habit that is being moved, or was: "Moves to Saturday", "Moved to Saturday". */
+export function habitMoveLine(day: string, saved: boolean): string {
+  return `${saved ? 'Moved' : 'Moves'} to ${longDay(day)}`;
+}
+
+/** The line in the thread for a habit moved from the card: "Moved Strength to Saturday". */
+export function habitMovedEvent(title: string, day: string): string {
+  return `Moved ${title} to ${longDay(day)}`;
+}
 
 /** "4 of 5 planned" */
 export function plannedTag(p: { done: number; total: number }): string {

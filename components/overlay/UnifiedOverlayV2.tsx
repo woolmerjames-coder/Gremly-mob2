@@ -97,7 +97,7 @@ import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
-import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
+import type { UnifiedOverlayProps } from './overlayProps';
 import { styles } from './overlayStyles';
 import { initialV2State, type BaseType, type TagKey } from './overlayV2.state';
 import {
@@ -128,6 +128,7 @@ import { cleanReminders, summarizeReminders } from '../../lib/reminders/reminder
 import type { ItemReminder } from '../../lib/types';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import { PrivateImage } from '../PrivateImage';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import { jsonToFrequency, getFrequencyLabel } from './frequencyHelpers';
 import { buildSavePayload, detectListFromText, type SaveContext } from './overlaySave';
@@ -649,7 +650,7 @@ function getLogSubtypeChipLabel(
   }
 }
 
-export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
+export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   const {
     visible,
     onClose,
@@ -949,6 +950,37 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       store.discard();
     }
   }, [visible, currentEntityId, mode]);
+
+  // The draft is a snapshot from when the overlay opened. When the item
+  // changes in the store after that (Gremly adds to its notes from the item's
+  // chat, which sits on top of this overlay), the draft takes what changed and
+  // keeps what the person has edited (draftRefresh.ts).
+  //
+  // The store is listened to directly, so that what the overlay is doing is
+  // known at the moment of each change. Its own Save writes the draft to the
+  // store, and takes it back if the save fails: neither is news to the draft,
+  // and treating the failed save's way back as news would undo their edits.
+  useEffect(() => {
+    if (!visible || !currentEntityId || mode === 'create') return;
+    const find = (s: ReturnType<typeof useGremlyStore.getState>): Record<string, any> | undefined =>
+      s.todos.find((t) => t.id === currentEntityId) ??
+      s.notes.find((n) => n.id === currentEntityId) ??
+      s.habits.find((h) => h.id === currentEntityId);
+    // the first sight of the item is what the overlay opened on: nothing to bring in
+    let seen = find(useGremlyStore.getState());
+    return useGremlyStore.subscribe((s) => {
+      const now = find(s);
+      if (now === seen) return;
+      const before = seen;
+      seen = now;
+      if (!before || !now || useOverlayDraft.getState().ui.saving) return;
+      useOverlayDraft.getState().refreshFromItem({
+        before,
+        after: now,
+        hydrate: (entity) => hydrateEntityToDraft(entity, mode as any, initialSpaceId),
+      });
+    });
+  }, [visible, currentEntityId, mode, initialSpaceId]);
 
   // Track if we started in view mode so we can show a back button
   const startedInViewMode = mode === 'view';
@@ -3630,6 +3662,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 state.logSubtypeOverride || effectiveLogSubtype,
               )}
               onSelect={(entityType) => {
+                // a new journal entry is written on the journal page, which
+                // starts with the words typed here and the photos chosen here
+                if (entityType === 'journal' && mode === 'create') {
+                  const chosen = logPhotos.filter((p) => !p.isDeleted).map((p) => p.url);
+                  const heading = (state.compactTitle ?? '').trim();
+                  const words = (currentText ?? '').trim();
+                  // a title made from the words is not written out twice
+                  const typed =
+                    heading && !words.includes(heading)
+                      ? [heading, words].filter(Boolean).join('\n')
+                      : words;
+                  onClose?.();
+                  // once the picker has gone: it and the page are both sheets
+                  setTimeout(() => {
+                    globalOverlay.openCreate({
+                      type: 'log',
+                      logSubtype: 'journal',
+                      initialText: typed || null,
+                      initialLogPhotoUris: chosen.length ? chosen : undefined,
+                    });
+                  }, 350);
+                  return;
+                }
                 const config = getTypeConfig(entityType);
                 if (config.baseType !== state.baseType) {
                   handleTypeSelect(config.baseType);
@@ -6873,8 +6928,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             accessibilityRole="button"
           >
             {selectedPhotoIndex !== null && logPhotos[selectedPhotoIndex] ? (
-              <Image
-                source={{ uri: logPhotos[selectedPhotoIndex].url }}
+              <PrivateImage
+                uri={logPhotos[selectedPhotoIndex].url}
                 style={styles.imageModalImage}
                 resizeMode="contain"
               />

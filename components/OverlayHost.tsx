@@ -383,12 +383,9 @@ function DestinationPickerSheet({
 }
 
 /**
- * DEPRECATED: manual-edit sheet registration removed
- * All create/edit flows now use UnifiedCreateOverlay managed locally in each screen
- * via useUnifiedOverlayController hook.
- *
- * Previous usage in HubScreen has been migrated to:
- * overlayController.openEdit({ record, spaceId })
+ * Every add and edit in the app is shown here, once, above the screens.
+ * A screen asks for it through useUnifiedOverlayController, for example
+ * overlayController.openEdit({ record, spaceId }), and draws no overlay itself.
  */
 
 export const OverlayHost = () => {

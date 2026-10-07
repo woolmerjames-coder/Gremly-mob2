@@ -36,7 +36,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
 
 jest.mock('../../features/celebration/CelebrationController', () => ({
   __esModule: true,
-  default: { showAgeUpCelebration: jest.fn() },
+  default: { startMoment: jest.fn(), startAgeUp: jest.fn(), confirmAgeUp: jest.fn() },
 }));
 
 jest.mock('../../../theme/tokens', () => ({

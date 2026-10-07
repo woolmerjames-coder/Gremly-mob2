@@ -34,6 +34,18 @@ describe('the plan picker', () => {
     expect(text).toContain('p3 | suggestion from what they said | Book the car service');
   });
 
+  it('passes on what they said has to happen first, when Gremly asked', () => {
+    const asked = renderPlanInput(readRequest({ ...BODY, asked: 'The oat milk, we are out' }), {
+      claims: [],
+      reach: null,
+    });
+    expect(asked).toContain(
+      'WHAT THEY SAID HAS TO HAPPEN OR COMES FIRST: "The oat milk, we are out"',
+    );
+    const none = renderPlanInput(readRequest(BODY), { claims: [], reach: null });
+    expect(none).not.toContain('WHAT THEY SAID');
+  });
+
   it('keeps only picks in the pool, once each, with windows inside the planning hours', () => {
     const req = readRequest(BODY);
     const { picks, dropped } = checkPicks(

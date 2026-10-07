@@ -19,7 +19,6 @@ import {
   localDate,
   localDateTime,
   addDays,
-  daysBetween,
   weekdayName,
   relativeDay,
   personIdentity,
@@ -31,6 +30,9 @@ import { loadStory } from './story';
 import { invalidateChatCache } from './cache';
 import { readThreadReaction } from '../brief/reaction';
 import { personNow } from '../../shared/day.js';
+import { spanDays, weeklyDayOf } from '../../shared/week.js';
+import { dayOfWeek, easeOn, unpaused, weekAround } from '../../shared/habitWeek.js';
+import { weekSettings } from '../week/settings';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01d';
 
@@ -39,6 +41,16 @@ function trim(text, n) {
     .replace(/\s+/g, ' ')
     .trim();
   return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+/**
+ * What a habit's line says of a lighter version running today: their own
+ * words for it when they gave any. Nothing when the habit has none.
+ */
+function lighterWords(ease) {
+  if (ease?.mode !== 'lighter') return '';
+  const said = trim(ease.note, 120);
+  return said ? `, lighter version for now: “${said}”` : ', on a lighter version for now';
 }
 
 function localStartIso(tz, dateStr) {
@@ -122,7 +134,10 @@ export async function gatherDay(env, userId, tz, today) {
   const d = db(env);
   const dayStart = localStartIso(tz, today);
   const horizonEnd = localStartIso(tz, addDays(today, 4));
-  const weekStart = addDays(today, -((new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7));
+  // Their week ends on their weekly day, which is read below with everything
+  // else. So habit progress is read from the earliest day a week holding today
+  // can begin, and counted from the first day of theirs (renderDay).
+  const earliestWeekStart = addDays(today, -6);
   const [
     calendar,
     noteEvents,
@@ -147,6 +162,8 @@ export async function gatherDay(env, userId, tz, today) {
     story,
     recentNotes,
     reaction,
+    settings,
+    eases,
   ] = await Promise.all([
     d.select(
       `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(dayStart)}&start_at=lt.${encodeURIComponent(horizonEnd)}&select=id,title,location,start_at,end_at,is_all_day&order=start_at.asc&limit=200`,
@@ -165,7 +182,7 @@ export async function gatherDay(env, userId, tz, today) {
       `habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,title,frequency,cadence,target_per_period,subtype&limit=100`,
     ),
     d.select(
-      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${weekStart}&select=habit_id,occurred_day&limit=2000`,
+      `habit_progress?owner_id=eq.${userId}&occurred_day=gte.${earliestWeekStart}&select=habit_id,occurred_day&limit=2000`,
     ),
     d.select(
       `daily_briefs?owner_id=eq.${userId}&date=eq.${today}&select=one_thing_id,one_thing_type`,
@@ -208,10 +225,28 @@ export async function gatherDay(env, userId, tz, today) {
     ),
     // How they reacted to yesterday's brief in Chat (Daily brief in Chat)
     readThreadReaction(env, userId, addDays(today, -1)).catch(() => null),
+    // Their weekly day. The day's context never waits on it: unread, their
+    // week is counted as ending on Sunday, and the log says why.
+    weekSettings(env, userId).catch((err) => {
+      console.warn(`[DCO v4] could not read their weekly day: ${err?.message || err}`);
+      return null;
+    }),
+    // The stretches a habit is paused for or on a lighter version, any that
+    // reach into a week holding today. Unread, no habit counts as either.
+    d
+      .select(
+        `habit_adaptations?owner_id=eq.${userId}&period_end=gte.${earliestWeekStart}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
+      )
+      .catch((err) => {
+        console.warn(
+          `[DCO v4] could not read their paused and lighter habits: ${err?.message || err}`,
+        );
+        return [];
+      }),
   ]);
   return {
     today,
-    weekStart,
+    weeklyDay: weeklyDayOf(settings?.weekly_day),
     calendar,
     noteEvents,
     openTodos,
@@ -235,6 +270,7 @@ export async function gatherDay(env, userId, tz, today) {
     story: story || [],
     recentNotes: recentNotes || [],
     reaction: reaction || null,
+    eases: eases || [],
   };
 }
 
@@ -320,15 +356,29 @@ export function renderDay(g, tz) {
     .slice(0, 30)
     .map((t) => todoLine(t, `no date, added ${relativeDay(t.created_at.slice(0, 10), today)}`));
 
-  // Habits this week.
+  // Habits this week: their own week, the seven days that end on their weekly day.
+  const weekFirst = weekAround(today, g.weeklyDay).first;
   const counts = new Map();
-  for (const p of g.progress) counts.set(p.habit_id, (counts.get(p.habit_id) || 0) + 1);
-  const daysIntoWeek = daysBetween(g.weekStart, today) + 1;
+  for (const p of g.progress) {
+    if (p.occurred_day < weekFirst) continue;
+    counts.set(p.habit_id, (counts.get(p.habit_id) || 0) + 1);
+  }
+  const daysIntoWeek = dayOfWeek(today, g.weeklyDay);
+  const daysGone = spanDays(weekFirst, today);
   const habitLines = g.habits.map((h) => {
     const ref = addRef('h', { type: 'habit', id: h.id, title: h.name || h.title });
     const done = counts.get(h.id) || 0;
     const target = h.cadence === 'daily' ? 7 : h.target_per_period || 1;
-    return `${ref} | ${trim(h.name || h.title, 80)} | ${h.subtype === 'break_habit' ? 'breaking a habit' : 'building a habit'} | ${done} of ${target} this week, day ${daysIntoWeek} of 7`;
+    // a habit paused today is left alone: its line says when the pause ends, with no count
+    const ease = easeOn(g.eases, h.id, today);
+    // days of this week it was paused on do not count against it: the line says how many
+    const pausedDays = daysGone.length - unpaused(g.eases, h.id, daysGone).length;
+    const wasPaused = pausedDays ? `, paused on ${pausedDays} of those days` : '';
+    const progress =
+      ease?.mode === 'pause'
+        ? `paused until ${ease.last}`
+        : `${done} of ${target} this week, day ${daysIntoWeek} of 7${wasPaused}${lighterWords(ease)}`;
+    return `${ref} | ${trim(h.name || h.title, 80)} | ${h.subtype === 'break_habit' ? 'breaking a habit' : 'building a habit'} | ${progress}`;
   });
 
   // Ledger facts, nearest dates first, then undated.

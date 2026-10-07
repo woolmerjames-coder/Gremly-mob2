@@ -483,3 +483,163 @@ describe('a turn', () => {
     expect(r.model).toBe('gpt-6-luna');
   });
 });
+
+// ── The brief's week variant, and the tools that only tell the app something ─
+
+describe("the brief's week variant", () => {
+  const withText = (text, ...calls) => ({ ...ask(...calls), text });
+  const signal = (s, extra = {}) => ({ ok: true, text: 'noted', result: { signal: s, ...extra } });
+  const run = (m, t, extra = {}) =>
+    runAgent({
+      surface: 'brief',
+      variant: 'week',
+      persona: 'P',
+      message: 'x',
+      ctx,
+      deps: { callModel: m.callModel, runTool: t.runTool },
+      ...extra,
+    });
+
+  it("adds the week's tools and its own propose_changes, on the brief's model", async () => {
+    configureModels({ AGENT_MODEL_BRIEF: 'gpt-6-luna' });
+    const m = scripted(ask(['propose_changes', { changes: [] }]), reply('ok'));
+    const seenCtx = [];
+    const t = tools();
+    const r = await run(m, {
+      runTool: async (c, name, args) => {
+        seenCtx.push(c.surface);
+        return t.runTool(c, name, args);
+      },
+    });
+    expect(m.seen[0].tools.map((d) => d.name)).toEqual([
+      'get_day',
+      'find_items',
+      'get_item',
+      'recall',
+      'web_search',
+      'propose_changes',
+      'get_week',
+      'hold',
+      'offer_week',
+      'track_tasks',
+    ]);
+    const decl = m.seen[0].tools.find((d) => d.name === 'propose_changes');
+    expect(decl.description).toContain('Their week changes too');
+    expect(decl.parameters.properties.changes.items.properties.back_on).toBeTruthy();
+    expect(m.seen[0].system).toContain(SURFACES.brief.job);
+    expect(m.seen[0].system).toContain(SURFACES.brief.variants.week.job);
+    expect(seenCtx).toEqual(['brief_week']);
+    expect(r.model).toBe('gpt-6-luna');
+    expect(r).toMatchObject({ hold: null, offer: null });
+  });
+
+  it('is the brief as it is when no variant is asked for', async () => {
+    const m = scripted(reply('ok'));
+    await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'x',
+      ctx,
+      deps: { callModel: m.callModel },
+    });
+    expect(m.seen[0].tools.map((d) => d.name)).not.toContain('get_week');
+    expect(m.seen[0].system).not.toContain(SURFACES.brief.variants.week.job);
+  });
+
+  it('a reply written with a hold is the answer: the review waits, and no step is spent', async () => {
+    const m = scripted(
+      withText('How many hours do you have?', [
+        'hold',
+        { question: 'How many hours do you have?' },
+      ]),
+    );
+    const t = tools({ hold: signal({ hold: { question: 'How many hours do you have?' } }) });
+    const r = await run(m, t);
+    expect(r).toMatchObject({
+      ok: true,
+      reply: 'How many hours do you have?',
+      stopped: 'answer',
+      hold: { question: 'How many hours do you have?' },
+      offer: null,
+    });
+    expect(m.seen).toHaveLength(1);
+    expect(t.ran).toEqual([['hold', { question: 'How many hours do you have?' }]]);
+  });
+
+  it("a reply written with the week's button and a card arrives in one step", async () => {
+    const m = scripted(
+      withText('Here is your week.', ['offer_week', {}], ['propose_changes', { changes: [{}] }]),
+    );
+    const t = tools({
+      offer_week: signal({ offer: { kind: 'week', done: true } }),
+      propose_changes: {
+        ok: true,
+        text: 'on the card',
+        result: { changes: [{ op: 'weekly_day' }], dropped: [] },
+      },
+    });
+    const r = await run(m, t);
+    expect(r).toMatchObject({
+      reply: 'Here is your week.',
+      offer: { kind: 'week', done: true },
+      hold: null,
+      card: [{ cid: 'c1', op: 'weekly_day' }],
+    });
+    expect(m.seen).toHaveLength(1);
+  });
+
+  it('takes another step when the signal has more for the model to act on', async () => {
+    const m = scripted(
+      withText('Here you go.', ['offer_week', {}]),
+      reply('No other review today.'),
+    );
+    const t = tools({
+      offer_week: signal({ offer: { kind: 'week', done: true } }, { more: true }),
+    });
+    const r = await run(m, t);
+    expect(m.seen).toHaveLength(2);
+    expect(m.seen[1].turns.at(-1)).toMatchObject({
+      role: 'tool',
+      results: [{ name: 'offer_week', text: 'noted' }],
+    });
+    // the button still goes under the reply the model ends on
+    expect(r).toMatchObject({
+      reply: 'No other review today.',
+      offer: { kind: 'week', done: true },
+    });
+  });
+
+  it('takes another step when a signal did not take, and tells the app nothing', async () => {
+    const m = scripted(
+      withText('Which day?', ['hold', { question: 'Which day?' }]),
+      reply('Which day?'),
+    );
+    const t = tools({ hold: signal(null) });
+    const r = await run(m, t);
+    expect(m.seen).toHaveLength(2);
+    expect(r).toMatchObject({ reply: 'Which day?', hold: null });
+  });
+
+  it('a signal with no reply yet is not an answer: the model is asked again', async () => {
+    const m = scripted(ask(['hold', { question: 'Which day?' }]), reply('Which day works?'));
+    const t = tools({ hold: signal({ hold: { question: 'Which day?' } }) });
+    const r = await run(m, t);
+    expect(m.seen).toHaveLength(2);
+    expect(r).toMatchObject({ reply: 'Which day works?', hold: { question: 'Which day?' } });
+  });
+
+  it('does not offer the signals on a surface without the variant', async () => {
+    const m = scripted(withText('ok', ['hold', { question: 'x?' }]), reply('ok'));
+    const t = tools();
+    const r = await runAgent({
+      surface: 'brief',
+      persona: 'P',
+      message: 'x',
+      ctx,
+      deps: { callModel: m.callModel, runTool: t.runTool },
+    });
+    expect(t.ran).toEqual([]);
+    expect(m.seen[1].turns.at(-1).results[0].text).toBe('hold is not available here.');
+    expect(r.hold).toBeNull();
+  });
+});

@@ -54,6 +54,8 @@ import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays, format, parseISO } from 'date-fns';
 import { getDateService } from '../../lib/date';
 import { dateService, nowTimestamp } from '../../lib/date/DateService';
+import { weekAround } from '../../lib/week/habitWeek';
+import { spanDays } from '../../lib/week/model';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -89,7 +91,6 @@ import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverl
 // Phase 12: MilestoneHeader (milestone data now from Zustand store)
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
 import { getWittyLine, type Mood } from '../../lib/ai/moodLines';
@@ -120,7 +121,7 @@ import {
 import { SectionDivider } from '../../components/spaces/sections/SectionDivider';
 import { SpaceJourneyModal } from '../../components/spaces/SpaceJourneyModal';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
-import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { openJournal } from '../../lib/journal/session';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
@@ -360,6 +361,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Timeline from store - needed for weekly habit progress computation
   const timelineDays = useSpaceTimelineFromStore(spaceId);
+  // Their weekly day: habits are counted in their own week, which ends on it
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
 
   // Combined items array - used for mood calculations (lastItemTs)
   const items = useMemo(
@@ -369,9 +372,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Compute weekly habit progress from store items + timeline data
   const weekly = useMemo(() => {
-    const start = startOfWeek(getDateService().dayNow());
-    const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
-    const weekISO = dateService.toLocalDate(start);
+    // Their own week: the seven days that end on their weekly day
+    const week = weekAround(dateService.today(), weeklyDay);
+    const weekDates = spanDays(week.first, week.last);
+    const weekISO = week.first;
 
     // Helper: Calculate weekly target from habit frequency
     const calculateWeeklyTarget = (habit: any): number => {
@@ -414,8 +418,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }> = [];
 
     for (const h of storeHabits as any[]) {
-      const flags = weekDates.map((d) => {
-        const iso = dateService.toLocalDate(d);
+      const flags = weekDates.map((iso) => {
         const day = (timelineDays || []).find((x: any) => x.dateISO === iso);
         const match = (day?.items || []).find((it: any) => it.type === 'habit' && it.id === h.id);
         return !!match?.done;
@@ -441,7 +444,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     }
 
     return { weekStartISO: weekISO, habits: out };
-  }, [storeHabits, timelineDays]);
+  }, [storeHabits, timelineDays, weeklyDay]);
 
   // Chats - now from Zustand store
   const chats = useSpaceChats(spaceId);
@@ -497,13 +500,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showKeyDatesModal, setShowKeyDatesModal] = useState(false);
-  const [showGoalCheckInJournal, setShowGoalCheckInJournal] = useState(false);
-  const [goalCheckInContext, setGoalCheckInContext] = useState<{
-    goal_id: string;
-    goal_name: string;
-    space_id: string;
-    space_name: string;
-  } | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
@@ -951,28 +947,21 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     setShowQuickAddModal(true);
   }, []);
 
-  // Goal Check-in: Open journal for a goal
+  // Goal Check-in: a new check in on the goal, written on the journal page
   const handleGoalCheckIn = useCallback(
-    (goal: Note, sName: string) => {
-      console.log('[SpaceHome] Opening goal check-in journal with context:', {
-        goal_id: goal.id,
-        goal_name: goal.title,
-        space_id: spaceId,
-        space_name: sName,
-      });
+    (goal: Note) => {
       // Close SpaceJourneyModal first to avoid nested modal issues
       setShowKeyDatesModal(false);
-      // Small delay to let the modal close before opening the new one
+      // Small delay to let the modal close before the page opens
       setTimeout(() => {
-        const context = {
-          goal_id: goal.id,
-          goal_name: goal.title || 'Untitled Goal',
-          space_id: spaceId,
-          space_name: sName,
-        };
-        console.log('[SpaceHome] Setting goalCheckInContext:', context);
-        setGoalCheckInContext(context);
-        setShowGoalCheckInJournal(true);
+        openJournal({
+          day: getDateService().ritualDay(),
+          goal: {
+            goal_id: goal.id,
+            goal_name: goal.title || 'Untitled Goal',
+            space_id: spaceId,
+          },
+        });
       }, 300);
     },
     [spaceId],
@@ -1006,7 +995,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     (checkIn: Note) => {
       console.log('[SpaceHome] Opening check-in note:', checkIn.id);
       setShowKeyDatesModal(false);
-      overlay.openEdit({ record: checkIn, spaceId });
+      // A check in opens on the journal page, a sheet like this one. This one
+      // closes first: two changing places in the same moment can leave neither showing.
+      setTimeout(() => {
+        overlay.openEdit({ record: checkIn, spaceId });
+      }, 300);
     },
     [overlay, spaceId],
   );
@@ -1973,31 +1966,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           onGoalChat={handleGoalChat}
           onCheckInPress={handleCheckInPress}
           onGoalCheckIn={handleGoalCheckIn}
-        />
-
-        {/* Goal Check-in Journal */}
-        <JournalFullScreen
-          visible={showGoalCheckInJournal}
-          createMode={true}
-          goalContext={
-            goalCheckInContext
-              ? {
-                  type: 'goal_checkin',
-                  goal_id: goalCheckInContext.goal_id,
-                  goal_name: goalCheckInContext.goal_name,
-                  space_id: goalCheckInContext.space_id,
-                  space_name: goalCheckInContext.space_name,
-                }
-              : undefined
-          }
-          onClose={() => {
-            setShowGoalCheckInJournal(false);
-            setGoalCheckInContext(null);
-          }}
-          onSave={() => {
-            setShowGoalCheckInJournal(false);
-            setGoalCheckInContext(null);
-          }}
         />
 
         {/* Space Settings Modal */}

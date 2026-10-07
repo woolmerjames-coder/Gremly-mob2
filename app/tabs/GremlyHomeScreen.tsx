@@ -54,10 +54,15 @@ import { CHAT_CAPTION, DROP_CAPTION, inFirstWeek } from '../../components/home/h
 import type { TabParamList } from '../../navigation/TabNavigator';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
+import celebrationController from '../features/celebration/CelebrationController';
+import { FedWash } from '../features/celebration/FedWash';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const LINEN = '#F9F6F1';
 const HINT_DELAY_MS = 900;
 const HINT_VISIBLE_MS = 5000;
+/** The box on a fed day: linen into a sage wash */
+const DOCK_FED: [string, string] = ['#F9F6F1', '#E3EEE1'];
 const NUDGE_PX = 56;
 // Talk it through: the keyboard opens once the page has slid over to Chat
 const FOCUS_AFTER_SLIDE_MS = 450;
@@ -83,6 +88,27 @@ export default function GremlyHomeScreen() {
 
   const [mode, setMode] = useState<HomeMode>('drop');
   const [pagerHeight, setPagerHeight] = useState(0);
+  // The box: the fed wash fills everything above it, and the root moment
+  // layer carries on from its top on day 3, so the controller is told where it is
+  const dockRef = useRef<View | null>(null);
+  const [dockHeight, setDockHeight] = useState(0);
+  // on a fed day the box keeps a sage tint, from the moment the wash falls until the day ends
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
+  const reportDock = useCallback(() => {
+    const node = dockRef.current;
+    if (!node) return;
+    node.measureInWindow((_x, y, _w, h) => {
+      if (typeof y === 'number' && h > 0) celebrationController.setWashHost(y);
+    });
+  }, []);
+  useEffect(() => {
+    if (!isFocused) {
+      celebrationController.setWashHost(null);
+      return;
+    }
+    reportDock();
+    return () => celebrationController.setWashHost(null);
+  }, [isFocused, reportDock]);
   const [hintVisible, setHintVisible] = useState(false);
   const [chatMounted, setChatMounted] = useState(false);
 
@@ -393,8 +419,30 @@ export default function GremlyHomeScreen() {
               {chatPage}
             </Animated.ScrollView>
 
+            {/* The fed wash: the pages' height, ending at the box, under the box in the stack */}
+            {pagerHeight > 0 && dockHeight > 0 ? (
+              <FedWash height={pagerHeight} bottom={dockHeight} />
+            ) : null}
+
             {/* The one input box, fixed under both pages, with Gremly perched on it */}
-            <View style={styles.dock} testID="gremly-home-dock">
+            <View
+              ref={dockRef}
+              style={styles.dock}
+              testID="gremly-home-dock"
+              onLayout={(e) => {
+                setDockHeight(e.nativeEvent.layout.height);
+                reportDock();
+              }}
+            >
+              {isFedToday ? (
+                <LinearGradient
+                  colors={DOCK_FED}
+                  locations={[0, 0.36]}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                  testID="gremly-home-dock-fed"
+                />
+              ) : null}
               {dock}
             </View>
           </KeyboardAvoidingView>

@@ -15,6 +15,7 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
 import type { CalendarEvent as SyncedCalendarEvent } from './CalendarClient';
 import type { Habit } from '../types';
+import { isBreakHabit } from '../../workers/shared/habitWeek';
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -369,6 +370,8 @@ function collectItemsForDate(
   if (options?.includeHabits) {
     for (const habit of state.habits) {
       if (!habitOccursOnDate(habit, dateStr)) continue;
+      // a habit they are breaking has no time to do it at: never a block
+      if (isBreakHabit(habit)) continue;
 
       // Skip habits that have no calendar placement
       const tw = habit.time_window;

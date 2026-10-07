@@ -171,6 +171,7 @@ import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
+import { weekReadResponse } from './weekRead.js';
 import { AGENT_LANES, agentChatFor, prefetchForChat, runChatTurn } from './agent/chat.js';
 import {
   geminiGenerate,
@@ -214,8 +215,10 @@ import { personNow } from '../shared/day.js';
 import { GREMLY_CORE_PERSONA } from './corePersona.js';
 import { HABIT_BUILDER_PROMPT } from './habitBuilderPrompt.js';
 import { writeWrapWords, WRAP_WORDS_VERSION } from './wrap/words.js';
+import { writeAgeWords, AGE_WORDS_VERSION } from './age/words.js';
 import { clock } from './agent/tools/words.js';
 import { minutesIn } from '../shared/calendar.js';
+import { weeklyDayOf } from '../shared/week.js';
 import { executeTavilySearch, formatSearchBrief } from './webSearch.js';
 import { aiContext, installAiUsageLogging, setAiUsage } from '../shared/aiUsage.js';
 import { briefNoCardSection, briefQuestionSection } from './briefTurn.js';
@@ -2307,6 +2310,8 @@ async function answerWithAgent({
     messages,
     tasks: Array.isArray(body.agentTasks) ? body.agentTasks : [],
     preload,
+    // their week, from an app build that can show the weekly review's button
+    week: body.week && typeof body.week === 'object' ? body.week : null,
     onStatus: (line) => {
       send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
     },
@@ -2332,6 +2337,8 @@ async function answerWithAgent({
     agent: {
       card: turn.card,
       tasks: turn.tasks,
+      // the button to their week, when Gremly put one under the reply
+      ...(turn.offer ? { offer: turn.offer } : {}),
       model: turn.model,
       ms: turn.ms,
       tools: turn.tools,
@@ -3367,6 +3374,8 @@ const cortexHandler = {
         'plan-pick',
         'day-turn',
         'brief-turn',
+        'week-read',
+        'week-spread',
         'notification-test',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
@@ -4105,6 +4114,28 @@ After the user confirms and locks in a habit, check the existing habits listed i
         } catch (err) {
           console.warn('[WrapWords] Failed:', String(err?.message || err).slice(0, 200));
           return j({ words: null });
+        }
+      }
+
+      // What got me here: the line on the age up page, written from the three
+      // fed days that earned the age. The app shows its fallback when this
+      // has nothing or is late.
+      if (type === 'age-words') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+        try {
+          const out = await writeAgeWords({
+            env,
+            userId: authenticatedUserId,
+            tz: userTimezone,
+            body,
+          });
+          return j(out ? { ...out, version: AGE_WORDS_VERSION } : { line: null });
+        } catch (err) {
+          console.warn('[AgeWords] Failed:', String(err?.message || err).slice(0, 200));
+          return j({ line: null });
         }
       }
 
@@ -7719,6 +7750,78 @@ ${assistantMessage.substring(0, 2000)}
             const res = await askDayTurn(env, authenticatedUserId, b);
             return res && res.ok ? res.json().catch(() => null) : null;
           },
+          waitUntil: (p) => ctx.waitUntil(p),
+        });
+      }
+
+      // =========================
+      // === WEEKLY REVIEW: THE READ ===
+      // The app opens the weekly review: inngest-jobs hands back the read the
+      // week's row holds when it serves a review started today, and makes one
+      // there and then when it does not (most of a minute, behind the app's
+      // loading screen). Which review today gives is worked out there, from
+      // dates and the row alone. The answer goes back as server-sent events,
+      // with pings while the read is made (weekRead.js).
+      // =========================
+      if (type === 'week-read') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) return denyAccessSSEResponse(access.reason);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        return weekReadResponse({
+          ask: () =>
+            fetchInngestWorker(env, '/api/week-read', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-key': env.INNGEST_ADMIN_KEY,
+              },
+              body: JSON.stringify({
+                user_id: authenticatedUserId,
+                // the app's day; inngest-jobs takes it when it is a real day near the person's own
+                date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+              }),
+            }).catch((err) => {
+              console.error('[WeekRead] could not reach inngest-jobs', err?.message || err);
+              return null;
+            }),
+          waitUntil: (p) => ctx.waitUntil(p),
+        });
+      }
+
+      // =========================
+      // === THE WEEKLY REVIEW'S SPREAD ===
+      // Once they have answered the review, Gremly spreads their todos across
+      // the days being planned (inngest-jobs week/spread.js, about twenty
+      // seconds). Their own moves on the board are not saved until they finish,
+      // so they ride with the request and nothing they placed is moved. The
+      // answer goes back the way the read's does, with pings while it is made.
+      // =========================
+      if (type === 'week-spread') {
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) return denyAccessSSEResponse(access.reason);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        return weekReadResponse({
+          what: "the week's spread",
+          answer: (data) => ({ on: data.on, spread: data.spread }),
+          ask: () =>
+            fetchInngestWorker(env, '/api/week-spread', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-key': env.INNGEST_ADMIN_KEY,
+              },
+              body: JSON.stringify({
+                user_id: authenticatedUserId,
+                date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+                // ids and days only; inngest-jobs reads it again and leaves out anything else
+                board: body.board && typeof body.board === 'object' ? body.board : null,
+              }),
+            }).catch((err) => {
+              console.error('[WeekSpread] could not reach inngest-jobs', err?.message || err);
+              return null;
+            }),
           waitUntil: (p) => ctx.waitUntil(p),
         });
       }
@@ -11794,6 +11897,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               recent: body.recentEntity,
               mode: triage.mode,
               todayIso: todayIsoIn(userTimezone),
+              // their week, when the app sends it (with their week, or alone as weekly_day):
+              // a habit's count this week is made in it
+              weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
 
             const spaceChatMessages = [
@@ -12731,6 +12837,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               mode: triage.mode,
               todayIso: todayIsoIn(userTimezone),
               detailText: itemDetailText(anchorDetail, todayIsoIn(userTimezone)),
+              // their week, when the app sends it (with their week, or alone as weekly_day):
+              // a habit's count this week is made in it
+              weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
@@ -14874,6 +14983,9 @@ function runScopedChatStream(
         recent: body.recentEntity,
         mode: triage.mode,
         todayIso: todayIsoIn(userTimezone),
+        // their week, when the app sends it (with their week, or alone as weekly_day):
+        // a habit's count this week is made in it
+        weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
       });
       const chatMessages = [
         { role: 'system', content: genConfig.systemPrompt },

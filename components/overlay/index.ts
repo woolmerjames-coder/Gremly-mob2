@@ -1,13 +1,11 @@
 /**
- * Unified Create Overlay - Phase 7
- * Centralized export for the new unified overlay and its field components
+ * The add and edit overlay, and the parts other screens use from it.
  */
 
-// Expose a single gateway export surface. Callers should import the
-// OverlayComponent from the overlay package root to avoid depending on
-// implementation-specific modules.
-export { OverlayComponent } from './gateway';
-export type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
+// One overlay, under one name. Callers import OverlayComponent from here so
+// they do not depend on the file it lives in.
+export { UnifiedOverlayV2 as OverlayComponent } from './UnifiedOverlayV2';
+export type { UnifiedOverlayProps } from './overlayProps';
 
 // Export Mind Drop helpers
 export { getMindDropRawText, hasMindDropRawText } from './getMindDropRawText';

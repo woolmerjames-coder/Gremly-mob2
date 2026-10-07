@@ -1,0 +1,25 @@
+{
+  "note": "The last three fed days on James's account, read on 7 Oct 2026 the way workers/cortex/age/words.js reads them (notes dropped, todos finished, habits logged, by his day end at 3am Pacific). Rewrite this file to replay other days.",
+  "age": 63,
+  "person": { "first_name": "James", "pronouns": null, "identity": {} },
+  "days": [
+    {
+      "day": "2026-10-04",
+      "dropped": ["Chat Messages Don’t Need Constant Updates"],
+      "done": [],
+      "habits": ["Change of Scenery", "Stop drinking alcohol"]
+    },
+    {
+      "day": "2026-10-05",
+      "dropped": [],
+      "done": [],
+      "habits": ["Change of Scenery", "Messaging People Back", "Stop drinking alcohol", "Weekly Cycling Routine"]
+    },
+    {
+      "day": "2026-10-06",
+      "dropped": [],
+      "done": ["Send Out Sage Future Deck", "Add the Weekly Intention to the Brief"],
+      "habits": []
+    }
+  ]
+}

@@ -181,7 +181,7 @@ describe('GremlyHelpCard', () => {
       );
 
       // Age 7 = Sprout tier (Soul Document v8)
-      expect(getByText('Sprout · Age 7')).toBeTruthy();
+      expect(getByText('Age 7')).toBeTruthy();
     });
 
     it('renders fed status', () => {

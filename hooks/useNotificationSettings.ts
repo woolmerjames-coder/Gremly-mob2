@@ -23,7 +23,8 @@ export interface NotificationSettings {
   habit_checkins_enabled: boolean;
   checkins_enabled: boolean;
   weekly_enabled: boolean;
-  weekly_day: number;
+  // the day of the weekly summary is their weekly day, which is held in one
+  // place (lib/week/thisWeek) and chosen in Settings under Your week
   weekly_time: string;
   good_news_enabled: boolean;
   quiet_start: string;
@@ -38,7 +39,7 @@ export type PhoneHealth =
   | { kind: 'not-receiving'; reason: string | null };
 
 const COLUMNS =
-  'morning_enabled,morning_time,evening_enabled,evening_time,reminders_enabled,habit_checkins_enabled,checkins_enabled,weekly_enabled,weekly_day,weekly_time,good_news_enabled,quiet_start,quiet_end,paused_until';
+  'morning_enabled,morning_time,evening_enabled,evening_time,reminders_enabled,habit_checkins_enabled,checkins_enabled,weekly_enabled,weekly_time,good_news_enabled,quiet_start,quiet_end,paused_until';
 
 /** What to tell them about this phone. Pure, for tests. */
 export function phoneHealth(

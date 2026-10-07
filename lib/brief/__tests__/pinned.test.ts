@@ -4,6 +4,7 @@ import {
   pinStatusLine,
   threadDateLabel,
   todayThreadParams,
+  dayThreadParams,
 } from '../pinned';
 import { isBriefUnread, withinResumeWindow, RESUME_WINDOW_MS } from '../todayThread';
 
@@ -99,6 +100,13 @@ describe('today’s thread state', () => {
     const b = todayThreadParams('plan');
     expect(a).toMatchObject({ mode: 'chat', thread: 'today' });
     expect(b.step).toBe('plan');
+    expect(a.threadKey).not.toBe(b.threadKey);
+  });
+
+  it('gives a jump to an earlier day’s thread the day and its own key', () => {
+    const a = dayThreadParams('2026-10-04');
+    const b = dayThreadParams('2026-10-04');
+    expect(a).toMatchObject({ mode: 'chat', thread: 'day', day: '2026-10-04' });
     expect(a.threadKey).not.toBe(b.threadKey);
   });
 });

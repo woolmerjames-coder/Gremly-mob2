@@ -7,6 +7,8 @@
 
 import { dateService } from '../date/DateService';
 import type { HabitAdaptationRow } from '../store/useGremlyStore';
+import { easeOf, weekAround, type Ease } from '../week/habitWeek';
+import { addDays } from '../week/model';
 
 /** Pad YYYY-MM-DD from a Date in local timezone */
 function toLocalISO(d: Date): string {
@@ -93,15 +95,18 @@ export function computeBestStreak(completedDates: string[]): number {
  * Compute the current streak for a habit given its full progress history.
  * For daily habits: counts consecutive days.
  * For weekly habits: counts consecutive weeks where completions >= target.
+ * A week is the person's own: the seven days that end on their weekly day.
  *
  * Pause adaptations are handled transparently:
  * - Daily: paused days are skipped without breaking the streak.
- * - Weekly: weeks where every day is paused are skipped without breaking.
+ * - Weekly: a week with any paused day in it is skipped without breaking,
+ *   unless the target was met in it anyway, when it counts as usual.
  *
  * @param completedDates — array of 'YYYY-MM-DD' strings (any order)
  * @param cadence — 'daily' | 'weekly' | 'monthly'
  * @param targetPerPeriod — target completions per period
  * @param adaptations — optional list of habit_adaptations for this habit
+ * @param weeklyDay their weekly day, 0 Sunday to 6 Saturday (Sunday when left out)
  * @returns { count, unit } — e.g. { count: 36, unit: 'day' } or { count: 4, unit: 'week' }
  */
 export function computeHabitStreak(
@@ -109,6 +114,7 @@ export function computeHabitStreak(
   cadence: string = 'daily',
   targetPerPeriod: number = 1,
   adaptations: HabitAdaptationRow[] = [],
+  weeklyDay: number = 0,
 ): { count: number; unit: 'day' | 'week' } {
   if (completedDates.length === 0) return { count: 0, unit: 'day' };
 
@@ -122,54 +128,36 @@ export function computeHabitStreak(
     const today = dateService.today();
     let streak = 0;
 
-    // Get Monday of a given date
-    const getWeekStart = (d: Date): Date => {
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      return new Date(d.getFullYear(), d.getMonth(), diff);
-    };
+    // A target under 1 is met by every week, and the walk back would never
+    // end: a week needs at least one completion to count
+    const target = Math.max(1, targetPerPeriod);
 
-    /** True if every day in [start, end] (inclusive) is covered by a pause */
-    const isWeekFullyPaused = (startStr: string, endStr: string): boolean => {
-      const start = new Date(startStr + 'T00:00:00');
-      const end = new Date(endStr + 'T00:00:00');
-      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const iso = toLocalISO(new Date(d));
-        const paused = adaptations.some(
-          (a) => a.mode === 'pause' && a.period_start <= iso && a.period_end >= iso,
-        );
-        if (!paused) return false;
-      }
-      return true;
-    };
+    const pauses = adaptations.map(easeOf).filter((e): e is Ease => e?.mode === 'pause');
 
-    const weekStart = getWeekStart(new Date(today + 'T00:00:00'));
+    /** True if any day in [start, end] (inclusive) is covered by a pause */
+    const isWeekPaused = (startStr: string, endStr: string): boolean =>
+      pauses.some((p) => p.first <= endStr && p.last >= startStr);
+
+    // Their current week: the seven days that end on their weekly day
+    let { first: weekStartStr, last: weekEndStr } = weekAround(today, weeklyDay);
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-
-      const weekStartStr = toLocalISO(weekStart);
-      const weekEndStr = toLocalISO(weekEnd);
-
-      // Fully-paused week: skip transparently (no hit, no break)
-      if (isWeekFullyPaused(weekStartStr, weekEndStr)) {
-        weekStart.setDate(weekStart.getDate() - 7);
-        continue;
-      }
-
       const completionsThisWeek = sorted.filter((d) => d >= weekStartStr && d <= weekEndStr).length;
 
-      if (completionsThisWeek >= targetPerPeriod) {
+      if (completionsThisWeek >= target) {
+        // Met, paused or not: a habit logged through a pause still counts
         streak++;
-        weekStart.setDate(weekStart.getDate() - 7);
       } else if (weekEndStr >= today) {
         // Current week still in progress — skip without breaking streak
-        weekStart.setDate(weekStart.getDate() - 7);
+      } else if (isWeekPaused(weekStartStr, weekEndStr)) {
+        // A week with a paused day in it: skip transparently (no hit, no break)
       } else {
         break;
       }
+
+      weekStartStr = addDays(weekStartStr, -7);
+      weekEndStr = addDays(weekEndStr, -7);
     }
 
     return { count: streak, unit: 'week' };

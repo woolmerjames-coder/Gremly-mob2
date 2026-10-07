@@ -84,6 +84,25 @@ describe('the card in a chat', () => {
     expect(hook.result.current.canUndo('m9')).toBe(false);
   });
 
+  it('keeps the item a row made, so the row can open it', async () => {
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [
+        { cid: 'c1', ok: true, summary: '', revert: jest.fn(), createdId: 'new-todo' },
+        { cid: 'c2', ok: true, summary: '', revert: jest.fn() },
+      ],
+      revertAll: jest.fn(),
+    });
+    const { deps, hook } = setup();
+    await act(() => hook.result.current.apply(cardMessage(), []));
+    expect(deps.patchMessageMetadata).toHaveBeenCalledWith('m9', {
+      status: 'applied',
+      unticked: [],
+      applied: ['c1', 'c2'],
+      failed: [],
+      created: { c1: 'new-todo' },
+    });
+  });
+
   it('says so when a row could not be saved', async () => {
     (applyChanges as jest.Mock).mockResolvedValue({
       outcomes: [{ cid: 'c1', ok: false, reason: 'stale', message: 'edited since' }],

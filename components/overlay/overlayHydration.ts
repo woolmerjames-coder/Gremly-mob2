@@ -9,10 +9,7 @@
  * - buildDraftPayloadFromEntity
  */
 
-import {
-  canonicalToFrequencyJson,
-  parseFrequencyString,
-} from '../../lib/habits/frequencyUtils';
+import { canonicalToFrequencyJson, parseFrequencyString } from '../../lib/habits/frequencyUtils';
 import { filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { filterMindDropTodoTags } from './overlayV2.mapping';
 import { getMindDropRawText } from './getMindDropRawText';
@@ -24,7 +21,7 @@ import {
   type TagKey,
   type V2State,
 } from './overlayV2.state';
-import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
+import type { UnifiedOverlayProps } from './overlayProps';
 import type { OverlayDraft } from './useOverlayDraft';
 import { isValidMood, migrateLegacyMood } from '../../lib/shared/moods';
 
@@ -225,7 +222,7 @@ export function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
  * For edit/view mode: derives baseType from initialEntity.type synchronously
  * For create mode: uses the default baseType from initialV2State ('log')
  */
-export function getInitialV2StateFromProps(props: UnifiedCreateOverlayProps): V2State {
+export function getInitialV2StateFromProps(props: UnifiedOverlayProps): V2State {
   const { mode, initialEntity } = props;
 
   // Start with the default initial state
@@ -628,7 +625,9 @@ export function hydrateEntityToDraft(
         chatNotes: entity?.views?.chat?.notes ?? [],
         isFavorite: (entity as any)?.is_favorite ?? false,
         checklistItems:
-          (entity as any)?.has_list && Array.isArray((entity as any)?.list_items) && (entity as any).list_items.length > 0
+          (entity as any)?.has_list &&
+          Array.isArray((entity as any)?.list_items) &&
+          (entity as any).list_items.length > 0
             ? (entity as any).list_items
             : null,
       }

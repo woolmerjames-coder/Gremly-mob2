@@ -5,20 +5,35 @@
  * Sweep dates it today), habits on for today or behind this week, items
  * already on Today (an earlier plan gave them a time), the DCO's claims on today, and the
  * DCO's reach item. Never in: anything past its date and unsorted drops;
- * those belong to Sweep. Done and archived items are left out too.
+ * those belong to Sweep. Done and archived items are left out too, and so is
+ * a habit paused on the day.
  *
  * Order is the fallback priority if the picker cannot be reached: claims,
- * then what is already on Today, then habits behind, then what is due, then
- * the reach.
+ * then what is already on Today, then the habits they planned for the day in
+ * their week, then habits behind, then what is due, then the reach.
+ *
+ * Their week shows in the reasons: a habit they planned for the day says so,
+ * a step of a milestone says what it is a step towards, and a todo back from
+ * being put off (Later) says it is back.
  */
 
 import type { Habit, Todo } from '../types';
+import type { HabitAdaptationRow } from '../store/useGremlyStore';
 import type { TimeBlockPreferences } from '../capacity/capacityTypes';
 import { weeklyTarget } from '../brief/behind';
+import { behindInWeek, pausedOn } from '../week/habitWeek';
+import { isBreakHabit } from '../../workers/shared/habitWeek';
 import type { DcoClaim, DcoReach } from '../brief/dco';
+import { todoDayWords } from './dayItems';
+import { weekdayOf } from '../wrapup/day';
+
+/** Why a habit they planned for a day is in its plan: "Planned for today", or "Planned for Monday". */
+export function plannedWords(day: string, today: string): string {
+  return day === today ? 'Planned for today' : `Planned for ${weekdayOf(day)}`;
+}
 
 export type CandidateKind = 'todo' | 'habit' | 'reach';
-export type CandidateSource = 'claim' | 'today' | 'behind' | 'due' | 'habit' | 'reach';
+export type CandidateSource = 'claim' | 'today' | 'planned' | 'behind' | 'due' | 'habit' | 'reach';
 
 export interface Candidate {
   id: string;
@@ -42,19 +57,26 @@ export interface PoolInput {
   /** Every active todo and habit, for claims, what is on Today and behind */
   todos: Todo[];
   habits: Habit[];
-  /** Completions this week (Monday on), by habit id */
+  /** Completions in their week so far, by habit id */
   doneThisWeek: Map<string, number>;
   /** Habits already done today */
   doneToday: Set<string>;
   /** Todos and habits an earlier plan already gave a time on this day */
   placedIds: Set<string>;
-  /** 1 on Monday to 7 on Sunday */
-  daysGone: number;
+  /**
+   * Their week, which the pool's day is counted in: the weekly day it ends on,
+   * and their habit_adaptations rows for the days a habit is paused
+   */
+  week: { weeklyDay: number; eases?: HabitAdaptationRow[] };
   claims: DcoClaim[];
   reach: DcoReach | null;
   blocks: TimeBlockPreferences;
   /** False when planning another day (tomorrow): what is on Today now is left out */
   forToday?: boolean;
+  /** The habits they planned for this day in their week (habit_plans), by id */
+  plannedHabits?: Set<string>;
+  /** The real today, when the pool is for another day; the pool's own day when left out */
+  realToday?: string;
 }
 
 function titleOf(item: Todo | Habit): string {
@@ -72,20 +94,35 @@ export function windowFor(
   return null;
 }
 
-/** Open todos that are not past their date (undated only when already on Today). */
+/**
+ * Open todos that are not past their date. One with no day is in only when it
+ * is already on Today, or was put off (Later) and comes back on this day: a
+ * Later has no day of its own, so its day to come back is what puts it here.
+ */
 function plannableTodo(t: Todo, input: PoolInput): boolean {
   if (t.archived || t.completed_at) return false;
   if (t.due_day && t.due_day < input.today) return false;
-  if (!t.due_day && !input.placedIds.has(t.id)) return false;
+  if (!t.due_day) {
+    const backToday = (t as { resurface_at?: string | null }).resurface_at === input.today;
+    if (!backToday && !input.placedIds.has(t.id)) return false;
+  }
   return true;
 }
 
+/**
+ * A habit they are breaking: never a pick or a plan entry. The one rule for
+ * it is shared with the workers (workers/shared/habitWeek.js).
+ */
+export { isBreakHabit };
+
 function plannableHabit(h: Habit, input: PoolInput): boolean {
   if (h.archived) return false;
-  if ((h.subtype as string | undefined) === 'break_habit') return false;
+  if (isBreakHabit(h)) return false;
   if (input.doneToday.has(h.id)) return false;
   if (h.start_date && h.start_date > input.today) return false;
   if (h.end_date && h.end_date < input.today) return false;
+  // paused on the day: left alone, so it is not planned
+  if (pausedOn(input.week.eases, h.id, input.today)) return false;
   return true;
 }
 
@@ -127,11 +164,14 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
     const target = weeklyTarget(h);
     return target ? `${input.doneThisWeek.get(h.id) ?? 0} of ${target} this week` : 'On for today';
   };
-  const behind = (h: Habit) => {
-    const target = weeklyTarget(h);
-    if (!target) return false;
-    return (input.doneThisWeek.get(h.id) ?? 0) < Math.floor((target * input.daysGone) / 7);
-  };
+  const behind = (h: Habit) =>
+    behindInWeek({
+      habit: h,
+      done: input.doneThisWeek.get(h.id) ?? 0,
+      today: input.today,
+      weeklyDay: input.week.weeklyDay,
+      eases: input.week.eases,
+    });
 
   // 1. The DCO's claims on today
   for (const c of input.claims) {
@@ -149,12 +189,21 @@ export function buildCandidatePool(input: PoolInput): Candidate[] {
     for (const t of input.todos) if (input.placedIds.has(t.id)) addTodo(t, 'On Today', 'today');
     for (const h of input.habits) if (input.placedIds.has(h.id)) addHabit(h, 'On Today', 'today');
   }
-  // 3. Habits behind this week
+  // 3. The habits they planned for this day in their week
+  if (input.plannedHabits?.size) {
+    const words = plannedWords(input.today, input.realToday ?? input.today);
+    for (const h of input.habits) {
+      if (input.plannedHabits.has(h.id)) addHabit(h, words, 'planned');
+    }
+  }
+  // 4. Habits behind this week
   for (const h of input.habits) if (behind(h)) addHabit(h, `${weekLine(h)}, behind`, 'behind');
-  // 4. Due today
-  for (const t of input.todosDueToday) addTodo(t, 'Due today', 'due');
+  // 5. Due on the day
+  for (const t of input.todosDueToday) {
+    addTodo(t, todoDayWords(t, input.today, input.realToday ?? input.today), 'due');
+  }
   for (const h of input.habitsDueToday) addHabit(h, weekLine(h), 'habit');
-  // 5. The reach: a todo joins as it is, a fact as a suggestion
+  // 6. The reach: a todo joins as it is, a fact as a suggestion
   const r = input.reach;
   if (r && r.id && !seen.has(r.id)) {
     const asTodo = r.type === 'todo' ? todoById.get(r.id) : undefined;

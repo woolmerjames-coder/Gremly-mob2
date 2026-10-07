@@ -1,13 +1,15 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { useEffect } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import celebrationController from '../app/features/celebration/CelebrationController';
 import TodayScreen from '../app/tabs/TodayScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 import WorldsScreen from '../app/tabs/WorldsScreen';
@@ -18,6 +20,7 @@ import {
 } from '../components/home/gremlyButtonFill';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import type { TalkAboutItem } from '../lib/chat/talkAboutOpeners';
+import type { ThreadStep } from '../lib/brief/pinned';
 import { lightTokens } from '../design/tokens';
 
 // Tab bar icon images (v1.20 brand refresh)
@@ -42,10 +45,15 @@ export type TabParamList = {
         /** Chat opens about this drop ("Talk it through with Gremly") */
         talkAbout?: TalkAboutItem;
         talkKey?: string;
-        /** Daily brief in Chat: open today's thread (the notification, Plan with Gremly) */
-        thread?: 'today';
-        /** With thread: jump to a step of the brief once it has played ('plan') */
-        step?: 'plan' | 'wrap';
+        /**
+         * Daily brief in Chat: open today's thread (the notification, Plan
+         * with Gremly), or the thread of an earlier day (day), which Your
+         * week opens to go back to the conversation a review happened in
+         */
+        thread?: 'today' | 'day';
+        day?: string;
+        /** With thread: what today's thread goes on to once it is open (lib/brief/pinned.ts) */
+        step?: ThreadStep;
         /** With step 'plan': plan tomorrow instead of today (Plan tomorrow, after Sweep) */
         planDay?: 'tomorrow';
         /** Changes on every request, so the same thread can be asked for twice */
@@ -84,6 +92,29 @@ function GremlyTabButton({
 
   const fillStyle = useAnimatedStyle(() => ({ height: fillHeight.value }));
 
+  // The fed moment: one pop with a ring, on the controller's pop beat
+  const pop = useSharedValue(1);
+  const ring = useSharedValue(0);
+  useEffect(() => {
+    return celebrationController.subscribe((payload) => {
+      if (payload.kind !== 'moment' || payload.moment?.phase !== 'pop') return;
+      if (payload.moment.reducedMotion) return;
+      pop.value = withSequence(
+        withTiming(1.24, { duration: 275, easing: Easing.bezier(0.2, 0.9, 0.3, 1.4) }),
+        withTiming(1, { duration: 225, easing: Easing.out(Easing.cubic) }),
+      );
+      ring.value = withSequence(
+        withTiming(0.001, { duration: 0 }),
+        withTiming(1, { duration: 800, easing: Easing.out(Easing.cubic) }),
+      );
+    });
+  }, [pop, ring]);
+  const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: ring.value <= 0 ? 0 : 1 - ring.value,
+    transform: [{ scale: 1 + ring.value * 0.75 }],
+  }));
+
   return (
     <Pressable
       onPress={onPress}
@@ -94,12 +125,13 @@ function GremlyTabButton({
       testID={testID ?? 'tab-gremly'}
       style={[style, styles.centerTab]}
     >
-      <View style={[styles.centerButton, !focused && styles.centerButtonIdle]}>
+      <Animated.View style={[styles.centerButton, !focused && styles.centerButtonIdle, popStyle]}>
+        <Animated.View style={[styles.ring, ringStyle]} pointerEvents="none" />
         <Image source={GREMLY_BUTTON_GREY} style={styles.centerImage} resizeMode="contain" />
         <Animated.View style={[styles.centerFill, fillStyle]} pointerEvents="none">
           <Image source={GREMLY_BUTTON} style={styles.centerFillImage} resizeMode="contain" />
         </Animated.View>
-      </View>
+      </Animated.View>
     </Pressable>
   );
 }
@@ -217,6 +249,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 10,
     elevation: 6,
+  },
+  ring: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: 'rgba(94, 158, 108, 0.75)',
+    opacity: 0,
   },
   centerButtonIdle: {
     opacity: 0.75,

@@ -1,4 +1,5 @@
 import type { CalendarEvent } from '../types';
+import { fetchWindow } from './window';
 
 const GOOGLE_CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 
@@ -35,34 +36,49 @@ export async function fetchGoogleEvents(
 ): Promise<CalendarEvent[]> {
   console.log('[Google Calendar] Fetching events:', startDate, 'to', endDate);
 
-  const params = new URLSearchParams({
-    timeMin: new Date(startDate).toISOString(),
-    timeMax: new Date(endDate).toISOString(),
-    singleEvents: 'true',
-    orderBy: 'startTime',
-    maxResults: '100',
-  });
+  // in UTC, a day either side, so every local time on the days asked for is
+  // in it (timeMax at the end date's midnight left the end date out)
+  const { from, to } = fetchWindow(startDate, endDate);
+  const items: GoogleCalendarEvent[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      timeMin: from,
+      timeMax: to,
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: '250',
+      ...(pageToken ? { pageToken } : {}),
+    });
 
-  const response = await fetch(`${GOOGLE_CALENDAR_API}/calendars/primary/events?${params}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
+    const response = await fetch(`${GOOGLE_CALENDAR_API}/calendars/primary/events?${params}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Google Calendar] API error:', response.status, errorText);
-    throw new Error(`Google Calendar API error: ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Google Calendar] API error:', response.status, errorText);
+      throw new Error(`Google Calendar API error: ${response.status}`);
+    }
+
+    const data: GoogleCalendarResponse = await response.json();
+    items.push(...(data.items || []));
+    // a busy calendar runs past one page: every page is read
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
   }
+  console.log('[Google Calendar] Got', items.length, 'events');
 
-  const data: GoogleCalendarResponse = await response.json();
-  console.log('[Google Calendar] Got', data.items?.length || 0, 'events');
-
-  return (data.items || [])
+  return items
     .filter((event) => event.status !== 'cancelled')
     .map((event) => transformGoogleEvent(event));
 }
+
+/** Pages read at most: 5,000 events, far beyond any week. */
+const MAX_PAGES = 20;
 
 function transformGoogleEvent(event: GoogleCalendarEvent): CalendarEvent {
   const isAllDay = !event.start.dateTime;

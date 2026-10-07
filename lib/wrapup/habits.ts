@@ -2,13 +2,19 @@
  * The habits the evening wrap up checks in on: the ones still open on the
  * person's day, on one card. A habit being built that is on for the day and
  * not yet logged, and every habit being broken that has no answer yet (the
- * evening is the only place those are checked in). Pure, so it can be tested.
+ * evening is the only place those are checked in). A habit paused on the day
+ * is left alone. Pure, so it can be tested.
+ *
+ * A count toward a weekly target is made in their own week: the seven days
+ * that end on their weekly day (lib/week/habitWeek).
  *
  * It is counted for the day given, which after midnight is still yesterday
  * until their day ends, so a check in at 12:30am lands on the right day.
  */
 import { scheduleOf } from '../changes/model';
 import type { SweepHabitRow } from '../brief/types';
+import type { HabitAdaptationRow } from '../store/useGremlyStore';
+import { pausedOn, weekAround } from '../week/habitWeek';
 
 type Row = Record<string, any>;
 
@@ -18,10 +24,6 @@ function addDays(day: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 const weekdayOf = (day: string) => new Date(`${day}T12:00:00Z`).getUTCDay();
-function mondayOf(day: string): string {
-  const w = weekdayOf(day);
-  return addDays(day, w === 0 ? -6 : 1 - w);
-}
 
 const titleOf = (h: Row) => String(h.name || h.title || 'Untitled').trim();
 
@@ -46,6 +48,8 @@ export function habitsToCheckIn(
   habits: Row[],
   habitProgress: { habit_id: string; occurred_day: string }[],
   day: string,
+  /** Their week: the weekly day it ends on, and their habit_adaptations rows for a pause */
+  week: { weeklyDay: number; eases?: HabitAdaptationRow[] } = { weeklyDay: 0 },
 ): HabitCheckIn {
   const rows: SweepHabitRow[] = [];
   const already: string[] = [];
@@ -69,6 +73,8 @@ export function habitsToCheckIn(
       already.push(title);
       continue;
     }
+    // paused on the day: left alone, so it is not asked about
+    if (pausedOn(week.eases, h.id, day)) continue;
     if (h.subtype === 'break_habit') {
       rows.push({ id: h.id, title, kind: 'break' });
       continue;
@@ -90,7 +96,7 @@ export function habitsToCheckIn(
       });
       continue;
     }
-    const start = s.per === 'week' ? mondayOf(day) : `${day.slice(0, 8)}01`;
+    const start = s.per === 'week' ? weekAround(day, week.weeklyDay).first : `${day.slice(0, 8)}01`;
     const sofar = [...logged].filter((d) => d >= start && d <= day).length;
     // met for the week or month already: nothing left open
     if (sofar >= s.times) continue;

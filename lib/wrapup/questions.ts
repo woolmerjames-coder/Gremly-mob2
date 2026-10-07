@@ -11,6 +11,7 @@
  */
 import { supabase } from '../supabase/client';
 import type { OfferButton } from '../brief/types';
+import type { DueCheckIn } from '../repo/weekReviewRepo';
 import { WRAP_COPY } from './words';
 
 export interface WrapQuestion {
@@ -24,6 +25,12 @@ export interface WrapQuestion {
   record_id: string | null;
   /** About something they marked private: never asked here */
   private: boolean;
+  /**
+   * A milestone's check in from their weekly review, asked as a question on
+   * its day (lib/wrapup/checkIns.ts). It is not one of Gremly's questions: its
+   * answer goes to their journal, and it is settled on the review that keeps it.
+   */
+  checkin?: DueCheckIn;
 }
 
 export const MOST_QUESTIONS = 2;

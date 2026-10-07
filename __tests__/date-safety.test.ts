@@ -27,7 +27,6 @@ import fs from 'fs';
  * Files pending migration (tracked in branch sweep-refinements-1.13):
  * - app/spaces/SpaceHomeScreen.tsx (uses targetDate which is already a Date object)
  * - app/screens/SweepTestScreen.tsx (test/dev file)
- * - app/screens/SweepFlowScreen.tsx (uses Date objects from decisions)
  * - app/(dev)/RecentItems.tsx (dev file)
  * - minddrop-voice-bundle/4-backend/cortex-proxy.ts (backend default)
  */
@@ -42,7 +41,6 @@ describe('Date Safety - No timezone-unsafe patterns', () => {
   const KNOWN_TECH_DEBT_FILES = [
     'SpaceHomeScreen.tsx', // Uses Date objects, not current time - lower risk
     'SweepTestScreen.tsx', // Dev/test screen only
-    'SweepFlowScreen.tsx', // Uses Date objects from decisions - needs DateService.toLocalDate()
     'RecentItems.tsx', // Dev screen
     'cortex-proxy.ts', // Backend fallback default
     'DateService.ts', // Documentation comments explaining the bug

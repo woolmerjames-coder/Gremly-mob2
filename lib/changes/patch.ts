@@ -91,6 +91,9 @@ export function writeFor(type: ItemType, item: Item, fields: Record<string, any>
           set('due_day', value);
           set('due_date', value);
           set('scheduled_date', value);
+          // A todo given a day is no longer put off: its own day decides
+          // where it shows, so the day it was to come back on is cleared.
+          if (value && item.resurface_at) set('resurface_at', null);
         } else {
           set(def.column, value);
           copyToViews(def.column, value);

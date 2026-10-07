@@ -17,6 +17,7 @@ import {
   Bell,
   Clock,
   CalendarDays,
+  CalendarRange,
   Brain,
   Palette,
   Crown,
@@ -111,6 +112,13 @@ export default function SettingsScreen() {
       title: 'Notifications',
       subtitle: 'Brief, sweep, reminders, quiet hours',
       route: 'NotificationSettings',
+    },
+    {
+      key: 'your-week',
+      icon: <CalendarRange size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
+      title: 'Your week',
+      subtitle: 'Your weekly day and days off',
+      route: 'YourWeekSettings',
     },
     {
       key: 'day-boundary',

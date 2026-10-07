@@ -38,7 +38,7 @@ import { OverwhelmPlanSheet } from '../../components/now/OverwhelmPlanSheet';
 import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverlay';
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
-import { JournalFullScreen } from '../../components/now/JournalFullScreen';
+import { openEntryOnPage } from '../../lib/journal/open';
 
 import EventQuickActionSheet from '../../components/now/EventQuickActionSheet';
 import TodoLinkSheet from '../../components/now/TodoLinkSheet';
@@ -82,13 +82,16 @@ import type {
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space, Note } from '../../lib/types';
-import { eventBus } from '../../lib/events';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
+import { useThisWeek } from '../../lib/week/thisWeek';
+import { weekButton, weekCardToday } from '../../lib/week/review/state';
+import { WEEK_COPY } from '../../lib/week/review/words';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
 import { BriefReadyBubble } from '../../components/brief/BriefReadyBubble';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { TODAY_BUTTON, teaserLine } from '../../lib/wrapup/words';
+import { dismissWrapNudge } from '../../lib/wrapup/dismiss';
 import { useDayCard } from '../../lib/brief/useDayCard';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
 import {
@@ -96,6 +99,8 @@ import {
   getTimeBlockForHour,
   type TimeBlock,
 } from '../../lib/now/timeBlockHelpers';
+import { briefFor, plannedMinutesOn, sectionFor, sequencesOf } from '../../lib/now/sectionFor';
+import { getTimeBlockBoundaries } from '../../lib/capacity/capacityHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
@@ -214,32 +219,14 @@ const TIME_WINDOW_PRIORITY: Record<string, number> = {
 };
 
 /**
- * Infer time window from item name if not explicitly set
- * Looks for keywords like "Morning", "Evening", "Daily" in the name
+ * An item's own time window, or 'any' when it has none. The words in its name
+ * are never read for it: with nothing else to go on, an item goes under
+ * Anytime.
  */
 function inferTimeWindow(item: NowActiveItem): string {
-  // If explicitly set, use it
   if (item.timeWindow && item.timeWindow !== 'any') {
     return item.timeWindow;
   }
-
-  // Infer from name (case-insensitive)
-  const nameLower = item.name.toLowerCase();
-
-  if (nameLower.includes('morning')) {
-    return 'morning';
-  }
-  if (nameLower.includes('evening') || nameLower.includes('night')) {
-    return 'evening';
-  }
-  if (nameLower.includes('afternoon')) {
-    return 'afternoon';
-  }
-  if (nameLower.includes('midday') || nameLower.includes('noon') || nameLower.includes('lunch')) {
-    return 'midday';
-  }
-
-  // Default to 'any' for daily/anytime items
   return 'any';
 }
 
@@ -309,8 +296,10 @@ export default function NowScreenV1() {
   // Unified event notes for today (external + native, from Phase 1 normalization)
   const todayEventNotes = useEventNotesForDate(todayStr);
 
-  // The day's sequences (written by the plan's Lock it in)
-  const { brief } = useMorningBrief();
+  // The day's sequences (written by the plan's Lock it in). The store keeps
+  // the last brief it read, so one from an earlier day is not today's order.
+  const { brief: savedBrief } = useMorningBrief();
+  const brief = useMemo(() => briefFor(savedBrief, todayStr), [savedBrief, todayStr]);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -323,6 +312,28 @@ export default function NowScreenV1() {
   // In the evening the same bubble says the wrap up is waiting, and the
   // header button starts it (the floating Sweep pill is gone)
   const wrapTeaser = useEveningTeaser();
+  // The Week button (the weekly review): their weekly day and this week's
+  // review are read each time Today comes on screen, and again when their day
+  // turns over with Today already on screen (todayStr). The button waits for
+  // them, so it never shows a day or a state that is not theirs
+  const weekly = useThisWeek();
+  const weekUserId = useGremlyStore((s) => s.userId);
+  useEffect(() => {
+    if (!weekUserId) return;
+    const read = () => void useThisWeek.getState().refresh();
+    read();
+    return navigation.addListener('focus', read);
+  }, [navigation, weekUserId, todayStr]);
+  const week = useMemo(
+    () => (weekly.loaded ? weekButton(todayStr, weekly.weeklyDay, weekly.review) : null),
+    [weekly.loaded, weekly.weeklyDay, weekly.review, todayStr],
+  );
+  // On their weekly day, until the review is done, Today leads with Plan your
+  // week: a card of its own, or a button on the weekly summary's banner
+  const weekCard = useMemo(
+    () => weekly.loaded && weekCardToday(todayStr, weekly.weeklyDay, weekly.review),
+    [weekly.loaded, weekly.weeklyDay, weekly.review, todayStr],
+  );
   const wrapBubble = !briefUnread && wrapTeaser.nudge;
   const briefReady = useMemo(
     () =>
@@ -371,18 +382,6 @@ export default function NowScreenV1() {
     console.log('[NowScreen] Fetching calendar:', todayStr, 'to', weekFromNow);
     fetchCalendarEvents(todayStr, weekFromNow);
   }, [isInitialized, fetchCalendarEvents, todayStr]);
-
-  // Listen for "Plan your tomorrow" from sweep completion
-  useEffect(() => {
-    const unsub = eventBus.on('openTomorrowBrief', () => {
-      // Daily brief in Chat: today's thread, with a plan for tomorrow
-      navigation.navigate('Tabs', {
-        screen: 'Gremly',
-        params: todayThreadParams('plan', 'tomorrow'),
-      });
-    });
-    return () => unsub();
-  }, [navigation]);
 
   // Show first-visit bubble for new users
   useEffect(() => {
@@ -556,10 +555,8 @@ export default function NowScreenV1() {
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
   const [isNotesVisible, setNotesVisible] = useState(false);
-  const [isJournalVisible, setJournalVisible] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
-  const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
   const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
   const [linkTodoForEventId, setLinkTodoForEventId] = useState<string | null>(null);
 
@@ -798,12 +795,19 @@ export default function NowScreenV1() {
     [openEntityOverlay],
   );
 
-  // Handle selecting a journal from YourNotesPopup
-  const handleSelectJournal = useCallback((log: LogItem) => {
-    setNotesVisible(false);
-    setSelectedJournalId(log.id);
-    setJournalVisible(true);
-  }, []);
+  // A journal entry in YourNotesPopup opens on the journal page
+  const handleSelectJournal = useCallback(
+    (log: LogItem) => {
+      setNotesVisible(false);
+      // The notes sheet closes first: two sheets changing places in the same
+      // moment can leave neither showing. One the page cannot show (taken out
+      // of the journal since) opens as any note does.
+      setTimeout(() => {
+        if (!openEntryOnPage(log.id)) openEntityOverlay({ id: log.id, type: 'note' });
+      }, 300);
+    },
+    [openEntityOverlay],
+  );
 
   if (!isInitialized) {
     return (
@@ -833,6 +837,23 @@ export default function NowScreenV1() {
         onNotesPress={handleNotesPress}
         onMascotPress={() => setShowHelp(true)}
         onSettingsPress={() => navigation.navigate('Settings')}
+        week={
+          week
+            ? {
+                label: week.label,
+                highlighted: week.highlighted,
+                // Your week once it is planned; until then today's thread,
+                // where the review starts or picks up
+                onPress: () =>
+                  week.done
+                    ? navigation.navigate('YourWeek')
+                    : navigation.navigate('Tabs', {
+                        screen: 'Gremly',
+                        params: todayThreadParams('week'),
+                      }),
+              }
+            : null
+        }
       />
       <FirstTodayVisitBubble
         visible={showFirstVisitBubble}
@@ -848,9 +869,26 @@ export default function NowScreenV1() {
               params: todayThreadParams(wrapBubble ? 'wrap' : undefined),
             })
           }
+          // the wrap up line can be put away for the day, here and on Drop
+          onDismiss={wrapBubble ? () => void dismissWrapNudge() : undefined}
         />
       ) : null}
-      <WeeklySummaryBanner />
+      <WeeklySummaryBanner
+        planWeek={
+          weekCard
+            ? {
+                label: WEEK_COPY.planWeek,
+                note: WEEK_COPY.todayCardNote,
+                // today's thread, where the review starts or picks up
+                onPress: () =>
+                  navigation.navigate('Tabs', {
+                    screen: 'Gremly',
+                    params: todayThreadParams('week'),
+                  }),
+              }
+            : null
+        }
+      />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
         <View style={styles.focusSectionHeaderLeft}>
@@ -913,6 +951,7 @@ export default function NowScreenV1() {
           onAddToToday={handleAddToToday}
           bottomInset={insets.bottom}
           brief={brief}
+          today={todayStr}
           eventNotes={todayEventNotes}
           onEventPress={handleKeyDatePress}
           onEventQuickAction={handleEventQuickAction}
@@ -974,20 +1013,6 @@ export default function NowScreenV1() {
         onClose={() => setNotesVisible(false)}
         onSelectLog={handleSelectLog}
         onSelectJournal={handleSelectJournal}
-      />
-
-      <JournalFullScreen
-        visible={isJournalVisible}
-        logId={selectedJournalId ?? undefined}
-        onClose={() => {
-          setJournalVisible(false);
-          setSelectedJournalId(null);
-        }}
-        onSave={() => {
-          setJournalVisible(false);
-          setSelectedJournalId(null);
-          // Store auto-updates, no reload needed
-        }}
       />
 
       {/* Day Picker - shown when Organize is pressed after sweep */}
@@ -1225,11 +1250,14 @@ type TodayFocusListProps = {
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;
   bottomInset: number;
+  /** Today's saved order (never another day's) */
   brief?: {
     morning_sequence?: { id: string }[];
     day_sequence?: { id: string }[];
     evening_sequence?: { id: string }[];
   } | null;
+  /** The person's day */
+  today: string;
   /** All event notes for today (external + native, from useEventNotesForDate) */
   eventNotes?: Note[];
   onEventPress?: (event: Note) => void;
@@ -1249,6 +1277,7 @@ function TodayFocusList({
   onAddToToday,
   bottomInset,
   brief,
+  today,
   eventNotes = [],
   onEventPress,
   onEventQuickAction,
@@ -1259,6 +1288,7 @@ function TodayFocusList({
   // Raw store data for scheduled time lookups
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
 
   // Group all event notes by time block
   const eventNotesByBlock = useMemo(() => groupKeyDatesByTimeBlock(eventNotes ?? []), [eventNotes]);
@@ -1288,52 +1318,32 @@ function TodayFocusList({
     return allItems.sort((a, b) => getSequencePriority(a.id) - getSequencePriority(b.id));
   }, [activeItems, brief]);
 
-  // Group items by time block using multiple signals (brief sequences, store time_window, scheduled time)
+  // What the store holds on each item's time: its planned start, and its block
+  // for the day (else its usual time of day)
+  const timesById = useMemo(() => {
+    const map = new Map<string, { plannedIso: string | null; block: string | null }>();
+    for (const x of [...todos, ...habits]) {
+      map.set(x.id, {
+        plannedIso: x.scheduled_start_iso ?? null,
+        block: x.daily_block ?? x.time_window ?? null,
+      });
+    }
+    return map;
+  }, [todos, habits]);
+
+  // Group items by section. A time planned for today decides first, then
+  // today's saved order, then the item's block (lib/now/sectionFor.ts).
   const { itemsByBlock, breakHabitsByBlock } = useMemo(() => {
-    const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
-    const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
-    const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
-
-    // Build a map of effective block values from the store (daily_block overrides time_window)
-    const storeTimeWindow = new Map<string, string | null>();
-    for (const t of todos) storeTimeWindow.set(t.id, t.daily_block ?? t.time_window ?? null);
-    for (const h of habits) storeTimeWindow.set(h.id, h.daily_block ?? h.time_window ?? null);
-
-    // Resolve which block an item belongs to using layered signals:
-    // 1. Brief sequences (authoritative if present)
-    // 2. Effective block: daily_block ?? time_window (set by organize, most reliable)
-    // 3. scheduled_start_iso hour → derive block via getTimeBlockForHour
-    // 4. inferTimeWindow (NowActiveItem.timeWindow + name keywords)
-    const resolveBlock = (item: NowActiveItem): TimeBlock => {
-      // 1. Brief sequences
-      if (morningIds.has(item.id)) return 'morning';
-      if (dayIds.has(item.id)) return 'afternoon';
-      if (eveningIds.has(item.id)) return 'evening';
-
-      // 2. Raw store time_window (handles 'morning', 'day', 'evening')
-      const rawTw = storeTimeWindow.get(item.id);
-      if (rawTw === 'morning') return 'morning';
-      if (rawTw === 'day') return 'afternoon';
-      if (rawTw === 'evening') return 'evening';
-
-      // 3. Derive from scheduled_start_iso
-      const todo = todos.find((t) => t.id === item.id);
-      const habit = habits.find((h) => h.id === item.id);
-      const iso = todo?.scheduled_start_iso || habit?.scheduled_start_iso;
-      if (iso) {
-        const d = new Date(iso);
-        if (!isNaN(d.getTime())) {
-          return getTimeBlockForHour(d.getHours());
-        }
-      }
-
-      // 4. inferTimeWindow fallback (NowActiveItem.timeWindow + name keywords)
-      const tw = inferTimeWindow(item);
-      if (tw === 'morning') return 'morning';
-      if (tw === 'afternoon' || tw === 'midday' || tw === 'day') return 'afternoon';
-      if (tw === 'evening') return 'evening';
-      return 'anytime';
-    };
+    const sequences = sequencesOf(brief);
+    // where their morning and afternoon end, as their Time Blocks settings say
+    const ends = getTimeBlockBoundaries(timeBlockPreferences);
+    const resolveBlock = (item: NowActiveItem): TimeBlock =>
+      sectionFor(
+        { id: item.id, ...timesById.get(item.id), inferred: inferTimeWindow(item) },
+        today,
+        sequences,
+        ends,
+      );
 
     const grouped: Record<TimeBlock, NowActiveItem[]> = {
       allday: [],
@@ -1352,7 +1362,8 @@ function TodayFocusList({
     };
 
     for (const item of sortedItems) {
-      // Break habits → awareness card (names only, no rows)
+      // Break habits → awareness card (names only, no rows). One with no time
+      // of day is kept in sight all day, in the All Day section.
       if (item.isBreakHabit) {
         const block = resolveBlock(item);
         if (block === 'morning') breakNames.morning.push(item.name);
@@ -1367,7 +1378,7 @@ function TodayFocusList({
     }
 
     return { itemsByBlock: grouped, breakHabitsByBlock: breakNames };
-  }, [sortedItems, brief, todos, habits]);
+  }, [sortedItems, brief, timesById, today, timeBlockPreferences]);
 
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
@@ -1392,15 +1403,10 @@ function TodayFocusList({
       return !isNaN(h) ? h * 60 + (m || 0) : null;
     };
 
-    // Helper: get start minutes from an active item's scheduled time
-    const itemStartMins = (item: NowActiveItem): number | null => {
-      const todo = todos.find((t) => t.id === item.id);
-      const habit = habits.find((h) => h.id === item.id);
-      const iso = todo?.scheduled_start_iso || habit?.scheduled_start_iso;
-      if (!iso) return null;
-      const d = new Date(iso);
-      return d.getHours() * 60 + d.getMinutes();
-    };
+    // Helper: start minutes of an item's time planned for today (a time
+    // planned for another day says nothing about today's order)
+    const itemStartMins = (item: NowActiveItem): number | null =>
+      plannedMinutesOn(timesById.get(item.id)?.plannedIso, today);
 
     for (const block of blocks) {
       const entries: (typeof result)[string] = [];
@@ -1456,7 +1462,7 @@ function TodayFocusList({
     }
 
     return result;
-  }, [eventNotesByBlock, itemsByBlock, todos, habits]);
+  }, [eventNotesByBlock, itemsByBlock, timesById, today]);
 
   // Helper to check if a block should render
   const shouldRenderBlock = (block: TimeBlock) => {
@@ -1523,6 +1529,9 @@ function TodayFocusList({
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
               />
             ),
+          )}
+          {breakHabitsByBlock.allday.length > 0 && (
+            <BreakHabitCard names={breakHabitsByBlock.allday} />
           )}
         </TimeBlockSection>
       )}

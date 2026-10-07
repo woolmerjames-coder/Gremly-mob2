@@ -15,14 +15,15 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { selectHabitsDueToday, selectTodosDueToday } from '../store/selectors';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { getTimeBlockBoundaries } from '../capacity/capacityHelpers';
-import { dayOfWeekNumber } from '../brief/behind';
 import { readDco } from '../brief/dco';
-import { doneSinceMonday, meetingsForDay } from '../brief/useDayCard';
+import { doneInWeek, meetingsForDay } from '../brief/useDayCard';
 import { localDateOf, localMinutesToIso } from '../brief/time';
 import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
-import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
+import { buildCandidatePool, isBreakHabit, windowFor, type Candidate } from './candidatePool';
+import { habitsOnDay, todosDueOn } from './dayItems';
+import { plannedOn, weekAround } from '../week/habitWeek';
 import { withFeedAnimation } from '../brief/feeding';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
 import { useTodayThread } from '../brief/todayThread';
@@ -32,7 +33,8 @@ export function poolFromStore(): Candidate[] {
   const ds = getDateService();
   // the person's day: it ends at their day end, not at midnight
   const today = ds.ritualDay();
-  const monday = ds.startOfWeekMonday(today);
+  // their own week: the seven days that end on their weekly day
+  const weekFirst = weekAround(today, s.weeklyDay).first;
   const progress = (s.habitProgress ?? []) as {
     habit_id: string;
     occurred_day: string;
@@ -50,22 +52,27 @@ export function poolFromStore(): Candidate[] {
     habitsDueToday: selectHabitsDueToday(s as any),
     todos: s.todos,
     habits: s.habits,
-    doneThisWeek: doneSinceMonday(progress, monday, today),
+    doneThisWeek: doneInWeek(progress, weekFirst, today),
     doneToday: new Set(progress.filter((p) => p.occurred_day === today).map((p) => p.habit_id)),
     placedIds: placedOn(today),
-    daysGone: dayOfWeekNumber(today, monday),
+    week: { weeklyDay: s.weeklyDay, eases: s.habitAdaptations },
     claims: brief?.claims ?? [],
     reach: brief?.reach ?? null,
     blocks: s.timeBlockPreferences,
+    plannedHabits: plannedOn((s as any).habitPlans ?? [], today),
   }).filter((c) => !skipped.has(c.id));
 }
 
-/** A todo or habit picked from Due today that is not in today's pool. */
+/**
+ * A todo or habit picked from Due today that is not in today's pool. None for
+ * a habit they are breaking, which is never planned, however it was asked for.
+ */
 export function candidateFromStore(id: string, kind: 'todo' | 'habit'): Candidate | null {
   const s = useGremlyStore.getState();
   const item =
     kind === 'habit' ? s.habits.find((h) => h.id === id) : s.todos.find((t) => t.id === id);
   if (!item) return null;
+  if (kind === 'habit' && isBreakHabit(item)) return null;
   return {
     id,
     kind,
@@ -90,35 +97,34 @@ export function poolForDay(day: string): Candidate[] {
   const today = ds.ritualDay();
   if (day === today) return poolFromStore();
   const s = useGremlyStore.getState();
-  const monday = ds.startOfWeekMonday(day);
-  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
+  // the week that day is in, which is their own
+  const weekFirst = weekAround(day, s.weeklyDay).first;
   const progress = (s.habitProgress ?? []) as {
     habit_id: string;
     occurred_day: string;
     count?: number;
   }[];
-  const todosDue = s.todos.filter((t) => !t.archived && !t.completed_at && t.due_day === day);
-  const habitsOn = s.habits.filter((h) => {
-    if (h.archived || !h.start_date || h.start_date > day) return false;
-    if (h.end_date && h.end_date < day) return false;
-    if ((h.cadence ?? 'daily') === 'daily') return true;
-    return Array.isArray(h.days_active) && h.days_active.some((d) => d === weekday);
-  });
-  return buildCandidatePool({
+  const todosDue = todosDueOn(s.todos, day);
+  const habitsOn = habitsOnDay(s.habits, day, s.habitAdaptations);
+  const pool = buildCandidatePool({
     today: day,
     todosDueToday: todosDue,
     habitsDueToday: habitsOn,
     todos: s.todos,
     habits: s.habits,
-    doneThisWeek: monday <= today ? doneSinceMonday(progress, monday, today) : new Map(),
+    doneThisWeek: weekFirst <= today ? doneInWeek(progress, weekFirst, today) : new Map(),
     doneToday: new Set(),
     placedIds: new Set(),
-    daysGone: dayOfWeekNumber(day, monday),
+    week: { weeklyDay: s.weeklyDay, eases: s.habitAdaptations },
     claims: [],
     reach: null,
     blocks: s.timeBlockPreferences,
     forToday: false,
+    plannedHabits: plannedOn((s as any).habitPlans ?? [], day),
+    // the plan is for another day, so a todo due on it is due that day, not today
+    realToday: today,
   });
+  return pool;
 }
 
 /** The todos and habits an earlier plan gave a time on this day. */
@@ -207,6 +213,17 @@ export function saveEstimates(estimates: { id: string; kind: string; minutes: nu
   }
 }
 
+/**
+ * What a planned start writes on its todo or habit: the time, and the block
+ * that time falls in, so the two never disagree.
+ */
+export function plannedTimePatch(
+  date: string,
+  start: number,
+): { daily_block: 'morning' | 'day' | 'evening'; scheduled_start_iso: string } {
+  return { daily_block: blockFor(start), scheduled_start_iso: localMinutesToIso(date, start) };
+}
+
 function blockFor(start: number): 'morning' | 'day' | 'evening' {
   const b = getTimeBlockBoundaries(useGremlyStore.getState().timeBlockPreferences);
   const h = Math.floor(start / 60);
@@ -245,10 +262,7 @@ export async function lockPlanItems(
       kind = 'todo';
       created.push(item.title);
     }
-    const patch = {
-      daily_block: blockFor(item.start),
-      scheduled_start_iso: localMinutesToIso(date, item.start),
-    };
+    const patch = plannedTimePatch(date, item.start);
     if (kind === 'habit') await store.updateHabit(id, patch);
     else await store.updateTodo(id, patch);
     locked.push({ ...item, id, kind });

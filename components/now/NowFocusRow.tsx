@@ -27,6 +27,9 @@ import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/
 import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getFrequencyLabel } from '../../lib/sweep/habitHelpers';
+import { ampm, clock } from '../../lib/brief/dayCard';
+import { localDateOf, minutesOfDay } from '../../lib/brief/time';
+import { plannedMinutesOn } from '../../lib/now/sectionFor';
 
 // Gremly face icon for completion messages
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -149,24 +152,29 @@ export function NowFocusRow({
   const timeEstimateMinutes =
     fullTodo?.time_estimate_minutes || fullHabit?.time_estimate_minutes || null;
 
-  // Compute second-line text: scheduled time range or estimate
+  // The planned start this row can show, in minutes from midnight. A row on
+  // Today shows a time planned for today; a row for a day ahead shows a time
+  // planned for a day ahead. A time planned for a day gone by is never shown.
+  const today = useGremlyStore((s) => s.currentDate);
+  const plannedStart = React.useMemo(() => {
+    if (!scheduledStartIso || !today) return null;
+    if (!isFuture) return plannedMinutesOn(scheduledStartIso, today);
+    const day = localDateOf(scheduledStartIso);
+    return day && day > today ? minutesOfDay(scheduledStartIso) : null;
+  }, [scheduledStartIso, today, isFuture]);
+
+  // Compute second-line text: planned time range or estimate
   const secondLineText = React.useMemo(() => {
-    if (scheduledStartIso) {
-      const start = new Date(scheduledStartIso);
-      const durationMins = timeEstimateMinutes || 15;
-      const end = new Date(start.getTime() + durationMins * 60 * 1000);
-      const fmt = (d: Date) =>
-        d.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-        });
-      return `${fmt(start)} – ${fmt(end)}`;
+    if (plannedStart !== null) {
+      const end = plannedStart + (timeEstimateMinutes || 15);
+      const fmt = (min: number) => `${clock(min)} ${ampm(min)}`;
+      return `${fmt(plannedStart)} – ${fmt(end)}`;
     }
     if (timeEstimateMinutes) {
       return `~${formatTimeEstimate(timeEstimateMinutes)}`;
     }
     return null;
-  }, [scheduledStartIso, timeEstimateMinutes]);
+  }, [plannedStart, timeEstimateMinutes]);
 
   // Compute frequency label using centralized helper from habitHelpers
   const frequencyLabel = React.useMemo(() => {

@@ -26,6 +26,10 @@ export function bodyFor(s) {
     question: s.question || null,
     // tonight's wrap up, when the message is typed while one is under way
     ...(s.wrap ? { wrap: s.wrap } : {}),
+    // the person's week, as an app build that knows it sends it (agent only)
+    ...(s.week ? { week: s.week } : {}),
+    // the intention of the week the day is in, when they set one
+    ...(s.intention ? { intention: s.intention } : {}),
     // Gremly's task list so far in the thread, as the app keeps it (agent only)
     tasks: s.tasks || [],
     history: s.history || [],

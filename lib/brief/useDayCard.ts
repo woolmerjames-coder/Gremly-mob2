@@ -16,10 +16,13 @@ import {
 import { getEventsForDate } from '../calendar/CalendarService';
 import { getDateService } from '../date/DateService';
 import type { Habit, Todo } from '../types';
-import { dayOfWeekNumber, habitsBehindThisWeek, weeklyTarget } from './behind';
+import { habitsBehindThisWeek, weeklyTarget } from './behind';
 import { isReturnDay, readDco } from './dco';
 import { buildDayRecord, type DayRecord, type DayThreadMeta } from './dayRecord';
 import { useTodayThread } from './todayThread';
+import { habitsOnDay, todosDueOn } from '../plan/dayItems';
+import { pausedOn, plannedOn, weekAround } from '../week/habitWeek';
+import { isBreakHabit } from '../../workers/shared/habitWeek';
 import {
   habitsLine,
   isCancelledMeeting,
@@ -56,6 +59,8 @@ export interface DayCardData {
   planned: DayPlanned[];
   todosDue: Todo[];
   habitsToday: Habit[];
+  /** The habits they planned for this day in their week (habit_plans), by id */
+  weekHabits?: Set<string>;
   habitWeeks: HabitWeek[];
   behind: Habit[];
   /** The quick sweep's cards: what still needs a decision */
@@ -106,8 +111,17 @@ export function meetingsForDay(date: string, cancelled: ReadonlySet<string>): Da
     .sort((a, b) => a.start - b.start);
 }
 
-/** Planned items: todos and habits Lock it in placed on this day. */
-export function plannedForDay(todos: Todo[], habits: Habit[], date: string): DayPlanned[] {
+/**
+ * Planned items: todos and habits Lock it in placed on this day. A habit
+ * paused on the day is left out, whatever time it was given before the pause
+ * (eases: their habit_adaptations rows).
+ */
+export function plannedForDay(
+  todos: Todo[],
+  habits: Habit[],
+  date: string,
+  eases?: Record<string, any>[] | null,
+): DayPlanned[] {
   const out: DayPlanned[] = [];
   const add = (item: Todo | Habit, kind: 'todo' | 'habit') => {
     const iso = item.scheduled_start_iso;
@@ -126,19 +140,22 @@ export function plannedForDay(todos: Todo[], habits: Habit[], date: string): Day
     });
   };
   todos.forEach((t) => !t.archived && !t.completed_at && add(t, 'todo'));
-  habits.forEach((h) => !h.archived && add(h, 'habit'));
+  // a habit they are breaking has no time to do it at, so it is never on the day's plan
+  habits.forEach(
+    (h) => !h.archived && !isBreakHabit(h) && !pausedOn(eases, h.id, date) && add(h, 'habit'),
+  );
   return out.sort((a, b) => a.start - b.start);
 }
 
-/** Habit completions per habit since Monday of this week. */
-export function doneSinceMonday(
+/** Habit completions per habit in a week so far: from its first day through today. */
+export function doneInWeek(
   progress: { habit_id: string; occurred_day: string; count?: number }[],
-  weekStartMonday: string,
+  weekFirst: string,
   today: string,
 ): Map<string, number> {
   const map = new Map<string, number>();
   for (const p of progress) {
-    if (p.occurred_day >= weekStartMonday && p.occurred_day <= today) {
+    if (p.occurred_day >= weekFirst && p.occurred_day <= today) {
       map.set(p.habit_id, (map.get(p.habit_id) ?? 0) + (p.count ?? 1));
     }
   }
@@ -147,18 +164,40 @@ export function doneSinceMonday(
 
 export function useDayCard(date: string): DayCardData {
   const now = useNowMinutes();
-  const todosDue = useGremlyStore(selectTodosDueToday);
-  const habitsToday = useGremlyStore(selectHabitsDueToday);
+  const todosDueToday = useGremlyStore(selectTodosDueToday);
+  const habitsDueToday = useGremlyStore(selectHabitsDueToday);
   // the quick sweep: what still needs a decision, the number the brief names
   const quickSweep = useGremlyStore(selectQuickSweepCandidates);
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const progress = useGremlyStore((s) => s.habitProgress);
+  const habitPlans = useGremlyStore((s) => s.habitPlans);
+  // their week ends on their weekly day, and a paused habit is left alone
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
+  const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
   const dco = useGremlyStore((s) => s.dco);
   // the merged calendar reads the store imperatively; these keep it current
   const syncedToday = useGremlyStore((s) => s.calendarEvents[date]);
   const userEvents = useGremlyStore((s) => s.userCalendarEvents);
   const notes = useGremlyStore((s) => s.notes);
+  // another day (planning tomorrow) holds its own todos and habits, not today's
+  const isToday = date === getDateService().today();
+  const todosDue = useMemo(
+    () => (isToday ? todosDueToday : todosDueOn(todos, date)),
+    [isToday, todosDueToday, todos, date],
+  );
+  // A habit they are breaking is never one of the day's habits to do: Due
+  // today, the card's count and the pick sheet leave it out. Today keeps it in
+  // sight (Stay mindful) and the evening wrap up checks in on it.
+  const habitsToday = useMemo(
+    () =>
+      (isToday ? habitsDueToday : habitsOnDay(habits, date, habitAdaptations)).filter(
+        (h) => !isBreakHabit(h),
+      ),
+    [isToday, habitsDueToday, habits, date, habitAdaptations],
+  );
+
+  const weekHabits = useMemo(() => plannedOn(habitPlans ?? [], date), [habitPlans, date]);
 
   const cancelledKey = useMemo(() => readDco(dco).cancelledCalendarIds.join(','), [dco]);
   const meetings = useMemo<DayMeeting[]>(
@@ -168,23 +207,30 @@ export function useDayCard(date: string): DayCardData {
     [date, syncedToday, userEvents, notes, cancelledKey],
   );
 
-  const planned = useMemo(() => plannedForDay(todos, habits, date), [todos, habits, date]);
+  const planned = useMemo(
+    () => plannedForDay(todos, habits, date, habitAdaptations),
+    [todos, habits, date, habitAdaptations],
+  );
 
   const { habitWeeks, behind } = useMemo(() => {
-    const ds = getDateService();
-    const monday = ds.startOfWeekMonday(date);
-    const daysGone = dayOfWeekNumber(date, monday);
-    const done = doneSinceMonday(progress as any[], monday, date);
+    // counted in their own week: the seven days that end on their weekly day
+    const weekFirst = weekAround(date, weeklyDay).first;
+    const done = doneInWeek(progress as any[], weekFirst, date);
     const active = habits.filter((h) => !h.archived);
     const weeks: HabitWeek[] = active.map((h) => {
       const target = weeklyTarget(h);
       return { habit: h, done: done.get(h.id) ?? 0, target, behind: false };
     });
-    const behindList = habitsBehindThisWeek(active, done, daysGone);
+    // behind is for a habit with something to do: never one they are breaking
+    const behindList = habitsBehindThisWeek(active, done, {
+      today: date,
+      weeklyDay,
+      eases: habitAdaptations,
+    }).filter((h) => !isBreakHabit(h));
     const behindIds = new Set(behindList.map((h) => h.id));
     weeks.forEach((w) => (w.behind = behindIds.has(w.habit.id)));
     return { habitWeeks: weeks, behind: behindList };
-  }, [habits, progress, date]);
+  }, [habits, progress, date, weeklyDay, habitAdaptations]);
 
   const { anchors, brief, frame } = useMemo(() => readDco(dco), [dco]);
   // set times added in today's thread belong to the day too
@@ -222,6 +268,7 @@ export function useDayCard(date: string): DayCardData {
     planned,
     todosDue,
     habitsToday,
+    weekHabits,
     habitWeeks,
     behind,
     sweepWaiting: quickSweep.length,

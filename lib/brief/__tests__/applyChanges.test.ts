@@ -183,6 +183,8 @@ describe('applying the change card', () => {
       time_estimate_minutes: 20,
     });
     expect(res.plan.add).toEqual([{ id: 'new-1', kind: 'todo', start: 600, minutes: 20 }]);
+    // the row can open what it made
+    expect(res.created).toEqual({ c1: 'new-1' });
   });
 
   it('a change that fails is reported, not claimed', async () => {
@@ -278,6 +280,31 @@ describe("applying the agent's card", () => {
     expect(res.frameChanged).toBe(true);
   });
 
+  it('carries the stretch of the day they asked to fill with an item that has no time', async () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'plan',
+        type: 'todo',
+        id: 'deck',
+        title: 'Finish the deck',
+        plan: {
+          kind: 'plan_add',
+          id: 'deck',
+          item: 'todo',
+          start: null,
+          after: 1020,
+          minutes: 45,
+          title: 'Finish the deck',
+        },
+      },
+    ] as Change[];
+    const res = await applyCardChanges(card, ctx);
+    expect(res.plan.add).toEqual([
+      { id: 'deck', kind: 'todo', start: null, after: 1020, minutes: 45 },
+    ]);
+  });
+
   it('a new day takes an item out of the plan; what is not in the plan stays out of it', async () => {
     const card = [
       {
@@ -303,6 +330,27 @@ describe("applying the agent's card", () => {
     const res = await applyCardChanges(card, { ...ctx, inPlan: new Set(['mum']) });
     expect(res.plan.remove).toEqual(['mum']);
     expect(res.plan.pin).toEqual([]);
+  });
+
+  it('a todo put off for later leaves its day, and with it the plan', async () => {
+    const card = [
+      {
+        cid: 'c1',
+        op: 'later',
+        type: 'todo',
+        id: 'mum',
+        title: 'Call Mum',
+        fields: { back_on: '2026-10-12' },
+        before: { back_on: null, day: '2026-10-02' },
+      },
+    ] as Change[];
+    const res = await applyCardChanges(card, { ...ctx, inPlan: new Set(['mum']) });
+    expect(res.done).toEqual(['c1']);
+    expect(store.updateTodo).toHaveBeenCalledWith(
+      'mum',
+      expect.objectContaining({ resurface_at: '2026-10-12', due_day: null }),
+    );
+    expect(res.plan).toEqual({ add: [], remove: ['mum'], pin: [] });
   });
 
   it("marks a yes to Gremly's offer to plan the day, for the planner to take over", async () => {

@@ -1,7 +1,9 @@
 /**
  * The one ask: who sees which sheet, and when it waits.
  */
-jest.mock('../../supabase/client', () => ({ supabase: {} }));
+jest.mock('../../supabase/client', () => ({
+  supabase: { auth: { getSession: jest.fn() }, from: jest.fn() },
+}));
 jest.mock('../device', () => ({
   readPermission: jest.fn(),
   requestPermission: jest.fn(),
@@ -9,8 +11,11 @@ jest.mock('../device', () => ({
   isExpoGo: false,
 }));
 
-import { chooseAskVariant } from '../ask';
+import { chooseAskVariant, maybeAsk, putOffOpenAsk } from '../ask';
 import { ASK_COPY } from '../constants';
+import { readPermission } from '../device';
+import { useNotificationUi } from '../store';
+import { supabase } from '../../supabase/client';
 
 const now = new Date('2026-10-01T12:00:00Z');
 const daysAgo = (n: number) => new Date(now.getTime() - n * 86400000).toISOString();
@@ -93,5 +98,33 @@ describe('the words', () => {
       expect(all).toMatch(/note from me/);
       expect(all).not.toMatch(/[–—]/);
     }
+  });
+});
+
+describe('the ask the app makes by itself', () => {
+  beforeEach(() => {
+    // someone never asked, with the iPhone prompt still to come
+    (supabase.auth.getSession as jest.Mock).mockResolvedValue({
+      data: { session: { user: { id: 'user-1' } } },
+    });
+    (supabase.from as jest.Mock).mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+    });
+    (readPermission as jest.Mock).mockResolvedValue('undetermined');
+    useNotificationUi.getState().hideAsk();
+  });
+
+  it('can be put off for this launch, and anything they ask for themselves still shows', async () => {
+    expect(await maybeAsk('open')).toBe(true);
+    expect(useNotificationUi.getState().ask).toMatchObject({ variant: 'new', source: 'open' });
+    useNotificationUi.getState().hideAsk();
+
+    // they have just gone into something it would land on top of
+    putOffOpenAsk();
+    expect(await maybeAsk('open')).toBe(false);
+    expect(useNotificationUi.getState().ask).toBeNull();
+
+    expect(await maybeAsk('bell')).toBe(true);
+    expect(useNotificationUi.getState().ask).toMatchObject({ source: 'bell' });
   });
 });

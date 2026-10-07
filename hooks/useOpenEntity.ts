@@ -5,6 +5,10 @@
  * Today use); habits have their own detail screen. The card carries only the
  * item's id and type, so the store's record is passed when it is loaded and
  * the overlay looks the item up otherwise, as the locked item cards do.
+ *
+ * overOverlay: the tap came from a chat that sits on an item's overlay (a row
+ * on a change card there). A habit's page would open behind that overlay, so
+ * the overlay is closed first, as its own View progress does.
  */
 import { useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
@@ -12,12 +16,26 @@ import { useUnifiedOverlayController } from './useUnifiedOverlayController';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import type { EntityCardEntity } from '../lib/types';
 
-export function useOpenEntity(): (entity: EntityCardEntity) => void {
+/** How long the overlay is given to close before a page opens in its place. */
+const OVERLAY_CLOSE_MS = 100;
+
+export function useOpenEntity(): (
+  entity: EntityCardEntity,
+  opts?: { overOverlay?: boolean },
+) => void {
   const overlayController = useUnifiedOverlayController();
   const navigation = useNavigation<any>();
   return useCallback(
-    (entity: EntityCardEntity) => {
+    (entity: EntityCardEntity, opts?: { overOverlay?: boolean }) => {
       if (entity.type === 'habit') {
+        if (opts?.overOverlay && overlayController.state.visible) {
+          overlayController.close();
+          setTimeout(
+            () => navigation.navigate('HabitDetail', { habitId: entity.id }),
+            OVERLAY_CLOSE_MS,
+          );
+          return;
+        }
         navigation.navigate('HabitDetail', { habitId: entity.id });
         return;
       }

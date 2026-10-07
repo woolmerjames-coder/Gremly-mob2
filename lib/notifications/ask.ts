@@ -76,12 +76,26 @@ export async function pendingAsk(source: AskSource): Promise<AskVariant | null> 
   });
 }
 
+// The ask the app makes by itself once it has settled (source 'open',
+// NotificationResponder) can be put off for this launch
+let openAskPutOff = false;
+
+/**
+ * Put off the ask the app makes by itself, for this launch: the person has
+ * just gone into something it would land on top of. It is due again the next
+ * time the app opens.
+ */
+export function putOffOpenAsk(): void {
+  openAskPutOff = true;
+}
+
 /**
  * Shows the sheet when it is due. Returns true when it showed. The sheet is
  * drawn over the app, under any open modal, so it appears as soon as that closes.
  */
 export async function maybeAsk(source: AskSource): Promise<boolean> {
   if (useNotificationUi.getState().ask) return true;
+  if (source === 'open' && openAskPutOff) return false;
   const variant = await pendingAsk(source);
   if (!variant) return false;
   useNotificationUi.getState().showAsk(variant, source);

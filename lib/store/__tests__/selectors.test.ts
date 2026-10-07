@@ -40,7 +40,7 @@ import {
 } from '../selectors';
 import type { Todo, Habit, Note, Space, SpaceSuggestion, DailyContextObject } from '../../types';
 import type { Milestone } from '../../schemas';
-import type { HabitProgressRow } from '../useGremlyStore';
+import type { HabitAdaptationRow, HabitProgressRow } from '../useGremlyStore';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TEST HELPERS
@@ -122,6 +122,25 @@ function makeHabitProgress(habitId: string, occurredDay: string): HabitProgressR
   };
 }
 
+/** A pause (or, with mode 'floor', a lighter version) of a habit from one day to another */
+function makeAdaptation(
+  habitId: string,
+  periodStart: string,
+  periodEnd: string,
+  mode: HabitAdaptationRow['mode'] = 'pause',
+): HabitAdaptationRow {
+  return {
+    id: `adaptation-${Math.random().toString(36).slice(2)}`,
+    owner_id: 'user-1',
+    habit_id: habitId,
+    mode,
+    period_start: periodStart,
+    period_end: periodEnd,
+    created_at: `${periodStart}T12:00:00Z`,
+    updated_at: `${periodStart}T12:00:00Z`,
+  };
+}
+
 function makeState(
   overrides: Partial<{
     todos: Todo[];
@@ -129,6 +148,9 @@ function makeState(
     notes: Note[];
     spaces: Space[];
     habitProgress: HabitProgressRow[];
+    habitAdaptations: HabitAdaptationRow[];
+    // Their weekly day (0 Sunday to 6 Saturday): their week ends on it
+    weeklyDay: number;
     milestones: Milestone[];
     spaceSuggestions: SpaceSuggestion[];
     // Sweep preferences
@@ -151,6 +173,8 @@ function makeState(
     spaces: [],
     tags: [],
     habitProgress: [],
+    habitAdaptations: [],
+    weeklyDay: 0,
     spaceChats: [],
     spaceChatMessages: [],
     milestones: [],
@@ -174,6 +198,12 @@ function makeState(
     ...overrides,
   };
 }
+
+/**
+ * The same store after any update: every update hands the selectors a new
+ * state object, and a memoised selector is not run again for the very same one.
+ */
+const afterUpdate = <S extends object>(state: S): S => ({ ...state });
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // filterUnsortedForReview
@@ -483,6 +513,61 @@ describe('selectSpaceTimeline', () => {
     const habitItem = todayTimeline?.items.find((i) => i.id === 'habit-1');
     expect(habitItem?.done).toBe(true);
   });
+
+  describe('their week', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      // Wednesday Dec 17, 2025
+      jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('runs Monday to Sunday for a Sunday person', () => {
+      const state = makeState({ habits: [makeHabit({ space_id: 'space-1' })] });
+
+      const result = selectSpaceTimeline(state as any, 'space-1');
+
+      expect(result.map((d) => d.dateISO)).toEqual([
+        '2025-12-15',
+        '2025-12-16',
+        '2025-12-17',
+        '2025-12-18',
+        '2025-12-19',
+        '2025-12-20',
+        '2025-12-21',
+      ]);
+    });
+
+    it('runs Thursday to Wednesday for a Wednesday person', () => {
+      const state = makeState({ habits: [makeHabit({ space_id: 'space-1' })], weeklyDay: 3 });
+
+      const result = selectSpaceTimeline(state as any, 'space-1');
+
+      expect(result.map((d) => d.dateISO)).toEqual([
+        '2025-12-11',
+        '2025-12-12',
+        '2025-12-13',
+        '2025-12-14',
+        '2025-12-15',
+        '2025-12-16',
+        '2025-12-17',
+      ]);
+    });
+
+    it('moves on to the next week when the day turns over', () => {
+      const state = makeState({ habits: [makeHabit({ space_id: 'space-1' })] });
+      expect(selectSpaceTimeline(state as any, 'space-1')[0].dateISO).toBe('2025-12-15');
+
+      // the Monday after, with nothing in the space changed
+      jest.setSystemTime(new Date('2025-12-22T12:00:00Z'));
+      expect(selectSpaceTimeline(afterUpdate(state) as any, 'space-1')[0].dateISO).toBe(
+        '2025-12-22',
+      );
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -511,6 +596,26 @@ describe('selectTodosDueToday', () => {
     const result = selectTodosDueToday(state as any);
 
     expect(result.map((t) => t.id).sort()).toEqual(['t1', 't3']);
+  });
+
+  it('includes a todo put off whose day to come back is today, and only on that day', () => {
+    const later = (id: string, o: Record<string, unknown>) =>
+      makeTodo({ id, due_day: null, ...o } as Partial<Todo>);
+    const state = makeState({
+      todos: [
+        later('back-today', { resurface_at: '2025-12-15' }),
+        later('back-tomorrow', { resurface_at: '2025-12-16' }),
+        // its back day has gone by: it waits in the wrap up's cards, not on Today
+        later('back-yesterday', { resurface_at: '2025-12-14' }),
+        later('no-day', {}),
+        // given a day of its own since: that day decides
+        makeTodo({ id: 'moved-on', due_day: '2025-12-17', resurface_at: '2025-12-15' } as any),
+        later('done', { resurface_at: '2025-12-15', completed_at: '2025-12-15T09:00:00Z' }),
+        later('archived', { resurface_at: '2025-12-15', archived: true }),
+      ],
+    });
+
+    expect(selectTodosDueToday(state as any).map((t) => t.id)).toEqual(['back-today']);
   });
 });
 
@@ -1057,13 +1162,14 @@ describe('selectWeeklyHabitSummaries', () => {
     expect(result[0].targetPerWeek).toBe(3);
   });
 
-  it('counts completions this calendar week', () => {
+  it('counts completions in their week', () => {
     const state = makeState({
       habits: [makeHabit({ id: 'h1', cadence: 'weekly', target_per_period: 3 })],
       habitProgress: [
-        // Week starts on Sunday (Dec 14 is Sunday for 2025-12-17)
-        makeHabitProgress('h1', '2025-12-14'), // Sunday (week start)
-        makeHabitProgress('h1', '2025-12-15'), // Monday
+        // A Sunday person's week is Monday to Sunday (Dec 15 to Dec 21 for 2025-12-17)
+        makeHabitProgress('h1', '2025-12-15'), // Monday (week start)
+        makeHabitProgress('h1', '2025-12-16'), // Tuesday
+        makeHabitProgress('h1', '2025-12-14'), // Sunday before (should not count)
         makeHabitProgress('h1', '2025-12-10'), // Last week (should not count)
       ],
     });
@@ -1088,7 +1194,7 @@ describe('selectWeeklyHabitSummaries', () => {
   it('returns week_complete status when target met', () => {
     const state = makeState({
       habits: [makeHabit({ id: 'h1', cadence: 'weekly', target_per_period: 2 })],
-      habitProgress: [makeHabitProgress('h1', '2025-12-14'), makeHabitProgress('h1', '2025-12-15')],
+      habitProgress: [makeHabitProgress('h1', '2025-12-15'), makeHabitProgress('h1', '2025-12-16')],
     });
 
     const result = selectWeeklyHabitSummaries(state as any);
@@ -1097,8 +1203,8 @@ describe('selectWeeklyHabitSummaries', () => {
   });
 
   it('returns last_chance status when behind with limited days left', () => {
-    // Wednesday Dec 17: days remaining = 7 - 3 = 4 (Wed, Thu, Fri, Sat)
-    // For daily habit needing 7/week with 0 completions, remaining = 7 > 4 days remaining
+    // Wednesday Dec 17: days remaining = 5 (Wed, Thu, Fri, Sat, Sun)
+    // For daily habit needing 7/week with 0 completions, remaining = 7 > 5 days remaining
     const state = makeState({
       habits: [makeHabit({ id: 'h1', cadence: 'daily' })],
       habitProgress: [], // No completions yet this week
@@ -1110,25 +1216,48 @@ describe('selectWeeklyHabitSummaries', () => {
   });
 
   it('returns flexible status when well ahead of schedule', () => {
-    // Wednesday Dec 17: days remaining = 4
+    // Wednesday Dec 17: days remaining = 5
     // Daily habit needs 7/week, with 5 completions, remaining = 2
-    // remaining (2) < daysRemaining - 1 (3) → flexible
+    // remaining (2) < daysRemaining - 1 (4) → flexible
     const state = makeState({
       habits: [makeHabit({ id: 'h1', cadence: 'daily' })],
       habitProgress: [
-        makeHabitProgress('h1', '2025-12-14'), // Sun
         makeHabitProgress('h1', '2025-12-15'), // Mon
         makeHabitProgress('h1', '2025-12-16'), // Tue
         makeHabitProgress('h1', '2025-12-17'), // Wed (today)
         makeHabitProgress('h1', '2025-12-15'), // Extra Mon completion (duplicate day)
+        makeHabitProgress('h1', '2025-12-16'), // Extra Tue completion (duplicate day)
       ],
     });
 
     const result = selectWeeklyHabitSummaries(state as any);
 
-    // 5 completions, need 7, remaining = 2, days left = 4
-    // 2 < 4 - 1 = 3, so flexible
+    // 5 completions, need 7, remaining = 2, days left = 5
+    // 2 < 5 - 1 = 4, so flexible
     expect(result[0].status).toBe('flexible');
+  });
+
+  it('counts the days left in their own week', () => {
+    // Wednesday Dec 17 is the last day of a Wednesday person's week (Thu Dec 11 to Wed Dec 17)
+    const habits = [makeHabit({ id: 'h1', cadence: 'weekly', target_per_period: 3 })];
+    const habitProgress = [
+      makeHabitProgress('h1', '2025-12-11'), // Thursday
+      makeHabitProgress('h1', '2025-12-15'), // Monday
+    ];
+
+    const wednesday = selectWeeklyHabitSummaries(
+      makeState({ habits, habitProgress, weeklyDay: 3 }) as any,
+    );
+    // 2 of 3 done with one day left: today is the last chance
+    expect(wednesday[0].completionsThisWeek).toBe(2);
+    expect(wednesday[0].status).toBe('last_chance');
+
+    const sunday = selectWeeklyHabitSummaries(
+      makeState({ habits, habitProgress, weeklyDay: 0 }) as any,
+    );
+    // 1 of 3 done since Monday with five days left
+    expect(sunday[0].completionsThisWeek).toBe(1);
+    expect(sunday[0].status).toBe('flexible');
   });
 });
 
@@ -1139,7 +1268,7 @@ describe('selectWeeklyHabitSummaries', () => {
 describe('selectCompletionsThisWeek', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    // Wednesday Dec 17, 2025 - week starts Sunday Dec 14
+    // Wednesday Dec 17, 2025: a Sunday person's week is Monday Dec 15 to Sunday Dec 21
     jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
   });
 
@@ -1155,13 +1284,13 @@ describe('selectCompletionsThisWeek', () => {
     expect(result.size).toBe(0);
   });
 
-  it('counts completions from current calendar week only', () => {
+  it('counts completions from their current week only', () => {
     const state = makeState({
       habitProgress: [
-        makeHabitProgress('h1', '2025-12-14'), // Sunday (week start)
-        makeHabitProgress('h1', '2025-12-15'), // Monday
+        makeHabitProgress('h1', '2025-12-15'), // Monday (week start)
+        makeHabitProgress('h1', '2025-12-16'), // Tuesday
         makeHabitProgress('h1', '2025-12-17'), // Wednesday (today)
-        makeHabitProgress('h1', '2025-12-13'), // Saturday (last week)
+        makeHabitProgress('h1', '2025-12-14'), // Sunday (last week)
         makeHabitProgress('h1', '2025-12-10'), // Last week
       ],
     });
@@ -1169,6 +1298,53 @@ describe('selectCompletionsThisWeek', () => {
     const result = selectCompletionsThisWeek(state as any);
 
     expect(result.get('h1')).toBe(3);
+  });
+
+  it('a Sunday person counts Monday to Sunday', () => {
+    const state = makeState({
+      habitProgress: [
+        makeHabitProgress('h1', '2025-12-14'), // the Sunday before
+        makeHabitProgress('h1', '2025-12-15'), // Monday
+      ],
+    });
+
+    // On Monday the log from the Sunday before is last week's
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+    expect(selectCompletionsThisWeek(state as any).get('h1')).toBe(1);
+
+    // On the Sunday that ends the week, Monday's log still counts
+    jest.setSystemTime(new Date('2025-12-21T12:00:00Z'));
+    expect(selectCompletionsThisWeek(afterUpdate(state) as any).get('h1')).toBe(1);
+
+    // The next Monday starts a new week, with no habit logged or removed since
+    jest.setSystemTime(new Date('2025-12-22T12:00:00Z'));
+    expect(selectCompletionsThisWeek(afterUpdate(state) as any).get('h1')).toBeUndefined();
+  });
+
+  it('a Wednesday person counts Thursday to Wednesday', () => {
+    const state = makeState({
+      weeklyDay: 3,
+      habitProgress: [
+        makeHabitProgress('h1', '2025-12-10'), // the Wednesday before
+        makeHabitProgress('h1', '2025-12-11'), // Thursday (week start)
+        makeHabitProgress('h1', '2025-12-17'), // Wednesday (today, the last day)
+      ],
+    });
+
+    expect(selectCompletionsThisWeek(state as any).get('h1')).toBe(2);
+
+    // Thursday starts their next week
+    jest.setSystemTime(new Date('2025-12-18T12:00:00Z'));
+    expect(selectCompletionsThisWeek(afterUpdate(state) as any).get('h1')).toBeUndefined();
+  });
+
+  it('counts again when their weekly day changes', () => {
+    const state = makeState({
+      habitProgress: [makeHabitProgress('h1', '2025-12-11'), makeHabitProgress('h1', '2025-12-15')],
+    });
+
+    expect(selectCompletionsThisWeek(state as any).get('h1')).toBe(1);
+    expect(selectCompletionsThisWeek({ ...state, weeklyDay: 3 } as any).get('h1')).toBe(2);
   });
 
   it('sums counts from multiple progress records on same day', () => {
@@ -1183,6 +1359,139 @@ describe('selectCompletionsThisWeek', () => {
     const result = selectCompletionsThisWeek(state as any);
 
     expect(result.get('h1')).toBe(3); // 1 + 2
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectHabitsDueToday: their week, and a pause
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { selectHabitsCompletedToday } from '../selectors';
+
+describe('selectHabitsDueToday in their week', () => {
+  const dueIds = (state: ReturnType<typeof makeState>) =>
+    selectHabitsDueToday(state as any).map((h) => h.id);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Sunday Dec 21, 2025: the last day of a Sunday person's week
+    jest.setSystemTime(new Date('2025-12-21T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('a flexible weekly habit met earlier in their week is not due on its last day', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'met', cadence: 'weekly', target_per_period: 2 }),
+        makeHabit({ id: 'open', cadence: 'weekly', target_per_period: 2 }),
+      ],
+      habitProgress: [
+        makeHabitProgress('met', '2025-12-15'), // Monday
+        makeHabitProgress('met', '2025-12-16'), // Tuesday
+        makeHabitProgress('open', '2025-12-14'), // the Sunday before, last week's
+        makeHabitProgress('open', '2025-12-15'), // Monday
+      ],
+    });
+
+    expect(dueIds(state)).toEqual(['open']);
+
+    // Monday starts a new week and both are open again
+    jest.setSystemTime(new Date('2025-12-22T12:00:00Z'));
+    expect(dueIds(afterUpdate(state))).toEqual(['met', 'open']);
+  });
+
+  it('a Wednesday person is done for the week on Wednesday and starts again on Thursday', () => {
+    jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
+    const state = makeState({
+      weeklyDay: 3,
+      habits: [makeHabit({ id: 'gym', cadence: 'weekly', target_per_period: 2 })],
+      habitProgress: [
+        makeHabitProgress('gym', '2025-12-11'), // Thursday (week start)
+        makeHabitProgress('gym', '2025-12-15'), // Monday
+      ],
+    });
+
+    expect(dueIds(state)).toEqual([]);
+    // the same logs leave it open for a Sunday person, whose week began on Monday
+    expect(dueIds({ ...state, weeklyDay: 0 })).toEqual(['gym']);
+
+    jest.setSystemTime(new Date('2025-12-18T12:00:00Z'));
+    expect(dueIds(afterUpdate(state))).toEqual(['gym']);
+  });
+});
+
+describe('selectHabitsDueToday with a pause', () => {
+  const dueIds = (state: ReturnType<typeof makeState>) =>
+    selectHabitsDueToday(state as any).map((h) => h.id);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Wednesday Dec 17, 2025
+    jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('a paused habit is not due today and is due again the day after the pause ends', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'run', cadence: 'daily' }),
+        makeHabit({ id: 'read', cadence: 'daily' }),
+      ],
+      habitAdaptations: [makeAdaptation('run', '2025-12-16', '2025-12-18')],
+    });
+
+    expect(dueIds(state)).toEqual(['read']);
+
+    // the last day of the pause
+    jest.setSystemTime(new Date('2025-12-18T12:00:00Z'));
+    expect(dueIds(afterUpdate(state))).toEqual(['read']);
+
+    // the day after it ends
+    jest.setSystemTime(new Date('2025-12-19T12:00:00Z'));
+    expect(dueIds(afterUpdate(state))).toEqual(['run', 'read']);
+  });
+
+  it('a paused habit is off the list whatever its cadence', () => {
+    const state = makeState({
+      habits: [
+        makeHabit({ id: 'wednesdays', cadence: 'weekly', days_active: [3] }),
+        makeHabit({ id: 'flexible', cadence: 'weekly', target_per_period: 3 }),
+        makeHabit({ id: 'monthly', cadence: 'monthly', target_per_period: 2 }),
+      ],
+    });
+    expect(dueIds(state)).toEqual(['wednesdays', 'flexible', 'monthly']);
+
+    const paused = {
+      ...state,
+      habitAdaptations: state.habits.map((h) => makeAdaptation(h.id, '2025-12-17', '2025-12-17')),
+    };
+    expect(dueIds(paused)).toEqual([]);
+  });
+
+  it('a lighter version leaves a habit on the list', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'run', cadence: 'daily' })],
+      habitAdaptations: [makeAdaptation('run', '2025-12-16', '2025-12-18', 'floor')],
+    });
+
+    expect(dueIds(state)).toEqual(['run']);
+  });
+
+  it('a paused habit logged anyway still counts', () => {
+    const state = makeState({
+      habits: [makeHabit({ id: 'run', cadence: 'weekly', target_per_period: 3 })],
+      habitProgress: [makeHabitProgress('run', '2025-12-17')],
+      habitAdaptations: [makeAdaptation('run', '2025-12-16', '2025-12-18')],
+    });
+
+    expect(selectCompletionsThisWeek(state as any).get('run')).toBe(1);
+    expect(selectHabitsCompletedToday(state as any).map((h) => h.id)).toEqual(['run']);
   });
 });
 
@@ -2698,5 +3007,26 @@ describe("the wrap up's cards", () => {
       .cards.map((c) => c.candidate.id)
       .sort();
     expect(ids).toEqual(['overdue', 'today']);
+  });
+
+  it('a Later that comes back today is one of tonight’s cards, and one still put off is not', () => {
+    const state = makeState({
+      todos: [
+        // put off (Later): no day of its own, and the day it comes back
+        makeTodo({ id: 'back-today', due_day: null, resurface_at: '2025-12-15' }),
+        makeTodo({ id: 'back-earlier', due_day: null, resurface_at: '2025-12-12' }),
+        makeTodo({ id: 'still-away', due_day: null, resurface_at: '2025-12-19' }),
+        makeTodo({
+          id: 'back-done',
+          due_day: null,
+          resurface_at: '2025-12-15',
+          completed_at: '2025-12-15T10:00:00Z',
+        }),
+      ],
+    });
+    const ids = selectWrapUp(state as any)
+      .cards.map((c) => c.candidate.id)
+      .sort();
+    expect(ids).toEqual(['back-earlier', 'back-today']);
   });
 });

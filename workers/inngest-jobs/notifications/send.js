@@ -30,7 +30,10 @@ import { writeCopy, reminderCopy } from './copy';
 import { dayEndHourFrom, EVENING_START_HOUR } from '../../shared/day.js';
 import { buildMessage, sendToExpo, getReceipts, DEAD_DEVICE_ERRORS, ALERT_ERRORS } from './expo';
 import { reportProblem } from './alert';
-import { reminderStillFiresAt } from './planner';
+import { COME_BACK_LOOK_DAYS, readCameBack, reminderStillFiresAt } from './planner';
+import { addDays } from './reminderTimes';
+import { isDay } from '../../shared/week.js';
+import { pausedOn } from '../../shared/habitWeek.js';
 import { sweepCounts } from './sweepCount';
 
 /** iOS action button sets, matching the categories the app registers. */
@@ -62,6 +65,11 @@ export function routeFor(moment, subject) {
     }
     case 'good_news':
       return String(subject || '').startsWith('weekly_summary') ? 'summary' : 'home';
+    case 'nudge':
+      // What came back from Later is waiting in today's thread: the brief
+      // has what came back today, and the wrap up's cards have the rest. Any
+      // other nudge invites a drop.
+      return subject === 'came_back' ? 'brief' : 'drop';
     default:
       return 'drop';
   }
@@ -162,6 +170,18 @@ export function touchedTonight(sweep, tz, dayEndHour) {
   return minutes >= EVENING_START_HOUR * 60 || minutes < dayEndHour * 60;
 }
 
+/**
+ * Whether a habit is paused on their day. A paused habit is left alone, so
+ * nothing about it is sent. Read fresh, like the habit itself: a pause made
+ * after the day was planned or the reminder was queued still holds.
+ */
+async function habitPausedToday(d, uid, habitId, ritualDay) {
+  const rows = await d.select(
+    `habit_adaptations?owner_id=eq.${uid}&habit_id=eq.${habitId}&period_start=lte.${ritualDay}&period_end=gte.${ritualDay}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
+  );
+  return pausedOn(rows, habitId, ritualDay);
+}
+
 /** Is the reason for this notification still true? Returns { ok, reason, facts }. */
 export async function stillTrue(env, person, job, at = new Date()) {
   const d = db(env);
@@ -219,6 +239,8 @@ export async function stillTrue(env, person, job, at = new Date()) {
       const [habit] =
         (await d.select(`habits?id=eq.${job.subject}&owner_id=eq.${uid}&select=id,archived`)) || [];
       if (!habit || habit.archived) return { ok: false, reason: 'The habit is no longer active' };
+      if (await habitPausedToday(d, uid, job.subject, ritualDay))
+        return { ok: false, reason: 'The habit is paused' };
       const logged = await d.select(
         `habit_progress?owner_id=eq.${uid}&habit_id=eq.${job.subject}&occurred_day=eq.${ritualDay}&select=id&limit=1`,
       );
@@ -243,8 +265,10 @@ export async function stillTrue(env, person, job, at = new Date()) {
       ) {
         return { ok: false, reason: 'The reminder moved to another time' };
       }
-      // a habit already logged today needs no reminder
+      // a habit paused today is left alone, and one already logged today needs no reminder
       if (type === 'habit') {
+        if (await habitPausedToday(d, uid, id, ritualDay))
+          return { ok: false, reason: 'The habit is paused' };
         const logged = await d.select(
           `habit_progress?owner_id=eq.${uid}&habit_id=eq.${id}&occurred_day=eq.${ritualDay}&select=id&limit=1`,
         );
@@ -259,6 +283,29 @@ export async function stillTrue(env, person, job, at = new Date()) {
             `daily_ritual_progress?owner_id=eq.${uid}&ritual_day=eq.${ritualDay}&select=is_fed`,
           )) || [];
         if (day?.is_fed) return { ok: false, reason: 'Gremly was already fed today' };
+      }
+      if (job.data?.reason?.kind === 'came_back') {
+        // What came back from Later while they were away: read again now, so
+        // the note only goes while they are still away and it is still waiting.
+        const lastOpenDate = person.lastOpenAt ? localDate(tz, new Date(person.lastOpenAt)) : null;
+        if (lastOpenDate && lastOpenDate >= ritualDay) {
+          return { ok: false, reason: 'They came back' };
+        }
+        const rows = await readCameBack(
+          env,
+          uid,
+          addDays(ritualDay, -COME_BACK_LOOK_DAYS),
+          ritualDay,
+        );
+        // only what the plan counted: what came back after they last opened
+        // the app, and after the last note that said so
+        const said = isDay(job.data.reason.since) ? job.data.reason.since : null;
+        const since = said && (!lastOpenDate || said > lastOpenDate) ? said : lastOpenDate;
+        const back = rows.filter((t) => !since || t.back_on > since);
+        if (!back.length) {
+          return { ok: false, reason: 'Nothing that came back is still waiting' };
+        }
+        return { ok: true, facts: cameBackFacts(back) };
       }
       return { ok: true };
     }
@@ -341,6 +388,7 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
       : { action: 'drop', reason: 'No phone can receive notifications' }
     : decideAtSend({
         moment: job.moment,
+        subject: job.subject || null,
         nowMinutes: person.nowMinutes,
         prefs: person.prefs,
         healthyDevices: person.devices.length,
@@ -354,7 +402,33 @@ export async function decide(env, job, { at = new Date(), heldSoFar = 0 } = {}) 
         heldSoFar,
         meetingEndsInMinutes: job.moment === 'reminder' ? null : meetingEndsInMinutes,
       });
-  return { ...verdict, person, facts: g ? briefFacts(g, job.moment) : null };
+  // What the check itself found (what came back from Later) is what the note
+  // is about, so it is all the writer is told beside the day of the week and
+  // the part of the day: the rest of the day would only pull the line off it.
+  const dayFacts = g ? briefFacts(g, job.moment) : null;
+  const facts = check.facts
+    ? {
+        ...(dayFacts ? { weekday: dayFacts.weekday, part_of_day: dayFacts.part_of_day } : {}),
+        ...check.facts,
+      }
+    : dayFacts;
+  return { ...verdict, person, facts };
+}
+
+/**
+ * What came back from Later, as the writer is told it: how many, and the
+ * first two by name, under a name that says what they are.
+ */
+export function cameBackFacts(back) {
+  return {
+    put_off_earlier_and_back_now: {
+      count: back.length,
+      titles: back
+        .map((t) => t.title)
+        .filter(Boolean)
+        .slice(0, 2),
+    },
+  };
 }
 
 /** The Sweep number for a moment; left out, not guessed, when the count failed. */
@@ -534,11 +608,14 @@ export async function compose(env, job, person, facts) {
     angle,
     facts: copyFacts,
     recentLines: (recent || []).map((r) => r.body),
+    // a nudge says which reason it has, when the writer needs telling
+    reason: job.moment === 'nudge' ? job.data?.reason?.kind || null : null,
     fallbackFacts: {
       weekday: facts?.weekday,
       habitTitle: job.data?.habitTitle,
       goodNewsTitle: job.data?.title,
       lastNote: !!job.data?.lastNote,
+      cameBack: facts?.put_off_earlier_and_back_now?.count ?? 0,
     },
   });
   if (words.usedFallback) {

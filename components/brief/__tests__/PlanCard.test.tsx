@@ -111,6 +111,34 @@ describe('the plan card', () => {
     expect(onDismiss).toHaveBeenCalled();
   });
 
+  it('changes an item by tapping it, and adds busy time', () => {
+    const onEdit = jest.fn();
+    const onAddBusy = jest.fn();
+    const { getByTestId, getByText } = render(
+      <PlanCard meta={META} meetings={MEETINGS} onEdit={onEdit} onAddBusy={onAddBusy} />,
+    );
+    fireEvent.press(getByTestId('plan-item-run'));
+    expect(onEdit).toHaveBeenCalledWith('run');
+    fireEvent.press(getByTestId('plan-add-busy'));
+    expect(onAddBusy).toHaveBeenCalled();
+    expect(getByText('Tap anything to change its time, or just tell me.')).toBeTruthy();
+  });
+
+  it('a plan on Today is not changed by tapping, and has no busy time to add', () => {
+    const onEdit = jest.fn();
+    const { getByTestId, queryByTestId } = render(
+      <PlanCard
+        meta={{ ...META, status: 'locked' }}
+        meetings={MEETINGS}
+        onEdit={onEdit}
+        onAddBusy={jest.fn()}
+      />,
+    );
+    fireEvent.press(getByTestId('plan-item-run'));
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(queryByTestId('plan-add-busy')).toBeNull();
+  });
+
   it('points a plan that is on Today to Today, with no remove buttons', () => {
     const onSeeToday = jest.fn();
     const { getByText, queryByTestId, getByTestId } = render(

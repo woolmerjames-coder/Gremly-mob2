@@ -32,6 +32,8 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { dateService } from '../../lib/date/DateService';
 import { BRAND } from '../../design/brand';
 import { computeHabitStreak } from '../../lib/habits/streakUtils';
+import { easeTag } from '../../lib/habits/easeWords';
+import { pausedOn } from '../../lib/week/habitWeek';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit } from '../../lib/types';
 
@@ -106,6 +108,9 @@ export default function HabitsScreen() {
 
   // Use Zustand as single source of truth for habit progress
   const habitProgress = useGremlyStore((s) => s.habitProgress);
+  // For the streaks: a pause holds a streak, and a weekly one is counted in their own week
+  const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
+  const weeklyDay = useGremlyStore((s) => s.weeklyDay);
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
   const checkInHabit = useGremlyStore((s) => s.checkInHabit);
@@ -310,8 +315,11 @@ export default function HabitsScreen() {
     const sevenDaysAgo = dateService.daysAgo(7);
 
     const total = activeHabits.length;
+    const today = dateService.today();
 
     const upToDate = activeHabits.filter((habit) => {
+      // paused today, it is left alone: it is not one that needs attention
+      if (pausedOn(habitAdaptations, habit.id, today)) return true;
       const lastCheckedIn = dateService.dayOf(habit.last_checked_in_at);
       const cadence = habit.cadence ?? 'daily';
 
@@ -325,7 +333,7 @@ export default function HabitsScreen() {
     }).length;
 
     return { upToDate, total };
-  }, [activeHabits]);
+  }, [activeHabits, habitAdaptations]);
 
   // Contextual headline based on on-track percentage
   const headline = useMemo(() => {
@@ -348,11 +356,14 @@ export default function HabitsScreen() {
 
   // Compute habits needing check-in
   const habitsNeedingCheckIn = useMemo(() => {
+    const today = dateService.today();
     return weeklyStats.filter((stat) => {
       const habit = activeHabits.find((h) => h.id === stat.id);
+      // a paused habit is left alone: it is not one to check in on
+      if (pausedOn(habitAdaptations, stat.id, today)) return false;
       return getCheckInStatus(habit) === 'needs_attention';
     });
-  }, [weeklyStats, activeHabits]);
+  }, [weeklyStats, activeHabits, habitAdaptations]);
   const needsCheckInCount = habitsNeedingCheckIn.length;
 
   // Handle bulk check-in for all habits needing attention
@@ -514,6 +525,7 @@ export default function HabitsScreen() {
                   weeklyCompleted={stat.weeklyCompleted}
                   weeklyTarget={stat.weeklyTarget}
                   status={checkInStatus}
+                  easeLabel={easeTag(habitAdaptations, stat.id, dateService.today())}
                   dayDots={stat.dayDots}
                   dayDates={stat.dayDates}
                   todayIndex={todayIndex}
@@ -531,6 +543,8 @@ export default function HabitsScreen() {
                       allDates,
                       habit?.cadence || 'daily',
                       habit?.target_per_period || 1,
+                      habitAdaptations.filter((a) => a.habit_id === stat.id),
+                      weeklyDay,
                     );
                     return count;
                   })()}

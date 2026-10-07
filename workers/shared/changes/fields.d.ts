@@ -36,12 +36,27 @@ export type ChangeOp =
   | 'restore'
   | 'convert'
   | 'plan';
+/** The week's own operations (the weekly review), kept apart from OPS. */
+export type WeekOp =
+  | 'later'
+  | 'habit_days'
+  | 'week_shape'
+  | 'intention'
+  | 'milestone'
+  | 'weekly_day';
+export declare const WEEK_OPS: Record<WeekOp, string>;
+/** A habit paused, given a lighter version, or set back to usual, for a stretch of days */
+export type EaseOp = 'ease';
+export declare const EASE_OPS: Record<EaseOp, string>;
+export declare const STEP_KINDS: Array<'todo' | 'check_in'>;
+export declare const WEEK_LIMITS: { intention: number; goal: number; steps: number };
+export declare const NAME_LIMIT: number;
 export declare const FIELDS_VERSION: number;
 export declare const GROUPS: Record<FieldGroup, string>;
 export declare const OPS: Record<ChangeOp, string>;
 export declare const TYPES: Record<ItemType, { ops: ChangeOp[]; fields: Record<string, FieldDef> }>;
 export declare const PLAN_KINDS: Array<
-  'add_block' | 'remove_block' | 'plan_add' | 'plan_remove' | 'plan_move'
+  'add_block' | 'remove_block' | 'plan_add' | 'plan_remove' | 'plan_move' | 'plan_day'
 >;
 export declare function fieldsOf(type: string): Record<string, FieldDef> | null;
 export declare function fieldDef(type: string, field: string): FieldDef | null;

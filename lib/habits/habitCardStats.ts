@@ -1,5 +1,5 @@
 /**
- * habitCardStats — per-habit stats for the weekly sweep habits deck.
+ * habitCardStats: per habit stats over a rolling week (read by lib/habits/habitInsight).
  *
  * Window: rolling 7 days ending today (today = last cell) for ALL cadences.
  * No future cells. All 7 cells tappable (past + today).
@@ -11,7 +11,6 @@
  * cadence but accepted; flagged for future per-cadence refinement.
  */
 
-import { useMemo } from 'react';
 import { getDateService } from '../date/DateService';
 import type {
   HabitProgressRow,
@@ -19,7 +18,6 @@ import type {
   HabitPlanRow,
   HabitTargetHistoryRow,
 } from '../store/useGremlyStore';
-import { useGremlyStore } from '../store/useGremlyStore';
 import { computeHabitStreak, computeBestStreak } from './streakUtils';
 import { getHabitFrequencyLabel } from './frequencyUtils';
 import { targetForWeek } from './habitFactSheet';
@@ -432,29 +430,4 @@ export function computeHabitCardStats(
     targetPerPeriod,
     plannedDates,
   };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// React hook
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useHabitCardStats(habits: Habit[]): HabitCardStats[] {
-  const habitProgress = useGremlyStore((s) => s.habitProgress);
-  const habitAdaptations = useGremlyStore((s) => s.habitAdaptations);
-  const habitPlans = useGremlyStore((s) => s.habitPlans);
-  const habitTargetHistory = useGremlyStore((s) => s.habitTargetHistory);
-  return useMemo(
-    () =>
-      habits.map((h) =>
-        computeHabitCardStats(
-          h,
-          habitProgress,
-          habitAdaptations,
-          habits,
-          habitPlans,
-          habitTargetHistory,
-        ),
-      ),
-    [habits, habitProgress, habitAdaptations, habitPlans, habitTargetHistory],
-  );
 }

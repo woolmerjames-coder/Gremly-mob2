@@ -40,7 +40,15 @@ import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp, getDateService } from '../../lib/date/DateService';
 import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
-import { Clock, SquarePen, ChevronLeft, Bookmark, ChevronRight, X } from 'lucide-react-native';
+import {
+  Clock,
+  SquarePen,
+  ChevronLeft,
+  Bookmark,
+  ChevronRight,
+  ChevronDown,
+  X,
+} from 'lucide-react-native';
 import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
 import type {
   EntityCardEntity,
@@ -56,6 +64,7 @@ import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
+import { addedBy, followOffset, nearBottom } from '../../lib/chat/follow';
 import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 import { findItemChat } from '../../lib/chat/itemChat';
@@ -80,17 +89,21 @@ import { useReducedMotion } from '../../design/animations';
 import { useMascotStore } from '../../lib/store/useMascotStore';
 import {
   ensureDailyThread,
+  getDailyThread,
   markDailyThreadOnce,
   patchDailyThreadMeta,
 } from '../../lib/repo/dailyThreadRepo';
 import type {
   BriefDayCardMeta,
   BriefMeta,
+  BriefOfferMeta,
   BriefPlanMeta,
   DailyThreadMeta,
   OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
+import { shownOffer, useBriefWeekFacts } from '../../lib/brief/checkIn';
+import { HabitWeekDots } from '../../components/brief/HabitWeekDots';
 import { useWrapUp } from '../../lib/wrapup/useWrapUp';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import { currentWrap, takeCardsVisit } from '../../lib/wrapup/session';
@@ -98,6 +111,7 @@ import { cardsLeft, pastCards } from '../../lib/wrapup/state';
 import { WRAP_COPY } from '../../lib/wrapup/words';
 import { wrapTurnContext } from '../../lib/wrapup/gremlyWords';
 import { wrapNow } from '../../lib/wrapup/day';
+import { draftKey, useJournalSession } from '../../lib/journal/session';
 import { WrapRecapCard } from '../../components/wrapup/WrapRecapCard';
 import { WrapReceiptCard } from '../../components/wrapup/WrapReceiptCard';
 import { WrapHabitsCard } from '../../components/wrapup/WrapHabitsCard';
@@ -106,7 +120,14 @@ import { WrapItemCard } from '../../components/wrapup/WrapItemCard';
 import { WrapEndMark } from '../../components/wrapup/WrapEndMark';
 import { livePlanOf, usePlanFlow } from '../../lib/plan/usePlanFlow';
 import { useDayTurn } from '../../lib/brief/useDayTurn';
-import { useRenderChanges } from '../../components/brief/ChangeCard';
+import { chatWeekContext, useWeekReview, type WeekReview } from '../../lib/week/useWeekReview';
+import { weekButton } from '../../lib/week/review/state';
+import { WEEK_COPY } from '../../lib/week/review/words';
+import { useThisWeek } from '../../lib/week/thisWeek';
+import { WeekBoardSheet } from '../../components/week/BoardStep';
+import { WeekCard } from '../../components/week/WeekCard';
+import { WeekFooter, WeekOfferButton } from '../../components/week/WeekFooter';
+import { useRenderChanges, type ChangeRowItem } from '../../components/brief/ChangeCard';
 import { dayRecordFromStore } from '../../lib/plan/storePlan';
 import { creditFirstReply } from '../../lib/brief/feeding';
 import { clearFrom } from '../../lib/brief/pinned';
@@ -120,6 +141,7 @@ import {
 } from '../../lib/brief/sweepHandoff';
 import { opFromButton } from '../../lib/plan/planFlow';
 import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
+import { PlanPickSheet } from '../../components/brief/PlanPickSheet';
 import { HomeChips } from '../../components/home/HomeChips';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
 import type { AgentTask } from '../../lib/cortex/CortexClient';
@@ -206,6 +228,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const wakeOnInput = useWakeOnInput();
   // set further down, once the hooks they call exist
   const wrapResumeRef = useRef<() => Promise<void>>(async () => undefined);
+  const weekReviewRef = useRef<WeekReview | null>(null);
+  // the way into the weekly review, for the hooks set up before it is defined
+  const openWeekReviewRef = useRef<(how?: { startNow?: boolean }) => void>(() => undefined);
   const homeDockRef = useRef<ReturnType<typeof useHomeDock>>(null);
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   // the chat on screen right now, for work that finishes after the user may have moved on
@@ -293,10 +318,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   // Daily brief in Chat: today's thread is a chat of its own (chat_type 'daily')
   const isDailyThread = activeChat?.chat_type === 'daily';
-  const offerLive = useMemo(
-    () => (isDailyThread ? liveOfferId(rows) : null),
-    [isDailyThread, rows],
-  );
+  const offerLive = useMemo(() => {
+    if (!isDailyThread) return null;
+    const id = liveOfferId(rows);
+    if (!id || isTodaysThread(activeChat)) return id;
+    // The weekly review is answered in today's thread only: an offer of its
+    // left in an earlier day's thread keeps its words and loses its buttons.
+    return briefMetaOf(rows.find((m) => m.id === id))?.week ? null : id;
+  }, [isDailyThread, rows, activeChat]);
   // Planning in today's thread: the plan card, its changes and saying yes to it
   const threadDay =
     (activeChat?.metadata_json as Partial<DailyThreadMeta> | null | undefined)?.ritual_day ??
@@ -318,12 +347,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // today, planning and What can wait. Sweep (package 6) is handed back here.
   const briefOffers = useBriefOffers({
     threadId: isDailyThread && activeChat ? activeChat.id : null,
+    date: threadDay,
     messages,
     appendBriefMessage,
     patchMessageMetadata,
-    onPlan: (offerMsg) => {
+    onPlan: (offerMsg, button) => {
       const meta = briefMetaOf(offerMsg);
-      void planFlowRef.current.start(meta?.type === 'brief-offer' ? meta : null);
+      // Just plan it, after Gremly asked what to put first: no sheet this time
+      void planFlowRef.current.start(meta?.type === 'brief-offer' ? meta : null, {
+        direct: button.id === 'plan_direct',
+      });
     },
     onSweep: (offerMsg) => openBriefSweepRef.current(offerMsg),
     onWhatCanWait: (offerMsg) => {
@@ -335,9 +368,36 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       if (op) void planFlowRef.current.applySuggestion(op);
     },
     onAddKept: (ids) => void planFlowRef.current.addKept(ids),
+    // back to back or with some space, and what to do with picks that did not fit
+    onPlanSpacing: (offerMsg, button) => {
+      const meta = briefMetaOf(offerMsg);
+      void planFlowRef.current.planSpacing(
+        meta?.type === 'brief-offer' ? meta : null,
+        button.value,
+      );
+    },
+    onPlanUnfit: (offerMsg, button) => {
+      const meta = briefMetaOf(offerMsg);
+      void planFlowRef.current.moveUnfit(meta?.type === 'brief-offer' ? meta : null, button.value);
+    },
+    // Plan my week, beside the brief's offer: they have said yes, so the review goes straight in
+    onPlanWeek: () => openWeekReviewRef.current({ startNow: true }),
   });
   const briefOffersRef = useRef(briefOffers);
   briefOffersRef.current = briefOffers;
+  // their week as the app holds it now, for the brief's check in and its offer of the review
+  const weekFacts = useBriefWeekFacts(isDailyThread ? threadDay : null);
+  const showOffer = useCallback(
+    (message: SpaceChatMessage, meta: BriefOfferMeta) =>
+      shownOffer(message.content ?? '', meta, weekFacts),
+    [weekFacts],
+  );
+  const renderHabitWeek = useCallback(
+    (week: { habit_id: string; day: string }) => (
+      <HabitWeekDots habitId={week.habit_id} day={week.day} />
+    ),
+    [],
+  );
   // A message typed in today's thread: one day turn, one change card
   const dayTurn = useDayTurn({
     threadId: isDailyThread && activeChat ? activeChat.id : null,
@@ -353,8 +413,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       resumeSync: () => planFlowRef.current.resumeSync(),
     },
     continueBrief: () => wrapResumeRef.current(),
-    // while tonight's wrap up is under way, Gremly is told where it is
-    wrapContext: () => wrapTurnContext(currentWrap(), wrapNow()),
+    // Gremly is told where the thread's rituals stand: tonight's wrap up while
+    // it is under way, and their week, with the weekly review when one is
+    ritualContext: () => ({
+      wrap: wrapTurnContext(currentWrap(), wrapNow()),
+      week: weekReviewRef.current?.context() ?? null,
+    }),
+    onApplied: (changes) => weekReviewRef.current?.onApplied(changes),
+    onUndone: () => weekReviewRef.current?.onUndone(),
   });
   const dayTurnRef = useRef(dayTurn);
   dayTurnRef.current = dayTurn;
@@ -368,8 +434,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     patchMessageMetadata,
     canCreate,
     onPaywall: () => navigation.navigate('TrialEndPaywall', { source: 'expiry' }),
-    openCards: () => navigation.navigate('Sweep', { cards: 'wrap' }),
-    openWeek: () => navigation.navigate('Sweep', { week: true }),
+    openCards: () => navigation.navigate('Cards', { cards: 'wrap' }),
+    // their week at the close: the review starts in this thread (they have
+    // said yes), or the week they planned opens
+    planWeek: () => openWeekReviewRef.current({ startNow: true }),
+    seeWeek: () => navigation.navigate('YourWeek'),
     planDay: (day) => planFlowRef.current.start(null, { day }),
     restoreDraft: (text) => homeDockRef.current?.prefillDraft(text),
     // an answer to Gremly's question, or words typed for the journal that were for him
@@ -377,7 +446,27 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   });
   const wrapUpRef = useRef(wrapUp);
   wrapUpRef.current = wrapUp;
+  // The weekly review, in today's thread only (lib/week): Gremly's read of the
+  // week, then what matters most, its shape, an intention, what is ahead and
+  // what needs them. Anything typed while it is under way goes to Gremly.
+  const weekReview = useWeekReview({
+    threadId: activeChat && isTodaysThread(activeChat) ? activeChat.id : null,
+    ready: threadLoaded,
+    messages,
+    appendBriefMessage,
+    patchMessageMetadata,
+    tellGremly: (text) => dayTurnRef.current.ask(text),
+    // the review is over: the brief carries on, so Plan my day comes back
+    // when the morning's offer was passed by for the week
+    onEnded: () => void briefOffersRef.current.continueBrief({ afterWeek: true }),
+  });
+  weekReviewRef.current = weekReview;
   wrapResumeRef.current = () => {
+    // The weekly review never moves on by itself after a turn: its Carry on
+    // button does, and the brief's own offers stay out of its way. It is under
+    // way only until the wrap up speaks after it (useWeekReview), so a wrap up
+    // begun later in the day gets its buttons back as it always has.
+    if (weekReviewRef.current?.underWay) return Promise.resolve();
     // a turn in the thread is done: while the wrap up is under way its buttons
     // come back, so it waits where it was; otherwise the brief carries on
     const w = currentWrap();
@@ -424,16 +513,31 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     }
   }, [updateStreamingContent]);
 
-  // Auto-scroll on new messages
+  // Following what is added, at the reader's pace (lib/chat/follow.ts): the
+  // thread moves only while they are at the bottom, never past the top of the
+  // first line they have not seen, and shows when there is more below
   messageCountRef.current = messages.length;
+  const followRef = useRef(true);
+  // where the first line not yet seen starts, while there is one
+  const anchorTopRef = useRef<number | null>(null);
+  // the last follow reached the end: the next line added is the first one not yet seen
+  const caughtUpRef = useRef(true);
+  const metricsRef = useRef({ y: 0, height: 0, content: 0 });
+  // the thread's height as it was last taken in, where anything added next starts
+  const takenInRef = useRef(0);
+  // the rows the thread has taken in, so it knows what was just added
+  const seenRowsRef = useRef(0);
+  // the typing bubble under the thread, part of its height until a line takes its place
+  const footerHeightRef = useRef(0);
+  const [moreBelow, setMoreBelow] = useState(false);
+  // a chat opened afresh starts at its end, following
   useEffect(() => {
-    if (!activeChat) return;
-    const timer = setTimeout(() => {
-      if (scrollHeld()) return;
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [messages, activeChat]);
+    followRef.current = true;
+    anchorTopRef.current = null;
+    caughtUpRef.current = true;
+    seenRowsRef.current = 0;
+    setMoreBelow(false);
+  }, [activeChat?.id]);
 
   // Poll extractions when resuming an existing chat
   useEffect(() => {
@@ -571,6 +675,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           briefQuestion: opts.briefQuestion ?? null,
           // the agent's task list kept on this chat, so asks carry across messages
           agentTasks: opts.fresh ? [] : agentTasksOf(chat),
+          // their week, so Gremly can put the button to it under a reply in Ask Gremly
+          week: chat.chat_type === 'daily' ? null : chatWeekContext(),
         },
         {
           onChunk: (delta: string) => {
@@ -642,6 +748,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   ) as unknown as Record<string, unknown>,
                 );
               }
+              // the button to their week, under the reply (the agent's offer_week)
+              if (agent.offer?.kind === 'week') {
+                await appendBriefMessage('system', '', {
+                  type: 'week-offer',
+                  done: agent.offer.done === true,
+                  week: true,
+                });
+              }
               void keepAgentTasks(chat, agent.tasks ?? []);
             }
             if (richResult?.entity_card) {
@@ -650,6 +764,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               // the question is answered: the brief carries on (a card first
               // waits for its tap, see entityCardHandlers)
               void briefOffersRef.current.continueBrief();
+            } else if (isTodaysThread(chat) && briefOffersRef.current.owesOffer()) {
+              // a habit check in answered by typing, in a message that was not
+              // about the day: the brief's own offer follows the reply
+              void wrapResumeRef.current();
             } else if (isTodaysThread(chat) && currentWrap() && currentWrap()?.step !== 'done') {
               // an ordinary turn during the wrap up: its buttons come back
               void wrapResumeRef.current();
@@ -719,9 +837,24 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         await briefOffersRef.current.answerTyped(trimmed);
         return;
       }
+      // The weekly review is under way: the message is for Gremly, with the
+      // review as it stands, and the review stays where it is until Carry on.
+      // Of the review and the wrap up, the one that spoke last in the thread
+      // is the one under way (useWeekReview), so this comes before the wrap
+      // up's own wait and is false once the wrap up has spoken since.
+      if (isDailyThread && weekReviewRef.current?.underWay) {
+        if (dayTurnRef.current.thinking || dayTurnRef.current.busy) return;
+        await weekReviewRef.current.takeTyped(trimmed);
+        scheduleDcoRefresh();
+        return;
+      }
       // The wrap up is waiting for this message: tonight's journal entry, or
       // the answer to Gremly's question (the pill above the box says which)
       if (isDailyThread && (await wrapUpRef.current.takeTyped(trimmed))) return;
+      // Gremly asked what has to happen or comes first: it plans around the answer
+      if (isDailyThread && planFlowRef.current.awaitingAnswer()) {
+        if (await planFlowRef.current.planWithAnswer(trimmed)) return;
+      }
       // A typed message is a reply to the brief too (feeds Gremly once a day)
       if (isDailyThread && activeChat) void creditFirstReply(activeChat.id);
       // In today's thread every typed message is read against the day first
@@ -881,7 +1014,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
 
   // Daily brief in Chat: the notification and Plan with Gremly open today's
   // thread. It is made here if the brief job has not made it yet.
-  const threadRequest: 'today' | null = item ? null : (params?.thread ?? null);
+  const threadRequest: 'today' | null = !item && params?.thread === 'today' ? 'today' : null;
   const threadKey: string | null = params?.threadKey ?? null;
   const threadKeyRef = useRef<string | null>(null);
   const openTodayThread = useCallback(async () => {
@@ -900,6 +1033,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const pendingPlanRef = useRef<{ day: string } | null>(null);
   // Wrap up with Gremly: the same, then the wrap up starts or picks up
   const pendingWrapRef = useRef(false);
+  // Plan your week: the same, then the weekly review opens
+  // (now: they have already said yes, so it goes straight in)
+  const pendingWeekRef = useRef<false | 'open' | 'now'>(false);
   const [skipPlayback, setSkipPlayback] = useState(false);
   useEffect(() => {
     if (threadRequest !== 'today' || !userId) return;
@@ -915,6 +1051,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     }
     if (params?.step === 'wrap') {
       pendingWrapRef.current = true;
+      setSkipPlayback(true);
+    }
+    if (params?.step === 'week' || params?.step === 'week_now') {
+      pendingWeekRef.current = params.step === 'week_now' ? 'now' : 'open';
       setSkipPlayback(true);
     }
     navigation.setParams({
@@ -933,8 +1073,39 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     params?.step,
     params?.planDay,
   ]);
+  // An earlier day's thread, asked for by its day: the conversation a weekly
+  // review happened in, opened again from Your week. It is never made here;
+  // when that day has no thread, Chat stays where it is.
+  const dayRequest: string | null =
+    !item && params?.thread === 'day' ? (params?.day ?? null) : null;
+  useEffect(() => {
+    if (!dayRequest || !userId) return;
+    const key = threadKey ?? `day-${dayRequest}`;
+    if (threadKeyRef.current === key) return;
+    threadKeyRef.current = key;
+    navigation.setParams({ thread: undefined, threadKey: undefined, day: undefined });
+    void (async () => {
+      try {
+        const thread = await getDailyThread(userId, dayRequest);
+        if (!mountedRef.current) return;
+        if (!thread) {
+          console.warn('[DailyBrief] there is no thread for', dayRequest);
+          return;
+        }
+        clearAbout();
+        useGremlyStore.getState().setActiveGeneralChat(thread.id);
+        setActiveChat(thread);
+      } catch (err) {
+        console.warn("[DailyBrief] could not open that day's thread:", err);
+      }
+    })();
+  }, [dayRequest, threadKey, userId, navigation, clearAbout]);
 
   const handleOfferButton = useCallback((message: SpaceChatMessage, button: OfferButton) => {
+    // the weekly review's own buttons are the review's to answer
+    if (briefMetaOf(message)?.week) {
+      return weekReviewRef.current?.handleButton(message, button);
+    }
     if (briefMetaOf(message)?.wrap) {
       // typing is how these two are answered: open the keyboard
       if (button.action === 'journal_write' || button.action === 'answer_other') {
@@ -949,7 +1120,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const awaitingAnswer = isDailyThread && briefOffers.awaitingAnswer;
   // In the wrap up the box saves to the journal, or answers Gremly's question:
   // a pill above it says so, and its X sends the next message to Gremly instead
-  const wrapAwaiting = isDailyThread ? wrapUp.awaiting : null;
+  // (not while the weekly review has the thread: the message is the review's then)
+  const wrapAwaiting = isDailyThread && !weekReview.underWay ? wrapUp.awaiting : null;
+  const weekPlaceholder = isDailyThread ? weekReview.placeholder : null;
+  // A journal page was closed half written today: the pill offers to open it,
+  // and what is typed in the box joins it
+  const journalDraft = useJournalSession(
+    (s) => !!s.drafts[draftKey({ day: getDateService().ritualDay() })],
+  );
   useEffect(() => {
     if (!embedded || !homeDock) return;
     homeDock.setChatPlaceholder(
@@ -957,19 +1135,36 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         ? BRIEF_COPY.answerPlaceholder
         : wrapAwaiting === 'journal'
           ? WRAP_COPY.journalPlaceholder
+          : // the weekly review says what the box is for while it is under way
+            weekPlaceholder,
+    );
+    const openPage = (typed: string) => wrapUpRef.current.journal.openPage(typed || undefined);
+    homeDock.setChatTag(
+      wrapAwaiting === 'journal'
+        ? journalDraft
+          ? {
+              kind: 'journal',
+              label: WRAP_COPY.journalDraftTag,
+              onExpand: openPage,
+              expandLabel: WRAP_COPY.journalDraftOpen,
+            }
+          : {
+              kind: 'journal',
+              label: WRAP_COPY.journalTag,
+              onCancel: () => wrapUpRef.current.cancelAwaiting(),
+              onExpand: openPage,
+              expandHint: WRAP_COPY.journalExpand,
+            }
+        : wrapAwaiting === 'question'
+          ? {
+              kind: 'question',
+              label: WRAP_COPY.questionTag,
+              onCancel: () => wrapUpRef.current.cancelAwaiting(),
+            }
           : null,
     );
-    homeDock.setChatTag(
-      wrapAwaiting
-        ? {
-            kind: wrapAwaiting,
-            label: wrapAwaiting === 'journal' ? WRAP_COPY.journalTag : WRAP_COPY.questionTag,
-            onCancel: () => wrapUpRef.current.cancelAwaiting(),
-          }
-        : null,
-    );
     if (awaitingAnswer) homeDock.focusInput();
-  }, [embedded, homeDock, awaitingAnswer, wrapAwaiting]);
+  }, [embedded, homeDock, awaitingAnswer, wrapAwaiting, journalDraft, weekPlaceholder]);
   useEffect(
     () => () => {
       if (embedded && homeDock) {
@@ -1103,12 +1298,130 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   const shownRowsRef = useRef(shownRows);
   shownRowsRef.current = shownRows;
+
+  // Gremly is working on a line in today's thread: the typing bubble under it
+  const typingFooter = !!(
+    (briefWriting || playback.typing || planFlow.typing || dayTurn.thinking || wrapUp.typing) &&
+    isDailyThread
+  );
+  const typingFooterRef = useRef(typingFooter);
+  typingFooterRef.current = typingFooter;
+  // under today's thread while the weekly review is under way: its loading
+  // card, or the Carry on button once something was said
+  const weekFooter = isDailyThread && (weekReview.loading || weekReview.canCarryOn);
+
+  /** The thread grew: take in what was added, then follow it while the reader is at the bottom. */
+  const followGrowth = (content: number) => {
+    const before = takenInRef.current;
+    takenInRef.current = content;
+    metricsRef.current.content = content;
+    // the typing bubble was part of what came before; it has gone once the line it stood for is in
+    const footerBefore = footerHeightRef.current;
+    if (!typingFooterRef.current) footerHeightRef.current = 0;
+    const rows = shownRowsRef.current;
+    const seen = seenRowsRef.current;
+    seenRowsRef.current = rows.length;
+    const list = flatListRef.current;
+    if (!list) return;
+    // a new plan card, or the brief's first line as it plays in, scrolls so its top is in view,
+    // with the line saying what changed above it when there is one
+    const planId = pendingPlanScrollRef.current;
+    const index = planId ? rows.findIndex((m) => m.id === planId) : -1;
+    if (index >= 0) {
+      pendingPlanScrollRef.current = null;
+      const above = index > 0 ? briefMetaOf(rows[index - 1]) : null;
+      list.scrollToIndex({
+        index: above?.type === 'brief-event' ? index - 1 : index,
+        viewPosition: 0,
+        animated: true,
+      });
+      return;
+    }
+    if (scrollHeld()) return;
+    // a chat just opened: its end
+    if (!seen) {
+      anchorTopRef.current = null;
+      caughtUpRef.current = true;
+      list.scrollToEnd({ animated: false });
+      return;
+    }
+    const by = rows.length > seen ? addedBy(rows, seen) : null;
+    // what they send or tap brings them to it
+    if (by === 'them') followRef.current = true;
+    if (by && !followRef.current) {
+      setMoreBelow(true);
+      return;
+    }
+    if (!followRef.current) return;
+    if (by === 'them' || (by && (anchorTopRef.current === null || caughtUpRef.current))) {
+      const pad = embedded ? 120 : 200;
+      anchorTopRef.current = Math.max(0, before - pad - footerBefore);
+    }
+    const end = Math.max(0, content - metricsRef.current.height);
+    const to = followOffset(metricsRef.current, anchorTopRef.current);
+    // a line that runs past the screen stays at its top while it grows
+    caughtUpRef.current = to >= end;
+    if (!caughtUpRef.current) setMoreBelow(true);
+    list.scrollToOffset({ offset: to, animated: true });
+  };
+
+  /** Where the reader is: at the bottom they are following again and have seen it all. */
+  const readerAt = (e: {
+    nativeEvent: {
+      contentOffset: { y: number };
+      layoutMeasurement: { height: number };
+      contentSize: { height: number };
+    };
+  }) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    const m = { y: contentOffset.y, height: layoutMeasurement.height, content: contentSize.height };
+    metricsRef.current = m;
+    return nearBottom(m);
+  };
+  const settleReader = (e: Parameters<typeof readerAt>[0]) => {
+    const near = readerAt(e);
+    followRef.current = near;
+    if (near) {
+      anchorTopRef.current = null;
+      caughtUpRef.current = true;
+      setMoreBelow(false);
+    }
+  };
+  const toLatest = () => {
+    followRef.current = true;
+    anchorTopRef.current = null;
+    caughtUpRef.current = true;
+    setMoreBelow(false);
+    flatListRef.current?.scrollToEnd({ animated: true });
+  };
   // the message Gremly is working on, until it is saved into the thread
   const lastShown = shownRows[shownRows.length - 1];
   const pendingShown =
     dayTurn.pending && !(lastShown?.role === 'user' && lastShown.content === dayTurn.pending)
       ? dayTurn.pending
       : null;
+
+  // A habit check in answered on an earlier visit whose own offer never
+  // arrived, because the app closed or a save failed part way: it follows
+  // once each time today's thread is loaded (useBriefOffers checkInOfferOwed).
+  // Not when the thread was opened to plan, wrap up or plan the week: that
+  // takes the thread from here, and the effects below start it. This one runs
+  // before them, while what they are waiting on is still set.
+  const owedCheckedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!threadLoaded) {
+      owedCheckedRef.current = null;
+      return;
+    }
+    if (!isDailyThread || !activeChat || briefWriting || !isTodaysThread(activeChat)) return;
+    if (messages.length && messages[0].chat_id !== activeChat.id) return;
+    if (owedCheckedRef.current === activeChat.id) return;
+    // a turn still being answered brings the offer itself when it is done
+    if (sendingRef.current || dayTurnRef.current.thinking || dayTurnRef.current.busy) return;
+    owedCheckedRef.current = activeChat.id;
+    if (pendingPlanRef.current || pendingWrapRef.current || pendingWeekRef.current) return;
+    if (briefOffersRef.current.owesOffer()) void wrapResumeRef.current();
+  }, [isDailyThread, activeChat, threadLoaded, briefWriting, messages]);
 
   // The plan step, once today's thread is on screen with its messages
   useEffect(() => {
@@ -1131,6 +1444,24 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     setSkipPlayback(false);
     void wrapUpRef.current.open();
   }, [isDailyThread, activeChat, threadLoaded, briefWriting, messages]);
+
+  // The weekly review, the same way
+  useEffect(() => {
+    if (!pendingWeekRef.current || !isDailyThread || !activeChat || !threadLoaded) return;
+    if (briefWriting || !isTodaysThread(activeChat)) return;
+    if (messages.length && messages[0].chat_id !== activeChat.id) return;
+    const how = pendingWeekRef.current;
+    pendingWeekRef.current = false;
+    setSkipPlayback(false);
+    if (how === 'now') void weekReviewRef.current?.startNow();
+    else void weekReviewRef.current?.open();
+  }, [isDailyThread, activeChat, threadLoaded, briefWriting, messages]);
+
+  // Their weekly day and this week's review, read whenever a chat comes on
+  // screen, so Gremly is told where their week stands with each message
+  useEffect(() => {
+    if (userId) void useThisWeek.getState().refresh();
+  }, [userId, activeChat?.id]);
 
   // Coming into Chat (Daily brief in Chat on): an unread brief opens today's
   // thread; within five minutes of leaving, the chat as it was left; after
@@ -1175,6 +1506,29 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     }
     void openTodayThread();
   }, [activeChat, threadLoaded, openTodayThread]);
+  const openWeekReview = useCallback(
+    (how: { startNow?: boolean } = {}) => {
+      // once this week is planned, the button opens the week itself (Your week)
+      const week = useThisWeek.getState();
+      if (weekButton(getDateService().ritualDay(), week.weeklyDay, week.review).done) {
+        navigation.navigate('YourWeek');
+        return;
+      }
+      // today's thread, then the weekly review opens: started, or picked up
+      // where it was left. With startNow they have already said yes (Plan my
+      // week on the brief's offer or the wrap up's close), so it goes straight in.
+      if (isTodaysThread(activeChat) && threadLoaded) {
+        if (how.startNow) void weekReviewRef.current?.startNow();
+        else void weekReviewRef.current?.open();
+        return;
+      }
+      pendingWeekRef.current = how.startNow ? 'now' : 'open';
+      setSkipPlayback(true);
+      void openTodayThread();
+    },
+    [activeChat, threadLoaded, openTodayThread, navigation],
+  );
+  openWeekReviewRef.current = openWeekReview;
   const pressChip = useCallback(
     (key: HomeChipKey) => {
       if (key === 'plan_day') {
@@ -1249,7 +1603,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         offer: meta?.type === 'brief-offer' ? meta : null,
       });
       // the quick sweep: only the cards that still need a decision, then back here
-      navigation.navigate('Sweep', { cards: 'quick' });
+      navigation.navigate('Cards', { cards: 'quick' });
     },
     [activeChat, navigation],
   );
@@ -1316,15 +1670,53 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       await appendAssistantMessage(text);
     },
   });
+  // Accept on a change card: the thread follows to what it did, the
+  // "Updated" line and the plan it changed, wherever they were reading
+  const changeActions = isDailyThread ? dayTurn : chatCard;
+  const applyChanges = changeActions.apply;
+  const applyAndFollow = useCallback(
+    (message: SpaceChatMessage, unticked: string[]) => {
+      followRef.current = true;
+      anchorTopRef.current = null;
+      caughtUpRef.current = true;
+      setMoreBelow(false);
+      return applyChanges(message, unticked);
+    },
+    [applyChanges],
+  );
+  // A tap on a change card's row opens the item the row is about. An item's
+  // own chat sits on top of that item, so there the chat closes onto it; a
+  // row about another item closes the chat and opens that one. The chat may
+  // sit on an overlay, which a habit's page would open behind.
+  const openChangeItem = useCallback(
+    (target: ChangeRowItem) => {
+      if (item) {
+        item.onClose();
+        if (item.anchor.id === target.id) return;
+      }
+      openEntity(
+        { id: target.id, type: target.type, title: target.title },
+        { overOverlay: !!item },
+      );
+    },
+    [item, openEntity],
+  );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
-  const renderChanges = useRenderChanges(isDailyThread ? dayTurn : chatCard);
+  const renderChanges = useRenderChanges(
+    { ...changeActions, apply: applyAndFollow },
+    openChangeItem,
+  );
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock
         meta={meta}
         interactive={!planFlowRef.current.typing}
         onRemove={(id) => void planFlowRef.current.removeItem(message, id)}
-        onAdd={(id, kind) => void planFlowRef.current.addItem(message, id, kind)}
+        onAdd={(picks) => void planFlowRef.current.addItems(message, picks)}
+        onRetime={(id, start, minutes) =>
+          void planFlowRef.current.retimeItem(message, id, start, minutes)
+        }
+        onAddBusy={(block) => void planFlowRef.current.addBusy(message, block)}
         onYes={() =>
           void planFlowRef.current.accept(message).then(() => wrapUpRef.current.afterPlan())
         }
@@ -1369,7 +1761,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             <WrapHabitsCard
               meta={meta}
               interactive={live && !wrapBusy}
-              onSave={(done, held) => void w.habits.save(message, done, held)}
+              onSave={(done, held, moved) => void w.habits.save(message, done, held, moved)}
               onAll={() => navigation.navigate('Habits')}
             />
           );
@@ -1390,6 +1782,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   ? () => void w.journal.undo(message)
                   : undefined
               }
+              onOpen={
+                live && meta.note_id && meta.status === 'saved'
+                  ? () => w.journal.openSaved(message)
+                  : undefined
+              }
             />
           );
         case 'sweep-item':
@@ -1408,6 +1805,33 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       }
     },
     [wrapToday, savedWrap, wrapBusy, wrapUndoable, toDecide, navigation, openEntity],
+  );
+  // The weekly review's cards (lib/week), and the button to their week that
+  // Gremly puts under a reply. The button reads what it opens today; in a
+  // thread from an earlier day, what it read then.
+  const weekly = useThisWeek();
+  const weekNow = useMemo(
+    () => weekButton(getDateService().ritualDay(), weekly.weeklyDay, weekly.review),
+    [weekly.weeklyDay, weekly.review],
+  );
+  const onTodaysThread = isTodaysThread(activeChat);
+  const renderWeek = useCallback(
+    (message: SpaceChatMessage, meta: BriefMeta) => {
+      if (meta.type === 'week-card') {
+        return <WeekCard messageId={message.id} meta={meta} review={weekReview} />;
+      }
+      if (meta.type === 'week-offer') {
+        const label =
+          onTodaysThread || !isDailyThread
+            ? weekNow.label
+            : meta.done
+              ? WEEK_COPY.seeWeek
+              : WEEK_COPY.planWeek;
+        return <WeekOfferButton label={label} onPress={() => openWeekReview()} />;
+      }
+      return null;
+    },
+    [weekReview, weekNow.label, onTodaysThread, isDailyThread, openWeekReview],
   );
   // Write a few lines is left out while the box already saves to the journal
   const hiddenActions = useMemo(
@@ -1476,13 +1900,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             message={item}
             prev={shownRows[index - 1]}
             liveOfferId={offerLive}
-            interactive={!briefOffers.busy && !playback.playing && !wrapBusy}
+            interactive={!briefOffers.busy && !playback.playing && !wrapBusy && !weekReview.busy}
             onOfferButton={handleOfferButton}
             renderDayCard={renderDayCard}
             renderPlan={renderPlan}
             renderChanges={renderChanges}
             renderWrap={renderWrap}
+            renderWeek={renderWeek}
             hiddenActions={hiddenActions}
+            showOffer={showOffer}
+            renderHabitWeek={renderHabitWeek}
           />
         );
       }
@@ -1511,8 +1938,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       renderPlan,
       renderChanges,
       renderWrap,
+      renderWeek,
       hiddenActions,
+      showOffer,
+      renderHabitWeek,
       wrapBusy,
+      weekReview.busy,
       briefOffers.busy,
       playback.playing,
     ],
@@ -1672,99 +2103,122 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         {/* Content area — takes remaining space */}
         <View style={styles.flex}>
           {inConversation ? (
-            <AppFlatList
-              ref={flatListRef}
-              data={shownRows}
-              keyExtractor={keyExtractor}
-              renderItem={renderMessage}
-              style={styles.messages}
-              contentContainerStyle={[
-                styles.messagesContent,
-                embedded && styles.messagesContentEmbedded,
-                messages.length === 0 && styles.emptyListContent,
-              ]}
-              removeClippedSubviews={false}
-              maxToRenderPerBatch={10}
-              windowSize={10}
-              initialNumToRender={15}
-              onContentSizeChange={() => {
-                setTimeout(() => {
-                  // a new plan card, or the brief's first line as it plays in,
-                  // scrolls so its top is in view
-                  const planId = pendingPlanScrollRef.current;
-                  const index = planId
-                    ? shownRowsRef.current.findIndex((m) => m.id === planId)
-                    : -1;
-                  if (index >= 0) {
-                    pendingPlanScrollRef.current = null;
-                    flatListRef.current?.scrollToIndex({ index, viewPosition: 0, animated: true });
-                    return;
-                  }
-                  if (scrollHeld()) return;
-                  flatListRef.current?.scrollToEnd({ animated: true });
-                }, 100);
-              }}
-              onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
-              // Inside the Gremly home, Gremly steps aside while you scroll
-              onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
-              onScrollEndDrag={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
-              onMomentumScrollBegin={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
-              onMomentumScrollEnd={embedded ? () => homeDock?.setChatScrolling(false) : undefined}
-              ListEmptyComponent={
-                // today's thread with nothing in it yet (the brief could not be
-                // written, or it is someone's first day): the day card, from the store
-                isDailyThread &&
-                threadLoaded &&
-                !briefWriting &&
-                !playback.playing &&
-                !playback.waiting ? (
-                  <View style={styles.dailyEmpty} testID="daily-thread-empty">
-                    <BriefDayCardBlock date={threadDay} />
-                  </View>
-                ) : (
-                  <View style={styles.flex} />
-                )
-              }
-              ListFooterComponent={
-                (briefWriting ||
-                  playback.typing ||
-                  planFlow.typing ||
-                  dayTurn.thinking ||
-                  wrapUp.typing) &&
-                isDailyThread ? (
-                  <>
-                    {pendingShown ? (
-                      // what they just sent, at once, while Gremly works on it
-                      <View style={styles.messageContainer} testID="day-turn-pending">
+            <>
+              <AppFlatList
+                ref={flatListRef}
+                data={shownRows}
+                keyExtractor={keyExtractor}
+                renderItem={renderMessage}
+                style={styles.messages}
+                contentContainerStyle={[
+                  styles.messagesContent,
+                  embedded && styles.messagesContentEmbedded,
+                  messages.length === 0 && styles.emptyListContent,
+                ]}
+                removeClippedSubviews={false}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                initialNumToRender={15}
+                onLayout={(e) => {
+                  metricsRef.current.height = e.nativeEvent.layout.height;
+                }}
+                onContentSizeChange={(_w: number, h: number) => {
+                  setTimeout(() => followGrowth(h), 100);
+                }}
+                scrollEventThrottle={64}
+                onScroll={(e) => {
+                  if (readerAt(e) && moreBelow) setMoreBelow(false);
+                }}
+                onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                // Inside the Gremly home, Gremly steps aside while you scroll
+                onScrollBeginDrag={embedded ? () => homeDock?.setChatScrolling(true) : undefined}
+                onScrollEndDrag={(e) => {
+                  settleReader(e);
+                  if (embedded) homeDock?.setChatScrolling(false);
+                }}
+                onMomentumScrollBegin={
+                  embedded ? () => homeDock?.setChatScrolling(true) : undefined
+                }
+                onMomentumScrollEnd={(e) => {
+                  settleReader(e);
+                  if (embedded) homeDock?.setChatScrolling(false);
+                }}
+                ListEmptyComponent={
+                  // today's thread with nothing in it yet (the brief could not be
+                  // written, or it is someone's first day): the day card, from the store
+                  isDailyThread &&
+                  threadLoaded &&
+                  !briefWriting &&
+                  !playback.playing &&
+                  !playback.waiting ? (
+                    <View style={styles.dailyEmpty} testID="daily-thread-empty">
+                      <BriefDayCardBlock date={threadDay} />
+                    </View>
+                  ) : (
+                    <View style={styles.flex} />
+                  )
+                }
+                ListFooterComponent={
+                  typingFooter ? (
+                    <View
+                      onLayout={(e) => {
+                        footerHeightRef.current = e.nativeEvent.layout.height;
+                      }}
+                    >
+                      {pendingShown ? (
+                        // what they just sent, at once, while Gremly works on it
+                        <View style={styles.messageContainer} testID="day-turn-pending">
+                          <ChatBubble
+                            message={
+                              {
+                                id: 'day-turn-pending',
+                                role: 'user',
+                                content: pendingShown,
+                              } as unknown as SpaceChatMessage
+                            }
+                          />
+                        </View>
+                      ) : null}
+                      <View style={styles.messageContainer} testID="brief-writing">
                         <ChatBubble
                           message={
                             {
-                              id: 'day-turn-pending',
-                              role: 'user',
-                              content: pendingShown,
+                              id: 'brief-writing',
+                              role: 'assistant',
+                              content: '',
+                              isStreaming: true,
+                              // what Gremly is doing while it works on a message in the thread
+                              loadingMessage: dayTurn.thinking ? dayTurn.status : null,
                             } as unknown as SpaceChatMessage
                           }
                         />
                       </View>
-                    ) : null}
-                    <View style={styles.messageContainer} testID="brief-writing">
-                      <ChatBubble
-                        message={
-                          {
-                            id: 'brief-writing',
-                            role: 'assistant',
-                            content: '',
-                            isStreaming: true,
-                            // what Gremly is doing while it works on a message in the thread
-                            loadingMessage: dayTurn.thinking ? dayTurn.status : null,
-                          } as unknown as SpaceChatMessage
-                        }
-                      />
                     </View>
-                  </>
-                ) : null
-              }
-            />
+                  ) : weekFooter ? (
+                    // the weekly review: Gremly making his read, or Carry on after a message
+                    <WeekFooter
+                      loading={weekReview.loading}
+                      canCarryOn={weekReview.canCarryOn}
+                      disabled={weekReview.busy}
+                      onCarryOn={() => void weekReview.carryOn()}
+                    />
+                  ) : null
+                }
+              />
+              {moreBelow ? (
+                <TouchableOpacity
+                  style={[styles.moreBelow, embedded && styles.moreBelowEmbedded]}
+                  onPress={toLatest}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Jump to the latest"
+                  testID="chat-more-below"
+                >
+                  <ChevronDown size={15} color={MOSS} strokeWidth={2.4} />
+                  <Text style={styles.moreBelowText}>Latest</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
           ) : item && !itemReady ? (
             <View style={styles.flex} testID="item-chat-loading" />
           ) : aboutItem && aboutOpener ? (
@@ -1931,6 +2385,19 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* the week's board, the weekly review's last step: a full sheet over today's thread */}
+      {onTodaysThread ? <WeekBoardSheet review={weekReview} /> : null}
+
+      {isDailyThread && planFlow.pickSession ? (
+        <PlanPickSheet
+          session={planFlow.pickSession}
+          room={planFlow.pickRoom}
+          onConfirm={(picks) => void planFlowRef.current.planPicked(picks)}
+          onAsk={() => void planFlowRef.current.askFirst()}
+          onClose={() => planFlowRef.current.closePicks()}
+        />
+      ) : null}
 
       <SaveSheet
         visible={saveSheetVisible}
@@ -2377,6 +2844,35 @@ const styles = StyleSheet.create({
   },
   messagesContentEmbedded: {
     paddingBottom: 120,
+  },
+  // there is more below while they read further up: one tap to the latest
+  moreBelow: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(46,85,64,0.18)',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  // inside the Gremly home, above the save pill's line
+  moreBelowEmbedded: {
+    bottom: 52,
+  },
+  moreBelowText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: MOSS,
   },
   // Chat opened about a drop: Gremly's opener at the top, the drop attached
   // just above the shared box (left of Gremly)

@@ -8,7 +8,10 @@
  * - localScheduleSnapshot ref hack
  *
  * Principles:
- * - Draft is a SNAPSHOT taken on open(), not a live subscription
+ * - Draft is a SNAPSHOT taken on open(), not a live subscription. When the
+ *   item changes in the store while the overlay is open, refreshFromItem()
+ *   brings in what changed and leaves alone what the person has edited
+ *   (draftRefresh.ts)
  * - All field updates are direct immer mutations, no dispatch ceremony
  * - Schedule/reminder updates are atomic (one immer pass, no cascade)
  * - open() does one-shot hydration, no effects needed
@@ -16,7 +19,9 @@
  */
 
 import { create } from 'zustand';
+import { current } from 'immer';
 import { immer } from 'zustand/middleware/immer';
+import { addedText, changedFields, refreshedDraft, same } from './draftRefresh';
 import type { Mood } from '../../lib/shared/moods';
 import type { ItemReminder, AppRecord } from '../../lib/types';
 import type { ListItem } from '../../lib/lists';
@@ -229,6 +234,17 @@ interface OverlayDraftStore {
     hydrate: (entity: AppRecord | null) => Partial<OverlayDraft>;
   }) => void;
   discard: () => void;
+  /**
+   * The item changed in the store while the overlay is open: the parts of the
+   * draft the person has not touched take the item's new values, and what
+   * Save builds on (the item's history, its reminders) becomes the item as it
+   * is now. before and after are the store's record either side of the change.
+   */
+  refreshFromItem: (params: {
+    before: Record<string, any>;
+    after: Record<string, any>;
+    hydrate: (entity: AppRecord | null) => Partial<OverlayDraft>;
+  }) => void;
 
   // ── Draft field setters (immer mutations) ──
   setBaseType: (type: BaseType) => void;
@@ -305,6 +321,9 @@ interface OverlayDraftStore {
 
 // ─── Store implementation ─────────────────────────────────────────────────
 
+/** The store's record the draft was last refreshed from (refreshFromItem), by identity. */
+let lastRefreshedFrom: object | null = null;
+
 export const useOverlayDraft = create<OverlayDraftStore>()(
   immer((set, get) => ({
     draft: null,
@@ -314,6 +333,7 @@ export const useOverlayDraft = create<OverlayDraftStore>()(
     // ── Lifecycle ──────────────────────────────────────────────────────
 
     open: ({ entity, mode, initialSpaceId, hydrate }) => {
+      lastRefreshedFrom = null;
       set((s) => {
         const hydrated = hydrate(entity);
         s.draft = {
@@ -332,10 +352,36 @@ export const useOverlayDraft = create<OverlayDraftStore>()(
     },
 
     discard: () => {
+      lastRefreshedFrom = null;
       set((s) => {
         s.draft = null;
         s.mode = 'closed';
         s.ui = { ...INITIAL_UI };
+      });
+    },
+
+    refreshFromItem: ({ before, after, hydrate }) => {
+      set((s) => {
+        const original = s.draft?.originalEntity as Record<string, any> | null | undefined;
+        if (!s.draft || !original || original.id !== after.id || same(before, after)) return;
+        // Two overlays can be drawn from this one draft (the cards screen has
+        // its own beside the app's). Each hears of the change: it is taken once.
+        if (after === lastRefreshedFrom) return;
+        lastRefreshedFrom = after;
+        // both are read as the kind of item the overlay opened this one as
+        const type = original.type;
+        const was = hydrate({ ...before, type } as AppRecord);
+        const now = hydrate({ ...after, type } as AppRecord);
+        const column = type === 'habit' ? 'notes' : 'body';
+        const text = (x: unknown) => (typeof x === 'string' ? x : '');
+        const added = addedText(text(before[column]), text(after[column]));
+        const removed = addedText(text(after[column]), text(before[column]));
+        const patch = refreshedDraft(current(s.draft), was, now, added, removed);
+        Object.assign(s.draft, patch);
+        if (patch.log && typeof s.draft.log.body === 'string') {
+          s.draft.log.kind = classifyLogKind(s.draft.log.body);
+        }
+        s.draft.originalEntity = { ...original, ...changedFields(before, after) } as AppRecord;
       });
     },
 

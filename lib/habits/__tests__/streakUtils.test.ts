@@ -8,6 +8,19 @@
  */
 
 import { computeCurrentStreak, computeBestStreak, computeHabitStreak } from '../streakUtils';
+import type { HabitAdaptationRow } from '../../store/useGremlyStore';
+
+/** A pause of the habit from one day to another */
+const pause = (first: string, last: string): HabitAdaptationRow => ({
+  id: `pause-${first}`,
+  owner_id: 'user-1',
+  habit_id: 'habit-1',
+  mode: 'pause',
+  period_start: first,
+  period_end: last,
+  created_at: `${first}T08:00:00Z`,
+  updated_at: `${first}T08:00:00Z`,
+});
 
 // dateService.today() / yesterday() rely on `new Date()` internally,
 // so we control them with jest fake timers.
@@ -179,6 +192,60 @@ describe('computeHabitStreak', () => {
       const dates = ['2025-12-15', '2025-12-01'];
       const result = computeHabitStreak(dates, 'weekly', 1);
       expect(result).toEqual({ count: 1, unit: 'week' });
+    });
+
+    it('buckets weeks Thursday to Wednesday for a Wednesday person', () => {
+      // Today is Monday 12/15, in their week of Thu 12/11 to Wed 12/17
+      // This week: 12/11 and 12/12 (2, met)
+      // Last week (12/4 to 12/10): 12/8 and 12/10 (2, met)
+      // Week before (11/27 to 12/3): 12/1 only (1, miss) → stop
+      const dates = ['2025-12-11', '2025-12-12', '2025-12-08', '2025-12-10', '2025-12-01'];
+      expect(computeHabitStreak(dates, 'weekly', 2, [], 3)).toEqual({ count: 2, unit: 'week' });
+      // A Sunday person buckets the same days Monday to Sunday:
+      // this week (12/15 on) has none yet, last week (12/8 to 12/14) has 4,
+      // and the week before (12/1 to 12/7) has 1 → stop
+      expect(computeHabitStreak(dates, 'weekly', 2)).toEqual({ count: 1, unit: 'week' });
+    });
+
+    it('passes over a week with one paused day in it', () => {
+      // This week: met. Last week (12/8 to 12/14): nothing logged, and
+      // Wednesday 12/10 was paused. Week before: met.
+      const dates = ['2025-12-15', '2025-12-01'];
+      const paused = [pause('2025-12-10', '2025-12-10')];
+      expect(computeHabitStreak(dates, 'weekly', 1, paused)).toEqual({ count: 2, unit: 'week' });
+      // without the pause the missed week ends the streak
+      expect(computeHabitStreak(dates, 'weekly', 1)).toEqual({ count: 1, unit: 'week' });
+      // a lighter version is not a pause
+      const lighter = [{ ...paused[0], mode: 'floor' as const }];
+      expect(computeHabitStreak(dates, 'weekly', 1, lighter)).toEqual({ count: 1, unit: 'week' });
+    });
+
+    it('passes over every week a pause reaches into', () => {
+      // Paused Fri 12/5 to Tue 12/9: a day or more of each of the two weeks
+      // before this one. The week of 11/24 was met, and the one before it missed.
+      const dates = ['2025-12-15', '2025-11-25'];
+      const paused = [pause('2025-12-05', '2025-12-09')];
+      expect(computeHabitStreak(dates, 'weekly', 1, paused)).toEqual({ count: 2, unit: 'week' });
+    });
+
+    it('counts a paused week that was met anyway', () => {
+      // Last week (12/8 to 12/14) was paused all through and logged anyway
+      const dates = ['2025-12-15', '2025-12-09', '2025-12-01'];
+      const paused = [pause('2025-12-08', '2025-12-14')];
+      expect(computeHabitStreak(dates, 'weekly', 1, paused)).toEqual({ count: 3, unit: 'week' });
+    });
+
+    it('still never breaks on the current week, paused or not', () => {
+      // Nothing yet this week, which has a paused day; last week met
+      const dates = ['2025-12-08'];
+      const paused = [pause('2025-12-16', '2025-12-16')];
+      expect(computeHabitStreak(dates, 'weekly', 1, paused)).toEqual({ count: 1, unit: 'week' });
+    });
+
+    it('treats a target under 1 as 1, so the walk back ends', () => {
+      // This week and last week have a completion, the week before has none
+      const dates = ['2025-12-15', '2025-12-08'];
+      expect(computeHabitStreak(dates, 'weekly', 0)).toEqual({ count: 2, unit: 'week' });
     });
   });
 

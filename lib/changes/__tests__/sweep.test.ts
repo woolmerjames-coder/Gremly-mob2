@@ -242,6 +242,56 @@ describe('a todo', () => {
     expect(mockState.archiveTodo).toHaveBeenCalledWith('t1', 'user_deleted');
   });
 
+  it('put off for later leaves its day and comes back on its back day, as on the week’s board', async () => {
+    const back = ds.addDays(today, 9);
+    const out = await applySweepDecision({
+      candidateId: 't1',
+      candidateKind: 'todo',
+      action: 'keep',
+      resurfaceDateStr: back,
+    });
+    if (!out.ok) throw new Error(out.message);
+    // the weekly review's Later: no day, the back day, one more push, and no reminder
+    expect(todo('t1')).toMatchObject({
+      resurface_at: back,
+      due_day: null,
+      due_date: null,
+      scheduled_date: null,
+      resurface_count: 1,
+      skipped_in_sweep_at: null,
+      reminders: [],
+    });
+    expect(maybeAsk).not.toHaveBeenCalled();
+    expect(out.record).toMatchObject({
+      op: 'later',
+      type: 'todo',
+      id: 't1',
+      fields: { later: back },
+      before: { later: null, day: ds.addDays(today, -2) },
+      out: 'kept',
+    });
+    // Undo puts every column back, the count with them
+    await out.revert();
+    expect(todo('t1')).toMatchObject({
+      resurface_at: null,
+      due_day: ds.addDays(today, -2),
+      scheduled_date: ds.addDays(today, -2),
+      resurface_count: null,
+      skipped_in_sweep_at: '2026-09-28T20:00:00.000Z',
+    });
+    // put off a second time, the count goes on from where it was
+    mockState.todos = mockState.todos.map((t: any) =>
+      t.id === 't1' ? { ...t, resurface_count: 1 } : t,
+    );
+    await applySweepDecision({
+      candidateId: 't1',
+      candidateKind: 'todo',
+      action: 'keep',
+      resurfaceDateStr: back,
+    });
+    expect(todo('t1').resurface_count).toBe(2);
+  });
+
   it('left for next time is marked skipped', async () => {
     const out = await applySweepDecision({
       candidateId: 't2',
@@ -371,15 +421,25 @@ describe('what cannot be saved', () => {
 });
 
 describe('kept apart from what Gremly can propose', () => {
-  it('keep and later are not operations of the change model', () => {
+  it('keep and later are not operations on the general list every surface is offered', () => {
     for (const op of Object.keys(SWEEP_OPS)) {
       expect(op in OPS).toBe(false);
       for (const type of Object.values(TYPES)) expect(type.ops).not.toContain(op);
-      expect(checkChange({ op, type: 'todo', id: 't1' }, { item: todo('t1') })).toEqual({
-        ok: false,
-        reason: 'unknown_op',
-      });
     }
+  });
+
+  it('keeping an item as it is cannot be proposed at all', () => {
+    expect(checkChange({ op: 'keep', type: 'todo', id: 't1' }, { item: todo('t1') })).toEqual({
+      ok: false,
+      reason: 'unknown_op',
+    });
+  });
+
+  it("putting one off is the weekly review's own change, dropped wherever the week is not known", () => {
+    expect(checkChange({ op: 'later', type: 'todo', id: 't1' }, { item: todo('t1') })).toEqual({
+      ok: false,
+      reason: 'no_week',
+    });
   });
 });
 

@@ -4,10 +4,13 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
+import { weeklyDayNow } from '../week/weeklyDayNow';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
 import type { Change } from '../changes/model';
+import type { WeekReviewRow, WeekSpread } from '../repo/weekReviewRepo';
+import type { ReviewKind } from '../week/model';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -57,7 +60,13 @@ export interface SpaceChatStreamingResult {
    * Ask Gremly: the agent answered (a lookup or a change), with its card in the
    * change model's shape and the chat's task list; nothing changes until they tap
    */
-  agent?: { card: Change[]; tasks: AgentTask[]; prompt_version?: string } | null;
+  agent?: {
+    card: Change[];
+    tasks: AgentTask[];
+    /** The button to their week goes under the reply; done when this week's review is */
+    offer?: { kind: 'week'; done: boolean };
+    prompt_version?: string;
+  } | null;
 }
 
 /**
@@ -438,6 +447,8 @@ export function callSpaceChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -529,6 +540,12 @@ export function callGeneralChatStreaming(
     briefQuestion?: string | null;
     /** The agent's task list kept on this chat, so asks carry across messages */
     agentTasks?: AgentTask[];
+    /**
+     * Their week, from an app build that can show the weekly review: with it
+     * Gremly knows where the review stands and can put the button to it under
+     * a reply (the agent's offer_week). The review itself is never under way here.
+     */
+    week?: WeekTurnContext | null;
   },
   callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
 ): { close: () => void } {
@@ -576,9 +593,12 @@ export function callGeneralChatStreaming(
       // this build draws the agent's card, so lookups and changes can go to it
       agentCard: true,
       agentTasks: opts.agentTasks ?? [],
+      ...(opts.week ? { week: opts.week } : {}),
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -689,6 +709,8 @@ export function callWorldChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -797,6 +819,8 @@ export function callChapterChatStreaming(
       userId: opts.userId,
       currentTime: nowTimestamp(),
       timezone: getDateService().getTimezone(),
+      // their weekly day, so a habit's count this week is made in their own week
+      weekly_day: weeklyDayNow(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -1801,134 +1825,6 @@ export function callHabitBuilderStreaming(
   return { close: () => es.close() };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// JOURNAL ANALYZE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export interface JournalAnalyzeEntry {
-  date: string; // YYYY-MM-DD
-  body: string;
-  mood?: string[] | null;
-}
-
-export interface JournalAnalysisTheme {
-  label: string;
-  description: string;
-  count: number;
-}
-
-export interface JournalAnalysisPattern {
-  label: string;
-  description: string;
-  sentiment: 'positive' | 'neutral' | 'watch';
-}
-
-export interface JournalAnalysisHabits {
-  frequency: string;
-  preferred_time: 'morning' | 'evening' | 'varies' | 'unknown';
-  avg_length: 'short' | 'medium' | 'long';
-  observation: string;
-}
-
-export interface JournalAnalysisSuggestion {
-  text: string;
-  type: 'reflect' | 'try' | 'continue';
-}
-
-export interface JournalAnalysisResult {
-  themes: JournalAnalysisTheme[];
-  patterns: JournalAnalysisPattern[];
-  journaling_habits: JournalAnalysisHabits;
-  suggestion: JournalAnalysisSuggestion;
-}
-
-export interface JournalAnalyzeResponse {
-  analysis: JournalAnalysisResult;
-  entry_count: number;
-  latency_ms: number;
-}
-
-/**
- * Call the Cortex proxy for Journal Analysis.
- * Sends journal entries and returns structured themes, patterns, and suggestions.
- */
-export async function callJournalAnalyze(
-  entries: JournalAnalyzeEntry[],
-  timezone: string = 'UTC',
-): Promise<CortexClientResult<JournalAnalyzeResponse>> {
-  const baseUrl = readCortexUrl();
-
-  if (!baseUrl) {
-    log('CONFIG_MISSING', 'Missing CORTEX_URL for journal analyze');
-    return { ok: false, error: 'Missing CORTEX_URL' };
-  }
-
-  if (isAiDisabled()) {
-    return { ok: false, error: 'AI features are currently disabled' };
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const sessionToken = await getSessionToken();
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  // Use a longer timeout since this processes many entries
-  const timeoutMs = 30000;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const startTime = getDateService().now().getTime();
-
-  try {
-    log('JOURNAL_ANALYZE', 'Calling journal analyze', { entryCount: entries.length });
-
-    const res = await fetch(baseUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        type: 'journal-analyze',
-        entries: entries.map((e) => ({
-          date: e.date,
-          body: (e.body || '').slice(0, 500), // Cap per-entry length
-          mood: e.mood || null,
-        })),
-        timezone,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => '');
-      log('JOURNAL_ANALYZE_ERROR', res.status, errorText);
-      return { ok: false, error: `Server error: ${res.status}`, status: res.status };
-    }
-
-    const data = await res.json();
-
-    if (data.error) {
-      log('JOURNAL_ANALYZE_FAIL', data.error);
-      return { ok: false, error: data.error };
-    }
-
-    log('JOURNAL_ANALYZE_OK', {
-      entryCount: data.entry_count,
-      themes: data.analysis?.themes?.length,
-      latency_ms: data.latency_ms,
-    });
-
-    return { ok: true, data };
-  } catch (e: any) {
-    if (e?.name === 'AbortError') {
-      log('JOURNAL_ANALYZE_TIMEOUT', 'Request timed out');
-      return { ok: false, error: 'Request timed out' };
-    }
-    log('JOURNAL_ANALYZE_EXCEPTION', e?.message || e);
-    return { ok: false, error: e?.message || 'Unknown error' };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 /**
  * Gremly's line on Chat's fresh home. What waits in the app (the unread brief,
  * things to decide tonight) is sent so the line can mention it in passing.
@@ -1980,7 +1876,15 @@ export async function callGeneralGreeting(
 // Gremly's words in the evening wrap up (agent plan step 10)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type WrapMoment = 'open' | 'journal_ask' | 'journal_reply' | 'close' | 'questions';
+export type WrapMoment =
+  | 'open'
+  | 'journal_ask'
+  | 'journal_reply'
+  | 'sorted'
+  | 'habits'
+  | 'close'
+  | 'night'
+  | 'questions';
 
 /** What the wrap up tells Gremly for one moment (workers/cortex/wrap/words.js factsFrom). */
 export interface WrapWordsRequest {
@@ -2000,6 +1904,10 @@ export interface WrapWordsRequest {
   meetings: string[];
   travel?: string;
   cards: number;
+  /** What is waiting in the cards, by title */
+  card_titles?: string[];
+  /** Whether the close offers to plan tomorrow (no plan for it in the thread yet) */
+  can_plan?: boolean;
   tonight?: {
     decisions?: { title: string; outcome: string }[];
     logged?: string[];
@@ -2007,8 +1915,24 @@ export interface WrapWordsRequest {
     not_held?: string[];
     journal?: 'written' | 'mood' | 'skipped' | null;
     path?: 'cards' | 'skip' | 'clear' | null;
+    /** A habit logged tonight with a run of days, as it stands now */
+    streak?: { title: string; days: number } | null;
+    /** Sorting the cards just fed Gremly */
+    fed_by_cards?: boolean;
   };
-  next?: { meetings: string[]; lined: string[] };
+  /** Gremly himself: his age, his stage and its nature, and whether he is fed today */
+  gremly?: { age: number; tier: string; nature?: string; fed_today: boolean } | null;
+  /** What Gremly has said in tonight's wrap up so far, in order */
+  said?: string[];
+  next?: {
+    meetings: string[];
+    /** Todos moved to tomorrow in the cards tonight */
+    lined: string[];
+    /** The first of the todos planned for tomorrow, by title */
+    todos?: string[];
+    /** How many todos are planned for tomorrow */
+    todo_count?: number;
+  };
   entry?: string;
   questions?: {
     id: string;
@@ -2020,7 +1944,7 @@ export interface WrapWordsRequest {
 export type WrapWordsResponse =
   | { line: string }
   | { journal: boolean; reply: string; moods?: string[] }
-  | { ask: { id: string; question: string; choices: string[] }[] };
+  | { ask: { id: string; question: string; choices: string[] }[]; intro?: string };
 
 /** How long the wrap up waits for Gremly's words before it says its own. */
 const WRAP_WORDS_TIMEOUT_MS = 8000;
@@ -2053,9 +1977,15 @@ export async function callWrapWords(req: WrapWordsRequest): Promise<WrapWordsRes
     const data = await res.json();
     if (typeof data?.line === 'string' && data.line.trim()) return { line: data.line.trim() };
     if (typeof data?.journal === 'boolean') {
-      return { journal: data.journal, reply: String(data.reply ?? '').trim() };
+      const moods = Array.isArray(data.moods)
+        ? data.moods.filter((m: unknown): m is string => typeof m === 'string')
+        : [];
+      return { journal: data.journal, reply: String(data.reply ?? '').trim(), moods };
     }
-    if (Array.isArray(data?.ask)) return { ask: data.ask };
+    if (Array.isArray(data?.ask)) {
+      const intro = typeof data.intro === 'string' ? data.intro.trim() : '';
+      return intro ? { ask: data.ask, intro } : { ask: data.ask };
+    }
     return null;
   } catch {
     return null;
@@ -2144,7 +2074,6 @@ export const CortexClient = {
   callEnrichPhase2Streaming,
   callTranscribe,
   callHabitBuilderStreaming,
-  callJournalAnalyze,
   callHabitInsight,
 };
 
@@ -2255,6 +2184,8 @@ export interface PlanPickRequest {
   text?: string;
   /** The day being planned (YYYY-MM-DD); tomorrow plans without today's context */
   for_day?: string;
+  /** Their answer when Gremly asked what has to happen or comes first */
+  asked?: string;
 }
 
 export interface PlanPickResponse {
@@ -2340,7 +2271,13 @@ export interface DayTurnRequest {
     due_time: string | null;
     minutes: number | null;
     note: string;
+    /** A step of a milestone set up in their weekly review: the goal it is towards */
+    towards?: string | null;
+    /** A habit they are breaking: never given a place in the plan */
+    breaking?: boolean;
   }[];
+  /** The intention of the week this day is in, in their words */
+  intention?: string | null;
   meetings: { title: string; start: number; end: number }[];
   record: {
     travel: { label: string | null; departs: number | null } | null;
@@ -2406,6 +2343,91 @@ export interface WrapTurnContext {
   } | null;
 }
 
+/**
+ * The person's week, sent with a message in today's thread by an app build
+ * that knows it (workers/cortex/agent/brief.js readWeek). With it Gremly is
+ * told one line about their week and gets the week's tools and changes: an
+ * app that sends it must be able to draw the week's button (offer) and to
+ * hold the review on its step (hold) when the answer says so.
+ */
+export interface WeekTurnContext {
+  /** Their weekly day, 0 Sunday to 6 Saturday */
+  weekly_day: number;
+  /** The days of the week that count as days off */
+  days_off: number[];
+  /** The review for the week they are in, as its row has it, or null when there is none */
+  review: {
+    week_start: string;
+    span_start: string;
+    status: 'ready' | 'started' | 'done' | 'skipped';
+    kind: 'weekly' | 'extra' | 'brought_forward';
+  } | null;
+  /** The one extra review of the week has been used */
+  extra_used: boolean;
+  /** Hours free on each kind of day, in half hours, once the week has them */
+  hours?: { normal_day?: number; busy_day?: number; weekend_day?: number } | null;
+  /** The week's busy days, YYYY-MM-DD */
+  busy_days?: string[];
+  /** The week's intention and the note that holds it */
+  intention?: { id: string | null; text: string } | null;
+  /** The review, while one is under way in the thread */
+  under_way?: {
+    /** Where it is (workers/shared/week.js WEEK_STEPS) */
+    step: string;
+    /** The days being planned, first and last */
+    first: string;
+    last: string;
+    /** The first day of the week they belong to: before first when the review started part way through */
+    week_start?: string;
+    /** What Gremly's read opened with */
+    challenge?: { headline: string; why?: string } | null;
+    /** Gremly's picks for what matters most, each with the todos it covers */
+    picks?: { text: string; item_ids: string[] }[];
+    /**
+     * Everything settled so far, in the app's words: what kind of thing
+     * (priority, hours, busy_days, intention, milestone, needs_you,
+     * habit_days, day, later), the item it is about when it is one, how it is
+     * now and what it was before
+     */
+    settled?: {
+      kind: string;
+      id?: string;
+      item_ids?: string[];
+      type?: 'todo' | 'habit' | 'note';
+      title: string;
+      outcome: string;
+      was?: string;
+    }[];
+    /** The board as the review has it, none of it saved until they finish */
+    habit_days?: { id: string; days: string[] }[];
+    placed?: { id: string; day: string }[];
+    later?: { id: string; back_on: string }[];
+    /** The needs you card they opened to talk through, when the message is about it */
+    about?: {
+      title: string;
+      item_ids: string[];
+      stuck_because?: string;
+      question?: string;
+    } | null;
+    /** The question Gremly's last reply left the review waiting on (the answer's hold.question) */
+    hold?: string | null;
+  } | null;
+  /**
+   * The habits paused or on a lighter version from today on, empty when none
+   * are. Sending the list at all tells the worker this build can apply a
+   * change to one (the change model's ease), so only then is Gremly able to
+   * offer it.
+   */
+  eased?: {
+    habit_id: string;
+    title: string;
+    mode: 'pause' | 'lighter';
+    first: string;
+    last: string;
+    note: string;
+  }[];
+}
+
 export interface BriefTurnRequest extends DayTurnRequest {
   /** Where they are, for their calendar and their day */
   timezone: string;
@@ -2415,6 +2437,214 @@ export interface BriefTurnRequest extends DayTurnRequest {
   chat_id: string;
   /** Tonight's wrap up, when the message is typed while it is under way */
   wrap?: WrapTurnContext;
+  /** Their week, from an app build that can show the weekly review */
+  week?: WeekTurnContext;
+}
+
+/**
+ * One question put to cortex and answered as server-sent events, asked once.
+ *
+ * Left alone, the stream library posts its request again every five seconds
+ * after a stream ends, which sends the same message a second time. Here it is
+ * told never to (pollingInterval 0). A stream that ends without its answer
+ * then says nothing more, so the worker pings while it works and silence is
+ * how a lost line shows: the call fails after quietMs with nothing heard, and
+ * when its whole time (timeoutMs) is up.
+ *
+ * read is handed each event and settles the call by giving its result;
+ * undefined leaves the call waiting.
+ */
+function askOnce<T>(
+  baseUrl: string,
+  token: string,
+  body: Record<string, unknown>,
+  opts: {
+    timeoutMs: number;
+    quietMs: number;
+    read: (data: Record<string, unknown>) => CortexClientResult<T> | undefined;
+  },
+): Promise<CortexClientResult<T>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let quiet: ReturnType<typeof setTimeout> | null = null;
+    const es = new EventSource(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+      // asked once: a stream that ends is never posted again
+      pollingInterval: 0,
+      lineEndingCharacter: '\n',
+    });
+    const finish = (r: CortexClientResult<T>) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (quiet) clearTimeout(quiet);
+      es.close();
+      resolve(r);
+    };
+    // a stream that ends without its answer says nothing more: the silence is how it shows
+    const listen = () => {
+      if (quiet) clearTimeout(quiet);
+      quiet = setTimeout(
+        () => finish({ ok: false, error: 'the connection went quiet' }),
+        opts.quietMs,
+      );
+    };
+    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs);
+    listen();
+    es.addEventListener('message', (event: { data?: string | null }) => {
+      if (settled) return;
+      listen();
+      let data: Record<string, unknown> | null = null;
+      try {
+        data = JSON.parse(event.data ?? '');
+      } catch {
+        return;
+      }
+      if (!data) return;
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        finish({ ok: false, error: 'read_only' });
+        return;
+      }
+      const result = opts.read(data);
+      if (result) finish(result);
+    });
+    es.addEventListener('error', (event) =>
+      finish({
+        ok: false,
+        error: String((event as { message?: string } | null)?.message || 'stream error'),
+      }),
+    );
+  });
+}
+
+/**
+ * The weekly review's read, for a review opened today
+ * (workers/inngest-jobs/week). The week's row comes back with the read it
+ * holds when that serves a review started today; otherwise one is made there
+ * and then, which takes most of a minute, so this is called behind the
+ * review's loading screen. The answer comes as server-sent events, with a ping
+ * every few seconds while the read is made, so the phone keeps waiting. A read
+ * that was being made when the call failed may still have been finished and
+ * kept on the week's row (the worker carries on for a short while after the
+ * phone stops listening): read the row again (getWeekReview) before asking a
+ * second time.
+ */
+export interface WeekReadResponse {
+  /** A read was made for this call; false when the week already held one that serves */
+  made: boolean;
+  /**
+   * What a review opened today is: by the date rules, or the review already
+   * under way in this week when there is one (workers/shared/week.js reviewWith)
+   */
+  on: {
+    kind: ReviewKind;
+    promoted: boolean;
+    fresh: boolean;
+    /** A review started on an earlier day, carried on with the read it began with */
+    resumed?: boolean;
+    week_start: string;
+    span_start: string;
+    span_end: string;
+  };
+  /** The week's row, with its read */
+  review: WeekReviewRow;
+}
+
+/**
+ * @param req date is the person's day in the app (DateService today)
+ * @param opts timeoutMs is how long to wait for a read being made (two minutes
+ *   unless given); quietMs is how long the line may stay silent before the
+ *   call counts as lost (pings come every eight seconds)
+ */
+export async function callWeekRead(
+  req: { date: string },
+  opts: { timeoutMs?: number; quietMs?: number } = {},
+): Promise<CortexClientResult<WeekReadResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  return askOnce<WeekReadResponse>(
+    baseUrl,
+    token,
+    { type: 'week-read', date: req.date },
+    {
+      timeoutMs: opts.timeoutMs ?? 120000,
+      quietMs: opts.quietMs ?? 30000,
+      read: (data) => {
+        // pings only keep the connection open while the read is made
+        if (!data.done) return undefined;
+        if (data.error) return { ok: false, error: String(data.error) };
+        const answer = { ...data };
+        delete answer.done;
+        const got = answer as unknown as WeekReadResponse;
+        return got.review?.read
+          ? { ok: true, data: got }
+          : { ok: false, error: 'no read came back' };
+      },
+    },
+  );
+}
+
+/**
+ * The spread for the review under way (cortex week-spread, inngest-jobs
+ * week/spread.js): which of their todos Gremly puts on which day, made from
+ * the answers the week's row holds now. It takes about twenty seconds and is
+ * kept on the row, so when the call fails the row may still have it.
+ */
+export interface WeekSpreadResponse {
+  on: WeekReadResponse['on'];
+  spread: WeekSpread;
+}
+
+/**
+ * @param req date is the person's day in the app; board is their own moves on
+ *   the board, which are not saved until they finish and which a spread never
+ *   moves
+ */
+export async function callWeekSpread(
+  req: {
+    date: string;
+    board?: {
+      placed: { id: string; day: string }[];
+      later: { id: string; back_on: string }[];
+      habit_days: { id: string; days: string[] }[];
+      /** a habit paused, on a lighter version or set back to usual on the board, not saved yet */
+      habit_ease?: { id: string; mode: 'pause' | 'lighter' | 'usual' }[];
+    } | null;
+  },
+  opts: { timeoutMs?: number; quietMs?: number } = {},
+): Promise<CortexClientResult<WeekSpreadResponse>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  return askOnce<WeekSpreadResponse>(
+    baseUrl,
+    token,
+    { type: 'week-spread', date: req.date, board: req.board ?? null },
+    {
+      timeoutMs: opts.timeoutMs ?? 90000,
+      quietMs: opts.quietMs ?? 30000,
+      read: (data) => {
+        // pings only keep the connection open while the spread is made
+        if (!data.done) return undefined;
+        if (data.error) return { ok: false, error: String(data.error) };
+        const answer = { ...data };
+        delete answer.done;
+        const got = answer as unknown as WeekSpreadResponse;
+        return Array.isArray(got.spread?.place)
+          ? { ok: true, data: got }
+          : { ok: false, error: 'no spread came back' };
+      },
+    },
+  );
 }
 
 /**
@@ -2428,6 +2658,10 @@ export type BriefTurnResponse =
       /** The card, in the change model's shape: nothing changes until they tap */
       card: Change[];
       tasks: AgentTask[];
+      /** The weekly review stays on its step until they answer the question Gremly asked */
+      hold?: { question: string };
+      /** The button to their week goes under the reply; done when this week's review is */
+      offer?: { kind: 'week'; done: boolean };
       model?: string;
       prompt_version?: string;
     }
@@ -2436,68 +2670,40 @@ export type BriefTurnResponse =
 /**
  * A message typed in today's thread (workers/cortex/agent/brief.js). Status
  * lines come through onStatus while Gremly works; the answer resolves once.
+ * The message is sent once (askOnce): when the stream ends without its answer
+ * the call fails, and it is never posted again behind the person's back.
  */
 export async function callBriefTurn(
   req: BriefTurnRequest,
-  opts: { onStatus?: (line: string) => void; timeoutMs?: number } = {},
+  opts: { onStatus?: (line: string) => void; timeoutMs?: number; quietMs?: number } = {},
 ): Promise<CortexClientResult<BriefTurnResponse>> {
   const baseUrl = readCortexUrl();
   if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
   if (isAiDisabled()) return { ok: false, error: 'AI disabled' };
   const token = await getSessionToken();
   if (!token) return { ok: false, error: 'not signed in' };
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const es = new EventSource(baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ type: 'brief-turn', ...req }),
-      lineEndingCharacter: '\n',
-    });
-    const finish = (r: CortexClientResult<BriefTurnResponse>) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      es.close();
-      resolve(r);
-    };
-    // the agent's budget plus the day turn behind it, with room to spare
-    timer = setTimeout(() => finish({ ok: false, error: 'timed out' }), opts.timeoutMs ?? 30000);
-    es.addEventListener('message', (event: { data?: string | null }) => {
-      let data: Record<string, unknown> | null = null;
-      try {
-        data = JSON.parse(event.data ?? '');
-      } catch {
-        return;
-      }
-      if (!data) return;
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        finish({ ok: false, error: 'read_only' });
-        return;
-      }
-      if (typeof data.status === 'string') {
-        opts.onStatus?.(data.status);
-        return;
-      }
-      if (data.done) {
-        if (data.error) {
-          finish({ ok: false, error: String(data.error) });
-          return;
+  return askOnce<BriefTurnResponse>(
+    baseUrl,
+    token,
+    { type: 'brief-turn', ...req },
+    {
+      // the agent's budget plus the day turn behind it, with room to spare
+      timeoutMs: opts.timeoutMs ?? 30000,
+      // the worker pings every five seconds while the turn runs
+      quietMs: opts.quietMs ?? 15000,
+      read: (data) => {
+        if (typeof data.status === 'string') {
+          opts.onStatus?.(data.status);
+          return undefined;
         }
+        if (!data.done) return undefined;
+        if (data.error) return { ok: false, error: String(data.error) };
         const answer = { ...data };
         delete answer.done;
-        finish({ ok: true, data: answer as unknown as BriefTurnResponse });
-      }
-    });
-    es.addEventListener('error', (event) =>
-      finish({
-        ok: false,
-        error: String((event as { message?: string } | null)?.message || 'stream error'),
-      }),
-    );
-  });
+        return { ok: true, data: answer as unknown as BriefTurnResponse };
+      },
+    },
+  );
 }
 
 /**

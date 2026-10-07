@@ -9,7 +9,8 @@
  * - offer: the pinned card and the Today button say so. In the evening, once
  *   it is under way, or as soon as everything on Today is done.
  * - nudge: the dot on CHAT and Gremly's line on Drop and Today. The evening
- *   only, so nothing nags in the afternoon.
+ *   only, so nothing nags in the afternoon, and never once it has been put
+ *   away for the day.
  *
  * By what it has done:
  * - Not yet started: it can be started at any hour; nudged in the evening.
@@ -17,13 +18,14 @@
  * - Turned down in the evening: offered and never nudged, so nobody is nagged
  *   after saying no. Turned down earlier in the day was about then, not about
  *   tonight: the evening nudges as if it had not started.
- * - Finished: nothing, for the rest of the day. New things dropped since
- *   bring it back in the evening, once, for the new ones only.
+ * - Finished: nothing, for the rest of the day. What is dropped after it
+ *   waits for the next morning's brief and its quick sweep: a day wrapped up
+ *   is not offered again.
  */
 import { minutesOfDay } from '../brief/time';
 import type { WrapUpState } from '../brief/types';
 import { homePhase, type HomePhase } from '../chat/homeChips';
-import { cardsLeft, newSince } from './state';
+import { cardsLeft } from './state';
 
 export interface EveningTeaser {
   /** The dot on CHAT and Gremly's line on Drop and Today */
@@ -46,16 +48,20 @@ export function eveningTeaser(p: {
   dayDone?: boolean;
   /** It was last touched in the evening, not earlier in the day */
   touchedTonight?: boolean;
+  /** Gremly's line was put away for the day */
+  dismissed?: boolean;
 }): EveningTeaser {
+  const t = teaserFor(p);
+  return p.dismissed ? { ...t, nudge: false } : t;
+}
+
+function teaserFor(p: Parameters<typeof eveningTeaser>[0]): EveningTeaser {
   const evening = p.phase === 'evening';
   const wrap = p.wrap;
   if (!wrap) {
     return { nudge: evening, offer: evening || !!p.dayDone, start: true, cards: p.cards.length };
   }
-  if (wrap.step === 'close' || wrap.step === 'done') {
-    const fresh = evening ? newSince(wrap, p.cards).length : 0;
-    return fresh ? { nudge: true, offer: true, start: true, cards: fresh } : NONE;
-  }
+  if (wrap.step === 'close' || wrap.step === 'done') return NONE;
   const left = cardsLeft(wrap, p.cards).length;
   if (wrap.step === 'declined') {
     if (!evening) return { nudge: false, offer: !!p.dayDone, start: true, cards: left };

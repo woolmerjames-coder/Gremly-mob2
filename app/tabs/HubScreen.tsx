@@ -13,8 +13,6 @@ import {
   FlatList,
   ScrollView,
   Pressable,
-  Modal,
-  ActivityIndicator,
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,18 +23,13 @@ import { z } from 'zod';
 import {
   LayoutGrid,
   BookOpen,
-  BarChart3,
-  X,
-  Sparkles,
   Users,
   Calendar,
-  Lightbulb,
   Archive,
   Search,
   Settings,
   Wrench,
   Clock,
-  TrendingUp,
   ChevronLeft,
 } from 'lucide-react-native';
 
@@ -56,10 +49,9 @@ import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { BRAND } from '../../design/brand';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
-import { useJournalAnalysis } from '../../hooks/useJournalAnalysis';
-import type { JournalAnalyzeEntry } from '../../lib/cortex/CortexClient';
+import { JournalHubView } from '../../components/journal/JournalHubView';
+import type { JournalEntry } from '../../lib/journal/entry';
 import type { AppRecord, Space, Person, Tag, Todo, Habit, Note } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
@@ -74,12 +66,6 @@ import { normalizeSearchTagArray, normalizeSearchTagInput } from '../../lib/tags
 import { parseSearchTokens } from '../../lib/tags/parseSearch';
 import TagFilterBar from '../../components/tags/TagFilterBar';
 import { eventBus } from '../../lib/events';
-import {
-  groupJournalsByMonth,
-  formatJournalDate as formatJournalDateHelper,
-  getJournalPreview,
-  computeLast30DaysRange,
-} from '../../lib/hub/hubHelpers';
 // Store selectors and hooks
 import {
   useHubTodos,
@@ -220,13 +206,6 @@ export default function HubScreen() {
   const [hubView, setHubView] = useState<HubV1View>('timeline');
   // Save previous type selections when switching to Journal View
   const savedTypesRef = useRef<Set<HubV1TypeFilter> | null>(null);
-  // Analyze journals modal state
-  const [analyzeModalVisible, setAnalyzeModalVisible] = useState(false);
-  const [analyzeJournalCount, setAnalyzeJournalCount] = useState(0);
-
-  // Journal analysis hook (caches result, enforces 7-day cooldown)
-  const journalAnalysis = useJournalAnalysis();
-
   // Handler to open settings screen
   const handleOpenSettings = useCallback(() => {
     navigation.navigate('Settings' as never);
@@ -644,10 +623,6 @@ export default function HubScreen() {
     [storeUnsortedItems, updateTodo, updateHabit, updateNote],
   );
 
-  const handleOverlaySaved = useCallback(() => {
-    // Store auto-updates via EventBus - no manual reload needed
-  }, []);
-
   const isEmpty = scopedItems.length === 0;
 
   // =========================================================================
@@ -700,30 +675,6 @@ export default function HubScreen() {
   // =========================================================================
   // Hub V1 Memoized Derived Data (avoid recomputing on every render)
   // =========================================================================
-
-  // Memoize journal entries for Journal View
-  const journalEntries = useMemo(() => {
-    return hubV1Items
-      .filter(
-        (item) =>
-          item.type === 'note' && (item as import('../../lib/types').Note).subtype === 'journal',
-      )
-      .map((item) => {
-        const note = item as import('../../lib/types').Note;
-        return {
-          id: note.id,
-          date: note.date || '',
-          created_at: note.created_at || '',
-          body: note.body,
-          mood: note.mood,
-        };
-      });
-  }, [hubV1Items]);
-
-  // Memoize grouped journals for Journal View timeline
-  const groupedJournals = useMemo(() => {
-    return groupJournalsByMonth(journalEntries);
-  }, [journalEntries]);
 
   // Memoize needs-attention items (max 2, only shown if qualifying items exist)
   const needsAttentionItems = useMemo(() => {
@@ -797,33 +748,6 @@ export default function HubScreen() {
       overlayController.openEdit({ record });
     },
     [overlayController],
-  );
-
-  // Mood color mapping (static, defined once)
-  // Now handles both single moods and first mood from array
-  const moodColors: Record<string, string> = useMemo(
-    () => ({
-      // New mood values
-      great: colors.success,
-      good: colors.mint,
-      okay: colors.gray400,
-      low: colors.periwinkle,
-      tired: colors.gray400,
-      anxious: colors.periwinkle,
-      overwhelmed: colors.periwinkle,
-      frustrated: colors.gray600,
-      scattered: colors.gray400,
-      grateful: colors.mint,
-      hopeful: colors.success,
-      focused: colors.mint,
-      calm: colors.mint,
-      // Legacy mood values (backwards compat)
-      ecstatic: colors.success,
-      happy: colors.mint,
-      neutral: colors.gray400,
-      sad: colors.gray600,
-    }),
-    [],
   );
 
   // Format reason label for attention items
@@ -1256,140 +1180,15 @@ export default function HubScreen() {
                 </View>
               ) : hubView === 'journals' ? (
                 // ===============================================================
-                // JOURNAL VIEW: Timeline grouped by month (unchanged)
+                // JOURNAL VIEW: the month, then every entry (components/journal/JournalHubView)
                 // ===============================================================
-                journalEntries.length === 0 ? (
-                  <View style={hubV1Styles.journalViewEmpty} testID="journal-view-empty">
-                    <View style={hubV1Styles.journalViewEmptyHeader}>
-                      <BookOpen
-                        size={18}
-                        color={colors.gray400}
-                        style={{ marginRight: spacing.xs }}
-                      />
-                      <Text style={hubV1Styles.journalViewEmptyTitle}>No journals yet</Text>
-                    </View>
-                    <Text style={hubV1Styles.journalViewEmptyHint}>
-                      Drop a thought to start journaling
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={hubV1Styles.journalViewContainer} testID="journal-view-timeline">
-                    {/* Analyze CTA Card */}
-                    <TouchableOpacity
-                      style={[
-                        hubV1Styles.analyzeCta,
-                        journalAnalysis.onCooldown && !journalAnalysis.analysis && { opacity: 0.5 },
-                      ]}
-                      onPress={async () => {
-                        // If we have a cached result, show it immediately
-                        if (journalAnalysis.analysis) {
-                          setAnalyzeModalVisible(true);
-                          setAnalyzeJournalCount(journalAnalysis.entryCount);
-                          return;
-                        }
-
-                        // If on cooldown with no cached result, do nothing
-                        if (journalAnalysis.onCooldown) return;
-
-                        // Run fresh analysis
-                        setAnalyzeModalVisible(true);
-
-                        // Prepare entries from store
-                        const queryOpts = computeLast30DaysRange();
-                        const journals = storeJournals.filter((j) => {
-                          if (!queryOpts.createdAfter) return true;
-                          return (j.created_at ?? '') >= queryOpts.createdAfter;
-                        });
-
-                        const entries: JournalAnalyzeEntry[] = journals.map((j) => ({
-                          date: j.date || j.created_at?.split('T')[0] || '',
-                          body: j.body || '',
-                          mood: j.mood || null,
-                        }));
-
-                        setAnalyzeJournalCount(entries.length);
-
-                        // Get timezone
-                        const tz = Intl?.DateTimeFormat?.()?.resolvedOptions?.()?.timeZone || 'UTC';
-                        await journalAnalysis.analyze(entries, tz);
-                      }}
-                      activeOpacity={0.8}
-                      disabled={journalAnalysis.onCooldown && !journalAnalysis.analysis}
-                      testID="journal-analyze-cta"
-                    >
-                      <BarChart3
-                        size={20}
-                        color={colors.deepTeal}
-                        style={{ marginRight: spacing.sm }}
-                      />
-                      <Text style={hubV1Styles.analyzeCtaText}>
-                        {journalAnalysis.analysis
-                          ? 'View Journal Insights'
-                          : 'Analyze last 30 days'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {/* Cooldown note */}
-                    {journalAnalysis.onCooldown && journalAnalysis.nextAvailableLabel && (
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          color: colors.gray400,
-                          textAlign: 'center',
-                          marginTop: -spacing.sm,
-                          marginBottom: spacing.md,
-                        }}
-                      >
-                        Next analysis {journalAnalysis.nextAvailableLabel.replace('Available ', '')}
-                      </Text>
-                    )}
-
-                    {groupedJournals.map((group) => (
-                      <View key={group.monthKey} style={hubV1Styles.journalMonthGroup}>
-                        <Text style={hubV1Styles.journalMonthHeader}>{group.label}</Text>
-                        {group.journals.map((journal) => {
-                          const record = hubV1Items.find((i) => i.id === journal.id);
-                          return (
-                            <TouchableOpacity
-                              key={journal.id}
-                              style={hubV1Styles.journalTimelineRow}
-                              onPress={() => {
-                                if (record) {
-                                  handleOpenEdit(record);
-                                }
-                              }}
-                              testID={`journal-timeline-${journal.id}`}
-                            >
-                              <View style={hubV1Styles.journalTimelineDate}>
-                                <Text style={hubV1Styles.journalTimelineDateText}>
-                                  {formatJournalDateHelper(journal.date || journal.created_at)}
-                                </Text>
-                              </View>
-                              {journal.mood && (
-                                <View
-                                  style={[
-                                    hubV1Styles.journalTimelineMood,
-                                    {
-                                      backgroundColor:
-                                        moodColors[
-                                          Array.isArray(journal.mood)
-                                            ? journal.mood[0]
-                                            : journal.mood
-                                        ] || colors.gray400,
-                                    },
-                                  ]}
-                                />
-                              )}
-                              <Text style={hubV1Styles.journalTimelinePreview} numberOfLines={1}>
-                                {getJournalPreview(journal.body, 60) || 'No content'}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    ))}
-                  </View>
-                )
+                <JournalHubView
+                  entries={storeJournals as unknown as JournalEntry[]}
+                  onOpen={(entry) => {
+                    const record = storeJournals.find((j) => j.id === entry.id);
+                    if (record) handleOpenEdit(record);
+                  }}
+                />
               ) : (
                 // ===============================================================
                 // TIMELINE VIEW (default): Date-grouped reverse-chronological feed
@@ -1412,174 +1211,6 @@ export default function HubScreen() {
             </View>
           )}
         </ScrollView>
-
-        {/* Analyze Journals Modal */}
-        <Modal
-          visible={analyzeModalVisible}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setAnalyzeModalVisible(false)}
-          testID="journal-analyze-modal"
-        >
-          <View style={hubV1Styles.analyzeModalContainer}>
-            {/* Header */}
-            <View style={hubV1Styles.analyzeModalHeader}>
-              <Text style={hubV1Styles.analyzeModalTitle}>Journal Insights</Text>
-              <TouchableOpacity
-                onPress={() => setAnalyzeModalVisible(false)}
-                style={hubV1Styles.analyzeModalClose}
-                testID="journal-analyze-modal-close"
-                accessibilityLabel="Close journal insights"
-                accessibilityRole="button"
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              >
-                <X size={24} color={colors.ink} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Content */}
-            <ScrollView style={hubV1Styles.analyzeModalContent}>
-              {journalAnalysis.loading ? (
-                <View style={hubV1Styles.analyzeLoadingContainer}>
-                  <ActivityIndicator size="large" color={colors.deepTeal} />
-                  <Text style={hubV1Styles.analyzeLoadingText}>
-                    Analyzing {analyzeJournalCount} journal
-                    {analyzeJournalCount !== 1 ? ' entries' : ' entry'}...
-                  </Text>
-                </View>
-              ) : journalAnalysis.error ? (
-                <View style={hubV1Styles.analyzeLoadingContainer}>
-                  <Text style={[hubV1Styles.analyzeLoadingText, { color: colors.gray600 }]}>
-                    {journalAnalysis.error}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => setAnalyzeModalVisible(false)}
-                    style={{ marginTop: spacing.md }}
-                  >
-                    <Text style={{ color: colors.deepTeal, fontWeight: '600' }}>Close</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : journalAnalysis.analysis ? (
-                <>
-                  {/* Journal count summary */}
-                  <Text style={hubV1Styles.analyzeJournalCount} testID="analyze-journal-count">
-                    Based on {journalAnalysis.entryCount} journal
-                    {journalAnalysis.entryCount !== 1 ? ' entries' : ' entry'}
-                  </Text>
-
-                  {/* ─── Themes Section ─── */}
-                  <View style={hubV1Styles.analyzeSection}>
-                    <View style={hubV1Styles.analyzeSectionHeader}>
-                      <Sparkles size={18} color={colors.deepTeal} />
-                      <Text style={hubV1Styles.analyzeSectionTitle}>Themes</Text>
-                    </View>
-                    {journalAnalysis.analysis.themes.map((theme, i) => (
-                      <View key={i} style={analysisStyles.card}>
-                        <View style={analysisStyles.cardHeader}>
-                          <Text style={analysisStyles.cardLabel}>{theme.label}</Text>
-                          <Text style={analysisStyles.cardCount}>
-                            {theme.count} {theme.count === 1 ? 'entry' : 'entries'}
-                          </Text>
-                        </View>
-                        <Text style={analysisStyles.cardDescription}>{theme.description}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {/* ─── Patterns Section ─── */}
-                  <View style={hubV1Styles.analyzeSection}>
-                    <View style={hubV1Styles.analyzeSectionHeader}>
-                      <TrendingUp size={18} color={colors.deepTeal} />
-                      <Text style={hubV1Styles.analyzeSectionTitle}>Patterns</Text>
-                    </View>
-                    {journalAnalysis.analysis.patterns.map((pattern, i) => (
-                      <View key={i} style={analysisStyles.card}>
-                        <View style={analysisStyles.cardHeader}>
-                          <Text style={analysisStyles.cardLabel}>{pattern.label}</Text>
-                          <View
-                            style={[
-                              analysisStyles.sentimentChip,
-                              pattern.sentiment === 'positive' && { backgroundColor: '#E8F5E9' },
-                              pattern.sentiment === 'watch' && { backgroundColor: '#FFF3E0' },
-                              pattern.sentiment === 'neutral' && {
-                                backgroundColor: colors.gray100,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                analysisStyles.sentimentText,
-                                pattern.sentiment === 'positive' && { color: '#2E7D32' },
-                                pattern.sentiment === 'watch' && { color: '#E65100' },
-                                pattern.sentiment === 'neutral' && { color: colors.gray600 },
-                              ]}
-                            >
-                              {pattern.sentiment === 'watch' ? '👀 watch' : pattern.sentiment}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={analysisStyles.cardDescription}>{pattern.description}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {/* ─── When You Journal Section ─── */}
-                  <View style={hubV1Styles.analyzeSection}>
-                    <View style={hubV1Styles.analyzeSectionHeader}>
-                      <Clock size={18} color={colors.deepTeal} />
-                      <Text style={hubV1Styles.analyzeSectionTitle}>When you journal</Text>
-                    </View>
-                    <View style={analysisStyles.card}>
-                      <View style={analysisStyles.habitsGrid}>
-                        <View style={analysisStyles.habitsStat}>
-                          <Text style={analysisStyles.habitsStatLabel}>Frequency</Text>
-                          <Text style={analysisStyles.habitsStatValue}>
-                            {journalAnalysis.analysis.journaling_habits.frequency}
-                          </Text>
-                        </View>
-                        <View style={analysisStyles.habitsStat}>
-                          <Text style={analysisStyles.habitsStatLabel}>Time of day</Text>
-                          <Text style={analysisStyles.habitsStatValue}>
-                            {journalAnalysis.analysis.journaling_habits.preferred_time}
-                          </Text>
-                        </View>
-                        <View style={analysisStyles.habitsStat}>
-                          <Text style={analysisStyles.habitsStatLabel}>Entry length</Text>
-                          <Text style={analysisStyles.habitsStatValue}>
-                            {journalAnalysis.analysis.journaling_habits.avg_length}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={[analysisStyles.cardDescription, { marginTop: spacing.sm }]}>
-                        {journalAnalysis.analysis.journaling_habits.observation}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* ─── Gentle Suggestion Section ─── */}
-                  <View style={hubV1Styles.analyzeSection}>
-                    <View style={hubV1Styles.analyzeSectionHeader}>
-                      <Lightbulb size={18} color={colors.deepTeal} />
-                      <Text style={hubV1Styles.analyzeSectionTitle}>Gentle suggestion</Text>
-                    </View>
-                    <View style={[analysisStyles.card, analysisStyles.suggestionCard]}>
-                      <Text style={analysisStyles.suggestionText}>
-                        {journalAnalysis.analysis.suggestion.text}
-                      </Text>
-                    </View>
-                  </View>
-                </>
-              ) : null}
-            </ScrollView>
-
-            {/* Footer with disclaimer */}
-            <View style={hubV1Styles.analyzeModalFooter}>
-              <Text style={hubV1Styles.analyzeModalDisclaimer}>
-                This is a reflection based on what you've shared. Take what resonates.
-              </Text>
-            </View>
-          </View>
-        </Modal>
       </SafeAreaView>
     );
   };
@@ -1883,19 +1514,6 @@ export default function HubScreen() {
         }
         contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: spacing['2xl'] }}
       />
-
-      {/* Unified Create/Edit Overlay */}
-      {overlayController.state.visible &&
-        (overlayController.state.mode === 'create' || overlayController.state.mode === 'edit') && (
-          <UnifiedCreateOverlay
-            visible={overlayController.state.visible}
-            mode={overlayController.state.mode}
-            initialEntity={overlayController.state.initialEntity}
-            initialSpaceId={overlayController.state.initialSpaceId}
-            onClose={overlayController.close}
-            onSaved={handleOverlaySaved}
-          />
-        )}
 
       {/* Unsorted Review Sheet Modal */}
       {reviewSheetVisible && (
@@ -2322,238 +1940,5 @@ const hubV1Styles = StyleSheet.create({
   tagSuggestionText: {
     fontSize: 12,
     color: colors.gray600,
-  },
-  // Journal View Timeline styles
-  journalViewContainer: {
-    marginTop: spacing.md,
-  },
-  journalViewEmpty: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    alignItems: 'center',
-  },
-  journalViewEmptyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  journalViewEmptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.gray600,
-  },
-  journalViewEmptyHint: {
-    fontSize: 13,
-    color: colors.gray400,
-    textAlign: 'center',
-  },
-  journalMonthGroup: {
-    marginTop: spacing.lg,
-  },
-  journalMonthHeader: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.ink,
-    marginBottom: spacing.sm,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
-  },
-  journalTimelineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
-  },
-  journalTimelineDate: {
-    width: 72,
-    marginRight: spacing.sm,
-  },
-  journalTimelineDateText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.gray600,
-  },
-  journalTimelineMood: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.sm,
-  },
-  journalTimelinePreview: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.ink,
-  },
-  // Analyze CTA styles
-  analyzeCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.gray100,
-    borderRadius: radii.lg,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.gray200,
-  },
-  analyzeCtaText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.deepTeal,
-  },
-  // Analyze Modal styles
-  analyzeModalContainer: {
-    flex: 1,
-    backgroundColor: colors.cream,
-  },
-  analyzeModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
-  },
-  analyzeModalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.ink,
-  },
-  analyzeModalClose: {
-    position: 'absolute',
-    right: spacing.md,
-    padding: spacing.xs,
-  },
-  analyzeModalContent: {
-    flex: 1,
-    padding: spacing.lg,
-  },
-  analyzeLoadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing['2xl'],
-  },
-  analyzeLoadingText: {
-    marginTop: spacing.md,
-    fontSize: 14,
-    color: colors.gray600,
-  },
-  analyzeJournalCount: {
-    fontSize: 14,
-    color: colors.gray600,
-    marginBottom: spacing.lg,
-    textAlign: 'center',
-  },
-  analyzeSection: {
-    marginBottom: spacing.xl,
-  },
-  analyzeSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  analyzeSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.ink,
-    marginLeft: spacing.sm,
-  },
-  analyzePlaceholder: {
-    backgroundColor: colors.gray100,
-    borderRadius: radii.md,
-    padding: spacing.md,
-  },
-  analyzePlaceholderText: {
-    fontSize: 14,
-    color: colors.gray400,
-    fontStyle: 'italic',
-  },
-  analyzeModalFooter: {
-    padding: spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.gray200,
-    backgroundColor: colors.cream,
-  },
-  analyzeModalDisclaimer: {
-    fontSize: 12,
-    color: colors.gray400,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-});
-
-const analysisStyles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.gray100,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  cardLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.ink,
-    flex: 1,
-  },
-  cardCount: {
-    fontSize: 12,
-    color: colors.gray400,
-    fontWeight: '500',
-  },
-  cardDescription: {
-    fontSize: 14,
-    color: colors.gray600,
-    lineHeight: 20,
-  },
-  sentimentChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  sentimentText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  habitsGrid: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  habitsStat: {
-    flex: 1,
-  },
-  habitsStatLabel: {
-    fontSize: 11,
-    color: colors.gray400,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    marginBottom: 2,
-  },
-  habitsStatValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.ink,
-    textTransform: 'capitalize',
-  },
-  suggestionCard: {
-    backgroundColor: `${colors.deepTeal}08`,
-    borderColor: `${colors.deepTeal}20`,
-  },
-  suggestionText: {
-    fontSize: 15,
-    color: colors.ink,
-    lineHeight: 22,
-    fontStyle: 'italic',
   },
 });

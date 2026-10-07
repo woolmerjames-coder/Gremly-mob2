@@ -6,9 +6,10 @@
  */
 
 import React from 'react';
-import { Pressable, View, Image, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet } from 'react-native';
 import { Camera, Plus, Image as ImageIcon } from 'lucide-react-native';
 import { Text } from '../../ui';
+import { PrivateImage } from '../PrivateImage';
 import type { DraftPhoto } from './useOverlayDraft';
 
 interface PhotoStripProps {
@@ -32,10 +33,7 @@ export const PhotoStrip: React.FC<PhotoStripProps> = ({
         <Pressable
           onPress={onAddPhoto}
           disabled={disabled}
-          style={({ pressed }) => [
-            styles.addLink,
-            pressed && { opacity: 0.6 },
-          ]}
+          style={({ pressed }) => [styles.addLink, pressed && { opacity: 0.6 }]}
         >
           <Camera size={13} color="#8B8579" strokeWidth={1.5} />
           <Text style={styles.addLinkText}>Add photo</Text>
@@ -52,17 +50,10 @@ export const PhotoStrip: React.FC<PhotoStripProps> = ({
           onPress={() => onTapPhoto?.(i)}
           accessibilityLabel={`View photo ${i + 1}`}
           accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.thumb,
-            pressed && { opacity: 0.8 },
-          ]}
+          style={({ pressed }) => [styles.thumb, pressed && { opacity: 0.8 }]}
         >
           {photo.url.startsWith('file://') || photo.url.startsWith('http') ? (
-            <Image
-              source={{ uri: photo.url }}
-              style={styles.thumbImage}
-              resizeMode="cover"
-            />
+            <PrivateImage uri={photo.url} style={styles.thumbImage} resizeMode="cover" />
           ) : (
             <View style={[styles.thumbImage, styles.thumbPlaceholder]}>
               <ImageIcon size={16} color="#8B8579" strokeWidth={1.5} />
@@ -76,10 +67,7 @@ export const PhotoStrip: React.FC<PhotoStripProps> = ({
           onPress={onAddPhoto}
           accessibilityLabel="Add another photo"
           accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.addButton,
-            pressed && { opacity: 0.6 },
-          ]}
+          style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.6 }]}
         >
           <Plus size={14} color="#8B8579" />
         </Pressable>

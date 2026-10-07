@@ -14,8 +14,9 @@
  */
 
 import { db } from '../context/db';
-import { nextFireAt, zonedTimeToUtc, localDateOf, localMinutesOf } from './reminderTimes';
+import { addDays, nextFireAt, zonedTimeToUtc, localDateOf, localMinutesOf } from './reminderTimes';
 import { planDay, dedupeKey, outcomeOf, nextStreak, bestMinutes, clock } from './policy';
+import { pausedOn } from '../../shared/habitWeek.js';
 
 export const SEND_EVENT = 'notifications/send.due';
 export const PLAN_EVENT = 'notifications/plan.day';
@@ -229,11 +230,13 @@ const daysBetween = (a, b) =>
 /**
  * When to check in on a habit today: an hour after the time they set for it,
  * on a day it is due, unless it already has its own reminder. Habit logs carry
- * no time of day, so the set time is the only honest signal. Null for no check in.
+ * no time of day, so the set time is the only honest signal. A habit paused
+ * today is left alone (eases: their habit_adaptations rows). Null for no check in.
  */
-export function habitCheckinMinutes(habit, { tz, localDate }) {
+export function habitCheckinMinutes(habit, { tz, localDate, eases }) {
   if (!habit?.scheduled_start_iso) return null;
   if (Array.isArray(habit.reminders_json) && habit.reminders_json.length) return null;
+  if (pausedOn(eases, habit.id, localDate)) return null;
   const weekday = new Date(`${localDate}T12:00:00Z`).getUTCDay();
   const due =
     habit.cadence === 'daily' ||
@@ -336,6 +339,8 @@ export function buildDayPlan({
           reason: p.reason || null,
           changeAngle: !!p.changeAngle,
           habitTitle: p.habitTitle || null,
+          // a reason that can only be said one way names its angles
+          ...(p.reason?.angles ? { eligibleAngles: p.reason.angles } : {}),
         },
       },
     });
@@ -348,28 +353,61 @@ async function loadDay(env, userId, tz, localDate, now) {
   const d = db(env);
   const since28 = new Date(now.getTime() - 28 * DAY_MS).toISOString();
   const since3 = new Date(now.getTime() - 3 * DAY_MS).toISOString();
-  const [prefsRows, engRows, cortexRows, opens, habits, progress, logs, sweeps] = await Promise.all(
-    [
-      d.select(`notification_preferences?user_id=eq.${userId}&select=*`),
-      d.select(`user_engagement?user_id=eq.${userId}&select=*`),
-      d.select(`cortex_preferences?owner_id=eq.${userId}&select=gremly_age,day_boundary_hour`),
-      d.select(
-        `app_events?user_id=eq.${userId}&kind=eq.app_open&occurred_at=gte.${encodeURIComponent(since28)}&select=occurred_at&order=occurred_at.desc&limit=500`,
-      ),
-      d.select(
-        `habits?owner_id=eq.${userId}&archived=eq.false&completed_at=is.null&select=id,name,title,cadence,days_active,scheduled_start_iso,reminders_json&limit=50`,
-      ),
-      d.select(
-        `habit_progress?owner_id=eq.${userId}&occurred_at=gte.${encodeURIComponent(since28)}&select=habit_id,occurred_at,occurred_day&limit=2000`,
-      ),
-      d.select(
-        `notification_log?user_id=eq.${userId}&status=in.(sent,delivered)&outcome=is.null&is_test=eq.false&sent_at=gte.${encodeURIComponent(since3)}&select=id,moment,subject_id,angle,sent_at,opened_at&limit=100`,
-      ),
-      d.select(
-        `events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${encodeURIComponent(since3)}&select=created_at&limit=50`,
-      ),
-    ],
-  );
+  const [
+    prefsRows,
+    engRows,
+    cortexRows,
+    opens,
+    habits,
+    progress,
+    logs,
+    sweeps,
+    backs,
+    backsSaid,
+    eases,
+  ] = await Promise.all([
+    d.select(`notification_preferences?user_id=eq.${userId}&select=*`),
+    d.select(`user_engagement?user_id=eq.${userId}&select=*`),
+    d.select(`cortex_preferences?owner_id=eq.${userId}&select=gremly_age,day_boundary_hour`),
+    d.select(
+      `app_events?user_id=eq.${userId}&kind=eq.app_open&occurred_at=gte.${encodeURIComponent(since28)}&select=occurred_at&order=occurred_at.desc&limit=500`,
+    ),
+    d.select(
+      `habits?owner_id=eq.${userId}&archived=eq.false&completed_at=is.null&select=id,name,title,cadence,days_active,scheduled_start_iso,reminders_json&limit=50`,
+    ),
+    d.select(
+      `habit_progress?owner_id=eq.${userId}&occurred_at=gte.${encodeURIComponent(since28)}&select=habit_id,occurred_at,occurred_day&limit=2000`,
+    ),
+    d.select(
+      `notification_log?user_id=eq.${userId}&status=in.(sent,delivered)&outcome=is.null&is_test=eq.false&sent_at=gte.${encodeURIComponent(since3)}&select=id,moment,subject_id,angle,sent_at,opened_at&limit=100`,
+    ),
+    d.select(
+      `events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${encodeURIComponent(since3)}&select=created_at&limit=50`,
+    ),
+    // todos put off (Later) that came back in the last few days and are still open
+    readCameBack(env, userId, addDays(localDate, -COME_BACK_LOOK_DAYS), localDate).catch((err) => {
+      console.warn(`[Notifications] could not read what came back: ${err?.message || err}`);
+      return [];
+    }),
+    // and the last day a note said so. Not known, nothing is said today
+    // rather than the same things twice.
+    readCameBackSaid(env, userId).catch((err) => {
+      console.warn(
+        `[Notifications] could not read when what came back was last said: ${err?.message || err}`,
+      );
+      return localDate;
+    }),
+    // the stretches a habit is paused for that cover today. Not known, a
+    // check in is planned as usual, and the sender reads the pause again.
+    d
+      .select(
+        `habit_adaptations?owner_id=eq.${userId}&period_start=lte.${localDate}&period_end=gte.${localDate}&select=id,habit_id,mode,period_start,period_end,floor_note&limit=200`,
+      )
+      .catch((err) => {
+        console.warn(`[Notifications] could not read their paused habits: ${err?.message || err}`);
+        return [];
+      }),
+  ]);
   const lastEvent =
     (
       await d.select(
@@ -388,7 +426,86 @@ async function loadDay(env, userId, tz, localDate, now) {
     progress: progress || [],
     logs: logs || [],
     sweeps: sweeps || [],
+    backs: backs || [],
+    backsSaid: backsSaid || null,
+    eases: eases || [],
     lastOpen,
+  };
+}
+
+/** Days away from the app before a nudge says what came back from Later. */
+export const COME_BACK_AWAY_DAYS = 2;
+/** Where the note sits among the day's notifications (policy.js MOMENTS): after good news, before the brief. */
+export const COME_BACK_PRIORITY = 1.5;
+/** How far back a Later's day to come back is read. */
+export const COME_BACK_LOOK_DAYS = 6;
+
+/**
+ * Open todos put off (Later) whose day to come back falls from one day to
+ * another: no day of their own, so that day is what brought them back.
+ */
+export async function readCameBack(env, userId, from, to) {
+  const rows = await db(env).select(
+    `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&due_day=is.null&resurface_at=gte.${from}&resurface_at=lte.${to}&select=id,name,title,resurface_at&order=resurface_at.asc&limit=50`,
+  );
+  return (rows || []).map((t) => ({
+    id: t.id,
+    title: t.name || t.title || null,
+    back_on: String(t.resurface_at).slice(0, 10),
+  }));
+}
+
+/**
+ * The last day a note said what came back, or null when none has.
+ * A nudge's subject is its reason (policy.js planDay), so the log keeps it.
+ */
+export async function readCameBackSaid(env, userId) {
+  const rows = await db(env).select(
+    `notification_log?user_id=eq.${userId}&moment=eq.nudge&subject_id=eq.came_back&status=in.(sent,delivered)&is_test=eq.false&select=local_date&order=local_date.desc&limit=1`,
+  );
+  return rows?.[0]?.local_date ? String(rows[0].local_date).slice(0, 10) : null;
+}
+
+/**
+ * The day after which what came back has not been seen or said: the last day
+ * they opened the app, or the last day a note said what came back, whichever
+ * is later. Null when they have never opened it.
+ */
+export function cameBackSince(lastOpenDate, lastSaid) {
+  if (!lastOpenDate) return null;
+  return lastSaid && lastSaid > lastOpenDate ? lastSaid : lastOpenDate;
+}
+
+/**
+ * What came back while they were away: the Laters whose day to come back is
+ * after the last day they opened the app. Nothing until they have been away
+ * COME_BACK_AWAY_DAYS, since on any nearer day Today and the brief show it.
+ * What a note has already said is not said again: only what came back after
+ * that note counts, so one absence gets one note unless more comes back.
+ * Decided by dates alone. Pure.
+ * @param {{back_on: string}[]} backs
+ * @param {{daysAway: number, lastOpenDate: string|null, lastSaid?: string|null}} p
+ */
+export function cameBackWhileAway(backs, { daysAway, lastOpenDate, lastSaid = null }) {
+  const since = cameBackSince(lastOpenDate, lastSaid);
+  if (daysAway < COME_BACK_AWAY_DAYS || !since) return [];
+  return (backs || []).filter((t) => t.back_on > since);
+}
+
+/**
+ * The reason for a nudge that says what came back. It outweighs the everyday
+ * reason, is said one way, and goes ahead of the brief and the wrap up: two
+ * days away, the day has room for one note, and this is the one worth sending.
+ */
+export function cameBackReason(count, since = null) {
+  return {
+    kind: 'came_back',
+    weight: 3,
+    count,
+    // what came back after this day is what the note is about; the sender reads it again from here
+    since,
+    angles: ['something_waiting'],
+    priority: COME_BACK_PRIORITY,
   };
 }
 
@@ -425,6 +542,12 @@ export async function planPersonDay(
   }));
   const bestHours = bestMinutes(opensForHours);
 
+  const cameBack = cameBackWhileAway(x.backs, {
+    daysAway,
+    lastOpenDate,
+    lastSaid: x.backsSaid,
+  });
+
   const byHabit = new Map();
   for (const p of x.progress) {
     if (!byHabit.has(p.habit_id)) byHabit.set(p.habit_id, []);
@@ -436,12 +559,18 @@ export async function planPersonDay(
       id: h.id,
       title: h.name || h.title || null,
       // planDay checks in an hour after usualMinutes, so it gets the set time
-      usualMinutes: habitCheckinMinutes(h, { tz, localDate }),
+      usualMinutes: habitCheckinMinutes(h, { tz, localDate, eases: x.eases }),
       loggedToday: (byHabit.get(h.id) || []).some((l) => l.occurred_day === localDate),
     })),
     goodNews: [],
-    // Gremly not fed yet is the everyday reason for a note; the sender checks it is still true
-    nudgeReasons: [{ kind: 'unfed', weight: 1 }],
+    // Gremly not fed yet is the everyday reason for a note; the sender checks it is still true.
+    // After two days away, something put off that has come back is a better one.
+    nudgeReasons: [
+      ...(cameBack.length
+        ? [cameBackReason(cameBack.length, cameBackSince(lastOpenDate, x.backsSaid))]
+        : []),
+      { kind: 'unfed', weight: 1 },
+    ],
   };
 
   const plan = buildDayPlan({

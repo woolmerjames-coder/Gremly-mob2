@@ -17,6 +17,9 @@
  *   offersEvent     { title, day }: the event they mentioned is offered too (warn)
  *   mentions        words the reply should cover (warn)
  *   maxModelCalls   at most this many model calls for the message (warn)
+ *   planAddsUntimed plan_add carries no time (they named none; the app finds one)
+ *   planFrom        'HH:MM': no plan time before it
+ *   planAddsFrom    'HH:MM': every plan_add carries a time at or after it (warn)
  * A scenario may also carry tasks: Gremly's task list so far in the thread.
  */
 
@@ -40,6 +43,61 @@ const SAT_ITEMS = [
   { id: 'vet', kind: 'todo', title: 'Book the vet for Bella', due_day: '2026-10-09', minutes: 15, note: 'upcoming' },
   { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
 ];
+
+// a reply that tells them nothing changes, instead of taking in what they said
+const NO_CHANGE_TALK =
+  "(doesn'?t|does not|won'?t) change|changes? nothing|no changes?\\b|nothing (needs|has) to (change|move)|nothing needs (changing|moving)|(items|plans) (need|as they are)|need changing";
+
+// a Monday morning with a long list due today (built on 5 October, made-up items)
+const MONDAY_ITEMS = [
+  { id: 'workback', kind: 'todo', title: 'Build a launch work-back schedule', due_day: '2026-10-05', minutes: 45, note: 'in the plan' },
+  { id: 'gift', kind: 'todo', title: 'Find a present for Sam', due_day: '2026-10-05', minutes: 30, note: 'in the plan' },
+  { id: 'submit', kind: 'todo', title: 'Submit the app for review', due_day: '2026-10-05', minutes: 90, note: 'in the plan' },
+  { id: 'strength', kind: 'habit', title: 'Strength training', minutes: 45, note: 'in the plan' },
+  { id: 'cycle', kind: 'habit', title: 'Cycling', minutes: 30, note: 'in the plan' },
+  { id: 'taxes', kind: 'todo', title: 'Do taxes', due_day: '2026-10-05', minutes: 60, note: 'in the plan, added by them' },
+  { id: 'intention', kind: 'todo', title: 'Add the weekly intention to the brief', due_day: '2026-10-05', minutes: 10, note: 'due today' },
+  { id: 'agent', kind: 'todo', title: 'Move chat over to the agent', due_day: '2026-10-05', minutes: 45, note: 'due today' },
+  { id: 'inputbox', kind: 'todo', title: 'Fix the input box clearing', due_day: '2026-10-05', minutes: 30, note: 'due today' },
+  { id: 'splitcheck', kind: 'todo', title: 'Check split drops still work', due_day: '2026-10-05', minutes: 15, note: 'due today' },
+  { id: 'hotel', kind: 'todo', title: 'Book the hotel for the Lisbon trip', due_day: '2026-10-05', minutes: 30, note: 'due today' },
+  { id: 'trip', kind: 'todo', title: 'Sort out the Japan trip', due_day: '2026-10-05', minutes: 60, note: 'due today' },
+  { id: 'tennis', kind: 'todo', title: 'Look into a tennis weekend', due_day: '2026-10-05', minutes: 60, note: 'due today' },
+  { id: 'tap', kind: 'todo', title: 'Fix the bathroom tap', due_day: '2026-10-05', minutes: 45, note: 'due today' },
+  { id: 'logos', kind: 'todo', title: 'Add logos to the website', due_day: '2026-10-05', minutes: 30, note: 'due today' },
+];
+
+const MONDAY_MEETINGS = [
+  ['06:00', '06:30', 'Design sync'],
+  ['07:30', '08:00', 'Product sync'],
+  ['08:00', '08:30', 'Team huddle'],
+  ['11:15', '12:00', 'Client call'],
+  ['12:30', '13:00', 'Budget review'],
+  ['13:30', '14:00', 'Weekly 1:1'],
+];
+
+// the thread so far on that Monday morning, before the plan was changed
+const MONDAY_HISTORY = [
+  { role: 'assistant', content: 'Good morning Alex. You have syncs running through early this morning, wrapping up with the team huddle at 8am.' },
+  { role: 'assistant', content: 'After 8:30am your calendar is open, leaving room for the work-back schedule, a present for Sam, or submitting the app.' },
+  { role: 'user', content: 'I actually have meetings from 11.15 to 12, then 12.30 to 1 and 1.30 to 2' },
+  { role: 'assistant', content: "Got it, I'd block those three meetings into today so the plan works around them." },
+  { role: 'user', content: "(On Gremly's card they accepted: set time today Meeting at 11:15am to 12pm; set time today Meeting at 12:30pm to 1pm; set time today Meeting at 1:30pm to 2pm.)" },
+  { role: 'user', content: 'Plan my day' },
+  { role: 'assistant', content: "I've made room for the launch path, the present and the submission, while keeping the rest of the day open." },
+];
+
+const MONDAY_PLAN = {
+  status: 'proposal',
+  items: [
+    ['workback', '08:45', 45],
+    ['gift', '10:00', 30],
+    ['submit', '14:15', 90],
+    ['strength', '16:00', 45],
+    ['cycle', '17:00', 30],
+    ['taxes', '17:45', 60],
+  ],
+};
 
 export const SCENARIOS = [
   {
@@ -264,7 +322,7 @@ export const SCENARIOS = [
   {
     id: 'wrap-answer-no-change',
     title: "The wrap up's question answered, and the item is right",
-    look: 'Takes the answer in and says nothing needs changing; nothing on the card.',
+    look: 'Takes the answer in as a friend would, without announcing that nothing changes; nothing on the card.',
     today: '2026-10-03',
     at: '20:50',
     text: 'Friday',
@@ -280,7 +338,11 @@ export const SCENARIOS = [
     meetings: [],
     record: { travel: null, blocks: [] },
     plan: null,
-    expect: { aboutDay: true, maxChanges: 0 },
+    expect: {
+      aboutDay: true,
+      maxChanges: 0,
+      notSaidLike: [NO_CHANGE_TALK],
+    },
   },
   {
     id: 'wrap-answer-life',
@@ -298,7 +360,12 @@ export const SCENARIOS = [
     meetings: [],
     record: { travel: null, blocks: [] },
     plan: null,
-    expect: { aboutDay: true, forbid: ['cancel', 'complete', 'move_day'], maxChanges: 1 },
+    expect: {
+      aboutDay: true,
+      forbid: ['cancel', 'complete', 'move_day'],
+      maxChanges: 1,
+      notSaidLike: [NO_CHANGE_TALK],
+    },
   },
   {
     id: 'present-before-anniversary',
@@ -633,5 +700,56 @@ export const SCENARIOS = [
     record: { travel: null, blocks: [] },
     plan: null,
     expect: { aboutDay: true, maxChanges: 0, mentions: ['friday'] },
+  },
+  {
+    id: 'breaking-habit-not-planned',
+    title: 'A habit they are breaking is never put in the plan',
+    look: 'Adds what is left of today to the plan. No sugar, a habit they are breaking, is given no place in it.',
+    today: '2026-10-02',
+    at: '10:00',
+    text: 'Add everything else I have on today to the plan',
+    items: [
+      { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'in the plan' },
+      { id: 'calendar', kind: 'todo', title: 'Set up the shared calendar', due_day: '2026-10-02', minutes: 20, note: 'due today' },
+      { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
+      { id: 'sugar', kind: 'habit', title: 'No sugar', note: 'a habit they are breaking', breaking: true },
+    ],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: { status: 'proposal', items: [['mum', '11:00', 20]] },
+    expect: { aboutDay: true, changes: [{ kinds: ['plan_add'], id: 'calendar' }], forbid: ['plan_add:sugar'] },
+  },
+  {
+    id: 'fill-the-day',
+    title: '5 October, 7:35am: a plan on screen, and they ask Gremly to fill the free time',
+    look: 'Adds a few of their todos to the plan with no times of its own (the app finds the free time). Nothing before 7:35am, nothing taken out.',
+    today: '2026-10-05',
+    at: '07:35',
+    history: MONDAY_HISTORY,
+    text: "I've got a ton of free time, can you fill it with more todos?",
+    items: MONDAY_ITEMS,
+    meetings: MONDAY_MEETINGS,
+    record: { travel: null, blocks: [] },
+    plan: MONDAY_PLAN,
+    expect: { aboutDay: true, changes: [{ kinds: ['plan_add'] }], forbid: ['plan_remove'], planAddsUntimed: true },
+  },
+  {
+    id: 'fill-the-evening',
+    title: '5 October, 7:37am: they point Gremly at the open evening',
+    look: 'Adds todos for after 5pm: either with no time, or at 5pm or later. Nothing before 5pm, nothing taken out.',
+    today: '2026-10-05',
+    at: '07:37',
+    history: [
+      ...MONDAY_HISTORY,
+      { role: 'user', content: "I've got a ton of free time, can you fill it with more todos?" },
+      { role: 'assistant', content: "Absolutely, there's plenty to choose from. I'd add a few more focused tasks around your meetings." },
+      { role: 'user', content: "(On Gremly's card they accepted: add Move chat over to the agent to the plan; add Fix the input box clearing to the plan.)" },
+    ],
+    text: "There's 5 hours of room after 5pm, why aren't you using that time?",
+    items: MONDAY_ITEMS,
+    meetings: MONDAY_MEETINGS,
+    record: { travel: null, blocks: [] },
+    plan: MONDAY_PLAN,
+    expect: { aboutDay: true, changes: [{ kinds: ['plan_add'] }], forbid: ['plan_remove'], planFrom: '17:00', planAddsFrom: '17:00' },
   },
 ];

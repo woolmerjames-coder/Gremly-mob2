@@ -60,6 +60,22 @@ const BODY = {
 };
 
 describe('the day turn: what it is told', () => {
+  it('takes a date only when it is a real day', () => {
+    expect(readTurnRequest(BODY).date).toBe('2026-10-02');
+    for (const date of ['2026-13-01', '2026-02-30', '2026-10-2', 'today', null, 20261002]) {
+      expect(readTurnRequest({ ...BODY, date }).date).toBeNull();
+    }
+    const req = readTurnRequest({
+      ...BODY,
+      plan: null,
+      items: [
+        { id: 'a', kind: 'todo', title: 'One', due_day: '2026-02-30' },
+        { id: 'b', kind: 'todo', title: 'Two', due_day: '2026-10-03' },
+      ],
+    });
+    expect(req.items.map((x) => x.due_day)).toEqual([null, '2026-10-03']);
+  });
+
   it('gives every item a ref and shows the day, the plan and what they said', () => {
     const req = readTurnRequest(BODY);
     expect(req.items.map((x) => [x.ref, x.id])).toEqual([
@@ -149,6 +165,32 @@ describe('the day turn: the change set', () => {
     expect(changes[0]).toMatchObject({ id: 'mum', item: 'todo', start: 720, day: '2026-10-02' });
     expect(changes[1]).toMatchObject({ start: 750, travel: true });
     expect(dropped).toEqual(['plan_move']);
+  });
+
+  it('gives a habit they are breaking no time and no place in the plan', () => {
+    const withBreaking = readTurnRequest({
+      ...BODY,
+      items: [...BODY.items, { id: 'sugar', kind: 'habit', title: 'No sugar', breaking: true }],
+    });
+    const ref = withBreaking.items.find((x) => x.id === 'sugar').ref;
+    const one = (kind) => ({
+      kind,
+      ref,
+      title: null,
+      day: null,
+      time: '15:00',
+      end_time: null,
+      minutes: null,
+      travel: false,
+    });
+    const { changes, dropped } = checkChanges(
+      { changes: [one('plan_add'), one('retime')] },
+      withBreaking,
+    );
+    expect(changes).toEqual([]);
+    expect(dropped).toEqual(['plan_add', 'retime']);
+    // an app build that does not say which habits are being broken is read as before
+    expect(readTurnRequest(BODY).items.every((x) => x.breaking === false)).toBe(true);
   });
 
   it('drops what the input does not support', () => {

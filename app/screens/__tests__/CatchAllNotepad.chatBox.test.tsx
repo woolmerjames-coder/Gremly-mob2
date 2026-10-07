@@ -4,7 +4,7 @@
  * slide between Drop and Chat. Chat's greeting and chips sit on the Chat page.
  */
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   HomeDockContext,
@@ -33,7 +33,7 @@ import CatchAllNotepad from '../CatchAllNotepad';
 
 const send = jest.fn();
 
-function SharedBox({ mode }: { mode: 'drop' | 'chat' }) {
+function SharedBox({ mode, tag }: { mode: 'drop' | 'chat'; tag?: HomeModeState['chatTag'] }) {
   const [dock, setDock] = React.useState<React.ReactNode>(null);
   const api = React.useMemo<HomeDockApi>(
     () => ({
@@ -57,9 +57,9 @@ function SharedBox({ mode }: { mode: 'drop' | 'chat' }) {
       chatSending: false,
       chatScrolling: false,
       chatPlaceholder: null,
-      chatTag: null,
+      chatTag: tag ?? null,
     }),
-    [mode],
+    [mode, tag],
   );
   // the page is kept, as the Gremly home keeps it, so handing over the box
   // does not render it again
@@ -91,6 +91,23 @@ describe('the shared box in Chat', () => {
       'Send to Gremly',
     );
     expect(screen.queryByTestId('minddrop-inline-send')).toBeNull();
+  });
+
+  it("shows what the next message is as the box's own top row, not over the thread", () => {
+    const onCancel = jest.fn();
+    render(
+      <SharedBox
+        mode="chat"
+        tag={{ label: 'Saving to your journal', kind: 'journal', onCancel }}
+      />,
+    );
+    const header = screen.getByTestId('minddrop-input-header');
+    expect(within(header).getByText('Saving to your journal')).toBeTruthy();
+    expect(
+      within(screen.getByTestId('minddrop-input-container')).getByTestId('reply-tag'),
+    ).toBeTruthy();
+    fireEvent.press(screen.getByTestId('reply-tag-cancel'));
+    expect(onCancel).toHaveBeenCalled();
   });
 
   it('sends what is typed to the Chat page', () => {

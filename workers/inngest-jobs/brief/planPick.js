@@ -18,7 +18,7 @@ import { db, userTimezone, personIdentity } from '../context/db';
 import { noDashes, stripRefs, clockTime } from './writer';
 import { personNow } from '../../shared/day.js';
 
-export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-02b';
+export const PLAN_PICK_PROMPT_VERSION = 'plan-pick-2026-10-05a';
 const DAY_END = 22 * 60;
 
 function trim(text, n) {
@@ -107,6 +107,8 @@ export function readRequest(body) {
     travel,
     live,
     text: trim(body.text, 500),
+    // their answer to what has to happen, or what to put first, before planning
+    asked: trim(body.asked, 300),
   };
 }
 
@@ -153,6 +155,7 @@ export function renderPlanInput(req, ctx) {
       )
       .join('\n')}`,
   );
+  if (req.asked) L.push(`WHAT THEY SAID HAS TO HAPPEN OR COMES FIRST: "${req.asked}"`);
   if (ctx.dayShape) L.push(`THE DAY, AS THE CONTEXT READS IT: ${trim(ctx.dayShape, 240)}`);
   if (ctx.claims?.length)
     L.push(

@@ -17,6 +17,8 @@ import { contextFor, findItem } from '../changes/snapshot';
 export interface ApplyResult {
   done: string[];
   failed: string[];
+  /** The item each row made (a new item, or the one an item became), by row */
+  created: Record<string, string>;
   plan: PlanChange;
   /** Set times or travel changed: the plan is re-fitted even with no item change */
   frameChanged: boolean;
@@ -33,6 +35,7 @@ export async function applyDayChanges(
   const out: ApplyResult = {
     done: [],
     failed: [],
+    created: {},
     plan: { add: [], remove: [], pin: [] },
     frameChanged: false,
     revert: async () => {},
@@ -64,7 +67,10 @@ export async function applyDayChanges(
   for (const o of outcomes) {
     if (o.ok) {
       out.done.push(o.cid);
-      if (o.createdId) created.set(o.cid, o.createdId);
+      if (o.createdId) {
+        created.set(o.cid, o.createdId);
+        out.created[o.cid] = o.createdId;
+      }
     } else {
       console.warn('[DayTurn] could not apply', o.cid, o.message);
       out.failed.push(o.cid);
@@ -151,6 +157,7 @@ export async function applyCardChanges(changes: Change[], ctx: CardContext): Pro
   const out: ApplyResult = {
     done: [],
     failed: [],
+    created: {},
     plan: { add: [], remove: [], pin: [] },
     frameChanged: false,
     revert: async () => {},
@@ -164,7 +171,10 @@ export async function applyCardChanges(changes: Change[], ctx: CardContext): Pro
   for (const o of outcomes) {
     if (o.ok) {
       out.done.push(o.cid);
-      if (o.createdId) created.set(o.cid, o.createdId);
+      if (o.createdId) {
+        created.set(o.cid, o.createdId);
+        out.created[o.cid] = o.createdId;
+      }
     } else {
       console.warn('[BriefTurn] could not apply', o.cid, o.message);
       out.failed.push(o.cid);
@@ -215,6 +225,7 @@ function planEffectOf(c: Change, createdId: string | null, ctx: CardContext, out
           id: p.id,
           kind: p.item === 'habit' ? 'habit' : 'todo',
           start: p.start ?? null,
+          ...(p.after != null ? { after: p.after } : {}),
           minutes: p.minutes ?? null,
         });
       }
@@ -246,9 +257,15 @@ function planEffectOf(c: Change, createdId: string | null, ctx: CardContext, out
     case 'archive':
     case 'skip_today':
     case 'convert':
+    case 'later': // put off for later, it leaves its day, and with it today's plan
       return offPlan(c.id);
     case 'log':
       if ((c.days ?? []).includes(ctx.date)) offPlan(c.id);
+      return;
+    case 'ease':
+      // paused over today, it is left alone, so it leaves today's plan
+      if (c.ease?.mode === 'pause' && c.ease.first <= ctx.date && ctx.date <= c.ease.last)
+        offPlan(c.id);
       return;
     default:
       return;

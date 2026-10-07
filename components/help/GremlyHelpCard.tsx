@@ -35,7 +35,6 @@ import {
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNeedsMindDropTutorial } from '../../lib/store/lifecycleSelectors';
-import { getTierForAge } from '../../lib/constants/soulDocument';
 
 import MascotLottie from '../../app/components/MascotLottie';
 
@@ -248,8 +247,6 @@ export default function GremlyHelpCard({
   const feedingHistory = useGremlyStore((s) => s.feedingHistory);
   const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
 
-  const currentTier = getTierForAge(gremlyAge);
-
   const gaugePercent = Math.min(Math.round(feedingGaugeValue * 100), 100);
   const nextAge = gremlyAge + 1;
 
@@ -324,9 +321,7 @@ export default function GremlyHelpCard({
   const renderGaugePage = () => (
     <View style={styles.page}>
       {/* Tier + Age header */}
-      <Text style={styles.title}>
-        {currentTier.name} · Age {gremlyAge}
-      </Text>
+      <Text style={styles.title}>Age {gremlyAge}</Text>
 
       {/* MascotLottie with fill */}
       <View style={styles.mascotContainer}>

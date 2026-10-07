@@ -1,5 +1,5 @@
 /**
- * @deprecated Archived in favor of UnifiedCreateOverlay (Phase 7). Do not import in new code.
+ * @deprecated Archived. The app's one add and edit overlay is OverlayComponent in components/overlay. Do not import in new code.
  *
  * ManualAddOverlay - Phase 6 (Brand Refresh + Cortex Integration)
  * Full-screen modal for manual data entry with Gremly brand styling

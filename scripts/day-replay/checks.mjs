@@ -9,6 +9,8 @@ const toMin = (hhmm) => {
   return h * 60 + m;
 };
 
+const sameDays = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...b].sort());
+
 // a reply that says a change is already made; the card only proposes
 const CLAIMS = [
   /\b(i['’]ve|i have)\s+(\w+\s+)?(added|moved|updated|changed|cancell?ed|removed|saved|booked|scheduled|set|put|made|taken|skipped)\b/i,
@@ -27,7 +29,7 @@ export function checkTurn(s, out) {
   if (!out.about_day || !e.aboutDay) return checks;
 
   const changes = out.changes || [];
-  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.day ? `/${c.day}` : ''}${c.start != null ? `@${c.start}` : ''}`).join(', ');
+  const desc = changes.map((c) => `${c.kind}${c.id ? `:${c.id}` : ''}${c.day ? `/${c.day}` : ''}${c.start != null ? `@${c.start}` : ''}${c.after != null ? `>${c.after}` : ''}`).join(', ');
   for (const want of e.changes || []) {
     const hit = changes.some(
       (c) =>
@@ -35,11 +37,29 @@ export function checkTurn(s, out) {
         (!want.id || c.id === want.id) &&
         (!want.at || c.start === toMin(want.at)) &&
         (!want.day || c.day === want.day) &&
+        (!want.dayBy || (!!c.day && c.day <= want.dayBy)) &&
+        (!want.dayAfter || (!!c.day && c.day > want.dayAfter)) &&
+        (!want.days || sameDays(c.days, want.days)) &&
+        (!want.busy || want.busy.every((d) => (c.busy_days || []).includes(d))) &&
+        (want.weekday === undefined || c.weekday === want.weekday) &&
+        (!want.mode || c.mode === want.mode) &&
+        (!want.until || c.until === want.until) &&
         (want.travel === undefined || c.travel === want.travel) &&
         (!want.title || String(c.title || '').toLowerCase().includes(want.title)),
     );
-    add('fail', `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.day ? ` on ${want.day}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`, hit, desc);
+    add(
+      'fail',
+      `Card has ${want.kinds.join('/')}${want.id ? ` ${want.id}` : ''}${want.day ? ` on ${want.day}` : ''}${want.dayBy ? ` by ${want.dayBy}` : ''}${want.dayAfter ? ` after ${want.dayAfter}` : ''}${want.days ? ` on ${want.days.join(', ')}` : ''}${want.busy ? ` busy ${want.busy.join(', ')}` : ''}${want.weekday !== undefined ? ` weekday ${want.weekday}` : ''}${want.mode ? ` ${want.mode}` : ''}${want.until ? ` until ${want.until}` : ''}${want.at ? ` at ${want.at}` : ''}${want.title ? ` "${want.title}"` : ''}`,
+      hit,
+      desc,
+    );
   }
+  // the weekly review: whether Gremly held the review on its step, offered the
+  // week's button, and used the tools the turn needs
+  if (e.hold !== undefined) add('fail', e.hold ? 'Holds the review' : 'Lets the review carry on', !!out.hold === e.hold, `hold ${!!out.hold}`);
+  if (e.offer !== undefined) add('fail', e.offer ? "Offers the week's button" : "Does not offer the week's button", !!out.offer === e.offer, `offer ${!!out.offer}`);
+  for (const tool of e.tools || []) add('fail', `Uses ${tool}`, (out.tools || []).includes(tool), (out.tools || []).join(', '));
+  for (const c of e.check ? e.check(changes, out) : []) add(c.level || 'fail', c.name, c.ok, c.detail || '');
   for (const f of e.forbid || []) {
     const [kind, id] = f.split(':');
     const hit = changes.some((c) => c.kind === kind && (!id || c.id === id));
@@ -76,11 +96,40 @@ export function checkTurn(s, out) {
     const hit = changes.some((c) => c.day === ev.day && String(c.title || '').toLowerCase().includes(ev.title));
     add('warn', `Offers the ${ev.title} itself on ${ev.day}`, hit, desc);
   }
+  if (e.structureOnly) {
+    // the week's scenarios are checked on what was proposed, never on the reply's wording
+    add('warn', 'No dashes', !/[–—]/.test(out.reply || ''), out.reply || '');
+    return checks;
+  }
   for (const words of e.mentions || []) {
     add('warn', `Reply covers ${words}`, String(out.reply || '').toLowerCase().includes(words), out.reply || '');
   }
+  for (const like of e.notSaidLike || []) {
+    add('fail', `Reply says nothing like /${like}/`, !new RegExp(like, 'i').test(String(out.reply || '')), out.reply || '');
+  }
   for (const words of e.notSaid || []) {
     add('fail', `Reply does not name ${words}`, !String(out.reply || '').toLowerCase().includes(words), out.reply || '');
+  }
+  // the plan is for the rest of today: no plan time is before now
+  const planTimed = changes.filter((c) => ['plan_add', 'plan_move'].includes(c.kind) && c.start != null);
+  if (s.at) {
+    const early = planTimed.filter((c) => c.start < toMin(s.at));
+    add('fail', `No plan time before ${s.at}`, !early.length, desc);
+  }
+  if (e.planAddsUntimed) {
+    // they named no time, so the app finds the free time
+    const timed = changes.filter((c) => c.kind === 'plan_add' && c.start != null);
+    add('fail', 'Plan adds carry no time of their own', !timed.length, desc);
+  }
+  if (e.planFrom) {
+    const early = planTimed.filter((c) => c.start < toMin(e.planFrom));
+    add('fail', `No plan time before ${e.planFrom}`, !early.length, desc);
+  }
+  if (e.planAddsFrom) {
+    // they named the part of the day, so what is added starts there
+    const adds = changes.filter((c) => c.kind === 'plan_add');
+    const from = (c) => c.start ?? c.after;
+    add('warn', `Plan adds start at ${e.planAddsFrom} or later`, adds.length && adds.every((c) => from(c) != null && from(c) >= toMin(e.planAddsFrom)), desc);
   }
   const reply = out.reply || '';
   // the worker replaces a reply that claims a change; the model is judged on its own words

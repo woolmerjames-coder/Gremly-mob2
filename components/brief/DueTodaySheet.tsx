@@ -1,11 +1,9 @@
 /**
  * Due today: the one new view in the brief, opened from the day card's Todos
- * and Habits rows (and, to add to a plan, from the plan card). Todos and
- * habits in two tabs. Habits show where they are for the week, with the
- * Behind tag from the behind this week rule.
- *
- * In view mode a row shows the time the plan gave it, or that it is in the
- * plan. In add mode (from the plan card) each row can be added to the plan.
+ * and Habits rows. Todos and habits in two tabs. Habits show where they are
+ * for the week, with the Behind tag from the behind this week rule. A row
+ * shows the time the plan gave it, or that it is in the plan. Adding to a
+ * plan is the pick sheet's (PickSheet.tsx).
  */
 
 import React, { useState } from 'react';
@@ -18,12 +16,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Plus, X } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Habit, Todo } from '../../lib/types';
 import type { DayCardData, HabitWeek } from '../../lib/brief/useDayCard';
 import { ampm, clock } from '../../lib/brief/dayCard';
 import { BRIEF } from './briefStyles';
+import { dueWords, todoDayWords } from '../../lib/plan/dayItems';
+import { plannedWords } from '../../lib/plan/candidatePool';
+import { getDateService } from '../../lib/date/DateService';
 
 export type DueTab = 'todos' | 'habits';
 
@@ -32,11 +33,8 @@ type Props = {
   onClose: () => void;
   data: DayCardData;
   initialTab?: DueTab;
-  /** add: rows add to the plan (from the plan card) */
-  mode?: 'view' | 'add';
-  /** Ids already in the live plan (add mode, and "In the plan" in view mode) */
+  /** Ids already in the live plan: "In the plan" */
   inPlan?: Set<string>;
-  onAdd?: (id: string, kind: 'todo' | 'habit') => void;
   /** On a return day the Behind tag stays calm */
   calm?: boolean;
 };
@@ -64,9 +62,7 @@ export function DueTodaySheet({
   onClose,
   data,
   initialTab = 'todos',
-  mode = 'view',
   inPlan,
-  onAdd,
   calm,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -78,30 +74,22 @@ export function DueTodaySheet({
   const plannedAt = (id: string) => data.planned.find((p) => p.id === id);
   const weekOf = new Map<string, HabitWeek>(data.habitWeeks.map((w) => [w.habit.id, w]));
 
-  const action = (id: string, kind: 'todo' | 'habit') => {
-    if (mode === 'add') {
-      if (inPlan?.has(id)) return <Text style={styles.info}>In the plan</Text>;
-      return (
-        <TouchableOpacity
-          style={styles.act}
-          onPress={() => onAdd?.(id, kind)}
-          accessibilityRole="button"
-          accessibilityLabel="Add to the plan"
-          testID={`due-add-${id}`}
-        >
-          <Plus size={14} color={BRIEF.moss} strokeWidth={2.2} />
-          <Text style={styles.actText}>Add</Text>
-        </TouchableOpacity>
-      );
-    }
+  const action = (id: string) => {
     const at = plannedAt(id);
     if (at) return <Text style={styles.info}>{`${clock(at.start)} ${ampm(at.start)}`}</Text>;
     if (inPlan?.has(id)) return <Text style={styles.info}>In the plan</Text>;
     return null;
   };
 
+  // the sheet shows the day it was opened for: today, or the day being planned
+  const today = getDateService().today();
+  const dueLabel = dueWords(data.date, today);
+
   const todoRow = (t: Todo) => {
-    const meta = [minutesLabel(t.time_estimate_minutes), 'Due today'].filter(Boolean).join('  ');
+    // why it is on the day: due, back from Later, or a step towards a goal of theirs
+    const meta = [minutesLabel(t.time_estimate_minutes), todoDayWords(t, data.date, today)]
+      .filter(Boolean)
+      .join('  ');
     return (
       <View key={t.id} style={styles.item} testID={`due-todo-${t.id}`}>
         <View style={styles.itemText}>
@@ -110,7 +98,7 @@ export function DueTodaySheet({
           </Text>
           <Text style={styles.meta}>{meta}</Text>
         </View>
-        {action(t.id, 'todo')}
+        {action(t.id)}
       </View>
     );
   };
@@ -134,6 +122,11 @@ export function DueTodaySheet({
             ) : (
               <Text style={styles.meta}>Daily</Text>
             )}
+            {data.weekHabits?.has(h.id) ? (
+              <Text style={styles.meta} testID={`due-planned-${h.id}`}>
+                {plannedWords(data.date, today)}
+              </Text>
+            ) : null}
             {w?.behind ? (
               <Text
                 style={[styles.behind, calm && styles.behindCalm]}
@@ -144,7 +137,7 @@ export function DueTodaySheet({
             ) : null}
           </View>
         </View>
-        {action(h.id, 'habit')}
+        {action(h.id)}
       </View>
     );
   };
@@ -162,7 +155,7 @@ export function DueTodaySheet({
       <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]} testID="due-today-sheet">
         <View style={styles.grab} />
         <View style={styles.head}>
-          <Text style={styles.title}>{mode === 'add' ? 'Add to the plan' : 'Due today'}</Text>
+          <Text style={styles.title}>{dueLabel}</Text>
           <TouchableOpacity
             style={styles.close}
             onPress={onClose}
@@ -195,7 +188,9 @@ export function DueTodaySheet({
             data.todosDue.length ? (
               data.todosDue.map(todoRow)
             ) : (
-              <Text style={styles.empty}>Nothing due today</Text>
+              <Text
+                style={styles.empty}
+              >{`Nothing ${dueLabel.charAt(0).toLowerCase()}${dueLabel.slice(1)}`}</Text>
             )
           ) : habitsShown.length ? (
             habitsShown.map(habitRow)
@@ -343,21 +338,6 @@ const styles = StyleSheet.create({
   },
   behindCalm: {
     backgroundColor: BRIEF.sageWash,
-    color: BRIEF.moss,
-  },
-  act: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1.5,
-    borderColor: BRIEF.chipBorder,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  actText: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
-    fontSize: 13,
     color: BRIEF.moss,
   },
   info: {

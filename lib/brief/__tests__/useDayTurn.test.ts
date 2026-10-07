@@ -54,9 +54,18 @@ jest.mock('../../date/DateService', () => ({
     fromLocalDate: (d: string) => new Date(`${d}T12:00:00`),
   }),
 }));
+// their week as the app holds it now (lib/brief/checkIn.ts), set by the test that reads it
+const mockWeekFacts = jest.fn();
+jest.mock('../checkIn', () => ({
+  ...jest.requireActual('../checkIn'),
+  briefWeekFacts: (date: string) => mockWeekFacts(date),
+}));
+// what the store holds beside the todos and habits below, changed by a test that needs it
+const mockExtra: Record<string, unknown> = {};
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: {
     getState: () => ({
+      ...mockExtra,
       todos: [
         { id: 'mum', name: 'Call Mum', due_day: '2026-10-02', created_at: '2026-09-30T10:00:00Z' },
         {
@@ -72,8 +81,9 @@ jest.mock('../../store/useGremlyStore', () => ({
           due_day: '2026-09-30',
           created_at: '2026-09-20T10:00:00Z',
         },
+        ...((mockExtra.moreTodos as object[]) ?? []),
       ],
-      habits: [{ id: 'run', name: 'Run' }],
+      habits: [{ id: 'run', name: 'Run' }, ...((mockExtra.moreHabits as object[]) ?? [])],
     }),
   },
 }));
@@ -176,6 +186,220 @@ describe('the day turn, when it answers', () => {
     ]);
   });
 
+  describe('with their week', () => {
+    afterEach(() => {
+      for (const k of Object.keys(mockExtra)) delete mockExtra[k];
+    });
+
+    it('tells Gremly an offer as they saw it: the habit check in while it rode on the offer', () => {
+      const offer = (id: string, meta: Record<string, unknown>) =>
+        ({
+          id,
+          role: 'assistant',
+          content: 'Want me to fit a few things in?',
+          metadata_json: { type: 'brief-offer', kind: 'plan', buttons: [], ...meta },
+        }) as unknown as SpaceChatMessage;
+      const history = (m: SpaceChatMessage) =>
+        buildDayTurnRequest('hi', null, '2026-10-02', [m], null).history.map((h) => h.content);
+      // an ordinary offer is its own words, and the day is not read for it
+      expect(history(offer('o1', {}))).toEqual(['Want me to fit a few things in?']);
+      expect(mockWeekFacts).not.toHaveBeenCalled();
+      // answered as the check in: its words, whatever the day is now
+      const asked = { habit_id: 'h1', title: 'Strength', asked: true };
+      expect(history(offer('o2', { checkin: asked, chosen: { id: 'typed', at: 'now' } }))).toEqual([
+        'You planned Strength for today. Still on?',
+      ]);
+      // still waiting: the check in while the habit is on, the offer once it is not
+      const waiting = offer('o3', { checkin: { habit_id: 'h1', title: 'Strength' } });
+      mockWeekFacts.mockReturnValue({
+        checkIn: () => ({ title: 'Strength', moveTo: '2026-10-03' }),
+        reviewOffer: false,
+      });
+      expect(history(waiting)).toEqual([
+        'You planned Strength for today. Still on? If not, Saturday has room.',
+      ]);
+      expect(mockWeekFacts).toHaveBeenLastCalledWith('2026-10-02');
+      mockWeekFacts.mockReturnValue({ checkIn: () => null, reviewOffer: false });
+      expect(history(waiting)).toEqual(['Want me to fit a few things in?']);
+    });
+    const notes = () =>
+      Object.fromEntries(
+        buildDayTurnRequest('hi', null, '2026-10-02', [], null).items.map((x) => [x.id, x.note]),
+      );
+
+    it('says a Later is back on the day it comes back, however old it is', () => {
+      mockExtra.moreTodos = [
+        {
+          id: 'back',
+          name: 'Renew the passport',
+          due_day: null,
+          resurface_at: '2026-10-02',
+          created_at: '2026-06-01T10:00:00Z',
+        },
+        {
+          id: 'came',
+          name: 'Call the plumber',
+          due_day: null,
+          resurface_at: '2026-09-29',
+          created_at: '2026-06-01T10:00:00Z',
+        },
+        {
+          id: 'away',
+          name: 'Look at pensions',
+          due_day: null,
+          resurface_at: '2026-10-09',
+          created_at: '2026-10-01T10:00:00Z',
+        },
+        {
+          id: 'far',
+          name: 'Plan the summer',
+          due_day: null,
+          resurface_at: '2026-10-29',
+          created_at: '2026-10-01T10:00:00Z',
+        },
+      ];
+      const req = buildDayTurnRequest('hi', null, '2026-10-02', [], null);
+      expect(req.items.map((x) => [x.id, x.note])).toEqual([
+        ['mum', 'due today'],
+        ['back', 'put off earlier, back today'],
+        ['late', 'past its day'],
+        ['came', 'put off earlier, came back 2026-09-29'],
+        ['deck', 'upcoming'],
+        // still put off: it is not a todo with no day, and one far off is left out
+        ['away', 'put off until 2026-10-09'],
+        ['run', 'habit today'],
+      ]);
+    });
+
+    it('says which habits they planned for today, ahead of the rest', () => {
+      mockExtra.moreHabits = [
+        { id: 'read', name: 'Read' },
+        { id: 'strength', name: 'Strength' },
+      ];
+      mockExtra.habitPlans = [
+        { habit_id: 'strength', planned_date: '2026-10-02', status: 'planned' },
+        { habit_id: 'read', planned_date: '2026-10-03', status: 'planned' },
+      ];
+      expect(notes()).toMatchObject({
+        strength: 'planned for today in their week',
+        run: 'habit today',
+        read: 'habit',
+      });
+      const habits = buildDayTurnRequest('hi', null, '2026-10-02', [], null).items.filter(
+        (x) => x.kind === 'habit',
+      );
+      expect(habits.map((x) => x.id)).toEqual(['strength', 'run', 'read']);
+    });
+
+    it('says which habit is one they are breaking, and flags it so it is never planned', () => {
+      mockExtra.moreHabits = [
+        { id: 'read', name: 'Read' },
+        { id: 'sugar', name: 'No sugar', subtype: 'break_habit' },
+      ];
+      mockExtra.habitPlans = [{ habit_id: 'sugar', planned_date: '2026-10-02', status: 'planned' }];
+      expect(notes()).toMatchObject({
+        sugar: 'a habit they are breaking',
+        run: 'habit today',
+        read: 'habit',
+      });
+      const habits = buildDayTurnRequest('hi', null, '2026-10-02', [], null).items.filter(
+        (x) => x.kind === 'habit',
+      );
+      expect(habits.map((x) => [x.id, x.breaking ?? false])).toEqual([
+        ['run', false],
+        ['read', false],
+        ['sugar', true],
+      ]);
+    });
+
+    it('says a habit is paused for now, whatever was planned for it, and lists it last', () => {
+      mockExtra.moreHabits = [
+        { id: 'read', name: 'Read' },
+        { id: 'strength', name: 'Strength' },
+      ];
+      mockExtra.habitPlans = [
+        { habit_id: 'strength', planned_date: '2026-10-02', status: 'planned' },
+      ];
+      mockExtra.habitAdaptations = [
+        {
+          habit_id: 'strength',
+          mode: 'pause',
+          period_start: '2026-10-01',
+          period_end: '2026-10-04',
+        },
+        // a lighter version is still on, and a pause that is over is nothing
+        { habit_id: 'run', mode: 'floor', period_start: '2026-10-01', period_end: '2026-10-04' },
+        { habit_id: 'read', mode: 'pause', period_start: '2026-09-20', period_end: '2026-10-01' },
+      ];
+      expect(notes()).toMatchObject({
+        strength: 'paused for now',
+        run: 'habit today',
+        read: 'habit',
+      });
+      const habits = buildDayTurnRequest('hi', null, '2026-10-02', [], null).items.filter(
+        (x) => x.kind === 'habit',
+      );
+      expect(habits.map((x) => x.id)).toEqual(['run', 'read', 'strength']);
+    });
+
+    it('no longer calls a habit planned for today once it is logged', () => {
+      mockExtra.moreHabits = [{ id: 'strength', name: 'Strength' }];
+      mockExtra.habitPlans = [
+        { habit_id: 'strength', planned_date: '2026-10-02', status: 'planned' },
+      ];
+      mockExtra.habitProgress = [{ habit_id: 'strength', occurred_day: '2026-10-02' }];
+      expect(notes()).toMatchObject({ strength: 'habit' });
+    });
+
+    it('says what a milestone step is a step towards', () => {
+      mockExtra.moreTodos = [
+        {
+          id: 'step',
+          name: 'Draft the cover letter',
+          due_day: '2026-10-02',
+          created_at: '2026-09-28T10:00:00Z',
+          views: { milestone: { goal: 'Send the grant application', date: '2026-10-20' } },
+        },
+      ];
+      const req = buildDayTurnRequest('hi', null, '2026-10-02', [], null);
+      expect(req.items.find((x) => x.id === 'step')).toMatchObject({
+        note: 'due today',
+        towards: 'Send the grant application',
+      });
+      expect(req.items.find((x) => x.id === 'mum')).not.toHaveProperty('towards');
+      // the sort key never leaves the app
+      expect(req.items.every((x) => !('state' in x))).toBe(true);
+    });
+
+    it('sends the intention of the week the day is in, and none when they set none', () => {
+      expect(buildDayTurnRequest('hi', null, '2026-10-02', [], null).intention).toBeNull();
+      mockExtra.notes = [
+        {
+          id: 'n-old',
+          journal_subtype: 'intention',
+          target_date: '2026-09-21',
+          body: 'Last week, rest',
+        },
+        {
+          id: 'n-now',
+          journal_subtype: 'intention',
+          target_date: '2026-09-28',
+          body: 'Ship the submissions',
+        },
+        { id: 'n-next', journal_subtype: 'intention', target_date: '2026-10-05', body: 'Next' },
+        { id: 'n-j', journal_subtype: 'reflection', target_date: '2026-10-01', body: 'A day' },
+      ];
+      expect(buildDayTurnRequest('hi', null, '2026-10-02', [], null).intention).toBe(
+        'Ship the submissions',
+      );
+      // on the last day of that week it is still this week's
+      expect(buildDayTurnRequest('hi', null, '2026-10-04', [], null).intention).toBe(
+        'Ship the submissions',
+      );
+      expect(buildDayTurnRequest('hi', null, '2026-10-05', [], null).intention).toBe('Next');
+    });
+  });
+
   it('a message about the day: the reply, then one card with every change', async () => {
     (callBriefTurn as jest.Mock).mockResolvedValue({
       ok: true,
@@ -220,6 +444,7 @@ describe('the day turn, when it answers', () => {
     });
     (applyDayChanges as jest.Mock).mockResolvedValue({
       done: ['c1', 'c2'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: true,
@@ -262,6 +487,7 @@ describe('the day turn, when it answers', () => {
     const revert = jest.fn(async () => undefined);
     (applyDayChanges as jest.Mock).mockResolvedValue({
       done: ['c1', 'c2'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: true,
@@ -526,6 +752,7 @@ describe('the agent', () => {
     });
     (applyCardChanges as jest.Mock).mockResolvedValue({
       done: ['c1'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: false,
@@ -550,6 +777,32 @@ describe('the agent', () => {
     });
   });
 
+  it('keeps the item a row made, so the row can open it', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Sure.', card: CARD, tasks: [] },
+    });
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      created: { c1: 'new-todo' },
+      failed: [],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      revert: jest.fn(),
+    });
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.run('call mum at 12', null);
+    });
+    await act(async () => {
+      await hook.result.current.apply(messages[3], ['c2']);
+    });
+    expect(messages[3].metadata_json).toMatchObject({
+      status: 'applied',
+      created: { c1: 'new-todo' },
+    });
+  });
+
   it("starts the planner when they accept Gremly's offer to plan the day", async () => {
     const offer = [
       { cid: 'c1', op: 'plan', title: 'Plan the rest of today', plan: { kind: 'plan_day' } },
@@ -565,6 +818,7 @@ describe('the agent', () => {
     });
     (applyCardChanges as jest.Mock).mockResolvedValue({
       done: ['c1'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [] },
       frameChanged: false,
@@ -640,7 +894,7 @@ describe('during the evening wrap up', () => {
       step: 'habits',
       decisions: [{ title: 'Do taxes', outcome: 'kept for tomorrow' }],
     };
-    const { hook, deps } = harness(undefined, { wrapContext: () => wrap });
+    const { hook, deps } = harness(undefined, { ritualContext: () => ({ wrap }) });
     await act(async () => {
       await hook.result.current.run("what's on tomorrow?", null);
     });
@@ -673,13 +927,13 @@ describe('during the evening wrap up', () => {
       item: { id: 'vet', kind: 'todo', title: 'Vet' },
     };
     const { hook, deps, messages } = harness(undefined, {
-      wrapContext: () => ({ step: 'questions', decisions: [] }),
+      ritualContext: () => ({ wrap: { step: 'questions', decisions: [] } }),
     });
     let out: { answered: boolean; card: boolean } | null = null;
     await act(async () => {
       out = await hook.result.current.ask('Monday', { answering });
     });
-    expect(out).toEqual({ answered: true, card: true });
+    expect(out).toEqual({ answered: true, card: true, hold: null });
     expect((callBriefTurn as jest.Mock).mock.calls[0][0].wrap).toEqual({
       step: 'questions',
       decisions: [],
@@ -688,5 +942,128 @@ describe('during the evening wrap up', () => {
     // their answer is already in the thread: only his reply and the card are added
     expect(messages.slice(1).map((m) => m.role)).toEqual(['assistant', 'system']);
     expect(deps.continueBrief).not.toHaveBeenCalled();
+  });
+});
+
+describe('their week, and the weekly review', () => {
+  const week = {
+    weekly_day: 0,
+    days_off: [0, 6],
+    review: null,
+    extra_used: false,
+    under_way: { step: 'shape', first: '2026-10-05', last: '2026-10-11' },
+  };
+
+  beforeEach(() => {
+    (callBriefTurn as jest.Mock).mockReset();
+    (applyCardChanges as jest.Mock).mockReset();
+  });
+
+  it('is sent with every message once the app knows it, beside the wrap up', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Thursday is the full one.', card: [], tasks: [] },
+    });
+    const { hook } = harness(undefined, { ritualContext: () => ({ wrap: null, week }) });
+    await act(async () => {
+      await hook.result.current.run('which day is fullest?', null);
+    });
+    const sent = (callBriefTurn as jest.Mock).mock.calls[0][0];
+    expect(sent.week).toEqual(week);
+    expect(sent).not.toHaveProperty('wrap');
+  });
+
+  it('is left out until it has been read, so Gremly is told nothing untrue', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Morning.', card: [], tasks: [] },
+    });
+    const { hook } = harness(undefined, { ritualContext: () => ({ wrap: null, week: null }) });
+    await act(async () => {
+      await hook.result.current.run('morning', null);
+    });
+    expect((callBriefTurn as jest.Mock).mock.calls[0][0]).not.toHaveProperty('week');
+  });
+
+  it("hands the review the question Gremly's reply left it waiting on", async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: 'Which evening is the concert?',
+        card: [],
+        tasks: [],
+        hold: { question: 'Which evening is the concert?' },
+      },
+    });
+    const { hook, deps } = harness(undefined, { ritualContext: () => ({ week }) });
+    let out: unknown = null;
+    await act(async () => {
+      out = await hook.result.current.ask('I have a concert this week');
+    });
+    expect(out).toEqual({
+      answered: true,
+      card: false,
+      hold: 'Which evening is the concert?',
+    });
+    // the review carries on itself: the brief's own offers stay out of it
+    expect(deps.continueBrief).not.toHaveBeenCalled();
+  });
+
+  it("puts the button to their week under Gremly's reply when he offers it", async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: {
+        engine: 'agent',
+        reply: 'The button below opens your weekly review.',
+        card: [],
+        tasks: [],
+        offer: { kind: 'week', done: false },
+      },
+    });
+    const { hook, messages } = harness(undefined, { ritualContext: () => ({ week }) });
+    await act(async () => {
+      await hook.result.current.run('can we plan my week?', null);
+    });
+    const added = messages.slice(1);
+    expect(added.map((m) => m.role)).toEqual(['user', 'assistant', 'system']);
+    expect(added[2].metadata_json).toEqual({ type: 'week-offer', done: false, week: true });
+  });
+
+  it('tells the review which changes went through when a card is applied', async () => {
+    const card = [
+      { cid: 'c1', op: 'later', type: 'todo', id: 'old', title: 'Old idea', fields: {} },
+      { cid: 'c2', op: 'change', type: 'todo', id: 'mum', title: 'Call Mum', fields: {} },
+    ];
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      created: {},
+      failed: ['c2'],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      revert: async () => undefined,
+    });
+    const onApplied = jest.fn();
+    const onUndone = jest.fn();
+    const { hook, messages } = harness(undefined, { onApplied, onUndone });
+    const cardMessage = {
+      id: 'card-1',
+      role: 'system',
+      content: '',
+      metadata_json: { type: 'brief-changes', changes: [], card, status: 'open' },
+    } as unknown as SpaceChatMessage;
+    messages.push(cardMessage);
+    await act(async () => {
+      await hook.result.current.apply(cardMessage, []);
+    });
+    // only what was saved, in the change model's shape
+    expect(onApplied).toHaveBeenCalledTimes(1);
+    expect(onApplied.mock.calls[0][0]).toEqual([card[0]]);
+    // and when the card's changes are taken back, the ritual is told that too
+    expect(onUndone).not.toHaveBeenCalled();
+    await act(async () => {
+      await hook.result.current.undo(cardMessage);
+    });
+    expect(onUndone).toHaveBeenCalledTimes(1);
   });
 });

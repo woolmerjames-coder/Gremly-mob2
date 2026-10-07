@@ -14,7 +14,19 @@ import {
   opFromButton,
   planHeading,
   refitKeeping,
+  placePlan,
+  planRoom,
   planSummary,
+  spacingAskText,
+  spacingButtons,
+  unfitAskText,
+  unfitButtons,
+  unfitLaterText,
+  unfitLeftText,
+  unfitMovedText,
+  unfitStayedText,
+  dayAfter,
+  dayAfterWord,
   suggestions,
   unplacedText,
   whatCanWait,
@@ -256,5 +268,266 @@ describe('fitting a plan again after a change', () => {
       SETS_OFF,
     );
     expect(none).toEqual(fitPlan(entries, [], 540, SETS_OFF));
+  });
+});
+
+describe('the gaps between things', () => {
+  // the meeting ends at 1:15pm (795); Social posts 30 minutes, the oat milk 15
+  const two = ENTRIES.slice(0, 2);
+
+  it('keeps 15 minutes either side of everything unless the plan is back to back', () => {
+    const spaced = placePlan(two, { busy: MEETINGS, from: 795 });
+    expect(spaced.items.map((x) => [x.id, x.start, x.end])).toEqual([
+      ['social', 810, 840],
+      ['oat', 855, 870],
+    ]);
+    expect('buffer' in spaced).toBe(false);
+    const tight = placePlan(two, { busy: MEETINGS, from: 795, buffer: 0 });
+    expect(tight.items.map((x) => [x.id, x.start, x.end])).toEqual([
+      ['social', 795, 825],
+      ['oat', 825, 840],
+    ]);
+    // the plan says it is back to back, so each later fit keeps to it
+    expect(tight.buffer).toBe(0);
+    expect(fitPlan(two, MEETINGS, 795, 1320, 0).buffer).toBe(0);
+    expect(refitKeeping(two, tight.items, MEETINGS, 795, 1320, [], 0, 0).items).toEqual(
+      tight.items,
+    );
+  });
+
+  it('says how picks sit in the day: with their gaps, only back to back, or not at all', () => {
+    const at = (dayEnd: number) => planRoom(two, { busy: MEETINGS, from: 795, dayEnd });
+    // until 3pm: both in with their gaps, and 15 minutes after the last one's gap
+    expect(at(900)).toEqual({ fit: 'spaced', left: 15, over: 0 });
+    // until 2:30pm exactly: they fit with their gaps and nothing is left
+    expect(at(870)).toEqual({ fit: 'spaced', left: 0, over: 0 });
+    // until 2:25pm: only with no gaps
+    expect(at(865)).toEqual({ fit: 'tight', left: 0, over: 0 });
+    // until 1:50pm: not back to back either, and the plan with gaps leaves Social posts out
+    expect(at(830)).toEqual({ fit: 'over', left: 0, over: 30 });
+    // nothing picked: the day's room, less the gap after the meeting
+    expect(planRoom([], { busy: MEETINGS, from: 795, dayEnd: 900 })).toEqual({
+      fit: 'spaced',
+      left: 90,
+      over: 0,
+    });
+    // one thing alone is never "back to back": hard up against the meeting is no good gap
+    const one = ENTRIES.slice(0, 1);
+    expect(planRoom(one, { busy: MEETINGS, from: 795, dayEnd: 830 })).toEqual({
+      fit: 'over',
+      left: 0,
+      over: 30,
+    });
+    // a plan already back to back has no tighter way to offer
+    expect(planRoom(two, { busy: MEETINGS, from: 795, dayEnd: 830, buffer: 0 })).toEqual({
+      fit: 'over',
+      left: 0,
+      over: 15,
+    });
+  });
+
+  it('asks back to back or with some space, in the words of the day', () => {
+    expect(spacingAskText(planDay('2026-09-30', '2026-09-30'))).toBe(
+      'Those only fit today back to back. Want them back to back, or with some space between them?',
+    );
+    expect(spacingAskText(planDay('2026-10-01', '2026-09-30'))).toMatch(/only fit tomorrow back/);
+    expect(spacingButtons().map((b) => [b.label, b.action, b.value])).toEqual([
+      ['Back to back', 'plan_spacing', 'tight'],
+      ['With some space', 'plan_spacing', 'spaced'],
+    ]);
+  });
+
+  it('says what did not fit and offers the todos among it another day or Later', () => {
+    const oat = { id: 'oat', title: 'Buy Oat Milk', kind: 'todo' as const };
+    const tap = { id: 'tap', title: 'Fix the tap', kind: 'todo' as const };
+    const run = { id: 'run', title: 'Run', kind: 'habit' as const };
+    const today = { day: 'today', next: 'tomorrow', later: true };
+    expect(unfitAskText([oat], [oat], today)).toBe(
+      "I couldn't find a good gap for Buy Oat Milk today, so it's not in the plan. Want it tomorrow instead, or put off for later?",
+    );
+    expect(unfitAskText([oat, tap], [oat, tap], today)).toBe(
+      "I couldn't find good gaps for Buy Oat Milk and Fix the tap today, so they're not in the plan. Want them tomorrow instead, or put off for later?",
+    );
+    // Later is asked about only when it is one of the buttons
+    expect(unfitAskText([oat], [oat], { ...today, later: false })).toBe(
+      "I couldn't find a good gap for Buy Oat Milk today, so it's not in the plan. Want it tomorrow instead?",
+    );
+    // a plan for another day says that day, and the day after it
+    expect(unfitAskText([run, oat], [oat], { day: 'tomorrow', next: 'Friday', later: true })).toBe(
+      "I couldn't find good gaps for Run and Buy Oat Milk tomorrow, so they're not in the plan. Want Buy Oat Milk Friday instead, or put off for later?",
+    );
+    expect(unplacedText([oat])).toBe(
+      "I couldn't find a good gap for Buy Oat Milk today, so it's not in the plan.",
+    );
+    expect(unplacedText([oat], 'tomorrow')).toBe(
+      "I couldn't find a good gap for Buy Oat Milk tomorrow, so it's not in the plan.",
+    );
+    expect(unfitButtons(1, 'tomorrow', true).map((b) => [b.label, b.action, b.value])).toEqual([
+      ['Move to tomorrow', 'plan_unfit', 'tomorrow'],
+      ['Later', 'plan_unfit', 'later'],
+      ['Leave it', 'plan_unfit', 'leave'],
+    ]);
+    expect(unfitButtons(2, 'Friday', false).map((b) => b.label)).toEqual([
+      'Move to Friday',
+      'Leave them',
+    ]);
+    expect(unfitMovedText(['Buy Oat Milk'], 'tomorrow')).toBe(
+      'Done, Buy Oat Milk is on tomorrow now.',
+    );
+    expect(unfitMovedText(['Buy Oat Milk', 'Fix the tap'], 'Friday')).toBe(
+      'Done, Buy Oat Milk and Fix the tap are on Friday now.',
+    );
+    expect(
+      unfitLaterText([
+        { title: 'Buy Oat Milk', day: 'Mon 5' },
+        { title: 'Fix the tap', day: 'Tue 6' },
+      ]),
+    ).toBe('Done. Buy Oat Milk comes back Mon 5 and Fix the tap comes back Tue 6.');
+    expect(unfitStayedText(['Fix the tap'])).toBe('Fix the tap stayed where it was.');
+    expect(unfitStayedText(['Fix the tap', 'Run'])).toBe(
+      'Fix the tap and Run stayed where they were.',
+    );
+    expect(unfitLeftText(1)).toBe("Sure, I've left it where it is.");
+    expect(unfitLeftText(2)).toBe("Sure, I've left them where they are.");
+  });
+
+  it('names the day after the plan as they would say it', () => {
+    expect(dayAfter('2026-09-30')).toBe('2026-10-01');
+    expect(dayAfter('2026-12-31')).toBe('2027-01-01');
+    // a plan for today, a Wednesday: the day after is tomorrow
+    expect(dayAfterWord('2026-09-30', '2026-09-30')).toBe('tomorrow');
+    // a plan for tomorrow: the day after it goes by its weekday
+    expect(dayAfterWord('2026-10-01', '2026-09-30')).toBe('Friday');
+    // after midnight, before their day ends, tomorrow would be misread
+    expect(dayAfterWord('2026-09-30', '2026-09-30', true)).toBe('Thursday');
+  });
+});
+
+describe('placing a plan in the order things claim time', () => {
+  // Monday 5 October, 7:35am: meetings until 8:30, then 11:15 to 2pm
+  const NOW = 455;
+  const FROM = 510;
+  const BUSY = [
+    { start: 450, end: 510 },
+    { start: 675, end: 720 },
+    { start: 750, end: 780 },
+    { start: 810, end: 840 },
+  ];
+  const todo = (id: string, minutes: number, extra: Partial<PlanEntry> = {}): PlanEntry => ({
+    id,
+    kind: 'todo',
+    title: id,
+    minutes,
+    window: [FROM, 1320],
+    reason: null,
+    ...extra,
+  });
+  const at = (fit: ReturnType<typeof placePlan>, id: string) =>
+    fit.items.find((x) => x.id === id)?.start ?? null;
+  const overlaps = (fit: ReturnType<typeof placePlan>) =>
+    fit.items.some((a, i) => fit.items.some((b, j) => i < j && a.start < b.end && b.start < a.end));
+
+  it('never puts a named time before now, and never two things on top of each other', () => {
+    const entries = [todo('agent', 45), todo('split', 15), todo('input', 30)];
+    // the 2:45am plan: times already gone, and one on top of another
+    const pins = new Map([
+      ['agent', 165],
+      ['split', 180],
+      ['input', 210],
+    ]);
+    const fit = placePlan(entries, { busy: BUSY, from: FROM, now: NOW, pins });
+    expect(fit.items.every((x) => x.start >= NOW)).toBe(true);
+    expect(overlaps(fit)).toBe(false);
+    expect(fit.unplaced).toEqual([]);
+  });
+
+  it('keeps a named time exactly where it was named when it is free', () => {
+    const fit = placePlan([todo('pushups', 10)], {
+      busy: BUSY,
+      from: FROM,
+      now: NOW,
+      pins: new Map([['pushups', 1080]]),
+    });
+    expect(fit.items[0]).toMatchObject({ id: 'pushups', start: 1080, end: 1090, pinned: true });
+  });
+
+  it("keeps what they picked when Gremly fills the evening, and leaves off Gremly's first", () => {
+    // taxes was picked at 5pm; Gremly's card puts four hours of things from 5pm
+    const taxes = todo('taxes', 60, { chosen: true });
+    const placed = [
+      { id: 'taxes', kind: 'todo' as const, title: 'taxes', start: 1020, end: 1080, chosen: true },
+    ];
+    const gremly = ['a', 'b', 'c', 'd', 'e'].map((id) => todo(id, 60));
+    const entries = [...gremly, taxes];
+    const fit = placePlan(entries, {
+      busy: BUSY,
+      from: FROM,
+      now: NOW,
+      placed,
+      // a long morning so the day is short of room
+      dayEnd: 1080 + 4 * 60,
+    });
+    expect(at(fit, 'taxes')).toBe(1020);
+    expect(fit.items.find((x) => x.id === 'taxes')?.chosen).toBe(true);
+    expect(overlaps(fit)).toBe(false);
+  });
+
+  it('moves what they picked to the next free time when a time they name lands on it, and keeps it in', () => {
+    const taxes = todo('taxes', 60, { chosen: true });
+    const placed = [
+      { id: 'taxes', kind: 'todo' as const, title: 'taxes', start: 1020, end: 1080, chosen: true },
+    ];
+    const fit = placePlan([todo('run', 30), taxes], {
+      busy: BUSY,
+      from: FROM,
+      now: NOW,
+      placed,
+      pins: new Map([['run', 1020]]),
+    });
+    expect(at(fit, 'run')).toBe(1020);
+    expect(at(fit, 'taxes')).toBeGreaterThanOrEqual(1050);
+    expect(fit.unplaced).toEqual([]);
+  });
+
+  it('places what they picked ahead of what Gremly chose when there is room for only one', () => {
+    const fit = placePlan([todo('gremly', 60), todo('mine', 60, { chosen: true })], {
+      busy: [],
+      from: 1200,
+      dayEnd: 1290,
+      now: 1200,
+    });
+    expect(fit.items.map((x) => x.id)).toEqual(['mine']);
+    expect(fit.unplaced.map((x) => x.id)).toEqual(['gremly']);
+  });
+
+  it('marks a pick as theirs when it is added', () => {
+    const pool: Candidate[] = [
+      {
+        id: 'taxes',
+        kind: 'todo',
+        title: 'Do taxes',
+        minutes: 60,
+        why: 'Due today',
+        window: null,
+        source: 'due',
+      },
+    ];
+    const next = applyOp(
+      [],
+      { op: 'add', id: 'taxes', window: null, chosen: true },
+      pool,
+      FROM,
+      [],
+    );
+    expect(next[0]).toMatchObject({ id: 'taxes', chosen: true, reason: 'Added by you' });
+    // picking something Gremly already put in makes it theirs too
+    const again = applyOp(
+      [todo('taxes', 60)],
+      { op: 'add', id: 'taxes', window: null, chosen: true },
+      pool,
+      FROM,
+      [],
+    );
+    expect(again[0]).toMatchObject({ chosen: true, reason: 'Added by you' });
   });
 });

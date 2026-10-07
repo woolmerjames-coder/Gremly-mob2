@@ -8,6 +8,7 @@
 
 export const str = (description, extra = {}) => ({ type: 'string', description, ...extra });
 export const int = (description, extra = {}) => ({ type: 'integer', description, ...extra });
+export const num = (description) => ({ type: 'number', description });
 export const bool = (description) => ({ type: 'boolean', description });
 export const strEnum = (values, description) => ({ type: 'string', enum: values, description });
 export const arr = (items, description) => ({ type: 'array', items, description });
@@ -20,4 +21,7 @@ export const obj = (properties, required = [], description) => ({
 
 const DAY = 'a date as YYYY-MM-DD';
 export const day = (description) => str(`${description}, ${DAY}`);
-export const time = (description) => str(`${description}, HH:MM on a 24 hour clock`);
+// written the way every time Gremly reads is written: a 12 hour clock with am or pm
+const TIME =
+  'a time of day on a 12 hour clock with am or pm, written the way times are written everywhere Gremly reads them';
+export const time = (description) => str(`${description}, ${TIME}`);

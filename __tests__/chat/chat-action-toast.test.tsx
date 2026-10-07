@@ -74,11 +74,6 @@ jest.mock('../../components/common/ConfirmationPill', () => ({
   ConfirmationPill: ({ text }: { text: string }) => <>{text}</>,
 }));
 
-// Overlay component is heavy; swap for noop
-jest.mock('../../components/overlay/UnifiedCreateOverlay', () => ({
-  UnifiedCreateOverlay: () => null,
-}));
-
 // Keep env helper predictable
 jest.mock('../../lib/env', () => ({
   getEnv: () => 'off',

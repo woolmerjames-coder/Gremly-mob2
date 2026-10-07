@@ -2,41 +2,45 @@ import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import {
-  ArrowRight,
-  CalendarDays,
-  Calendar,
-  Bell,
-  ChevronDown,
-  Sun,
-  LayoutGrid,
-} from 'lucide-react-native';
+import { ArrowRight, Calendar, Bell, ChevronDown, Sun, Hourglass } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { ActionPill } from './ActionPill';
 import { ContextHeader } from './ContextHeader';
-import { WeekGridScheduler } from './WeekGridScheduler';
-import type { WeekDay } from '../../lib/store/weekGridSelectors';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
-import { tomorrowLabel } from '../../lib/wrapup/day';
+
+/** What a todo card can be kept for: a day, or put off for Later. */
+export type TodoAction = 'today' | 'tomorrow' | 'later' | 'pickdate';
 
 type TodoActionZoneProps = {
   candidate: SweepCandidate;
   meta: SweepCardMeta;
-  selectedAction: 'today' | 'tomorrow' | 'nextweek' | 'pickdate';
-  onSelectAction: (action: 'today' | 'tomorrow' | 'nextweek' | 'pickdate') => void;
-  sweepIntent?: 'today' | 'tomorrow' | 'week';
-  weekDays?: WeekDay[];
-  selectedWeekDate?: string | null;
-  onSelectWeekDay?: (date: string) => void;
-  onSeeMyWeek?: () => void;
+  selectedAction: TodoAction;
+  onSelectAction: (action: TodoAction) => void;
+  sweepIntent?: 'today' | 'tomorrow';
+  /**
+   * The pills' words, each day with how full it already is ("Tue · 6h").
+   * later is null when Later is not offered: the todo has been put off twice,
+   * or no day is open for it to come back on.
+   */
+  labels: { today: string; tomorrow: string; later: string | null; pick: string };
+  /**
+   * A todo that has come back twice: the card asks keep or let go first, and
+   * shows its days only once Keep has been chosen.
+   */
+  asking?: boolean;
   reminderEnabled: boolean;
   selectedReminder: 'daybefore' | 'morning' | 'custom' | null;
   onToggleReminder: () => void;
   onSelectReminder: (reminder: 'daybefore' | 'morning' | 'custom' | null) => void;
   confirmedCustomDate: string | null;
+  /** The day picked for a custom reminder, as its pill reads; null until one is picked */
+  confirmedReminderDate?: string | null;
   onRequestDatePicker: () => void;
   onRequestReminderDatePicker: () => void;
 };
+
+/** Gremly's words on a todo that has come back twice. */
+export const KEEP_OR_LET_GO = "You've put this off twice now. Keep it, or let it go?";
 
 type ReminderKey = 'daybefore' | 'morning' | 'custom';
 
@@ -64,182 +68,174 @@ export function TodoActionZone({
   onToggleReminder,
   onSelectReminder,
   confirmedCustomDate,
+  confirmedReminderDate = null,
   onRequestDatePicker,
   onRequestReminderDatePicker,
   sweepIntent = 'tomorrow',
-  weekDays,
-  selectedWeekDate,
-  onSelectWeekDay,
-  onSeeMyWeek,
+  labels,
+  asking = false,
 }: TodoActionZoneProps) {
   const status = getStatus(meta);
 
   const bellColor = reminderEnabled ? '#2E5540' : 'rgba(34,34,34,0.45)';
   const chevronColor = bellColor;
 
+  // Come back twice: keep or let go is asked before any day is offered
+  if (asking) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.headerRow}>
+          <ContextHeader status={status} style={{ marginBottom: 0 }} />
+        </View>
+        <Text style={styles.askText} testID="todo-keep-or-let-go">
+          {KEEP_OR_LET_GO}
+        </Text>
+      </View>
+    );
+  }
+
+  const today = (
+    <ActionPill
+      icon={<Sun size={16} strokeWidth={2} />}
+      label={labels.today}
+      active={selectedAction === 'today'}
+      onPress={() => onSelectAction('today')}
+    />
+  );
+  const tomorrow = (
+    <ActionPill
+      icon={<ArrowRight size={16} strokeWidth={2.5} />}
+      label={labels.tomorrow}
+      active={selectedAction === 'tomorrow'}
+      onPress={() => onSelectAction('tomorrow')}
+    />
+  );
+  // Later: put off through the week's Later, to come back on the day named.
+  // Side by side with Pick a date the two go without their icons, to fit.
+  const later = (icon: boolean) =>
+    labels.later ? (
+      <ActionPill
+        icon={icon ? <Hourglass size={16} strokeWidth={2} /> : undefined}
+        label={labels.later}
+        active={selectedAction === 'later'}
+        onPress={() => onSelectAction('later')}
+      />
+    ) : null;
+  const pick = (icon: boolean) => (
+    <ActionPill
+      icon={icon ? <Calendar size={16} strokeWidth={2} /> : undefined}
+      label={confirmedCustomDate ?? labels.pick}
+      active={selectedAction === 'pickdate'}
+      onPress={() => {
+        onSelectAction('pickdate');
+        onRequestDatePicker();
+      }}
+    />
+  );
+
   return (
     <View style={styles.container}>
-      {/* Context header with optional Week pill */}
       <View style={styles.headerRow}>
         <ContextHeader status={status} style={{ marginBottom: 0 }} />
-        {sweepIntent === 'week' && onSeeMyWeek && (
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onSeeMyWeek?.();
-            }}
-            style={({ pressed }) => [styles.weekActionPill, pressed && { opacity: 0.55 }]}
-            accessibilityRole="button"
-            accessibilityLabel="See my week"
-            hitSlop={8}
-          >
-            <LayoutGrid size={13} strokeWidth={2} color="#7B87D4" />
-            <Text style={styles.weekActionText}>Week</Text>
-          </Pressable>
+      </View>
+
+      {/* The days it can be kept for, each with how full it already is, and Later */}
+      <View style={styles.pillGroup}>
+        {sweepIntent === 'today' ? (
+          <>
+            {today}
+            {tomorrow}
+            {labels.later ? (
+              <View style={styles.splitRow}>
+                <View style={{ flex: 1 }}>{later(false)}</View>
+                <View style={{ flex: 1 }}>{pick(false)}</View>
+              </View>
+            ) : (
+              pick(true)
+            )}
+          </>
+        ) : (
+          <>
+            {tomorrow}
+            {later(true)}
+            {pick(true)}
+          </>
         )}
       </View>
 
-      {/* Schedule pills — or week grid when sweepIntent === 'week' */}
-      {sweepIntent === 'week' && weekDays ? (
-        <WeekGridScheduler
-          days={weekDays}
-          selectedDate={selectedWeekDate ?? null}
-          pickedDateLabel={confirmedCustomDate}
-          onSelectDay={onSelectWeekDay ?? (() => {})}
-          onRequestDatePicker={onRequestDatePicker}
-        />
-      ) : (
-        <View style={styles.pillGroup}>
-          {sweepIntent === 'today' ? (
-            <>
-              <ActionPill
-                icon={<Sun size={16} strokeWidth={2} />}
-                label="Today"
-                active={selectedAction === 'today'}
-                onPress={() => onSelectAction('today')}
-              />
-              <ActionPill
-                icon={<ArrowRight size={16} strokeWidth={2.5} />}
-                label={tomorrowLabel()}
-                active={selectedAction === 'tomorrow'}
-                onPress={() => onSelectAction('tomorrow')}
-              />
-              <View style={styles.splitRow}>
-                <View style={{ flex: 1 }}>
-                  <ActionPill
-                    label="Next Week"
-                    active={selectedAction === 'nextweek'}
-                    onPress={() => onSelectAction('nextweek')}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <ActionPill
-                    label={confirmedCustomDate ?? 'Pick a date'}
-                    active={selectedAction === 'pickdate'}
+      {/* Reminder expandable. Not with Later: a todo put off has no day for a reminder to go by */}
+      {selectedAction !== 'later' && (
+        <View style={styles.reminderSection}>
+          {/* Toggle row */}
+          <Pressable style={styles.toggleRow} onPress={onToggleReminder}>
+            <View
+              style={[
+                styles.bellContainer,
+                reminderEnabled ? styles.bellContainerActive : styles.bellContainerInactive,
+              ]}
+            >
+              <Bell size={14} strokeWidth={2} color={bellColor} />
+            </View>
+
+            <Text
+              style={[
+                styles.toggleLabel,
+                { color: reminderEnabled ? '#2E5540' : 'rgba(34,34,34,0.45)' },
+              ]}
+            >
+              {reminderEnabled ? 'Set reminder' : 'Add a reminder'}
+            </Text>
+
+            <ChevronDown
+              size={13}
+              strokeWidth={2}
+              color={chevronColor}
+              style={reminderEnabled ? { transform: [{ rotate: '180deg' }] } : undefined}
+            />
+          </Pressable>
+
+          {/* Sub-pills */}
+          {reminderEnabled && (
+            <Animated.View entering={FadeInUp.duration(150)} style={styles.subPillRow}>
+              {REMINDER_PILLS.map(({ key, label }) => {
+                const isActive = selectedReminder === key;
+                const displayLabel =
+                  key === 'custom' && confirmedReminderDate ? confirmedReminderDate : label;
+
+                return (
+                  <Pressable
+                    key={key}
+                    style={[
+                      styles.subPill,
+                      isActive ? styles.subPillActive : styles.subPillInactive,
+                    ]}
                     onPress={() => {
-                      onSelectAction('pickdate');
-                      onRequestDatePicker();
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      if (isActive) {
+                        onSelectReminder(null);
+                      } else if (key === 'custom') {
+                        onRequestReminderDatePicker();
+                        onSelectReminder('custom');
+                      } else {
+                        onSelectReminder(key);
+                      }
                     }}
-                  />
-                </View>
-              </View>
-            </>
-          ) : (
-            <>
-              <ActionPill
-                icon={<ArrowRight size={16} strokeWidth={2.5} />}
-                label={tomorrowLabel()}
-                active={selectedAction === 'tomorrow'}
-                onPress={() => onSelectAction('tomorrow')}
-              />
-              <ActionPill
-                icon={<CalendarDays size={16} strokeWidth={2} />}
-                label="Next Week"
-                active={selectedAction === 'nextweek'}
-                onPress={() => onSelectAction('nextweek')}
-              />
-              <ActionPill
-                icon={<Calendar size={16} strokeWidth={2} />}
-                label={confirmedCustomDate ?? 'Pick a date'}
-                active={selectedAction === 'pickdate'}
-                onPress={() => {
-                  onSelectAction('pickdate');
-                  onRequestDatePicker();
-                }}
-              />
-            </>
+                  >
+                    <Text
+                      style={[
+                        styles.subPillText,
+                        isActive ? styles.subPillTextActive : styles.subPillTextInactive,
+                      ]}
+                    >
+                      {displayLabel}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </Animated.View>
           )}
         </View>
       )}
-
-      {/* Reminder expandable */}
-      <View style={styles.reminderSection}>
-        {/* Toggle row */}
-        <Pressable style={styles.toggleRow} onPress={onToggleReminder}>
-          <View
-            style={[
-              styles.bellContainer,
-              reminderEnabled ? styles.bellContainerActive : styles.bellContainerInactive,
-            ]}
-          >
-            <Bell size={14} strokeWidth={2} color={bellColor} />
-          </View>
-
-          <Text
-            style={[
-              styles.toggleLabel,
-              { color: reminderEnabled ? '#2E5540' : 'rgba(34,34,34,0.45)' },
-            ]}
-          >
-            {reminderEnabled ? 'Set reminder' : 'Add a reminder'}
-          </Text>
-
-          <ChevronDown
-            size={13}
-            strokeWidth={2}
-            color={chevronColor}
-            style={reminderEnabled ? { transform: [{ rotate: '180deg' }] } : undefined}
-          />
-        </Pressable>
-
-        {/* Sub-pills */}
-        {reminderEnabled && (
-          <Animated.View entering={FadeInUp.duration(150)} style={styles.subPillRow}>
-            {REMINDER_PILLS.map(({ key, label }) => {
-              const isActive = selectedReminder === key;
-              const displayLabel =
-                key === 'custom' && confirmedCustomDate ? confirmedCustomDate : label;
-
-              return (
-                <Pressable
-                  key={key}
-                  style={[styles.subPill, isActive ? styles.subPillActive : styles.subPillInactive]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (isActive) {
-                      onSelectReminder(null);
-                    } else if (key === 'custom') {
-                      onRequestReminderDatePicker();
-                      onSelectReminder('custom');
-                    } else {
-                      onSelectReminder(key);
-                    }
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.subPillText,
-                      isActive ? styles.subPillTextActive : styles.subPillTextInactive,
-                    ]}
-                  >
-                    {displayLabel}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </Animated.View>
-        )}
-      </View>
     </View>
   );
 }
@@ -253,22 +249,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
-  weekActionPill: {
-    marginLeft: 'auto',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(123,135,212,0.12)',
-    borderRadius: 999,
-    paddingVertical: 5,
-    paddingLeft: 9,
-    paddingRight: 10,
-  },
-  weekActionText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#7B87D4',
-    fontFamily: 'Inter-SemiBold',
+  askText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 15,
+    lineHeight: 21,
+    color: '#2C4A38',
+    marginBottom: 6,
   },
   pillGroup: {
     gap: 6,

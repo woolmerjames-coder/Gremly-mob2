@@ -166,6 +166,23 @@ describe('a habit schedule', () => {
   });
 });
 
+describe('a todo that was put off, given a day', () => {
+  it('is no longer put off: its day to come back is cleared, and Undo puts it back', async () => {
+    mockState.todos[0] = { ...mockState.todos[0], due_day: null, resurface_at: '2026-10-20' };
+    const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-08' } });
+    const o = await applyChange(c, { source: 'thread' });
+    expect(mockState.todos[0]).toMatchObject({ due_day: '2026-10-08', resurface_at: null });
+    if (o.ok) await o.revert();
+    expect(mockState.todos[0]).toMatchObject({ due_day: null, resurface_at: '2026-10-20' });
+  });
+
+  it('writes nothing about a back day for a todo that was never put off', async () => {
+    const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-08' } });
+    await applyChange(c, { source: 'thread' });
+    expect(mockState.updateTodo.mock.calls[0][1]).not.toHaveProperty('resurface_at');
+  });
+});
+
 describe('nothing the person did since is overwritten', () => {
   it('leaves the item alone when a field moved after the card was drawn', async () => {
     const c = checked({ op: 'change', type: 'todo', id: 't1', fields: { day: '2026-10-05' } });
@@ -173,6 +190,33 @@ describe('nothing the person did since is overwritten', () => {
     const o = await applyChange(c, { source: 'thread' });
     expect(o).toMatchObject({ ok: false, reason: 'stale' });
     expect(mockState.updateTodo).not.toHaveBeenCalled();
+  });
+
+  it('is not thrown by a card that came back with its fields in another order', async () => {
+    // a habit on set days, so the card's "before" holds an object with more than one field
+    mockState.habits[0] = {
+      ...habit(),
+      cadence: 'weekly',
+      target_per_period: 2,
+      frequency: '2x/week',
+      days_active: [1, 4],
+      frequency_value: { type: 'days', days: [1, 4] },
+    };
+    const c = checked({
+      op: 'change',
+      type: 'habit',
+      id: 'h1',
+      fields: { schedule: { per: 'week', times: 3 } },
+    });
+    const was = c.before!.schedule as Record<string, unknown>;
+    expect(Object.keys(was).length).toBeGreaterThan(1);
+    // kept and read back, an object's fields are no longer in the order they were written
+    const kept = {
+      ...c,
+      before: { ...c.before, schedule: Object.fromEntries(Object.entries(was).reverse()) },
+    };
+    const o = await applyChange(kept, { source: 'chat' });
+    expect(o).toMatchObject({ ok: true });
   });
 
   it('says so when the item is gone', async () => {

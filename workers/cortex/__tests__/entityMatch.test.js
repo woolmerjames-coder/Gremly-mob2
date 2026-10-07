@@ -29,7 +29,6 @@ import {
   CONFIDENCE_FLOOR,
   RECENT_CARD_TURNS,
   habitProgressWords,
-  weekStartOf,
   addDays,
 } from '../entityMatch.js';
 import {
@@ -1127,9 +1126,63 @@ test('a habit check-in is a card under a normal reply, unless that day is alread
   expect(
     theirItemsPromptSection({ related: [{ ...run, referred: true }], attention: [] }, '2026-09-29'),
   ).toContain('- habit "10k training run", 3 times a week, logged this week: yesterday (1 of 3)');
-  expect(weekStartOf('2026-09-29')).toBe('2026-09-28');
-  expect(weekStartOf('2026-09-27')).toBe('2026-09-21');
+  // a Sunday person's week ends on Sunday: on Sunday 27 September the Saturday before counts
+  expect(habitProgressWords(run, '2026-09-27')).toBe('logged this week: yesterday (1 of 3)');
+  expect(habitProgressWords(run, '2026-09-29', 0)).toBe(habitProgressWords(run, '2026-09-29'));
   expect(addDays('2026-09-29', -14)).toBe('2026-09-15');
+});
+
+test("a habit's count this week is made in the person's own week", () => {
+  // logged on Monday 28 and Saturday 26 September; today is Tuesday 29 September
+  const run = {
+    id: 'h1000000-0000',
+    type: 'habit',
+    title: '10k training run',
+    frequency: '3 times a week',
+    target_per_period: 3,
+    period_unit: 'week',
+    logged_days: ['2026-09-28', '2026-09-26'],
+  };
+  const today = '2026-09-29';
+  // their weekly day is Wednesday, so their week began on Thursday 24 September
+  expect(habitProgressWords(run, today, 3)).toBe('logged this week: yesterday, Saturday (2 of 3)');
+  // the day before it began is last week's
+  expect(habitProgressWords({ ...run, logged_days: ['2026-09-23'] }, today, 3)).toBe(
+    'nothing logged this week (target 3), last Wednesday 23 September',
+  );
+  // on their weekly day the week is the seven days that end today
+  expect(habitProgressWords(run, '2026-09-30', 3)).toBe(
+    'logged this week: Monday, Saturday (2 of 3)',
+  );
+  // and the day after, a new week has begun
+  expect(habitProgressWords(run, '2026-10-01', 3)).toBe(
+    'nothing logged this week (target 3), last Monday 28 September',
+  );
+  // a daily habit is counted over the last seven days whatever their weekly day
+  const daily = { ...run, cadence: 'daily', logged_days: ['2026-09-29', '2026-09-27'] };
+  expect(habitProgressWords(daily, today, 3)).toBe(habitProgressWords(daily, today));
+  // what the reply is told, wherever the habit's line is written
+  const line =
+    '- habit "10k training run", 3 times a week, logged this week: yesterday, Saturday (2 of 3)';
+  const match = { related: [{ ...run, referred: true }], attention: [] };
+  expect(theirItemsPromptSection(match, today, { weeklyDay: 3 })).toContain(line);
+  expect(anchorPromptSection(run, today, { weeklyDay: 3 })).toContain(line);
+  const turn = turnItemSections({
+    match,
+    anchor: run,
+    mode: 'general',
+    todayIso: today,
+    weeklyDay: 3,
+  });
+  expect(turn.split(line)).toHaveLength(3);
+  // an app that does not send their week is a Sunday person's
+  const sunday = turnItemSections({ match, anchor: run, mode: 'general', todayIso: today });
+  expect(sunday).not.toContain(line);
+  expect(
+    sunday.split(
+      '- habit "10k training run", 3 times a week, logged this week: yesterday (1 of 3)',
+    ),
+  ).toHaveLength(3);
 });
 
 test('existing means card, new means pill: one late card from the changes the extraction found', () => {
@@ -1754,7 +1807,14 @@ test('a tapped card says what it changed, from how the item was, with days in wo
   // the app's closing line was written when they tapped; the change itself is said instead
   expect(s).not.toContain('is now Tomorrow');
   // the same through the sections every chat path builds
-  const all = turnItemSections({ match: null, card: null, recent, anchor: null, mode: 'general', todayIso: '2026-09-30' });
+  const all = turnItemSections({
+    match: null,
+    card: null,
+    recent,
+    anchor: null,
+    mode: 'general',
+    todayIso: '2026-09-30',
+  });
   expect(all).toContain('move it to tomorrow, Thursday 1 October');
 });
 
@@ -1767,7 +1827,12 @@ test('a tapped card from an older app, or with a change that cannot be right, us
     status: 'applied',
     summary: 'Done. Call the Plumber is now Thu 1 Oct.',
   };
-  for (const card of [undefined, { kind: 'edit' }, { kind: 'edit', change: { field: 'due_day', to: 'Thursday' } }, { kind: 'edit', change: { field: 'colour', to: 'red' } }]) {
+  for (const card of [
+    undefined,
+    { kind: 'edit' },
+    { kind: 'edit', change: { field: 'due_day', to: 'Thursday' } },
+    { kind: 'edit', change: { field: 'colour', to: 'red' } },
+  ]) {
     const s = recentCardPromptSection({ ...base, card }, '2026-09-30');
     expect(s).toContain('Thu 1 Oct');
     expect(s).toContain('answer that yes');
@@ -1783,17 +1848,32 @@ test('a tapped check-in for several days names each day', () => {
       title: 'Run',
       frequency: 'daily',
       status: 'applied',
-      card: { kind: 'edit', change: { field: 'logged', from: null, to: '2026-09-30', days: ['2026-09-29', '2026-09-30'] } },
+      card: {
+        kind: 'edit',
+        change: {
+          field: 'logged',
+          from: null,
+          to: '2026-09-30',
+          days: ['2026-09-29', '2026-09-30'],
+        },
+      },
     },
     '2026-09-30',
   );
   expect(s).toContain('"Run" (daily)');
-  expect(s).toContain('log it for yesterday, Tuesday 29 September and today, Wednesday 30 September');
+  expect(s).toContain(
+    'log it for yesterday, Tuesday 29 September and today, Wednesday 30 September',
+  );
 });
 
 test('the matcher is told a change they said yes to has been made, so a follow up asks for nothing new', () => {
   const items = [
-    { id: 'aaaa1111-0000', type: 'todo', title: 'Plan Christmas In California', due_day: '2026-12-25' },
+    {
+      id: 'aaaa1111-0000',
+      type: 'todo',
+      title: 'Plan Christmas In California',
+      due_day: '2026-12-25',
+    },
     { id: 'bbbb2222-0000', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-10-02' },
   ];
   const recent = {
@@ -1801,7 +1881,10 @@ test('the matcher is told a change they said yes to has been made, so a follow u
     type: 'todo',
     title: 'Plan Christmas In California',
     status: 'applied',
-    card: { kind: 'edit', change: { field: 'body_add', from: null, to: "Dave's parents are in from the 22nd" } },
+    card: {
+      kind: 'edit',
+      change: { field: 'body_add', from: null, to: "Dave's parents are in from the 22nd" },
+    },
   };
   const input = buildEntityMatchInput({
     todayStr: 'Wednesday, September 30, 2026',
@@ -1813,9 +1896,14 @@ test('the matcher is told a change they said yes to has been made, so a follow u
   expect(input).toContain(
     "[shown on the card in the last reply, where they said yes to add to it: Dave's parents are in from the 22nd, which has been made]",
   );
-  expect(ENTITY_MATCH_SYSTEM_PROMPT).toContain('that change has been made, so a message that only follows up on it asks for nothing new');
+  expect(ENTITY_MATCH_SYSTEM_PROMPT).toContain(
+    'that change has been made, so a message that only follows up on it asks for nothing new',
+  );
   // still waiting, or from an app that sends no change: shown only
-  for (const r of [{ ...recent, status: 'pending' }, { ...recent, card: { kind: 'edit' } }]) {
+  for (const r of [
+    { ...recent, status: 'pending' },
+    { ...recent, card: { kind: 'edit' } },
+  ]) {
     const plain = buildEntityMatchInput({
       todayStr: 'Wednesday, September 30, 2026',
       message: 'Did you do it?',
@@ -1828,9 +1916,17 @@ test('the matcher is told a change they said yes to has been made, so a follow u
 });
 
 test("the pill gives a new todo the day their words give, and a todo's day is a calendar day or nothing", () => {
-  const prompt = buildPillPrompt({ todayStr: 'Wednesday, September 30, 2026', conversationText: 'User: hi', existingItemsBlock: '' });
-  expect(prompt).toContain("WHEN, for todos: due_date is the one calendar day their words give for doing it");
-  expect(prompt).toContain('When they settle on a day later in the conversation, the day is the one they settled on.');
+  const prompt = buildPillPrompt({
+    todayStr: 'Wednesday, September 30, 2026',
+    conversationText: 'User: hi',
+    existingItemsBlock: '',
+  });
+  expect(prompt).toContain(
+    'WHEN, for todos: due_date is the one calendar day their words give for doing it',
+  );
+  expect(prompt).toContain(
+    'When they settle on a day later in the conversation, the day is the one they settled on.',
+  );
   expect(
     withValidDays([
       { type: 'todo', title: 'Call Mum', due_date: '2026-10-04' },

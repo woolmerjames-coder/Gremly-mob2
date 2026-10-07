@@ -7,6 +7,7 @@
 import {
   callModel,
   geminiContents,
+  geminiTool,
   openaiMessages,
   providerOf,
   readGemini,
@@ -130,6 +131,27 @@ describe('Gemini', () => {
       text: '',
       calls: [{ id: 'g1', nativeId: null, name: 'find_items', args: { query: 'dentist' } }],
     });
+  });
+
+  it('declares a tool that takes nothing without parameters, which Gemini refuses when empty', async () => {
+    const bare = {
+      name: 'offer_week',
+      description: 'Put the button.',
+      parameters: { type: 'object', properties: {} },
+    };
+    expect(geminiTool(bare)).toEqual({ name: 'offer_week', description: 'Put the button.' });
+    expect(geminiTool(TOOLS[0])).toBe(TOOLS[0]);
+    await callModel({
+      model: 'gemini-3.8-flash',
+      system: 'SYS',
+      turns,
+      tools: [...TOOLS, bare],
+      keys: { google: 'k' },
+    });
+    expect(sent.at(-1).body.tools[0].functionDeclarations).toEqual([
+      TOOLS[0],
+      { name: 'offer_week', description: 'Put the button.' },
+    ]);
   });
 
   it('sends its own parts back unchanged, then the tool results', () => {

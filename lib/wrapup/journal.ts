@@ -8,12 +8,16 @@
  *
  * The entry is dated by the person's day, which after midnight is still
  * yesterday until their day ends.
+ *
+ * The journal page saves through here too. Its entry is the same entry, with
+ * the page's layout kept beside the words, and it can be changed afterwards.
  */
 import { env, getEnv } from '../env';
 import { getSessionToken } from '../cortex/getSessionToken';
 import { getDateService } from '../date/DateService';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { ALL_MOODS, type Mood } from '../shared/moods';
+import { LAYOUT_KEY, type JournalLayout } from '../journal/page';
 
 const TAGS = ['reflection', 'sweep'];
 
@@ -99,9 +103,13 @@ function personTag(name: unknown): string | null {
 async function enrich(
   noteId: string,
   text: string,
-  day: string,
   moods: Mood[],
-  dayMoods: Promise<Mood[] | null> | undefined,
+  opts: {
+    /** The moods Gremly read from the entry with the rest of their day */
+    dayMoods?: Promise<Mood[] | null>;
+    /** The tags the entry keeps whatever is read: the wrap up's own, or the ones it already had */
+    baseTags?: string[];
+  } = {},
 ): Promise<Mood[] | null> {
   const url = cortexUrl();
   if (!url) return null;
@@ -122,32 +130,34 @@ async function enrich(
 
   const patch: Record<string, unknown> = {};
   if (title?.smart_title) patch.title = title.smart_title;
-  let tags = [...TAGS];
+  let tags = [...new Set(opts.baseTags ?? TAGS)];
+  const hadTags = tags.length;
   if (Array.isArray(read?.tags)) tags = [...new Set([...tags, ...read.tags])];
   if (Array.isArray(read?.people)) {
     const people = read.people.map(personTag).filter((t: string | null): t is string => !!t);
     tags = [...new Set([...tags, ...people])];
   }
-  if (tags.length > TAGS.length) patch.tags = tags;
+  if (tags.length > hadTags) patch.tags = tags;
   // the moods Gremly read from their words with the rest of their day, when he
   // gave any; the background read of the words alone otherwise
-  const withDay = knownMoods(await Promise.resolve(dayMoods).catch(() => null));
+  const withDay = knownMoods(await Promise.resolve(opts.dayMoods).catch(() => null));
   const found = withDay.length ? withDay : knownMoods(read?.mood);
   // a mood they picked themselves is kept; the one read from their words fills in when they picked none
   if (found.length && !moods.length) patch.mood = found;
   if (read?.energy_type) patch.energy_type = read.energy_type;
+  // taken back out since: leave it alone
+  const still = (
+    store().notes as { id: string; archived?: boolean; views?: Record<string, unknown> | null }[]
+  ).find((n) => n.id === noteId);
+  if (!still || still.archived) return null;
   if (title?.confirmation_message || read?.mood) {
+    // added to what the entry holds now, so its page layout and its marks are kept
     patch.views = {
-      ...sweepViews(day, moods),
+      ...(still.views ?? {}),
       ...(title?.confirmation_message ? { confirmation_message: title.confirmation_message } : {}),
       ...(read?.mood ? { ai_mood: read.mood } : {}),
     };
   }
-  // taken back out since: leave it alone
-  const still = (store().notes as { id: string; archived?: boolean }[]).find(
-    (n) => n.id === noteId,
-  );
-  if (!still || still.archived) return null;
   if (Object.keys(patch).length) await store().updateNote(noteId, patch);
   return found.length && !moods.length ? found : null;
 }
@@ -167,6 +177,8 @@ export async function saveJournal(p: {
   part?: 'morning' | 'afternoon' | 'evening';
   /** The moods Gremly read from the entry with the rest of their day, when he is reading it */
   dayMoods?: Promise<Mood[] | null>;
+  /** The journal page it was written on, kept beside the words */
+  page?: JournalLayout;
 }): Promise<JournalSaved> {
   const text = p.text.trim();
   const moods = knownMoods(p.moods);
@@ -182,12 +194,14 @@ export async function saveJournal(p: {
       canonicalType: 'log',
       journal_subtype: 'reflection',
       tags: [...TAGS],
-      views: sweepViews(p.day, moods),
+      views: p.page
+        ? { ...sweepViews(p.day, moods), [LAYOUT_KEY]: p.page }
+        : sweepViews(p.day, moods),
     });
     const noteId = created?.id as string | undefined;
     if (!noteId) return { ok: false, message: 'It was not saved.' };
     const found = text
-      ? enrich(noteId, text, p.day, moods, p.dayMoods).catch((err) => {
+      ? enrich(noteId, text, moods, { dayMoods: p.dayMoods }).catch((err) => {
           console.warn('[WrapUp] the journal background read failed:', err);
           return null;
         })
@@ -208,6 +222,137 @@ export async function saveJournal(p: {
       message: err instanceof Error && err.message ? err.message : 'It was not saved.',
     };
   }
+}
+
+/**
+ * Save a check in on a goal, written from the goal's Space. It is a journal
+ * entry of its own, kept with its goal and its Space, and is not the day's
+ * page: the Space counts and lists a goal's check ins by these marks.
+ *
+ * A milestone's check in from their weekly review (lib/wrapup/checkIns.ts) is
+ * saved the same way. A milestone is something they named, with a date, and
+ * belongs to no Space, so it has none; what it is a check in of is kept
+ * beside the goal (milestone).
+ */
+export async function saveCheckIn(p: {
+  text: string;
+  moods: Mood[];
+  goal: { goal_id: string; goal_name: string; space_id?: string | null };
+  /** The journal page it was written on, kept beside the words */
+  page?: JournalLayout;
+  /** For a milestone's check in: the date the milestone is for, and which check in this was */
+  milestone?: { date: string; checkin_id: string };
+}): Promise<JournalSaved> {
+  const text = p.text.trim();
+  const moods = knownMoods(p.moods);
+  if (!text && !moods.length) return { ok: false, message: 'Nothing to save.' };
+  const title = `Check-in: ${p.goal.goal_name}`;
+  const tags = [p.goal.goal_name.toLowerCase()];
+  const checkIn = {
+    goal_id: p.goal.goal_id,
+    goal_name: p.goal.goal_name,
+    ...(p.milestone ? { milestone: p.milestone } : {}),
+  };
+  try {
+    const created = await store().createNote({
+      subtype: 'journal',
+      title,
+      body: text || undefined,
+      mood: moods.length ? moods : null,
+      origin: 'goal_checkin',
+      canonicalType: 'log',
+      ...(p.goal.space_id ? { space_id: p.goal.space_id } : {}),
+      tags: [...tags],
+      views: p.page ? { goal_checkin: checkIn, [LAYOUT_KEY]: p.page } : { goal_checkin: checkIn },
+    });
+    const noteId = created?.id as string | undefined;
+    if (!noteId) return { ok: false, message: 'It was not saved.' };
+    const found = text
+      ? enrich(noteId, text, moods, { baseTags: tags }).catch((err) => {
+          console.warn('[Journal] the background read of the check in failed:', err);
+          return null;
+        })
+      : Promise.resolve(null);
+    return {
+      ok: true,
+      noteId,
+      title,
+      moods: found,
+      revert: async () => {
+        await store().deleteNote(noteId);
+      },
+    };
+  } catch (err) {
+    console.warn('[Journal] could not save the check in:', err);
+    return {
+      ok: false,
+      message: err instanceof Error && err.message ? err.message : 'It was not saved.',
+    };
+  }
+}
+
+export type JournalChanged =
+  | {
+      ok: true;
+      /** The moods the background read found, when the words changed and none were picked */
+      moods: Promise<Mood[] | null>;
+    }
+  | { ok: false; message: string };
+
+/**
+ * Change an entry that is already in the journal: its words, its moods and
+ * the page it is laid out on. When the words changed it is read again in the
+ * background, for a title, tags and people that fit what it says now.
+ *
+ * It works on any journal entry, not only one from a wrap up, and leaves an
+ * entry's own marks and tags as they were.
+ */
+export async function updateJournal(p: {
+  noteId: string;
+  text: string;
+  moods: Mood[];
+  /** Left out for an entry that is now plain words */
+  page?: JournalLayout;
+}): Promise<JournalChanged> {
+  const note = (
+    store().notes as {
+      id: string;
+      archived?: boolean | null;
+      body?: string | null;
+      tags?: string[] | null;
+      views?: Record<string, unknown> | null;
+    }[]
+  ).find((n) => n.id === p.noteId);
+  if (!note || note.archived) return { ok: false, message: 'It is no longer in your journal.' };
+  const text = p.text.trim();
+  const moods = knownMoods(p.moods);
+  if (!text && !moods.length) return { ok: false, message: 'Nothing to save.' };
+
+  const views: Record<string, unknown> = { ...(note.views ?? {}) };
+  if (views.sweep_reflection) views.sweep_moods = moods;
+  if (p.page) views[LAYOUT_KEY] = p.page;
+  else delete views[LAYOUT_KEY];
+  try {
+    await store().updateNote(p.noteId, {
+      body: text || null,
+      mood: moods.length ? moods : null,
+      views,
+    });
+  } catch (err) {
+    console.warn('[Journal] could not save the change:', err);
+    return {
+      ok: false,
+      message: err instanceof Error && err.message ? err.message : 'It was not saved.',
+    };
+  }
+  const reread = !!text && text !== (note.body ?? '').trim();
+  const found = reread
+    ? enrich(p.noteId, text, moods, { baseTags: note.tags ?? [] }).catch((err) => {
+        console.warn('[Journal] the background read of the change failed:', err);
+        return null;
+      })
+    : Promise.resolve(null);
+  return { ok: true, moods: found };
 }
 
 /** Change the moods on tonight's entry. */

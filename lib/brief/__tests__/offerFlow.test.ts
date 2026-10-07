@@ -10,6 +10,8 @@ import {
   revealStep,
   typedAnswerStep,
   backToPlanStep,
+  afterCheckInStep,
+  checkInReplyStep,
 } from '../offerFlow';
 import { heldOffer, liveOfferId, visibleThreadMessages } from '../messages';
 import type { BriefOfferMeta } from '../types';
@@ -185,5 +187,62 @@ describe('the plan offer brought back', () => {
     expect(backToPlanStep(offer, 14 * 60).content).toBe(
       'Want to plan the rest of your afternoon now?',
     );
+  });
+});
+
+describe('after the habit check in', () => {
+  const riding: BriefOfferMeta = {
+    type: 'brief-offer',
+    kind: 'plan',
+    brief_id: 'b1',
+    plan_from: 540,
+    held: true,
+    chosen: { id: 'habit_keep', at: 'now' },
+    checkin: { habit_id: 'h1', title: 'Strength', asked: true },
+    review_offer: true,
+    buttons: [
+      { id: 'plan', label: 'Plan my day', action: 'plan', primary: true },
+      { id: 'not_today', label: 'Not today', action: 'not_today' },
+    ],
+  };
+
+  it("draws the habit's week under Gremly's reply when there is one to show", () => {
+    const step = checkInReplyStep('Nice.', 'morning', 'b1', { habit_id: 'h1', day: '2026-10-08' });
+    expect(step).toEqual({
+      role: 'assistant',
+      content: 'Nice.',
+      meta: {
+        type: 'brief-text',
+        part: 'morning',
+        ids: [],
+        brief_id: 'b1',
+        habit_week: { habit_id: 'h1', day: '2026-10-08' },
+      },
+    });
+    const plain = checkInReplyStep('Not saved.', 'morning', 'b1', null);
+    expect(plain.meta).not.toHaveProperty('habit_week');
+  });
+
+  it('shows the offer it rode on as a new message: same words and buttons, no check in', () => {
+    const step = afterCheckInStep({ id: 'offer', content: 'Want to plan?', meta: riding });
+    expect(step.role).toBe('assistant');
+    expect(step.content).toBe('Want to plan?');
+    expect(step.meta).toEqual({
+      type: 'brief-offer',
+      kind: 'plan',
+      brief_id: 'b1',
+      plan_from: 540,
+      review_offer: true,
+      buttons: riding.buttons,
+      revealed_from: 'offer',
+    });
+  });
+
+  it('never brings a plan offer back as the check in', () => {
+    const waiting: BriefOfferMeta = { ...riding, held: undefined, chosen: undefined };
+    waiting.checkin = { habit_id: 'h1', title: 'Strength' };
+    const step = backToPlanStep({ id: 'offer', meta: waiting }, 10 * 60);
+    expect(step.meta).not.toHaveProperty('checkin');
+    expect((step.meta as BriefOfferMeta).brought_back_from).toBe('offer');
   });
 });

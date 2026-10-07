@@ -9,6 +9,7 @@ import {
   closeMsgs,
   habitsMsgs,
   journalAskMsgs,
+  journalSavedMsgs,
   nightMsgs,
   notTonightMsgs,
   offerButtons,
@@ -18,6 +19,9 @@ import {
   skippedMsgs,
   sortedMsgs,
   type WrapMsg,
+  closeButtons,
+  nightOnlyMsgs,
+  toWeekMsgs,
 } from '../flow';
 import type { BriefOfferMeta, SweepRecapMeta } from '../../brief/types';
 import type { WrapDay } from '../words';
@@ -58,12 +62,8 @@ describe('the wrap up in the thread', () => {
     expect(msgs[3].content).toContain('Book the car service');
     const offer = offerOf(msgs[4]);
     expect(offer.kind).toBe('wrap_up');
-    expect(offer.buttons.map((b) => b.action)).toEqual([
-      'sweep',
-      'sweep_skip',
-      'plan_week',
-      'not_tonight',
-    ]);
+    // planning the week is offered at the close, not here
+    expect(offer.buttons.map((b) => b.action)).toEqual(['sweep', 'sweep_skip', 'not_tonight']);
     expect(offer.hint).toBe('Moving it all uses one of your three weekly skips');
     // every message belongs to the evening
     expect(msgs.every((m) => m.meta.wrap === true)).toBe(true);
@@ -87,7 +87,7 @@ describe('the wrap up in the thread', () => {
 
   it('leaves out moving it all on when no weekly skip is left', () => {
     const buttons = offerButtons(DAY, 0);
-    expect(buttons.map((b) => b.action)).toEqual(['sweep', 'plan_week', 'not_tonight']);
+    expect(buttons.map((b) => b.action)).toEqual(['sweep', 'not_tonight']);
   });
 
   it('names tomorrow by its weekday after midnight', () => {
@@ -119,19 +119,44 @@ describe('the wrap up in the thread', () => {
       ['Run'],
       '2026-09-30',
     );
-    expect(msgs[0].content).toBe('Two habits are still open today. Did either happen?');
+    expect(msgs[0].content).toBe(
+      "Two habits are still open today. Did either happen? And the one you're breaking: did it hold?",
+    );
     expect(msgs[1].meta).toMatchObject({ type: 'sweep-habits', status: 'open', already: ['Run'] });
   });
 
-  it('asks about the day with the three ways to answer', () => {
+  it('asks about the day with the four ways to answer', () => {
     const [ask] = journalAskMsgs(false);
     expect(ask.content).toBe('How was today?');
     expect(offerOf(ask).buttons.map((b) => b.action)).toEqual([
       'journal_write',
+      'journal_page',
       'journal_mood',
       'journal_skip',
     ]);
+    expect(offerOf(ask).buttons[1].label).toBe('Open my journal');
     expect(journalAskMsgs(true)[0].content).toBe('Of course. How was today?');
+  });
+
+  it('shows an entry written on the journal page with its answers and picked moods', () => {
+    const [, saved] = journalSavedMsgs({
+      day: '2026-09-30',
+      noteId: 'n1',
+      title: 'Wednesday evening',
+      text: 'Thorn: the hard part\nThe budget review.',
+      moods: ['calm'],
+      parts: [{ q: 'Thorn: the hard part', text: 'The budget review.' }],
+    });
+    expect(saved.meta).toMatchObject({
+      type: 'sweep-journal',
+      status: 'saved',
+      moods: ['calm'],
+      parts: [{ q: 'Thorn: the hard part', text: 'The budget review.' }],
+    });
+    // a quick reply has no parts, and no moods until they are read
+    const [, quick] = journalSavedMsgs({ day: '2026-09-30', noteId: 'n1', title: 't', text: 'Hi' });
+    expect(quick.meta).toMatchObject({ moods: [] });
+    expect('parts' in quick.meta).toBe(false);
   });
 
   it("puts Gremly's question with its choices, Something else and Skip", () => {
@@ -151,6 +176,39 @@ describe('the wrap up in the thread', () => {
     expect(q.buttons.map((b) => b.action)).toEqual(['answer', 'answer', 'answer_other', 'skip']);
   });
 
+  it("carries a milestone's check in on its own message, with no question id", () => {
+    const [, m] = questionsStartMsgs(1, {
+      id: 'checkin:c1',
+      question: 'You set a check in on “Run a 10k”. How is it going?',
+      choices: [],
+      created_at: '2026-10-08',
+      asked_at: null,
+      record_table: null,
+      record_id: null,
+      private: false,
+      checkin: {
+        id: 'c1',
+        goal: 'Run a 10k',
+        goal_date: '2026-10-20',
+        date: '2026-10-08',
+        title: 'How the long run went',
+        status: 'open',
+        row_id: 'row-1',
+      },
+    });
+    const q = offerOf(m);
+    // what settles the answer: the review that keeps it, and what the journal entry needs
+    expect(q.milestone_checkin).toEqual({
+      row_id: 'row-1',
+      id: 'c1',
+      goal: 'Run a 10k',
+      goal_date: '2026-10-20',
+    });
+    // it is not a row among Gremly's questions, so nothing treats it as one
+    expect(q.question_id).toBeUndefined();
+    expect(q.buttons.map((b) => b.action)).toEqual(['answer_other', 'skip']);
+  });
+
   it('shows the item an answer was about, to open', () => {
     const msgs = answeredMsgs(true, { id: 'n1', kind: 'note', title: 'Dentist' });
     expect(types(msgs)).toEqual(['brief-text', 'brief-event', 'sweep-item']);
@@ -162,14 +220,71 @@ describe('the wrap up in the thread', () => {
   });
 
   it('closes with tomorrow and the two buttons', () => {
-    const [close] = closeMsgs({ day: DAY, meetings: 3, lined: ['Car service'], canPlan: true });
+    const [close] = closeMsgs({ day: DAY, meetings: 3, todos: ['Car service'], canPlan: true });
     expect(close.content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has three meetings, and Car service lined up.",
+      "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and Car service planned.",
     );
     expect(offerOf(close).buttons.map((b) => [b.label, b.action])).toEqual([
-      ['Plan tomorrow', 'plan_tomorrow'],
       ['Night, Gremly', 'night'],
+      ['Plan tomorrow', 'plan_tomorrow'],
     ]);
+  });
+
+  describe('with their week, on the evenings the close offers it', () => {
+    const close = (week: 'plan' | 'see' | null, canPlan = true) =>
+      offerOf(closeMsgs({ day: DAY, meetings: 0, todos: [], canPlan, week })[0]);
+
+    it('offers the weekly review beside good night until it is done', () => {
+      const offer = close('plan');
+      expect(offer.buttons.map((b) => [b.label, b.action])).toEqual([
+        ['Night, Gremly', 'night'],
+        ['Plan tomorrow', 'plan_tomorrow'],
+        ['Plan my week', 'plan_week'],
+      ]);
+      // good night is still the one the close leads to
+      expect(offer.buttons.filter((b) => b.primary).map((b) => b.action)).toEqual(['night']);
+      expect(offer.hint).toBe("Your week isn't planned yet.");
+    });
+
+    it('offers the week they planned once the review is done', () => {
+      const offer = close('see', false);
+      expect(offer.buttons.map((b) => [b.label, b.action])).toEqual([
+        ['Night, Gremly', 'night'],
+        ['See your week', 'see_week'],
+      ]);
+      expect(offer.hint).toBeUndefined();
+    });
+
+    it('says nothing of the week on any other evening', () => {
+      expect(close(null).buttons.map((b) => b.action)).toEqual(['night', 'plan_tomorrow']);
+      expect(closeButtons(DAY, true).map((b) => b.action)).toEqual(['night', 'plan_tomorrow']);
+    });
+
+    it('keeps the week on the buttons put back, and after tomorrow is planned', () => {
+      const again = buttonsAgain('close', {
+        day: DAY,
+        skipsLeft: 3,
+        left: 0,
+        journalDone: true,
+        question: null,
+        canPlan: false,
+        week: 'plan',
+      });
+      expect(again[0].content).toBe('');
+      expect(offerOf(again[0]).buttons.map((b) => b.action)).toEqual(['night', 'plan_week']);
+      expect(offerOf(nightOnlyMsgs(DAY, 'see')[0]).buttons.map((b) => b.action)).toEqual([
+        'night',
+        'see_week',
+      ]);
+      expect(offerOf(nightOnlyMsgs(DAY)[0]).buttons.map((b) => b.action)).toEqual(['night']);
+    });
+
+    it('turns to the week when they tap Plan my week', () => {
+      const msgs = toWeekMsgs({ id: 'plan_week', label: 'Plan my week', action: 'plan_week' });
+      expect(types(msgs)).toEqual(['brief-reply', 'brief-text']);
+      expect(msgs.map((m) => m.content)).toEqual(['Plan my week', "Let's plan your week."]);
+      expect(msgs.every((m) => m.meta.wrap === true)).toBe(true);
+    });
   });
 
   it('ends the thread on good night', () => {
@@ -237,13 +352,14 @@ describe('the wrap up in the thread', () => {
     expect(labels(opening[opening.length - 1])).toContain('Not now');
     expect(labels(journalAskMsgs(false, true)[0])).toEqual([
       'Write a few lines',
+      'Open my journal',
       'Just pick a mood',
       'Skip',
     ]);
     expect(journalAskMsgs(false, true)[0].content).toBe('How is today going?');
-    expect(labels(closeMsgs({ day: EARLY, meetings: 0, lined: [], canPlan: true })[0])).toEqual([
-      'Plan tomorrow',
+    expect(labels(closeMsgs({ day: EARLY, meetings: 0, todos: [], canPlan: true })[0])).toEqual([
       'Thanks, Gremly',
+      'Plan tomorrow',
     ]);
     // the buttons put back for a step keep to the same words
     const again = buttonsAgain('journal', {

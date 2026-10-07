@@ -11,9 +11,15 @@
  * operations (change, archive). Keeping an item as it is and bringing it back
  * later are Sweep's own. They write Sweep's marks (swept_at, resurface_at,
  * skipped_in_sweep_at), which the change model keeps off its field list on
- * purpose, so Gremly is never told about them and cannot propose them:
- * checkChange answers unknown_op for both. They live here, beside the model,
- * and nothing in workers/shared/changes knows them.
+ * purpose, so no surface is offered them as fields or as general operations.
+ * They live here, beside the model.
+ *
+ * The weekly review has a later of its own in the model (the later change,
+ * WEEK_OPS in workers/shared/changes/fields.js, applied by lib/changes/week.ts
+ * through lib/changes/later.ts): the day cleared, the back day set, no
+ * reminder. Gremly can offer that one where the person's week is known. A
+ * todo card's Later here writes the same columns (laterColumns), so a todo
+ * put off from a card and one put off on the week's board are the same thing.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { supabase } from '../supabase/client';
@@ -23,8 +29,9 @@ import type { ItemReminder } from '../types';
 import { applyChange } from './apply';
 import { checkChange } from './model';
 import { contextFor, findItem } from './snapshot';
+import { laterColumns } from './later';
 
-/** Sweep's own operations. Never added to OPS: the agent's tool list is built from that. */
+/** Sweep's own operations. Never added to OPS: every surface's tool list is built from that. */
 export const SWEEP_OPS = {
   keep: 'keep an item as it is: Sweep has looked at it',
   later: 'bring an item back in a later Sweep',
@@ -165,13 +172,6 @@ function reminderFor(id: string, date: string, time: string): ItemReminder {
   };
 }
 
-/** A default reminder time from the item's part of the day. */
-function defaultReminderTime(timeWindow?: string | null): string {
-  if (timeWindow === 'day') return '13:00';
-  if (timeWindow === 'evening') return '18:00';
-  return '09:00';
-}
-
 let seq = 0;
 function nextCid(): string {
   seq += 1;
@@ -245,16 +245,14 @@ async function leave(item: Item, base: Base): Promise<SweepOutcome> {
 }
 
 async function keepTodo(decision: SweepDecision, item: Item, base: Base): Promise<SweepOutcome> {
-  // Bring it back later: Sweep's own, with a reminder on the day
+  // Put off for later: the weekly review's Later (lib/changes/later.ts). It
+  // leaves its day, comes back on its back day, and the count of times it
+  // has been put off goes up. No reminder: a Later comes back by its date.
   if (decision.resurfaceDateStr) {
     const day = decision.resurfaceDateStr;
-    void maybeAsk('bell');
     const w = await patchWithUndo('todo', item, {
-      resurface_at: day,
-      scheduled_date: day,
-      due_day: day,
-      due_date: null,
-      reminders: [reminderFor(item.id, day, defaultReminderTime(item.time_window))],
+      ...laterColumns(item, day).patch,
+      skipped_in_sweep_at: null,
     });
     return {
       ok: true,

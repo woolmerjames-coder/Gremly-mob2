@@ -2,8 +2,7 @@
  * EventBus Tests
  *
  * Tests for the lightweight pub/sub event bus used across the app.
- * Covers subscription, emission, unsubscription, and the new
- * openTomorrowBrief event.
+ * Covers subscription, emission and unsubscription.
  */
 
 import { eventBus } from '../EventBus';
@@ -130,44 +129,6 @@ describe('EventBus', () => {
 
       expect(handler1).not.toHaveBeenCalled();
       expect(handler2).not.toHaveBeenCalled();
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Tomorrow Brief event
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('openTomorrowBrief event', () => {
-    it('fires handler with empty payload', () => {
-      const handler = jest.fn();
-      eventBus.on('openTomorrowBrief', handler);
-
-      eventBus.emit('openTomorrowBrief', {});
-
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler).toHaveBeenCalledWith({});
-    });
-
-    it('unsubscribe prevents calls', () => {
-      const handler = jest.fn();
-      const unsubscribe = eventBus.on('openTomorrowBrief', handler);
-
-      unsubscribe();
-      eventBus.emit('openTomorrowBrief', {});
-
-      expect(handler).not.toHaveBeenCalled();
-    });
-
-    it('multiple handlers can listen', () => {
-      const handler1 = jest.fn();
-      const handler2 = jest.fn();
-      eventBus.on('openTomorrowBrief', handler1);
-      eventBus.on('openTomorrowBrief', handler2);
-
-      eventBus.emit('openTomorrowBrief', {});
-
-      expect(handler1).toHaveBeenCalledTimes(1);
-      expect(handler2).toHaveBeenCalledTimes(1);
     });
   });
 

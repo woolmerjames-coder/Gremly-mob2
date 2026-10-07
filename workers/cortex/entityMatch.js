@@ -28,6 +28,7 @@
 
 import { helperFetch } from './helperClient.js';
 import { models } from './models.js';
+import { weekAround } from '../shared/habitWeek.js';
 
 // The matcher sees every live item the fetch returns; this only bounds the prompt.
 export const MATCH_ITEMS_MAX = 700;
@@ -567,18 +568,14 @@ export function addDays(day, n) {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
-/** The Monday that starts the week holding this day. */
-export function weekStartOf(day) {
-  const [y, m, d] = String(day).split('-').map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 Sunday
-  return addDays(day, -((dow + 6) % 7));
-}
-
 /**
  * How a habit is going, in words for the reply: what was logged this week
- * against its target, or over the last seven days for a daily one.
+ * against its target, or over the last seven days for a daily one. The week
+ * is their own, the seven days that end on their weekly day (0 Sunday to 6
+ * Saturday; Sunday when the app did not say), so the count is the one the app
+ * and the brief make.
  */
-export function habitProgressWords(h, todayIso) {
+export function habitProgressWords(h, todayIso, weeklyDay = 0) {
   if (!todayIso) return '';
   const logged = (h.logged_days || []).filter((d) => d <= todayIso);
   // cadence says how the target is counted (his data keeps period_unit as
@@ -589,7 +586,7 @@ export function habitProgressWords(h, todayIso) {
     const n = logged.filter((d) => d >= from).length;
     return `logged ${n} of the last 7 days${n ? `, last ${dayInWords(logged[0], todayIso)}` : ''}`;
   }
-  const start = weekStartOf(todayIso);
+  const start = weekAround(todayIso, weeklyDay).first;
   const week = logged.filter((d) => d >= start);
   const target = h.cadence === 'weekly' || !h.cadence ? h.target_per_period : null;
   const days = week.map((d) => dayInOneWord(d, todayIso)).join(', ');
@@ -693,10 +690,10 @@ function dayInOneWord(day, todayIso) {
   return weekdayOf(day);
 }
 
-function itemLine(c, todayIso) {
+function itemLine(c, todayIso, weeklyDay) {
   let when = '';
   if (c.type === 'habit') {
-    const progress = habitProgressWords(c, todayIso);
+    const progress = habitProgressWords(c, todayIso, weeklyDay);
     when = `${c.frequency ? `, ${c.frequency}` : ''}${progress ? `, ${progress}` : ''}`;
   } else if (c.due_day && c.type === 'note') {
     when = `, ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` at ${c.due_time}` : ''}`;
@@ -742,7 +739,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
     parts.push(
       ...related.map(
         (c) =>
-          `${itemLine(c, todayIso)}${
+          `${itemLine(c, todayIso, opts.weeklyDay)}${
             anchor && c.id === anchor.id ? ' (the item this chat was opened about)' : ''
           }`,
       ),
@@ -750,7 +747,7 @@ export function theirItemsPromptSection(match, todayIso, opts = {}) {
   else parts.push('- none of their items, as far as the app can tell');
   if (attention.length) {
     parts.push('Overdue or coming up this week:');
-    parts.push(...attention.map((c) => itemLine(c, todayIso)));
+    parts.push(...attention.map((c) => itemLine(c, todayIso, opts.weeklyDay)));
   }
   if (!opts.card) {
     parts.push(
@@ -1076,7 +1073,9 @@ export function recentCardPromptSection(recent, todayIso = null) {
       return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${cardItem(recent, todayIso)}, proposing to ${changeInWords(card, todayIso)}. They tapped Yes, so that change has been made: what this says about the item is how it was before; wherever else this prompt shows the item, it shows it as it is now, after the change. ${done}`;
     }
     // older apps send the closing line the app showed, written when they tapped
-    const what = recent.summary ? ` The app told them then: ${String(recent.summary).slice(0, 160)}` : '';
+    const what = recent.summary
+      ? ` The app told them then: ${String(recent.summary).slice(0, 160)}`
+      : '';
     return `\n\n=== LAST CARD ===\nEarlier in this chat the app showed the user a card for ${item}; they tapped Yes, so that change has been made.${what} Wherever else this prompt shows the item, it shows it as it is now, after the change. ${done}`;
   }
   if (recent.status === 'undone') {
@@ -1124,7 +1123,7 @@ export function anchorPromptSection(anchor, todayIso, opts = {}) {
   const known = `The user opened this chat from their ${kind} "${title}" to talk it through, so they know it exists and is on their list: never tell them it is on their list or already tracked, never offer to add or save it, and never ask whether it is new.`;
   if (opts.mode === 'entity_card') return `${head}${known}`;
   const detail = opts.detailText ? `\n${opts.detailText}\n${workFromIt(anchor.type)}` : '';
-  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso)}${detail}`;
+  return `${head}${known} Until the conversation moves on, what they say is about this item: talk it through with them and help with whatever they need about it. When they move on to something else, follow them and leave this item alone.\n${itemLine(anchor, todayIso, opts.weeklyDay)}${detail}`;
 }
 
 /**
@@ -1147,6 +1146,8 @@ function workFromIt(type) {
  * was opened about (with what it holds, itemDetail.js, when the caller read
  * it), and what they have on. The Worker's chat paths and the
  * scenario runner all build it here, so the runner reads what production reads.
+ * weeklyDay is their weekly day, for a habit's count this week (Sunday when
+ * the app did not send their week).
  */
 export function turnItemSections({
   match,
@@ -1156,12 +1157,13 @@ export function turnItemSections({
   mode,
   todayIso,
   detailText = '',
+  weeklyDay = 0,
 }) {
   let out = '';
   if (card) out += entityCardPromptSection(card, { anchorId: anchor?.id || null, todayIso });
   out += recentCardPromptSection(recent, todayIso);
-  out += anchorPromptSection(anchor, todayIso, { mode, detailText });
-  out += theirItemsPromptSection(match, todayIso, { mode, card, anchor });
+  out += anchorPromptSection(anchor, todayIso, { mode, detailText, weeklyDay });
+  out += theirItemsPromptSection(match, todayIso, { mode, card, anchor, weeklyDay });
   return out;
 }
 

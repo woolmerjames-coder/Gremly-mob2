@@ -44,6 +44,53 @@ export const OPS = {
   plan: "change today's plan or its set times, in today's thread",
 };
 
+/**
+ * The week's own operations (the weekly review). Each changes the person's
+ * week rather than a field of one item: a todo put off with the day it comes
+ * back, the days a habit is planned on, the week's busy days and free hours,
+ * the week's intention, the steps towards something big, and the day the
+ * review happens on. They are kept apart from OPS on purpose: every surface's
+ * tool list is built from OPS, and the week's operations are offered only
+ * where the person's week is known (today's thread, when the app sends it).
+ * The checks are checkWeekChange in check.js; the app applies them in
+ * lib/changes/week.ts.
+ */
+export const WEEK_OPS = {
+  later: 'put a todo off for now, with the day it comes back to them',
+  habit_days: 'choose the days a habit is planned on in the week',
+  week_shape:
+    'set which days of the week are busy, and how many hours they have free on each kind of day',
+  intention: 'set their intention for the week',
+  milestone:
+    'set up the steps towards something big that is more than a week away, with todos to do and check ins for Gremly to hold',
+  weekly_day: 'move the day of the week their weekly review happens on',
+};
+
+/**
+ * A habit eased for a stretch of days: paused, given a lighter version, or
+ * set back to usual (workers/shared/habitWeek.js has the rules). Kept apart
+ * from OPS for the same reason as the week's operations: every surface's tool
+ * list is built from OPS, and this one is offered only to an app build that
+ * can apply it. Such a build says so by sending what is eased now with its
+ * week (the request's week.eased), on today's thread and in chat alike. The
+ * check is checkEase in check.js; the app applies it in lib/changes/ease.ts.
+ */
+export const EASE_OPS = {
+  ease: 'pause a habit for a stretch of days, give it a lighter version for one, or set it back to usual',
+};
+
+/** What a milestone's step is: a todo to do, or a check in Gremly holds in an evening wrap up. */
+export const STEP_KINDS = ['todo', 'check_in'];
+
+export const WEEK_LIMITS = {
+  /** An intention is one short line */
+  intention: 200,
+  /** What a milestone is for */
+  goal: 120,
+  /** The most steps one milestone is set up with */
+  steps: 6,
+};
+
 const NAME_MAX = 200;
 const TEXT_MAX = 4000;
 
@@ -292,6 +339,9 @@ export const PLAN_KINDS = [
   // make a plan for the rest of today, when there is none on screen
   'plan_day',
 ];
+
+/** The longest name an item takes, for a milestone's steps too. */
+export const NAME_LIMIT = NAME_MAX;
 
 export function fieldsOf(type) {
   return TYPES[type]?.fields || null;

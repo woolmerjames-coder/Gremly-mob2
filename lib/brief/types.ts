@@ -31,7 +31,10 @@ export type BriefMessageType =
   | 'sweep-habits'
   | 'sweep-journal'
   | 'sweep-item'
-  | 'sweep-end';
+  | 'sweep-end'
+  // the weekly review in the same thread (lib/week)
+  | 'week-card'
+  | 'week-offer';
 
 /** Fields every brief message carries. */
 interface BriefMetaBase {
@@ -40,6 +43,11 @@ interface BriefMetaBase {
    * (yesterday's reaction, playback) leave these out.
    */
   wrap?: boolean;
+  /**
+   * Part of the weekly review (lib/week), not of the brief or the wrap up.
+   * Its buttons are the review's to answer.
+   */
+  week?: boolean;
   /** One run of the writer; a rewrite on a later first open gets a new id */
   brief_id?: string;
   /** Set on lines a rewrite replaced before anyone saw them; never shown */
@@ -52,6 +60,12 @@ export interface BriefTextMeta extends BriefMetaBase {
   part: DayPart;
   /** Ids of the meetings, todos, habits or facts this line mentions */
   ids?: string[];
+  /**
+   * Gremly's reply to the habit check in: the habit's week is drawn under it,
+   * a dot for each day (components/brief/HabitWeekDots). The days are worked
+   * out from the store each time, for the week `day` is in.
+   */
+  habit_week?: { habit_id: string; day: string };
 }
 
 /** The day card. Only the date is stored; it draws from the store every time. */
@@ -73,13 +87,24 @@ export type OfferKind =
   | 'question'
   | 'follow_up'
   | 'plan_edit'
+  // Gremly asks what to put first before it plans (nothing was picked)
+  | 'plan_ask'
+  // what they picked only fits back to back: back to back, or with some space
+  | 'plan_spacing'
+  // what they picked and did not fit: another day, later, or left
+  | 'plan_unfit'
   | 'none'
   // the evening wrap up
   | 'wrap_up'
   | 'wrap_partial'
   | 'wrap_declined'
   | 'journal'
-  | 'wrap_close';
+  | 'wrap_close'
+  // the weekly review (lib/week)
+  | 'week_open' // Gremly offers the review: Let's do it, Not this week
+  | 'week_retry' // the read could not be made: Try again, Not now
+  | 'week_reasons' // one of the needs you cards, opened: Gremly's question and reasons to tap
+  | 'week_day'; // after a review on another day: keep their weekly day, or move it
 
 /** What tapping a button does. */
 export type OfferAction =
@@ -96,18 +121,38 @@ export type OfferAction =
   | 'leave_plan' // leave the plan as it is
   | 'reach_yes' // add the reach item to today and plan
   | 'plan_edit' // a suggested change under the plan (value: the change)
+  | 'plan_spacing' // the picks only fit back to back (value: tight or spaced)
+  | 'plan_unfit' // todos picked that did not fit (value: tomorrow, later or leave)
   | 'thanks' // "Thanks, Gremly": Gremly says any time
   // the evening wrap up (lib/wrapup); 'sweep' opens the cards there too
   | 'sweep_skip' // move it all to tomorrow: one of the weekly skips
   | 'not_tonight' // no wrap up tonight; the journal stays one tap away
-  | 'plan_week' // the week planner
+  | 'plan_week' // the weekly review, started in the thread
+  | 'see_week' // the week they planned (Your week)
+  // the morning check in on a habit planned for today (lib/brief/checkIn.ts)
+  | 'habit_keep' // Still on
+  | 'habit_move' // Move it to the day with the most room (value: the day)
+  | 'habit_skip' // Skip this week: off today, and no more check ins this week
   | 'sweep_leave' // leave the cards that are left for the morning
   | 'journal_write' // the next typed message is tonight's journal entry
+  | 'journal_page' // open the full journal page for tonight's entry
   | 'journal_mood' // pick a mood instead of writing
   | 'journal_skip' // no journal tonight
   | 'journal_only' // after Not tonight: just the journal
   | 'plan_tomorrow' // the planner, for tomorrow
-  | 'night'; // good night: the wrap up is done
+  | 'night' // good night: the wrap up is done
+  // the weekly review (lib/week)
+  | 'week_start' // Let's do it
+  | 'week_skip' // Not this week
+  | 'week_retry' // ask for the read again
+  | 'week_stop' // leave the review for now
+  | 'week_not_quite' // Gremly's read is not quite right
+  | 'week_talk' // one of the needs you cards, opened to talk through
+  | 'week_reason' // a reason tapped under Gremly's question: sent to him as their words
+  | 'week_typed' // what they typed to Gremly while the review is under way
+  | 'week_just_plan' // take Gremly's guesses for the steps not done
+  | 'week_keep_day' // their weekly day stays
+  | 'week_move_day'; // the day of this review becomes their weekly day
 
 export interface OfferButton {
   id: string;
@@ -133,14 +178,41 @@ export interface BriefOfferMeta extends BriefMetaBase {
   catch_up?: string;
   /** Minutes from local midnight where the first clear stretch starts, when planning is possible */
   plan_from?: number;
+  /** The day a plan offer is for, when it is not today (plan_ask) */
+  plan_day?: string;
   /** The held offer this one shows again, after the question */
   revealed_from?: string;
   /** The plan offer this one brings back after a change made in the thread (once) */
   brought_back_from?: string;
   /** After Sweep: what was kept for today, so the plan holds it */
   kept_ids?: string[];
+  /**
+   * plan_spacing: what they picked, kept on the message so the answer makes
+   * the plan the same after the app has been closed
+   */
+  picks?: UnplacedItem[];
+  /** plan_unfit: the todos they picked that did not fit, which the buttons act on */
+  unfit?: { id: string; title: string }[];
   /** A quiet line under the buttons */
   hint?: string;
+  /**
+   * The brief's last message carries their week as facts (the worker's
+   * brief/index.js), and the app shows them (lib/brief/checkIn.ts shownOffer).
+   * checkin: a habit they planned for today. While it is still on, this
+   * message is shown as the check in, with its own buttons; once it is
+   * answered (asked), the offer itself follows as a new message.
+   */
+  checkin?: { habit_id: string; title: string; asked?: boolean };
+  /** The weekly review is still to do: Plan my week is shown beside the offer's buttons */
+  review_offer?: boolean;
+  /**
+   * The evening wrap up's question is a milestone's check in from their
+   * weekly review, not one of Gremly's own (lib/wrapup/checkIns.ts): the
+   * review that keeps it and what its journal entry needs. It has no
+   * question_id, since it is not a gremly_questions row. Kept on the message,
+   * so the answer is settled the same after the app has been closed.
+   */
+  milestone_checkin?: { row_id: string; id: string; goal: string; goal_date: string };
 }
 
 export type PlanStatus = 'proposal' | 'replaced' | 'dismissed' | 'locked';
@@ -162,10 +234,15 @@ export interface PlanItem {
   seen?: string;
   /**
    * A time the person set themselves (a card, a time changed on the item): it
-   * stays exactly there when the plan is fitted again, even after the plan
-   * would otherwise end (lib/plan/planFlow.ts refitKeeping)
+   * stays there when the plan is fitted again, even after the plan would
+   * otherwise end (lib/plan/planFlow.ts placePlan)
    */
   pinned?: boolean;
+  /**
+   * Picked by the person (Add something, kept in Sweep): it keeps its place
+   * ahead of anything Gremly chose (lib/plan/planFlow.ts placePlan)
+   */
+  chosen?: boolean;
 }
 
 /** An item the picker chose that had no gap, kept so a change can try again. */
@@ -177,6 +254,8 @@ export interface UnplacedItem {
   minutes?: number;
   reason?: string | null;
   fromFact?: boolean;
+  /** Picked by the person (PlanItem.chosen) */
+  chosen?: boolean;
 }
 
 export interface BriefPlanMeta extends BriefMetaBase {
@@ -192,6 +271,12 @@ export interface BriefPlanMeta extends BriefMetaBase {
   from?: number;
   /** Item ids in the picker's order (placing order when re-fitting) */
   order?: string[];
+  /**
+   * The gap kept between items and either side of meetings, in minutes. Left
+   * out, it is the usual 15. A plan they asked for back to back has 0, and
+   * keeps it each time it is fitted again (lib/plan/planFlow.ts placePlan).
+   */
+  buffer?: number;
 }
 
 /** One line such as "Swept 7 things, 3 kept for today". */
@@ -229,6 +314,8 @@ export interface BriefChangesMeta extends BriefMetaBase {
   /** After Apply: the changes made, and any that could not be */
   applied?: string[];
   failed?: string[];
+  /** After Apply: the item each row made (a new item, or the one an item became), by row */
+  created?: Record<string, string>;
   prompt_version?: string;
 }
 
@@ -259,6 +346,12 @@ export interface SweepHabitRow {
   kind: 'build' | 'break';
   /** Daily, 4 days running */
   note?: string;
+  /**
+   * For a habit they planned for today in their week: the day left in the
+   * week it can move to when today did not happen (the brief's rule,
+   * workers/shared/habitWeek.js). Left out when no day can take it.
+   */
+  move_to?: string;
 }
 
 /** Habits still open today, checked in on one card. */
@@ -272,8 +365,16 @@ export interface SweepHabitsMeta extends BriefMetaBase {
   /** After saving: the habits logged, and what each break habit got */
   done?: string[];
   held?: Record<string, 'held' | 'not'>;
+  /** After saving: the habits moved to another day of their week, by id, with the day */
+  moved?: Record<string, string>;
   /** Asked before the evening, so the card's words do not say tonight */
   early?: boolean;
+  /**
+   * The check in on the habits they are breaking, asked by itself after the
+   * journal when only the journal was wanted. The wrap up is over by then, so
+   * saving this card is what says good night.
+   */
+  after_journal?: boolean;
 }
 
 /** Tonight's journal entry, or the mood picked instead. */
@@ -285,6 +386,8 @@ export interface SweepJournalMeta extends BriefMetaBase {
   note_id?: string | null;
   title?: string;
   text?: string;
+  /** An entry written on the journal page: each card's prompt (none for free writing) and its words */
+  parts?: { q: string | null; text: string }[];
   moods?: string[];
   /** Asked before the evening, so the card's words do not say tonight */
   early?: boolean;
@@ -302,6 +405,51 @@ export interface SweepEndMeta extends BriefMetaBase {
   date: string;
 }
 
+// ── The weekly review, in the same thread (lib/week) ────────────────────────
+
+/** The review's cards, in order. opening is its mark with the time; done is the summary. */
+export type WeekCardKind =
+  | 'opening'
+  | 'challenge'
+  | 'priorities'
+  | 'shape'
+  | 'intention'
+  | 'ahead'
+  | 'needs_you'
+  | 'board'
+  | 'done';
+
+/**
+ * One of the review's cards. It says which card it is and which week it is
+ * for, and is drawn from that week's row each time it is shown
+ * (weekly_reviews, held in lib/week/review/session). What does not change is
+ * kept on the card itself, so a thread read back on a later day still shows
+ * it: the time it was opened, what a step came to, and the summary.
+ */
+export interface WeekCardMeta extends BriefMetaBase {
+  type: 'week-card';
+  card: WeekCardKind;
+  /** The first day of the week the review is for */
+  week_start: string;
+  /** opening: when it was opened, as "Sunday, 7:40 PM" */
+  at?: string;
+  /** A step's card: what they settled on it, as their message under the card */
+  settled?: string | null;
+  /** board: Gremly's line above the card, as it read when the week was planned */
+  intro?: string;
+  /** done: the week in short, as it stood when the card was made */
+  summary?: { intention: string | null; tiles: { num: string; label: string }[] };
+  /** done: shown again from the Week button (Your week), not at the end of a review */
+  recap?: boolean;
+}
+
+/** The button to their week under a reply of Gremly's (the agent's offer_week). */
+export interface WeekOfferMeta extends BriefMetaBase {
+  type: 'week-offer';
+  /** This week's review was done when the button was put, so it read Your week */
+  done: boolean;
+}
+
 export type BriefMeta =
   | BriefTextMeta
   | BriefDayCardMeta
@@ -315,7 +463,9 @@ export type BriefMeta =
   | SweepHabitsMeta
   | SweepJournalMeta
   | SweepItemMeta
-  | SweepEndMeta;
+  | SweepEndMeta
+  | WeekCardMeta
+  | WeekOfferMeta;
 
 /** Where tonight's wrap up has got to. */
 export type WrapStep =
@@ -358,6 +508,12 @@ export interface WrapUpState {
   journal_fed?: boolean;
   /** After Not tonight: only the journal was wanted */
   journal_only?: boolean;
+  /**
+   * The habits they are breaking were checked in on by a card of their own,
+   * after the journal on that path. They are asked once a day, so the habits
+   * card leaves them out from then on.
+   */
+  break_asked?: boolean;
   /** Gremly's questions asked tonight */
   questions?: string[];
   finished_at?: string | null;
@@ -386,4 +542,6 @@ export interface DailyThreadMeta {
   agent_tasks?: AgentTask[];
   /** Tonight's wrap up (lib/wrapup) */
   sweep?: WrapUpState | null;
+  /** When Gremly's wrap up line was put away for the day (lib/wrapup/dismiss.ts) */
+  wrap_nudge_dismissed_at?: string | null;
 }

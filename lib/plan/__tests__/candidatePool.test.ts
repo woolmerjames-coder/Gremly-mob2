@@ -1,5 +1,6 @@
 import { buildCandidatePool, type PoolInput } from '../candidatePool';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../../capacity/capacityTypes';
+import type { HabitAdaptationRow } from '../../store/useGremlyStore';
 import type { Habit, Todo } from '../../types';
 
 const TODAY = '2026-09-30'; // a Wednesday
@@ -17,6 +18,18 @@ function habit(id: string, extra: Partial<Habit> = {}): Habit {
     ...extra,
   } as Habit;
 }
+function pause(habitId: string, first: string, last: string): HabitAdaptationRow {
+  return {
+    id: `pause-${habitId}`,
+    owner_id: 'u',
+    habit_id: habitId,
+    mode: 'pause',
+    period_start: first,
+    period_end: last,
+    created_at: `${first}T08:00:00Z`,
+    updated_at: `${first}T08:00:00Z`,
+  };
+}
 
 function input(over: Partial<PoolInput> = {}): PoolInput {
   return {
@@ -28,7 +41,8 @@ function input(over: Partial<PoolInput> = {}): PoolInput {
     doneThisWeek: new Map(),
     doneToday: new Set(),
     placedIds: new Set(),
-    daysGone: 3,
+    // a Sunday person: their week is Monday to Sunday, so Wednesday is day 3
+    week: { weeklyDay: 0 },
     claims: [],
     reach: null,
     blocks: DEFAULT_TIME_BLOCK_PREFERENCES,
@@ -112,6 +126,125 @@ describe('the candidate pool', () => {
       input({ todos: [placed], placedIds: new Set(['placed']), forToday: false }),
     );
     expect(pool).toEqual([]);
+  });
+
+  describe('with their week', () => {
+    it('holds a habit they planned for the day, ahead of the ones behind, and says so', () => {
+      const strength = habit('strength', { cadence: 'weekly', target_per_period: 3 });
+      const social = habit('social', { cadence: 'weekly', target_per_period: 3 });
+      const read = habit('read', { cadence: 'weekly', target_per_period: 1 });
+      const pool = buildCandidatePool(
+        input({
+          habits: [social, read, strength],
+          plannedHabits: new Set(['strength']),
+        }),
+      );
+      expect(pool.map((c) => [c.id, c.source, c.why])).toEqual([
+        ['strength', 'planned', 'Planned for today'],
+        ['social', 'behind', '0 of 3 this week, behind'],
+      ]);
+    });
+
+    it('leaves a planned habit out once it is done today', () => {
+      const strength = habit('strength', { cadence: 'weekly', target_per_period: 3 });
+      const pool = buildCandidatePool(
+        input({
+          habits: [strength],
+          plannedHabits: new Set(['strength']),
+          doneToday: new Set(['strength']),
+        }),
+      );
+      expect(pool).toEqual([]);
+    });
+
+    it('holds a habit behind in the week of a Wednesday person', () => {
+      // their week is Thursday to Wednesday, so this Wednesday is its last day
+      const strength = habit('strength', { cadence: 'weekly', target_per_period: 3 });
+      const done = { habits: [strength], doneThisWeek: new Map([['strength', 2]]) };
+      const pool = buildCandidatePool(input({ ...done, week: { weeklyDay: 3 } }));
+      expect(pool.map((c) => [c.id, c.source, c.why])).toEqual([
+        ['strength', 'behind', '2 of 3 this week, behind'],
+      ]);
+      // for a Sunday person it is day 3, and 2 of 3 is on pace
+      expect(buildCandidatePool(input(done))).toEqual([]);
+      // and Thursday is the first day of their next week
+      expect(
+        buildCandidatePool(
+          input({ habits: [strength], today: '2026-10-01', week: { weeklyDay: 3 } }),
+        ),
+      ).toEqual([]);
+    });
+
+    it('leaves a paused habit out, however it would have come in', () => {
+      const social = habit('social', { cadence: 'weekly', target_per_period: 3 });
+      const run = habit('run');
+      const walk = habit('walk');
+      const all = {
+        habits: [social, run, walk],
+        habitsDueToday: [walk],
+        plannedHabits: new Set(['run']),
+        placedIds: new Set(['walk']),
+        claims: [{ type: 'habit' as const, id: 'run', why: 'It matters' }],
+      };
+      expect(buildCandidatePool(input(all)).map((c) => [c.id, c.source])).toEqual([
+        ['run', 'claim'],
+        ['walk', 'today'],
+        ['social', 'behind'],
+      ]);
+
+      const eases = [
+        pause('social', TODAY, '2026-10-02'),
+        pause('run', '2026-09-28', TODAY),
+        pause('walk', TODAY, TODAY),
+      ];
+      const week = { weeklyDay: 0, eases };
+      expect(buildCandidatePool(input({ ...all, week }))).toEqual([]);
+      // the day after their pauses end, run and walk can be planned again
+      expect(
+        buildCandidatePool(input({ ...all, today: '2026-10-01', week })).map((c) => c.id),
+      ).toEqual(['run', 'walk']);
+    });
+
+    it('says a habit planned for another day is planned for that day', () => {
+      const strength = habit('strength', { cadence: 'weekly', target_per_period: 3 });
+      const pool = buildCandidatePool(
+        input({
+          today: '2026-10-01',
+          realToday: TODAY,
+          forToday: false,
+          habits: [strength],
+          plannedHabits: new Set(['strength']),
+        }),
+      );
+      expect(pool[0].why).toBe('Planned for Thursday');
+    });
+
+    it('says what a milestone step is a step towards, and when a todo is back from Later', () => {
+      const step = todo('step', {
+        due_day: TODAY,
+        views: { milestone: { goal: 'Send the grant application', date: '2026-10-20' } },
+      } as Partial<Todo>);
+      const back = todo('back', { due_day: null, resurface_at: TODAY } as Partial<Todo>);
+      const plain = todo('plain', { due_day: TODAY });
+      const pool = buildCandidatePool(
+        input({
+          todos: [step, back, plain],
+          todosDueToday: [step, back, plain],
+        }),
+      );
+      const why = Object.fromEntries(pool.map((c) => [c.id, c.why]));
+      expect(why.step).toBe('A step towards Send the grant application');
+      expect(why.plain).toBe('Due today');
+      // a Later has no day of its own: its day to come back is what makes it plannable
+      expect(why.back).toBe('Back from Later');
+    });
+
+    it('still leaves out a todo with no day that is not back today', () => {
+      const away = todo('away', { due_day: null, resurface_at: '2026-10-05' } as Partial<Todo>);
+      const came = todo('came', { due_day: null, resurface_at: '2026-09-28' } as Partial<Todo>);
+      const pool = buildCandidatePool(input({ todos: [away, came], todosDueToday: [away, came] }));
+      expect(pool).toEqual([]);
+    });
   });
 
   it('adds the reach: a todo as it is, a fact as a suggestion', () => {

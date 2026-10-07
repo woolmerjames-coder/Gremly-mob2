@@ -1,0 +1,6 @@
+# Reads made from someone's own data are never committed.
+real/
+out/
+.bundle.mjs
+.bundle-spread.mjs
+.bundle-relief.mjs

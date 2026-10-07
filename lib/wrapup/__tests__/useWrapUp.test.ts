@@ -20,6 +20,9 @@ jest.mock('../../store/useMascotStore', () => ({
   useMascotStore: { getState: () => ({ requestMode: mockMascot }) },
 }));
 jest.mock('../../repo/dailyThreadRepo', () => ({ patchDailyThreadMeta: jest.fn() }));
+// their week as the app holds it: not read yet unless a test says so
+const mockWeek: Record<string, unknown> = { loaded: false, weeklyDay: 0, review: null };
+jest.mock('../../week/thisWeek', () => ({ useThisWeek: { getState: () => mockWeek } }));
 jest.mock('../../brief/todayThread', () => ({
   useTodayThread: { getState: () => ({ patchMeta: jest.fn(), thread: null }) },
 }));
@@ -59,10 +62,12 @@ jest.mock('../../sweep/engine', () => ({
   markSweepCompleted: (...a: unknown[]) => mockCompleted(...a),
 }));
 const mockSaveJournal = jest.fn();
+const mockUpdateJournal = jest.fn();
 const mockSetMoods = jest.fn();
 let mockJournalNote: string | null = null;
 jest.mock('../journal', () => ({
   saveJournal: (...a: unknown[]) => mockSaveJournal(...a),
+  updateJournal: (...a: unknown[]) => mockUpdateJournal(...a),
   setJournalMoods: (...a: unknown[]) => mockSetMoods(...a),
   journalFor: () => mockJournalNote,
   journalTitle: (weekday: string, written: boolean) =>
@@ -77,6 +82,16 @@ const mockFetchQuestions = jest.fn();
 jest.mock('../questions', () => ({
   ...jest.requireActual('../questions'),
   fetchWrapQuestions: () => mockFetchQuestions(),
+}));
+// a milestone's check ins that are due tonight (lib/wrapup/checkIns.ts): none unless a test says so
+const mockFetchCheckIns = jest.fn();
+const mockAnswerCheckIn = jest.fn();
+const mockSkipCheckIn = jest.fn();
+jest.mock('../checkIns', () => ({
+  ...jest.requireActual('../checkIns'),
+  fetchCheckInQuestions: (day: string) => mockFetchCheckIns(day),
+  answerCheckIn: (...a: unknown[]) => mockAnswerCheckIn(...a),
+  skipCheckIn: (...a: unknown[]) => mockSkipCheckIn(...a),
 }));
 // when the wrap up was last touched: in the evening, unless a test says earlier
 let mockTouchedTonight = true;
@@ -106,6 +121,10 @@ jest.mock('../day', () => ({
 import { useWrapUp } from '../useWrapUp';
 import { currentWrap, resetWrapSession, useWrapSession, recordDecision } from '../session';
 import { WRAP_COPY } from '../words';
+import { checkInQuestion } from '../checkIns';
+import { newPage, setCardHtml, toLayout } from '../../journal/page';
+import { pageById } from '../../journal/pages';
+import { draftKey, keepDraft, useJournalSession } from '../../journal/session';
 
 const DAY = '2026-09-30';
 const TOMORROW = '2026-10-01';
@@ -127,7 +146,8 @@ function setup(extra: Record<string, unknown> = {}, saved: WrapUpState | null = 
   let messages: SpaceChatMessage[] = (extra.messages as SpaceChatMessage[]) ?? [];
   const calls = {
     openCards: jest.fn(),
-    openWeek: jest.fn(),
+    planWeek: jest.fn(),
+    seeWeek: jest.fn(),
     planDay: jest.fn(),
     onPaywall: jest.fn(),
     restoreDraft: jest.fn(),
@@ -205,6 +225,8 @@ const card = (id: string, kind = 'todo') => ({ candidate: { id, kind } });
 beforeEach(() => {
   jest.clearAllMocks();
   resetWrapSession();
+  Object.assign(mockWeek, { loaded: false, weeklyDay: 0, review: null });
+  useJournalSession.setState({ open: null, drafts: {}, lastPage: 'free' });
   seq = 0;
   mockLate = false;
   mockEarly = false;
@@ -231,6 +253,9 @@ beforeEach(() => {
   mockCompleted.mockResolvedValue({ streak: 5 });
   mockInsert.mockResolvedValue({ error: null });
   mockFetchQuestions.mockResolvedValue([]);
+  mockFetchCheckIns.mockResolvedValue([]);
+  mockAnswerCheckIn.mockResolvedValue(true);
+  mockSkipCheckIn.mockResolvedValue(undefined);
   mockAnswer.mockResolvedValue(true);
   mockAsked.mockResolvedValue(undefined);
   mockApplyChange.mockResolvedValue({ ok: true, cid: 'x', summary: '', revert: jest.fn() });
@@ -262,12 +287,7 @@ describe('the wrap up: opening', () => {
     expect(t.last().content).toBe(
       'Three things to sort tonight, about a minute. Want to go through them?',
     );
-    expect(offer.buttons.map((b) => b.action)).toEqual([
-      'sweep',
-      'sweep_skip',
-      'plan_week',
-      'not_tonight',
-    ]);
+    expect(offer.buttons.map((b) => b.action)).toEqual(['sweep', 'sweep_skip', 'not_tonight']);
     expect(currentWrap()).toMatchObject({ step: 'offer', items: ['a', 'b', 'n'], path: null });
     expect(mockMascot).toHaveBeenCalledWith('waving');
     // every message belongs to the evening
@@ -317,7 +337,7 @@ describe('the wrap up: opening', () => {
     const t = setup();
     await act(() => t.hook.result.current.open());
     const offer = t.last().metadata_json as unknown as BriefOfferMeta;
-    expect(offer.buttons.map((b) => b.action)).toEqual(['sweep', 'plan_week', 'not_tonight']);
+    expect(offer.buttons.map((b) => b.action)).toEqual(['sweep', 'not_tonight']);
     expect(offer.hint).toBeUndefined();
   });
 
@@ -485,6 +505,116 @@ describe('the wrap up: habits', () => {
       "Logged. That's four days running for Blinkist. Well done holding No coffee.",
     );
     expect(t.last().content).toBe(WRAP_COPY.journalAsk);
+  });
+
+  describe('a habit they planned for today in their week', () => {
+    // DAY is Wednesday 30 September; with Sunday as their weekly day the week runs to Sunday 4 October
+    beforeEach(() => {
+      mockState.habits = [
+        {
+          id: 'h1',
+          name: 'Strength',
+          start_date: '2026-09-01',
+          cadence: 'weekly',
+          target_per_period: 3,
+          time_estimate_minutes: 45,
+        },
+        { id: 'h2', name: 'Stretch', start_date: '2026-09-01', cadence: 'daily' },
+      ];
+      mockState.habitProgress = [];
+      mockState.todos = [];
+      mockState.habitPlans = [{ habit_id: 'h1', planned_date: DAY, status: 'planned' }];
+      mockState.setHabitPlan = jest.fn(async (id: string, day: string) => {
+        mockState.habitPlans = [
+          ...mockState.habitPlans,
+          { habit_id: id, planned_date: day, status: 'planned' },
+        ];
+      });
+      mockState.removeHabitPlan = jest.fn(async (id: string, day: string) => {
+        mockState.habitPlans = mockState.habitPlans.filter(
+          (p: any) => !(p.habit_id === id && p.planned_date === day),
+        );
+      });
+      Object.assign(mockWeek, { loaded: true, weeklyDay: 0, daysOff: [6, 0], review: null });
+    });
+
+    it('is given the day it can move to on the card: the day left with the most room', async () => {
+      const t = await clearNight();
+      const card = t.card('sweep-habits').metadata_json as any;
+      expect(card.habits.map((h: any) => [h.id, h.move_to])).toEqual([
+        // Saturday is a day off: four free hours against two on Thursday and Friday
+        ['h1', '2026-10-03'],
+        // a daily habit is on every day: there is nowhere to move it
+        ['h2', undefined],
+      ]);
+    });
+
+    it('gives two such habits different days when one day cannot take both', async () => {
+      const long = (id: string, name: string) => ({
+        id,
+        name,
+        start_date: '2026-09-01',
+        cadence: 'weekly',
+        target_per_period: 2,
+        time_estimate_minutes: 150,
+      });
+      mockState.habits = [long('h1', 'Long run'), long('h3', 'Garden')];
+      mockState.habitPlans = [
+        { habit_id: 'h1', planned_date: DAY, status: 'planned' },
+        { habit_id: 'h3', planned_date: DAY, status: 'planned' },
+      ];
+      const t = await clearNight();
+      const card = t.card('sweep-habits').metadata_json as any;
+      // each fits a day off (four hours) and neither a weekday (two): one to Saturday, one to Sunday
+      expect(card.habits.map((h: any) => [h.id, h.move_to])).toEqual([
+        ['h1', '2026-10-03'],
+        ['h3', '2026-10-04'],
+      ]);
+    });
+
+    it('moves it when the card is saved that way, and says so in the thread', async () => {
+      const t = await clearNight();
+      await act(() =>
+        t.hook.result.current.habits.save(t.card('sweep-habits'), [], {}, { h1: '2026-10-03' }),
+      );
+      expect(mockState.habitPlans.map((p: any) => p.planned_date)).toEqual(['2026-10-03']);
+      expect(mockApplyChange).not.toHaveBeenCalled();
+      expect(t.card('sweep-habits').metadata_json).toMatchObject({
+        status: 'saved',
+        done: [],
+        moved: { h1: '2026-10-03' },
+      });
+      expect(t.said()).toContainEqual(['brief-event', 'Moved Strength to Saturday']);
+      expect(t.last().content).toBe(WRAP_COPY.journalAsk);
+    });
+
+    it('never moves a habit that was logged for today, or to a day the card did not offer', async () => {
+      const t = await clearNight();
+      await act(() =>
+        t.hook.result.current.habits.save(
+          t.card('sweep-habits'),
+          ['h1'],
+          {},
+          { h1: '2026-10-03', h2: '2026-10-02' },
+        ),
+      );
+      expect(mockState.setHabitPlan).not.toHaveBeenCalled();
+      expect(mockState.removeHabitPlan).not.toHaveBeenCalled();
+      expect((t.card('sweep-habits').metadata_json as any).moved).toBeUndefined();
+    });
+
+    it('says nothing moved when the new day could not be saved', async () => {
+      mockState.setHabitPlan = jest.fn(async () => undefined);
+      const t = await clearNight();
+      await act(() =>
+        t.hook.result.current.habits.save(t.card('sweep-habits'), [], {}, { h1: '2026-10-03' }),
+      );
+      expect(mockState.habitPlans.map((p: any) => p.planned_date)).toEqual([DAY]);
+      expect((t.card('sweep-habits').metadata_json as any).moved).toBeUndefined();
+      expect(
+        t.said().some(([type, text]) => type === 'brief-event' && text.startsWith('Moved')),
+      ).toBe(false);
+    });
   });
 
   it('logs nothing for Nothing tonight, or for a habit that did not hold', async () => {
@@ -663,6 +793,180 @@ async function toQuestions(t: ReturnType<typeof setup>) {
   await act(() => t.hook.result.current.handleButton(...t.button('journal_skip')));
 }
 
+describe('the wrap up: the journal page', () => {
+  /** A page written on Rose, thorn, bud, as the page hands it over on Done */
+  const written = (moods: string[] = []) => {
+    const rose = newPage(pageById('rose'));
+    let page = setCardHtml(rose, rose.cards[0].id, '<html><p>The lake at seven.</p></html>');
+    page = setCardHtml(page, rose.cards[1].id, '<html><p>The budget review.</p></html>');
+    const layout = toLayout(page);
+    return { text: layout.text, layout, moods: moods as never };
+  };
+  const TEXT =
+    'Rose: the best part of today\nThe lake at seven.\n\nThorn: the hard part\nThe budget review.';
+  const onScreen = () => useJournalSession.getState().open;
+
+  it('Open my journal opens the page for the day, and leaves the offer as it is', async () => {
+    const t = await clearNight();
+    const n = t.messages.length;
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_page')));
+    expect(onScreen()).toMatchObject({ day: DAY, part: 'evening', save: expect.any(Function) });
+    expect(onScreen()?.carry).toBeUndefined();
+    expect(t.messages).toHaveLength(n);
+    expect(mockSaveJournal).not.toHaveBeenCalled();
+  });
+
+  it('takes along what was already typed in the box', async () => {
+    const t = await clearNight();
+    act(() => t.hook.result.current.journal.openPage('Tired but pleased.'));
+    expect(onScreen()).toMatchObject({ day: DAY, carry: 'Tired but pleased.' });
+  });
+
+  it('Done saves the entry with its page, then the thread shows it and carries on', async () => {
+    const t = await clearNight();
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_page')));
+    const w = written(['calm']);
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(w);
+    });
+    // it says which entry it saved, so the page can send that entry's photos
+    expect(res).toEqual({ ok: true, noteId: 'note-1' });
+    expect(mockSaveJournal).toHaveBeenCalledWith({
+      text: TEXT,
+      moods: ['calm'],
+      day: DAY,
+      weekday: 'Wednesday',
+      part: 'evening',
+      page: w.layout,
+      dayMoods: expect.any(Promise),
+    });
+    const said = t.said();
+    expect(said).toContainEqual(['brief-event', WRAP_COPY.journalWrote]);
+    expect(said).toContainEqual(['brief-text', WRAP_COPY.journalSaved]);
+    expect(t.card('sweep-journal').metadata_json).toMatchObject({
+      status: 'saved',
+      note_id: 'note-1',
+      text: TEXT,
+      moods: ['calm'],
+      parts: [
+        { q: 'Rose: the best part of today', text: 'The lake at seven.' },
+        { q: 'Thorn: the hard part', text: 'The budget review.' },
+      ],
+    });
+    // the journal's buttons are answered, and the evening moves on to the close
+    const asked = t.messages.find(
+      (m) =>
+        (m.metadata_json as any).type === 'brief-offer' &&
+        (m.metadata_json as any).kind === 'journal',
+    );
+    expect((asked?.metadata_json as any).chosen.id).toBe('journal_page');
+    expect(currentWrap()).toMatchObject({ journal: 'written', journal_fed: true });
+    expect(t.hook.result.current.awaiting).toBeNull();
+    expect(t.hook.result.current.undoable['journal:note-1']).toBe(true);
+    expect(mockState.addGaugeContribution).toHaveBeenCalledWith('journal', 0.2);
+    expect(currentWrap()?.step).not.toBe('journal');
+  });
+
+  it('counts moods alone on the page as the reflection, with nothing for Gremly to read', async () => {
+    const t = await clearNight();
+    act(() => t.hook.result.current.journal.openPage());
+    const empty = toLayout(newPage(pageById('free')));
+    await act(async () => {
+      await onScreen()!.save!({ text: '', layout: empty, moods: ['tired'] as never });
+    });
+    expect(mockSaveJournal.mock.calls[0][0]).toMatchObject({ text: '', moods: ['tired'] });
+    expect(mockWrapWords).not.toHaveBeenCalledWith(
+      expect.objectContaining({ moment: 'journal_reply' }),
+    );
+    expect(currentWrap()?.journal).toBe('mood');
+  });
+
+  it('stays out of the thread when the page could not be saved, so the page keeps its words', async () => {
+    mockSaveJournal.mockResolvedValue({ ok: false, message: 'offline' });
+    const t = await clearNight();
+    act(() => t.hook.result.current.journal.openPage());
+    const n = t.messages.length;
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(written());
+    });
+    expect(res).toEqual({ ok: false, message: 'offline' });
+    expect(t.messages).toHaveLength(n);
+    expect(t.hook.result.current.awaiting).toBe('journal');
+    expect(currentWrap()?.journal).toBeNull();
+  });
+
+  it('opens a page that is half written when more is typed in the box, with those words', async () => {
+    const t = await clearNight();
+    keepDraft(draftKey({ day: DAY }), { page: newPage(pageById('rose')), moods: [] });
+    let used = false;
+    await act(async () => {
+      used = await t.hook.result.current.takeTyped('One more thought.');
+    });
+    expect(used).toBe(true);
+    expect(onScreen()).toMatchObject({ day: DAY, carry: 'One more thought.' });
+    expect(mockSaveJournal).not.toHaveBeenCalled();
+    expect(t.said()).not.toContainEqual(['brief-reply', 'One more thought.']);
+  });
+
+  it('sends them to the paywall when they cannot make new items', async () => {
+    const t = await clearNight({ canCreate: false });
+    await act(() => t.hook.result.current.handleButton(...t.button('journal_page')));
+    expect(t.calls.onPaywall).toHaveBeenCalled();
+    expect(onScreen()).toBeNull();
+  });
+
+  it('opens a saved entry from its card, and the card follows what is changed', async () => {
+    mockUpdateJournal.mockResolvedValue({ ok: true, moods: Promise.resolve(['good']) });
+    const t = await clearNight();
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Tired but pleased.');
+    });
+    act(() => t.hook.result.current.journal.openSaved(t.card('sweep-journal')));
+    expect(onScreen()).toMatchObject({ day: DAY, entryId: 'note-1' });
+    const w = written();
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(w);
+    });
+    // it says which entry it saved, so the page can send that entry's photos
+    expect(res).toEqual({ ok: true, noteId: 'note-1' });
+    expect(mockUpdateJournal).toHaveBeenCalledWith({
+      noteId: 'note-1',
+      text: TEXT,
+      moods: [],
+      page: w.layout,
+    });
+    expect(t.card('sweep-journal').metadata_json).toMatchObject({
+      text: TEXT,
+      parts: [
+        { q: 'Rose: the best part of today', text: 'The lake at seven.' },
+        { q: 'Thorn: the hard part', text: 'The budget review.' },
+      ],
+      // the moods read from the new words, once they arrive
+      moods: ['good'],
+    });
+    // no second entry is made
+    expect(mockSaveJournal).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the card as it was when the change could not be saved', async () => {
+    mockUpdateJournal.mockResolvedValue({ ok: false, message: 'offline' });
+    const t = await clearNight();
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Tired but pleased.');
+    });
+    act(() => t.hook.result.current.journal.openSaved(t.card('sweep-journal')));
+    let res: unknown;
+    await act(async () => {
+      res = await onScreen()!.save!(written());
+    });
+    expect(res).toEqual({ ok: false, message: 'offline' });
+    expect((t.card('sweep-journal').metadata_json as any).text).toBe('Tired but pleased.');
+  });
+});
+
 describe("the wrap up: Gremly's questions", () => {
   beforeEach(() => {
     mockFetchQuestions.mockResolvedValue([Q1, Q2]);
@@ -758,17 +1062,238 @@ describe("the wrap up: Gremly's questions", () => {
   });
 });
 
+describe("the wrap up: a milestone's check ins", () => {
+  // set up in their weekly review, for tonight
+  const CHECK = checkInQuestion({
+    id: 'c1',
+    goal: 'Send the grant application',
+    goal_date: '2026-10-20',
+    date: DAY,
+    title: 'See how the draft is coming along',
+    status: 'open',
+    row_id: 'row-1',
+  });
+  // what its question's message keeps of it, to settle the answer with
+  const ASKED = {
+    row_id: 'row-1',
+    id: 'c1',
+    goal: 'Send the grant application',
+    goal_date: '2026-10-20',
+  };
+  beforeEach(() => {
+    mockFetchCheckIns.mockResolvedValue([CHECK]);
+    mockState.notes = [{ id: 'n1', title: 'Dentist Appointment', target_date: '2026-10-02' }];
+  });
+
+  it('asks a check in that is due as tonight’s question, to be typed or skipped', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(mockFetchCheckIns).toHaveBeenCalledWith(DAY);
+    expect(t.messages[t.messages.length - 2].content).toBe("One check in, then you're done.");
+    expect(t.last().content).toBe(
+      'You set a check in on “Send the grant application”. How is it going?',
+    );
+    const offer = t.last().metadata_json as unknown as BriefOfferMeta;
+    // it is not one of Gremly's questions, so it carries itself and no question id
+    expect(offer).toMatchObject({ kind: 'question', milestone_checkin: ASKED, wrap: true });
+    expect(offer.question_id).toBeUndefined();
+    expect(offer.buttons.map((b) => [b.label, b.action])).toEqual([
+      ['Type an answer', 'answer_other'],
+      ['Skip', 'skip'],
+    ]);
+    expect(t.hook.result.current.awaiting).toBe('question');
+    expect(currentWrap()).toMatchObject({ step: 'questions', questions: ['checkin:c1'] });
+    // it is theirs, so Gremly is not asked to choose or word anything
+    expect(mockWrapWords).not.toHaveBeenCalledWith(
+      expect.objectContaining({ moment: 'questions' }),
+    );
+  });
+
+  it('writes the typed answer to their journal as a check in, never to Gremly’s questions', async () => {
+    const askGremly = jest.fn();
+    const t = await clearNight({ askGremly });
+    await toQuestions(t);
+    let used = false;
+    await act(async () => {
+      used = await t.hook.result.current.takeTyped('The draft is half done, on track.');
+    });
+    expect(used).toBe(true);
+    expect(mockAnswerCheckIn).toHaveBeenCalledWith(ASKED, 'The draft is half done, on track.');
+    expect(mockAnswer).not.toHaveBeenCalled();
+    expect(askGremly).not.toHaveBeenCalled();
+    const said = t.said();
+    expect(said).toContainEqual(['brief-reply', 'The draft is half done, on track.']);
+    expect(said).toContainEqual(['brief-text', "Thanks. That's in your journal as a check in."]);
+    expect(said).toContainEqual(['brief-event', 'Saved your check in']);
+    // nothing else to ask: the close
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('says so when the answer could not be saved, and carries on', async () => {
+    mockAnswerCheckIn.mockResolvedValue(false);
+    const t = await clearNight();
+    await toQuestions(t);
+    await act(async () => {
+      await t.hook.result.current.takeTyped('Going fine.');
+    });
+    expect(t.said()).toContainEqual(['brief-text', WRAP_COPY.checkInFailed]);
+    expect(t.said()).not.toContainEqual(['brief-event', WRAP_COPY.checkInSavedEvent]);
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('marks a skipped check in on its review, not as one of Gremly’s questions', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    await act(() => t.hook.result.current.handleButton(...t.button('skip')));
+    expect(mockSkipCheckIn).toHaveBeenCalledWith(ASKED);
+    expect(mockAsked).not.toHaveBeenCalled();
+    expect(t.said()).toContainEqual(['brief-text', "No problem. I'll leave that one."]);
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('settles a check in the same after the app was closed with its question on screen', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    // The app starts again: the thread and the wrap up's place are kept,
+    // tonight's questions held in memory are not.
+    const typed = setup({ messages: t.messages });
+    await act(async () => {
+      expect(await typed.hook.result.current.takeTyped('Half done.')).toBe(true);
+    });
+    expect(mockAnswerCheckIn).toHaveBeenCalledWith(ASKED, 'Half done.');
+    expect(mockAnswer).not.toHaveBeenCalled();
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('takes what is typed as the answer again once the wrap up is opened after a restart', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    // a real restart: nothing is waiting on the box any more
+    useWrapSession.setState({ awaiting: null });
+    const back = setup({ messages: t.messages });
+    const n = back.messages.length;
+    await act(() => back.hook.result.current.open());
+    // the question is still there with its buttons: nothing is said twice
+    expect(back.messages).toHaveLength(n);
+    expect(back.hook.result.current.awaiting).toBe('question');
+    await act(async () => {
+      expect(await back.hook.result.current.takeTyped('Half done.')).toBe(true);
+    });
+    expect(mockAnswerCheckIn).toHaveBeenCalledWith(ASKED, 'Half done.');
+  });
+
+  it('puts the question’s buttons back after a restart when a chat turn took them away', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    useWrapSession.setState({ awaiting: null });
+    // typed under the question after a restart: it went to chat, and Gremly replied
+    const turn = [msg('user', 'What is on tomorrow?', {}), msg('assistant', 'Two meetings.', {})];
+    const back = setup({ messages: [...t.messages, ...turn] });
+    await act(() => back.hook.result.current.resume());
+    const again = back.last().metadata_json as unknown as BriefOfferMeta;
+    expect(back.last().content).toBe('');
+    // the same check in, from its own message, to answer or skip as before
+    expect(again).toMatchObject({ kind: 'question', milestone_checkin: ASKED, wrap: true });
+    expect(again.buttons.map((b) => b.action)).toEqual(['answer_other', 'skip']);
+    expect(back.hook.result.current.awaiting).toBe('question');
+    await act(() => back.hook.result.current.handleButton(...back.button('skip')));
+    expect(mockSkipCheckIn).toHaveBeenCalledWith(ASKED);
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('goes on to the close after a restart when no question is still waiting', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    // answered, and the app closed before the next step was taken
+    const answered = t.messages.map((m, i) =>
+      i === t.messages.length - 1
+        ? ({
+            ...m,
+            metadata_json: { ...(m.metadata_json as object), chosen: { id: 'typed', at: 'now' } },
+          } as SpaceChatMessage)
+        : m,
+    );
+    const back = setup({ messages: [...answered, msg('user', 'Half done.', {})] });
+    await act(() => back.hook.result.current.open());
+    expect(currentWrap()?.step).toBe('close');
+    expect((back.last().metadata_json as any).kind).not.toBe('question');
+  });
+
+  it('and a skip after the app was closed is still marked on its review', async () => {
+    const t = await clearNight();
+    await toQuestions(t);
+    const back = setup({ messages: t.messages });
+    await act(() => back.hook.result.current.handleButton(...back.button('skip')));
+    expect(mockSkipCheckIn).toHaveBeenCalledWith(ASKED);
+    expect(mockAsked).not.toHaveBeenCalled();
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('comes before Gremly’s own questions, which take the room that is left', async () => {
+    mockFetchQuestions.mockResolvedValue([Q1, Q2]);
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(t.messages[t.messages.length - 2].content).toBe(
+      "A check in first, then one thing I'd like to get right.",
+    );
+    expect(t.last().content).toBe(CHECK.question);
+    expect(currentWrap()).toMatchObject({ questions: ['checkin:c1', 'q1'] });
+    await act(async () => {
+      await t.hook.result.current.takeTyped('On track.');
+    });
+    // then his own, answered as his questions always are
+    expect(t.last().content).toBe(Q1.question);
+    const [offer] = t.button('answer');
+    const monday = (offer.metadata_json as unknown as BriefOfferMeta).buttons[1];
+    await act(() => t.hook.result.current.handleButton(offer, monday));
+    expect(mockAnswer).toHaveBeenCalledWith('q1', 'Monday');
+    expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('leaves no room for his questions when two check ins are due', async () => {
+    const second = checkInQuestion({
+      ...(CHECK.checkin as NonNullable<typeof CHECK.checkin>),
+      id: 'c2',
+      goal: 'Run the 10k',
+    });
+    mockFetchCheckIns.mockResolvedValue([CHECK, second]);
+    mockFetchQuestions.mockResolvedValue([Q1]);
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(currentWrap()).toMatchObject({ questions: ['checkin:c1', 'checkin:c2'] });
+    // and the line before them counts them as what they are
+    expect(t.messages[t.messages.length - 2].content).toBe("Two check ins, then you're done.");
+  });
+
+  it('still asks Gremly’s questions when the check ins cannot be read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockFetchCheckIns.mockRejectedValue(new Error('offline'));
+    mockFetchQuestions.mockResolvedValue([Q2]);
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(t.last().content).toBe(Q2.question);
+    expect(warn.mock.calls.map((c) => String(c[0])).join(' ')).toMatch(/check ins/);
+    warn.mockRestore();
+  });
+});
+
 describe('the wrap up: the close', () => {
   it('says what tomorrow holds, and feeds for a night with nothing to sort', async () => {
     mockMeetings.mockImplementation((day: string) => (day === TOMORROW ? [{}, {}, {}] : []));
+    // every todo planned for tomorrow counts, not only what moved there tonight
+    mockState.todos = ['t1', 't2', 't3', 't4', 't5'].map((id) => ({
+      id,
+      name: id,
+      due_day: TOMORROW,
+    }));
     const t = await clearNight();
     await toQuestions(t);
     expect(t.last().content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has three meetings, and nothing else lined up yet.",
+      "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has three meetings, and five todos planned.",
     );
     expect(
       (t.last().metadata_json as unknown as BriefOfferMeta).buttons.map((b) => b.action),
-    ).toEqual(['plan_tomorrow', 'night']);
+    ).toEqual(['night', 'plan_tomorrow']);
     // 26%, once
     expect(mockState.addGaugeContribution).toHaveBeenCalledTimes(1);
     expect(mockState.addGaugeContribution).toHaveBeenCalledWith('sweep', 0.26);
@@ -784,6 +1309,115 @@ describe('the wrap up: the close', () => {
     expect(
       (t.last().metadata_json as unknown as BriefOfferMeta).buttons.map((b) => b.action),
     ).toEqual(['night']);
+  });
+
+  describe('their week', () => {
+    const closeActions = (t: { last: () => SpaceChatMessage }) =>
+      (t.last().metadata_json as unknown as BriefOfferMeta).buttons.map((b) => b.action);
+    // DAY is a Wednesday: with Wednesday as their weekly day the review is of the week from Thursday
+    const weeklyWednesday = (review: Record<string, unknown> | null = null) =>
+      Object.assign(mockWeek, { loaded: true, weeklyDay: 3, review });
+
+    it('offers the weekly review at the close on their weekly day and the two evenings after', async () => {
+      weeklyWednesday();
+      const t = await clearNight();
+      await toQuestions(t);
+      expect(closeActions(t)).toEqual(['night', 'plan_tomorrow', 'plan_week']);
+      expect((t.last().metadata_json as unknown as BriefOfferMeta).hint).toBe(
+        "Your week isn't planned yet.",
+      );
+      // Monday is their weekly day: Wednesday is the second evening after
+      resetWrapSession();
+      Object.assign(mockWeek, { loaded: true, weeklyDay: 1, review: null });
+      const second = await clearNight();
+      await toQuestions(second);
+      expect(closeActions(second)).toContain('plan_week');
+    });
+
+    it('says nothing of the week on other evenings, once they said not this week, or before it is read', async () => {
+      // Sunday is their weekly day: Wednesday is three days after
+      Object.assign(mockWeek, { loaded: true, weeklyDay: 0, review: null });
+      const t = await clearNight();
+      await toQuestions(t);
+      expect(closeActions(t)).toEqual(['night', 'plan_tomorrow']);
+
+      resetWrapSession();
+      weeklyWednesday({ week_start: TOMORROW, status: 'skipped' });
+      const skipped = await clearNight();
+      await toQuestions(skipped);
+      expect(closeActions(skipped)).toEqual(['night', 'plan_tomorrow']);
+
+      resetWrapSession();
+      Object.assign(mockWeek, { loaded: false, weeklyDay: 3, review: null });
+      const unread = await clearNight();
+      await toQuestions(unread);
+      expect(closeActions(unread)).toEqual(['night', 'plan_tomorrow']);
+    });
+
+    it('Plan my week finishes the wrap up and starts the review in the thread', async () => {
+      weeklyWednesday();
+      const t = await clearNight();
+      await toQuestions(t);
+      await act(() => t.hook.result.current.handleButton(...t.button('plan_week')));
+      expect(t.said().slice(-2)).toEqual([
+        ['brief-reply', 'Plan my week'],
+        ['brief-text', "Let's plan your week."],
+      ]);
+      // the evening's own work is done: no goodnight is said, the review ends the night
+      expect(currentWrap()).toMatchObject({ step: 'done' });
+      expect(currentWrap()?.finished_at).toBeTruthy();
+      expect(t.calls.planWeek).toHaveBeenCalledTimes(1);
+      expect(t.calls.seeWeek).not.toHaveBeenCalled();
+      expect(t.messages.some((m) => (m.metadata_json as any).type === 'sweep-end')).toBe(false);
+    });
+
+    it('Plan my week on an offer from before the close opens the review and leaves the wrap up where it is', async () => {
+      // an earlier build put the button on the opening offer, and that offer is still in the thread
+      const t = setup();
+      await act(() => t.hook.result.current.open());
+      const opening = t.last();
+      const meta = opening.metadata_json as unknown as BriefOfferMeta;
+      const planWeek = {
+        id: 'plan_week',
+        label: 'Plan my week',
+        action: 'plan_week',
+      } as OfferButton;
+      const old = {
+        ...opening,
+        metadata_json: { ...meta, buttons: [...meta.buttons, planWeek] },
+      } as unknown as SpaceChatMessage;
+      const step = currentWrap()?.step;
+      const back = setup({ messages: [...t.messages.slice(0, -1), old] });
+      await act(() => back.hook.result.current.handleButton(old, planWeek));
+      expect(back.calls.planWeek).toHaveBeenCalledTimes(1);
+      // the evening is not ended: nothing of it has been done yet
+      expect(currentWrap()?.step).toBe(step);
+      expect(currentWrap()?.finished_at).toBeFalsy();
+      expect(back.said().slice(-1)).toEqual([['brief-reply', 'Plan my week']]);
+    });
+
+    it('offers the week they planned once the review is done, and leaves the close as it is', async () => {
+      weeklyWednesday({ week_start: TOMORROW, status: 'done' });
+      const t = await clearNight();
+      await toQuestions(t);
+      expect(closeActions(t)).toEqual(['night', 'plan_tomorrow', 'see_week']);
+      const n = t.messages.length;
+      await act(() => t.hook.result.current.handleButton(...t.button('see_week')));
+      expect(t.calls.seeWeek).toHaveBeenCalledTimes(1);
+      // good night is still there for when they come back
+      expect(t.messages).toHaveLength(n);
+      expect((t.last().metadata_json as any).chosen).toBeUndefined();
+      expect(currentWrap()?.step).toBe('close');
+    });
+
+    it('still offers the week after tomorrow is planned', async () => {
+      weeklyWednesday();
+      const t = await clearNight();
+      await toQuestions(t);
+      await act(() => t.hook.result.current.handleButton(...t.button('plan_tomorrow')));
+      await act(() => t.hook.result.current.afterPlan());
+      expect(closeActions(t)).toEqual(['night', 'plan_week']);
+    });
   });
 
   it('good night ends the thread for the day', async () => {
@@ -806,13 +1440,18 @@ describe('the wrap up: the other choices', () => {
   it('Move it all on: todos move, the rest waits, a skip is used, and habits and the journal still come', async () => {
     mockFetchQuestions.mockResolvedValue([Q2]);
     // each move is a decision kept for tomorrow, as the change model records it
-    mockApplyDecision.mockImplementation(
-      async (d: { candidateId: string; dueDateStr: string }) => ({
+    mockApplyDecision.mockImplementation(async (d: { candidateId: string; dueDateStr: string }) => {
+      // the todo moves in the store, as keeping it for a day does
+      mockState.todos = [
+        ...mockState.todos,
+        { id: d.candidateId, name: `Todo ${d.candidateId}`, due_day: d.dueDateStr },
+      ];
+      return {
         ok: true,
         record: record(d.candidateId, 'kept', { fields: { day: d.dueDateStr } }),
         revert: jest.fn().mockResolvedValue(undefined),
-      }),
-    );
+      };
+    });
     const t = setup();
     await act(() => t.hook.result.current.open());
     mockState.refreshSkipBudget.mockImplementation(async () => {
@@ -843,7 +1482,7 @@ describe('the wrap up: the other choices', () => {
     expect(mockState.addGaugeContribution).not.toHaveBeenCalled();
     // the close names what was moved to tomorrow
     expect(t.last().content).toBe(
-      "That's Wednesday wrapped up. Tomorrow has Todo a and Todo b lined up.",
+      "That's Wednesday closed out, nicely done. Time to rest now. Tomorrow has Todo a and Todo b planned.",
     );
   });
 
@@ -863,6 +1502,110 @@ describe('the wrap up: the other choices', () => {
     expect(t.last().content).toBe('Night, Sam. Sleep well.');
     expect(currentWrap()).toMatchObject({ step: 'declined', journal: 'written' });
     expect(mockFetchQuestions).not.toHaveBeenCalled();
+  });
+
+  describe('Just the journal, with a habit they are breaking', () => {
+    const BUILD = { id: 'h1', name: 'Blinkist', start_date: '2026-09-01', cadence: 'daily' };
+    const BREAK = {
+      id: 'b1',
+      name: 'No phone in bed',
+      subtype: 'break_habit',
+      start_date: '2026-09-01',
+      cadence: 'daily',
+    };
+    const habitCards = (t: ReturnType<typeof setup>) =>
+      t.messages.filter((m) => (m.metadata_json as any)?.type === 'sweep-habits');
+
+    /** Not tonight, Just the journal, then the journal written or skipped. */
+    async function journalOnly(skip = false) {
+      const t = setup();
+      await act(() => t.hook.result.current.open());
+      await act(() => t.hook.result.current.handleButton(...t.button('not_tonight')));
+      await act(() => t.hook.result.current.handleButton(...t.button('journal_only')));
+      expect(t.last().content).toBe(WRAP_COPY.journalAskOnly);
+      if (skip) await act(() => t.hook.result.current.handleButton(...t.button('journal_skip')));
+      else
+        await act(async () => {
+          await t.hook.result.current.takeTyped('Long day.');
+        });
+      return t;
+    }
+
+    it('still checks in on it, once, after the journal, and says good night when it is saved', async () => {
+      mockState.habits = [BUILD, BREAK];
+      const t = await journalOnly();
+      // the one they are breaking is asked, and the habit they are building is not
+      const card = t.card('sweep-habits');
+      expect(card.metadata_json).toMatchObject({
+        habits: [{ id: 'b1', title: 'No phone in bed', kind: 'break' }],
+        after_journal: true,
+        status: 'open',
+      });
+      expect(t.said()).toContainEqual([
+        'brief-text',
+        'One habit to check in on. Did it hold today?',
+      ]);
+      // the wrap up itself is over, as on any Not tonight
+      expect(currentWrap()).toMatchObject({
+        step: 'declined',
+        journal_only: false,
+        break_asked: true,
+        journal: 'written',
+      });
+      // good night waits for the card
+      expect(t.messages.map((m) => m.content)).not.toContain('Night, Sam. Sleep well.');
+
+      await act(() => t.hook.result.current.habits.save(card, [], { b1: 'not' }));
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+      expect(currentWrap()?.step).toBe('declined');
+      // one habits card, and the journal is not asked a second time
+      expect(habitCards(t)).toHaveLength(1);
+      expect(t.messages.filter((m) => m.content === WRAP_COPY.journalAskOnly)).toHaveLength(1);
+      expect(mockFetchQuestions).not.toHaveBeenCalled();
+    });
+
+    it('checks in on it after a journal they skipped too', async () => {
+      mockState.habits = [BREAK];
+      const t = await journalOnly(true);
+      const card = t.card('sweep-habits');
+      await act(() => t.hook.result.current.habits.save(card, [], { b1: 'held' }));
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+      expect(currentWrap()?.step).toBe('declined');
+    });
+
+    it('says good night straight away when there is none to check in on', async () => {
+      mockState.habits = [BUILD];
+      const t = await journalOnly();
+      expect(habitCards(t)).toHaveLength(0);
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+    });
+
+    it('leaves the wrap up open to come back to while the card waits, and asks about it once', async () => {
+      mockState.habits = [BUILD, BREAK];
+      const t = await journalOnly();
+      // the card is left unanswered, and they come back to the wrap up
+      await act(() => t.hook.result.current.open());
+      expect(t.last().content).toBe('Sure. Three things to sort, about a minute.');
+      expect(currentWrap()?.step).toBe('offer');
+      // on through to the habits: the one they are building, and not the other again
+      await act(() => t.hook.result.current.handleButton(...t.button('sweep_skip')));
+      const cards = habitCards(t);
+      expect(cards).toHaveLength(2);
+      expect((cards[1].metadata_json as any).habits.map((h: any) => h.id)).toEqual(['h1']);
+      expect((cards[1].metadata_json as any).after_journal).toBeUndefined();
+      // the first card can still be answered, and says good night
+      await act(() => t.hook.result.current.habits.save(cards[0], [], { b1: 'held' }));
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+    });
+
+    it('does not ask again after Not today, when they come back with nothing else open', async () => {
+      mockState.habits = [BREAK];
+      const t = await journalOnly();
+      await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), [], { b1: 'not' }));
+      await act(() => t.hook.result.current.open());
+      await act(() => t.hook.result.current.handleButton(...t.button('sweep_skip')));
+      expect(habitCards(t)).toHaveLength(1);
+    });
   });
 
   it('coming back after Not tonight offers the cards again, with no second journal ask', async () => {
@@ -895,14 +1638,13 @@ describe('the wrap up: the other choices', () => {
     expect(offer.buttons.map((b) => b.label)).toContain('Not tonight');
   });
 
-  it('Plan my week opens the week planner and leaves the offer as it is', async () => {
+  it('never offers the week at the opening: the weekly review belongs to the close', async () => {
+    // even on their weekly day
+    Object.assign(mockWeek, { loaded: true, weeklyDay: 3, review: null });
     const t = setup();
     await act(() => t.hook.result.current.open());
-    const n = t.messages.length;
-    await act(() => t.hook.result.current.handleButton(...t.button('plan_week')));
-    expect(t.calls.openWeek).toHaveBeenCalledTimes(1);
-    expect(t.messages).toHaveLength(n);
-    expect((t.last().metadata_json as any).chosen).toBeUndefined();
+    const offer = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(offer.buttons.map((b) => b.action)).not.toContain('plan_week');
   });
 });
 
@@ -990,7 +1732,6 @@ describe('the wrap up: before the evening', () => {
     expect(offer.buttons.map((b) => b.label)).toEqual([
       'Sweep now',
       'Move it all to tomorrow',
-      'Plan my week',
       'Not now',
     ]);
     // every change is stamped, so the evening knows this was earlier in the day
@@ -1021,12 +1762,13 @@ describe('the wrap up: before the evening', () => {
     const journal = t.last().metadata_json as unknown as BriefOfferMeta;
     expect(journal.buttons.map((b) => b.label)).toEqual([
       'Write a few lines',
+      'Open my journal',
       'Just pick a mood',
       'Skip',
     ]);
     await toQuestions(t);
     const close = t.last().metadata_json as unknown as BriefOfferMeta;
-    expect(close.buttons.map((b) => b.label)).toEqual(['Plan tomorrow', 'Thanks, Gremly']);
+    expect(close.buttons.map((b) => b.label)).toEqual(['Thanks, Gremly', 'Plan tomorrow']);
     await act(() => t.hook.result.current.handleButton(...t.button('night')));
     expect(t.said()).toContainEqual(['brief-text', 'Enjoy the rest of your day, Sam.']);
     expect(currentWrap()?.step).toBe('done');
@@ -1136,6 +1878,72 @@ describe("the wrap up: Gremly's own words", () => {
     expect(currentWrap()?.journal).toBeNull();
     // the journal waits as it was
     expect((t.last().metadata_json as any).kind).toBe('journal');
+  });
+
+  it('reacts to the cards and the habits, and says goodnight, told what he has said and who he is', async () => {
+    mockState.gremlyAge = 61;
+    mockState.currentTierName = 'Sage';
+    mockState.isFedToday = true;
+    mockState.habits = [{ id: 'h1', name: 'Blinkist', start_date: '2026-09-01', cadence: 'daily' }];
+    words({
+      open: { line: 'A full day, Sam.' },
+      sorted: { line: 'Everything has a home now.' },
+      habits: { line: 'Blinkist again, lovely.' },
+      close: { line: 'Wednesday is wrapped up.' },
+      night: { line: 'Rest well, Sam.' },
+    });
+    const t = setup();
+    await act(() => t.hook.result.current.open());
+    await act(() => t.hook.result.current.handleButton(...t.button('sweep')));
+    act(() => {
+      recordDecision(record('a'), jest.fn());
+      recordDecision(record('b', 'let_go'), jest.fn());
+      recordDecision(record('n'), jest.fn());
+    });
+    await act(() => t.hook.result.current.backFromCards());
+    expect(t.said()).toContainEqual(['brief-text', 'Everything has a home now.']);
+    const sorted = mockWrapWords.mock.calls.find((c) => c[0].moment === 'sorted')[0];
+    // the cards just fed him, and he knows what he said when it opened
+    expect(sorted.tonight.fed_by_cards).toBe(true);
+    expect(sorted.said).toContain('A full day, Sam.');
+    expect(sorted.gremly).toEqual({
+      age: 61,
+      tier: 'Sage',
+      nature: 'Warm, steady, occasionally profound.',
+      fed_today: true,
+    });
+    await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), ['h1'], {}));
+    expect(t.said()).toContainEqual(['brief-text', 'Blinkist again, lovely.']);
+    expect(t.said()).not.toContainEqual(['brief-text', expect.stringContaining('Logged.')]);
+    const habits = mockWrapWords.mock.calls.find((c) => c[0].moment === 'habits')[0];
+    expect(habits.tonight.logged).toEqual(['Blinkist']);
+    expect(habits.said).toContain('Everything has a home now.');
+    await toQuestions(t);
+    expect(t.last().content).toBe('Wednesday is wrapped up.');
+    // his goodnight is asked for as the close is said, knowing the close
+    const night = mockWrapWords.mock.calls.filter((c) => c[0].moment === 'night');
+    expect(night).toHaveLength(1);
+    expect(night[0][0].said).toContain('Wednesday is wrapped up.');
+    await act(() => t.hook.result.current.handleButton(...t.button('night')));
+    // the tap shows at once, then his words and the end card
+    expect(types(t).slice(-3)).toEqual(['brief-reply', 'brief-text', 'sweep-end']);
+    expect(t.messages[t.messages.length - 2].content).toBe('Rest well, Sam.');
+    expect(mockWrapWords.mock.calls.filter((c) => c[0].moment === 'night')).toHaveLength(1);
+    expect(currentWrap()?.step).toBe('done');
+  });
+
+  it('says the line before his questions in his words when he chose every one', async () => {
+    mockFetchQuestions.mockResolvedValue([Q1, Q2]);
+    words({
+      questions: {
+        intro: 'Just one thing, so I get it right.',
+        ask: [{ id: 'q2', question: 'Friday or Saturday?', choices: ['Friday', 'Saturday'] }],
+      },
+    });
+    const t = await clearNight();
+    await toQuestions(t);
+    expect(t.messages[t.messages.length - 2].content).toBe('Just one thing, so I get it right.');
+    expect(t.last().content).toBe('Friday or Saturday?');
   });
 
   it("chooses tonight's questions, in his words with answers to tap", async () => {

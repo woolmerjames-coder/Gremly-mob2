@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useFonts } from 'expo-font';
-import { Inter_400Regular, Inter_500Medium } from '@expo-google-fonts/inter';
+import {
+  Inter_400Regular,
+  Inter_400Regular_Italic,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_700Bold_Italic,
+} from '@expo-google-fonts/inter';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -22,6 +29,14 @@ export function useBrandFonts() {
   const [fontsLoaded, fontsError] = useFonts({
     'Inter-Regular': Inter_400Regular,
     'Inter-Medium': Inter_500Medium,
+    // Styles across the app ask for these two by name. Until they were loaded
+    // here, those labels fell back to the system font.
+    'Inter-SemiBold': Inter_600SemiBold,
+    'Inter-Bold': Inter_700Bold,
+    // The journal editor makes words bold and italic inside Inter-Regular,
+    // which needs these faces to exist.
+    'Inter-Italic': Inter_400Regular_Italic,
+    'Inter-BoldItalic': Inter_700Bold_Italic,
     'PlusJakartaSans-Regular': PlusJakartaSans_400Regular,
     'PlusJakartaSans-Medium': PlusJakartaSans_500Medium,
     'PlusJakartaSans-SemiBold': PlusJakartaSans_600SemiBold,

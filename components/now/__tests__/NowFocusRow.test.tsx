@@ -9,6 +9,7 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { NowFocusRow } from '../NowFocusRow';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import type { NowLockedItem, NowActiveItem } from '../../../lib/now/nowTypes';
+import { localMinutesToIso } from '../../../lib/brief/time';
 
 // Mock the store
 jest.mock('../../../lib/store/useGremlyStore');
@@ -56,6 +57,42 @@ describe('NowFocusRow', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('the planned time line', () => {
+    const TODAY = '2026-10-07';
+    const withTodo = (scheduled_start_iso: string) =>
+      mockUseGremlyStore.mockImplementation((selector: any) =>
+        selector({
+          habitProgress: [],
+          habits: [],
+          todos: [{ id: 'todo-1', name: 'Review', scheduled_start_iso, time_estimate_minutes: 30 }],
+          currentDate: TODAY,
+        }),
+      );
+    const item: NowActiveItem = { id: 'todo-1', type: 'todo', name: 'Review', locked: false };
+
+    it('shows a time planned for today', () => {
+      withTodo(localMinutesToIso(TODAY, 9 * 60));
+      render(<NowFocusRow item={item} />);
+      expect(screen.getByText('9:00 AM – 9:30 AM')).toBeTruthy();
+    });
+
+    it('shows the estimate, not the time, when the time was planned for another day', () => {
+      withTodo(localMinutesToIso('2026-10-06', 9 * 60));
+      render(<NowFocusRow item={item} />);
+      expect(screen.queryByText('9:00 AM – 9:30 AM')).toBeNull();
+      expect(screen.getByText('~30 min')).toBeTruthy();
+    });
+
+    it('shows a time planned for a day ahead on a row for a day ahead, and not on Today', () => {
+      withTodo(localMinutesToIso('2026-10-08', 14 * 60));
+      const { unmount } = render(<NowFocusRow item={item} />);
+      expect(screen.queryByText('2:00 PM – 2:30 PM')).toBeNull();
+      unmount();
+      render(<NowFocusRow item={item} isFuture />);
+      expect(screen.getByText('2:00 PM – 2:30 PM')).toBeTruthy();
+    });
   });
 
   describe('rendering', () => {

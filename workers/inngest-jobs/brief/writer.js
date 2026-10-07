@@ -35,6 +35,16 @@ function fromTime(from, now) {
   return from <= now ? 'now' : clockTime(from);
 }
 
+/**
+ * What a habit's line says of a lighter version running today: their own
+ * words for it when they gave any. Nothing when the habit has none.
+ */
+function lighterWords(note) {
+  if (note == null) return '';
+  const said = trim(note, 120);
+  return said ? `, lighter version for now: “${said}”` : ', on a lighter version for now';
+}
+
 function weekdayLabel(dateStr) {
   return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(
     new Date(`${dateStr}T12:00:00Z`),
@@ -105,7 +115,7 @@ export function renderBriefInput(g, offer) {
           const week = h.target
             ? `${h.done} of ${h.target} this week${h.behind ? ', behind for the week' : ''}`
             : 'daily';
-          return `${ref} | ${trim(h.title, 80)} | ${week}`;
+          return `${ref} | ${trim(h.title, 80)} | ${week}${lighterWords(h.lighter)}`;
         })
         .join('\n') || '(none)'
     }`,
