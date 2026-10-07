@@ -249,6 +249,7 @@ import {
 } from './chatPrompts.js';
 import { forgetPerson } from './context/forget.js';
 import { fileDrop, filingReply } from '../inngest-jobs/context/filing.js';
+import { invalidateChatCache } from '../shared/chatCache.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -3378,6 +3379,8 @@ const cortexHandler = {
         'week-spread',
         'notification-test',
         'forget-me',
+        'chapter-memory',
+        'worlds-changed',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7644,6 +7647,39 @@ ${assistantMessage.substring(0, 2000)}
       }
 
       // =========================
+      // === WORLDS AND CHAPTERS (data fabric stage 4b) ===
+      // chapter-memory: the Worlds build asks for a Chapter's memory as the
+      // person closes it, and shows what comes back.
+      // worlds-changed: the person renamed, moved, merged, closed or reopened
+      // a World or a Chapter, or changed its dates. Chat's cache is cleared
+      // here, so the next message knows, and fresh words are asked for.
+      // =========================
+      if (type === 'chapter-memory' || type === 'worlds-changed') {
+        const id = typeof body.id === 'string' && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : null;
+        const table = type === 'chapter-memory' ? 'chapters' : body.table;
+        if (!id || !['worlds', 'chapters'].includes(table))
+          return j({ error: 'id and table are required' }, 400);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        if (type === 'worlds-changed') await invalidateChatCache(env, authenticatedUserId);
+        const res = await fetchInngestWorker(
+          env,
+          type === 'chapter-memory' ? '/api/chapter-memory' : '/api/words-fresh',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+            body: JSON.stringify(
+              type === 'chapter-memory'
+                ? { user_id: authenticatedUserId, chapter_id: id }
+                : { user_id: authenticatedUserId, table, id },
+            ),
+          },
+        ).catch(() => null);
+        if (!res) return j({ error: 'could not reach the pipeline' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : res.status);
+      }
+
+      // =========================
       // === DAILY BRIEF IN CHAT ===
       // The app's first open when no brief was written for today, or a later
       // first open that needs a fresh brief for this part of the day (once a
@@ -11145,6 +11181,26 @@ Return ONLY valid JSON, no explanation:
           latency_ms: Date.now() - t0,
           uid: authenticatedUserId.slice(0, 8),
         });
+
+        // a drop with no Worlds to go into: first Worlds may be due (data fabric
+        // stage 4b). The inngest worker decides; the reply never waits on it
+        if (filed.skipped_reason === 'empty_graph' && env.INNGEST_ADMIN_KEY)
+          ctx.waitUntil(
+            fetchInngestWorker(env, '/api/first-worlds', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+              body: JSON.stringify({ user_id: authenticatedUserId }),
+            })
+              .then(async (res) => {
+                if (!res.ok)
+                  console.warn(
+                    `[AssignWorlds] first Worlds could not be asked for: ${res.status} ${(await res.text()).slice(0, 200)}`,
+                  );
+              })
+              .catch((err) =>
+                console.warn(`[AssignWorlds] first Worlds could not be asked for: ${err.message}`),
+              ),
+          );
 
         return j(filingReply(filed));
       }

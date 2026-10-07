@@ -41,10 +41,11 @@ import {
 } from '../../shared/week.js';
 import { gremlyPut, habitAllowance, habitOpenDays } from '../../shared/weekBoard.js';
 import { easesFrom, pauseSpans } from '../../shared/habitWeek.js';
+import { upNext, upNextWords } from '../../shared/upNext.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
 import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields.js';
 
-export const WEEK_READ_VERSION = 'week-read-2026-10-09c';
+export const WEEK_READ_VERSION = 'week-read-2026-10-09d';
 
 /** The most open todos the read lists; the figures still count every one. */
 export const TODO_LIST_MAX = 120;
@@ -472,6 +473,8 @@ export async function gatherRead(env, userId, p) {
       )
       .filter((h) => !h.end_date || h.end_date >= today),
     dated: datedThings({ notes, quick, allDayAhead, chapters, today, horizon }),
+    // the open Chapter with the nearest date, worked out in code (shared/upNext.js)
+    up_next: upNext(chapters || [], today),
     calendar: { connected: (tokens || []).length > 0, days: calendarDays },
     last_review: await lastReviewOf(d, userId, lastReviews?.[0], p.week_start),
   };
@@ -725,6 +728,8 @@ export function renderRead(g, o = {}) {
       `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 260) || 'no summary'} | ${(c.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
     );
   }
+  const next = upNextWords(g.up_next);
+  if (next) L.push(`UP NEXT AMONG THEIR CHAPTERS, WORKED OUT IN CODE: ${next}.`);
 
   // dated things ahead: what Gremly holds, whole days on their calendar, and todos due by a date
   const horizon = addDays(today, LOOK_AHEAD_DAYS);

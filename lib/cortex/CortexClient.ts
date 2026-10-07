@@ -2118,6 +2118,69 @@ export async function callNotRight(input: {
 }
 
 /**
+ * Something about a World or a Chapter changed on this phone: renamed, moved,
+ * merged, closed or reopened, or its dates changed. Cortex clears chat's cache
+ * so the next message knows, and asks the pipeline for fresh words for it
+ * (data fabric stage 4b). Nothing waits on the reply.
+ */
+export async function callWorldsChanged(input: {
+  table: 'worlds' | 'chapters';
+  id: string;
+}): Promise<CortexClientResult<{ ok?: boolean }>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'worlds-changed', table: input.table, id: input.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * A Chapter's memory, written as the person closes it (data fabric stage
+ * 4b). The memory is kept on the Chapter; the reply says what it is, or
+ * memory is null when nothing true could be written.
+ */
+export async function callChapterMemory(chapterId: string): Promise<
+  CortexClientResult<{
+    ok?: boolean;
+    outcome?: string;
+    memory?: string | null;
+    field?: string | null;
+  }>
+> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'chapter-memory', id: chapterId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    if (data?.ok !== true)
+      return { ok: false, error: 'cortex did not write a memory', status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
  * Forget Everything (What Gremly knows), after the person said yes: Gremly
  * forgets what he learned about them (workers/cortex/context/forget.js). The
  * reply says how much of each kind was forgotten.

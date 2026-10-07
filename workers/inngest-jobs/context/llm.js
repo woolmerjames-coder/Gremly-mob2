@@ -22,6 +22,19 @@ export const MODELS = {
   // filing a drop into a World or Chapter (context/filing.js), in cortex and the backfill
   filing: { provider: 'openai', model: 'gpt-6-luna' },
   filingFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the words under each World and open Chapter (words.js): Luna, which met the
+  // bar on the words replay where Flash did not (scripts/words-replay)
+  words: { provider: 'openai', model: 'gpt-6-luna' },
+  wordsFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // a closed Chapter's memory (memory.js), and a new person's first Worlds
+  // (firstWorlds.js): Sonnet 5.5 unless the replay showed a cheaper model does
+  // as well (James, 7 Oct). Luna met the bar on both replays and Flash did not
+  // (scripts/words-replay, scripts/first-worlds-replay); Sonnet could not be run
+  // there, with no Anthropic key on the replay machine
+  memory: { provider: 'openai', model: 'gpt-6-luna' },
+  memoryFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  firstWorlds: { provider: 'openai', model: 'gpt-6-luna' },
+  firstWorldsFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },

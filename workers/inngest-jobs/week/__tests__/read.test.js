@@ -447,6 +447,20 @@ describe('what the model reads', () => {
     expect(r.text).toContain('Saturday 2026-10-10 (a day off); Sunday 2026-10-11 (a day off)');
   });
 
+  it('says which Chapter is up next, worked out in code, after the Chapters', () => {
+    expect(r.text).not.toContain('UP NEXT');
+    const t = renderRead(
+      gathered({
+        up_next: { title: 'The half', date: '2026-10-18', which: 'starts', days_until: 14 },
+      }),
+    ).text;
+    expect(t).toContain(
+      'UP NEXT AMONG THEIR CHAPTERS, WORKED OUT IN CODE: "The half" starts on Sunday 2026-10-18.',
+    );
+    expect(t.indexOf('UP NEXT')).toBeGreaterThan(t.indexOf('\nCHAPTERS'));
+    expect(t.indexOf('UP NEXT')).toBeLessThan(t.indexOf('\nDATED THINGS AHEAD'));
+  });
+
   it('keeps the order it was tested in', () => {
     const order = [
       'NOW:',

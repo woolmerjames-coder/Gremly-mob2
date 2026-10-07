@@ -11,7 +11,9 @@
  *   the work spreads over each person's own hour and no longer leaves in one
  *   fan out on Sunday at 11:00 UTC.
  * - weekly-pipe (one person): their weekly synthesis for the seven days ending
- *   on their weekly day, then their read, made ahead for everyone the pipe
+ *   on their weekly day, what is left of the Sunday classifier, then their
+ *   read, then the words under their Worlds and Chapters and the memories of
+ *   closed Chapters (data fabric stage 4b). The read is made ahead for everyone the pipe
  *   runs for (the rule that kept it to people who had finished a review in the
  *   last four weeks is still here, switched off: READ_AHEAD_NEEDS_REVIEW).
  * - POST /api/week-read (from cortex, for the app): the read for a review
@@ -343,7 +345,10 @@ export async function ensureWeekSpread(env, userId, p = {}) {
   return { on, spread };
 }
 
-export function createWeekFunctions(inngest, { synthesis }) {
+export function createWeekFunctions(
+  inngest,
+  { synthesis, classifier = null, words = null, memories = null },
+) {
   const dispatch = inngest.createFunction(
     { id: 'weekly-pipe-dispatch', name: 'Weekly pipe: start the pipes due now' },
     [{ cron: '0 * * * *' }, { event: 'app/week.pipe.dispatch' }],
@@ -390,6 +395,25 @@ export function createWeekFunctions(inngest, { synthesis }) {
       } catch (err) {
         synth = { error: String(err?.message || err).slice(0, 200) };
       }
+      // What is left of the Sunday classifier runs here, after the synthesis,
+      // until stage 5 (data fabric stage 4b): it no longer has a schedule of
+      // its own, so it never runs before the synthesis on another day.
+      let classified = null;
+      if (classifier) {
+        try {
+          const c = await step.invoke('classifier', {
+            function: classifier,
+            data: { user_id: userId },
+            timeout: '30m',
+          });
+          classified = { counts: c?.classifier_counts || null };
+        } catch (err) {
+          classified = { error: String(err?.message || err).slice(0, 200) };
+          console.warn(
+            `[ALERT][WeekPipe] the classifier did not finish for ${userId} on ${day}: ${classified.error}`,
+          );
+        }
+      }
       // Making the read and keeping it are two steps, so a save that fails is
       // tried again without paying for the read a second time.
       const ahead = await step.run('read-ahead', async () => {
@@ -410,10 +434,42 @@ export function createWeekFunctions(inngest, { synthesis }) {
       let skipped = ahead.skipped;
       if (!skipped && !ahead.read) skipped = 'the week has its read';
       if (!skipped && kept && !kept.made) skipped = 'another read was kept first';
+      // Then the words under each World and open Chapter, from what the week
+      // filed, and a memory for each closed Chapter that has none (data fabric
+      // stage 4b). After the read, so the read never waits on them.
+      const after = {};
+      for (const [name, fn] of [
+        ['words', words],
+        ['memories', memories],
+      ]) {
+        if (!fn) continue;
+        try {
+          const r = await step.invoke(name, {
+            function: fn,
+            data: { user_id: userId, reason: 'weekly' },
+            timeout: '30m',
+          });
+          after[name] =
+            name === 'words'
+              ? {
+                  written: r?.written ?? null,
+                  left_out: r?.left_out ?? null,
+                  failed: r?.failed ?? null,
+                }
+              : { chapters: r?.chapters ?? null };
+        } catch (err) {
+          after[name] = { error: String(err?.message || err).slice(0, 200) };
+          console.warn(
+            `[ALERT][WeekPipe] the ${name} did not finish for ${userId} on ${day}: ${after[name].error}`,
+          );
+        }
+      }
       return {
         user_id: userId,
         day,
         synthesis: synth,
+        classifier: classified,
+        ...after,
         read: {
           made: !!kept?.made,
           skipped: skipped || null,

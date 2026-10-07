@@ -100,7 +100,15 @@ function assertChapterWritable(
 export interface WriteResult {
   run_id: string;
   worlds: { inserted: number; existing: number };
-  chapters: { inserted: number; existing: number; updated: number; closed: number };
+  /** closed stays 0: the classifier never closes a Chapter (data fabric stage 4b);
+   * close_refused counts the closes it asked for, which were not applied */
+  chapters: {
+    inserted: number;
+    existing: number;
+    updated: number;
+    closed: number;
+    close_refused: number;
+  };
   life_contexts: { inserted: number; existing: number };
   velocity_updates: number;
   chapter_world_links_inserted: number;
@@ -149,7 +157,7 @@ function sanitizeAuthored(raw: string | null | undefined, maxChars: number): str
  * Step 2: insert new world candidates (skip confidence < 0.5 and duplicates).
  * Step 3: insert new chapter candidates + chapter_world_links.
  * Step 4: insert new life_context candidates.
- * Step 5: apply chapter_updates (extend / close).
+ * Step 5: apply chapter_updates (extend; a close is counted and never applied).
  * Step 6: apply velocity_updates (patch worlds table).
  * Step 7: apply reactivation_proposals (dormant → active).
  * Step 8: defer reclassification + evolution proposals as events.
@@ -173,7 +181,7 @@ export async function writeClassifierOutput(
   const result: WriteResult = {
     run_id,
     worlds: { inserted: 0, existing: 0 },
-    chapters: { inserted: 0, existing: 0, updated: 0, closed: 0 },
+    chapters: { inserted: 0, existing: 0, updated: 0, closed: 0, close_refused: 0 },
     life_contexts: { inserted: 0, existing: 0 },
     velocity_updates: 0,
     chapter_world_links_inserted: 0,
@@ -607,11 +615,10 @@ export async function writeClassifierOutput(
         patch.key_priorities_updated_at = now();
       }
 
-      // Close MUST be last — flips closed_at for subsequent runs
-      if (update.close_chapter) {
-        patch.phase = 'closed';
-        patch.closed_at = now();
-      }
+      // The classifier never closes a Chapter (data fabric stage 4b): the
+      // person closes their own, and Gremly asks them first. A close it asks
+      // for is counted and not applied.
+      if (update.close_chapter) result.chapters.close_refused++;
 
       // Defense-in-depth: for open chapters, guard against concurrent user-close races
       let query = db
@@ -619,7 +626,7 @@ export async function writeClassifierOutput(
         .update(withoutOldFields('chapters', patch, env))
         .eq('id', update.chapter_id)
         .eq('owner_id', ownerId);
-      if (closedAt === null && !update.close_chapter) {
+      if (closedAt === null) {
         query = query.is('closed_at', null);
       }
 
@@ -628,11 +635,7 @@ export async function writeClassifierOutput(
         result.errors.push(`chapter_update '${update.chapter_id}': ${updateError.message}`);
         continue;
       }
-      if (update.close_chapter) {
-        result.chapters.closed++;
-      } else {
-        result.chapters.updated++;
-      }
+      result.chapters.updated++;
     } catch (err) {
       if (err instanceof ClosedChapterWriteError) {
         result.errors.push(err.message);

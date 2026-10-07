@@ -59,6 +59,7 @@ import { toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { sourceWords } from '../../shared/factSource.js';
+import { upNextWords } from '../../shared/upNext.js';
 import { checkForCorrection } from '../context/corrections.js';
 
 export const BRIEF_AGENT_VERSION = `brief-2026-10-09e/${AGENT_PROMPT_VERSION}`;
@@ -210,6 +211,9 @@ export function dayMeaning(dco) {
     );
   }
   if (dco.voice_note) lines.push(`- How Gremly's brief is pitching today: ${dco.voice_note}`);
+  // the open Chapter with the nearest date, worked out in code (shared/upNext.js)
+  const next = upNextWords(dco.up_next);
+  if (next) lines.push(`- Up next among their Chapters: ${next}`);
   return lines.length
     ? `WHAT TODAY IS ABOUT (Gremly's picture of their day)\n${lines.join('\n')}`
     : '';

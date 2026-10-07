@@ -153,15 +153,14 @@ describe('what the weekly pass records', () => {
         c.op === 'remove' &&
         c.path.startsWith('passage_refs?user_id=eq.u-1&row_table=eq.user_life_map'),
     );
-    // the epigraph it cleared no longer rests on anything
-    expect(
-      calls.some(
-        (c) =>
-          c.op === 'remove' &&
-          c.path ===
-            'passage_refs?user_id=eq.u-1&row_table=eq.chapters&row_id=eq.chapter-1&field=eq.epigraph',
-      ),
-    ).toBe(true);
+    // the words, the memory and the title have writers of their own now (stage 4b)
+    for (const field of ['card_subtitle', 'epigraph', 'title'])
+      expect(
+        calls.some((c) => c.op === 'remove' && String(c.path).includes(`field=eq.${field}`)),
+      ).toBe(false);
+    for (const c of calls.filter((x) => x.op === 'update' && /^(worlds|chapters)\?/.test(x.path)))
+      for (const k of ['card_subtitle', 'card_subtitle_source', 'epigraph', 'epigraph_source', 'title', 'title_source'])
+        expect(c.patch).not.toHaveProperty(k);
     const upsertAt = calls.findIndex((c) => c.op === 'upsert' && c.table === 'passage_refs');
     expect(removeAt).toBeGreaterThan(-1);
     expect(calls[removeAt].path).toBe(
@@ -172,18 +171,15 @@ describe('what the weekly pass records', () => {
     const key = (r) => `${r.row_table}:${r.row_id}:${r.field}`;
     expect(rows.map(key).sort()).toEqual(
       [
-        'chapters:chapter-1:card_subtitle',
         'chapters:chapter-1:summary',
         'user_life_map:lm-1:domains.0.threads.0.recent_update',
         'user_life_map:lm-1:domains.0.threads.0.summary',
-        'worlds:world-1:card_subtitle',
       ].sort(),
     );
     const thread = rows.find((r) => r.field === 'domains.0.threads.0.summary');
     expect(thread.fact_ids).toEqual(['fact-1', 'fact-2']);
-    expect(rows.find((r) => r.row_id === 'world-1').fact_ids).toEqual(['fact-1']);
     expect(rows.every((r) => r.user_id === USER && r.writer === 'weekly')).toBe(true);
-    expect(out.applied.passages).toBe(5);
+    expect(out.applied.passages).toBe(3);
   });
 
   it('records nothing in shadow', async () => {
@@ -221,15 +217,15 @@ describe('the old Worlds fields (shared/worldsFields.js)', () => {
     expect(chapter.patch).toHaveProperty('key_priorities');
   });
 
-  it('stopped, no phase or priorities are written, and the words still are', async () => {
+  it('stopped, no phase or priorities are written, and Gremly\'s notes still are', async () => {
     const updates = await run({ WORLDS_OLD_FIELDS: 'stop' });
     const world = updates.find((c) => c.path.startsWith('worlds?id=eq.world-1'));
     expect(world.patch).not.toHaveProperty('phase');
     expect(world.patch).not.toHaveProperty('key_priorities');
-    expect(world.patch).toHaveProperty('card_subtitle', 'Training for the half');
+    expect(world.patch).toHaveProperty('summary', 'Alex is building up to a half marathon.');
     const chapter = updates.find((c) => c.path.startsWith('chapters?id=eq.chapter-1'));
     for (const k of ['key_priorities', 'key_priorities_source', 'current_phase_key', 'phase_labels'])
       expect(chapter.patch).not.toHaveProperty(k);
-    expect(chapter.patch).toHaveProperty('card_subtitle', 'Building up to race day');
+    expect(chapter.patch).toHaveProperty('summary');
   });
 });

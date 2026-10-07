@@ -34,7 +34,7 @@ import { db, personIdentity } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
-export const WRAP_WORDS_VERSION = 'wrap-2026-10-05f';
+export const WRAP_WORDS_VERSION = 'wrap-2026-10-07a';
 
 export const MOMENTS = [
   'open',

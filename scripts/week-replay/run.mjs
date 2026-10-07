@@ -32,6 +32,7 @@ import {
   runWeekRead,
   WEEK_READ_VERSION,
 } from '../../workers/inngest-jobs/week/read.js';
+import { upNext } from '../../workers/shared/upNext.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -50,6 +51,10 @@ const effort = flag('--effort') || 'medium';
 const repeat = Math.max(1, Number(flag('--repeat')) || 1);
 const only = flag('--only');
 const judgeKey = flag('--judge') || 'pro';
+
+// Up next among their Chapters, as gatherRead works it out (data fabric stage 4b)
+for (const s of SCENARIOS)
+  if (s.g && s.g.up_next === undefined) s.g.up_next = upNext(s.g.chapters || [], s.g.today);
 
 let scenarios = [...SCENARIOS];
 if (only) scenarios = scenarios.filter((s) => only.split(',').includes(s.id));

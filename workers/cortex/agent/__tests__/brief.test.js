@@ -254,6 +254,13 @@ describe('the day the agent knows', () => {
         "- How Gremly's brief is pitching today: Keep things warm and unhurried.",
     );
     expect(dayMeaning(null)).toBe('');
+    // Up next among their Chapters, as the daily picture carries it (data fabric 4b)
+    expect(
+      dayMeaning({
+        ...dco,
+        up_next: { title: 'The half', date: '2026-10-04', which: 'ends', days_until: 2 },
+      }),
+    ).toMatch(/\n- Up next among their Chapters: "The half" ends on Sunday 2026-10-04$/);
     expect(dayContext(req, dco).indexOf('WHAT TODAY IS ABOUT')).toBeLessThan(
       dayContext(req, dco).indexOf('TODAY: Friday'),
     );

@@ -38,6 +38,9 @@ import {
   STORY_PROMPT_VERSION,
 } from './story';
 import { writeUsageRow } from '../../shared/aiUsage';
+import { writeWords } from './words';
+import { writeMemory, chaptersWantingMemory } from './memory';
+import { makeFirstWorlds, firstWorldsEvents } from './firstWorlds';
 
 /**
  * The pipeline mode, for one person when a user id is given. People listed in
@@ -64,11 +67,14 @@ export function lastCompleteWeekEnd(tz, weeklyDay, at = new Date()) {
 }
 
 /**
- * The context pipeline's functions, and the weekly synthesis by name: the
- * weekly pipe (week/index.js) runs it for each person on their weekly day.
- * @returns {{functions: object[], weekly: object}}
+ * The context pipeline's functions, and by name the ones the weekly pipe
+ * (week/index.js) runs for each person on their weekly day: the weekly
+ * synthesis, the words and the memories.
+ * @param deps.backfill the filing backfill (dropAssignmentBackfill.ts), which
+ *   first Worlds runs once the Worlds are made
+ * @returns {{functions: object[], weekly: object, words: object, memories: object}}
  */
-export function createContextFunctions(inngest) {
+export function createContextFunctions(inngest, { backfill = null } = {}) {
   // ── Ledger: read new records ─────────────────────────────────────────────
   const ledgerRead = inngest.createFunction(
     {
@@ -575,6 +581,133 @@ export function createContextFunctions(inngest) {
     },
   );
 
+  // ── Words: the line under each World and open Chapter (data fabric 4b) ──
+  // After the weekly pass (the weekly pipe), when the app says something
+  // changed (the same day route), on a return day (the brief), and after a new
+  // person's first Worlds. targets names the ones to write; none means all.
+  const words = inngest.createFunction(
+    {
+      id: 'context-words',
+      name: 'Context: the words under Worlds and Chapters',
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 5 }],
+      retries: 1,
+    },
+    { event: 'app/words.write' },
+    async ({ event, step, env }) => {
+      const userId = event.data?.user_id;
+      if (!userId) throw new Error('user_id is required');
+      const mode = contextMode(env, userId);
+      if (mode === 'off') return { skipped: 'pipeline off' };
+      const targets = Array.isArray(event.data?.targets)
+        ? event.data.targets.filter(
+            (t) =>
+              ['worlds', 'chapters'].includes(t?.table) && /^[0-9a-f-]{36}$/i.test(t?.id || ''),
+          )
+        : null;
+      return step.run('write', () =>
+        writeWords(env, userId, {
+          targets: targets?.length ? targets : null,
+          reason: String(event.data?.reason || 'by_hand').slice(0, 20),
+          dryRun: mode !== 'on',
+        }),
+      );
+    },
+  );
+
+  // ── Memories: a closed Chapter written as a memory (data fabric 4b) ─────
+  // The Worlds build asks for one at the close (/api/chapter-memory). Until
+  // then the weekly pipe asks for each closed Chapter that has none from the
+  // memory writer. chapter_ids names them; none means every one that needs it.
+  const memories = inngest.createFunction(
+    {
+      id: 'context-memories',
+      name: 'Context: memories of closed Chapters',
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
+      retries: 1,
+    },
+    { event: 'app/memories.write' },
+    async ({ event, step, env }) => {
+      const userId = event.data?.user_id;
+      if (!userId) throw new Error('user_id is required');
+      const mode = contextMode(env, userId);
+      if (mode === 'off') return { skipped: 'pipeline off' };
+      const ids = Array.isArray(event.data?.chapter_ids)
+        ? event.data.chapter_ids.filter((x) => /^[0-9a-f-]{36}$/i.test(String(x || '')))
+        : await step.run('which', () => chaptersWantingMemory(env, userId));
+      const out = [];
+      for (const id of ids.slice(0, 40)) {
+        // one step each, so a retry does not pay for the ones already written
+        out.push(
+          await step.run(`memory-${id}`, async () => {
+            try {
+              const r = await writeMemory(env, userId, id, { dryRun: mode !== 'on' });
+              return { id, outcome: r.outcome, field: r.field, model: r.model };
+            } catch (err) {
+              console.warn(
+                `[ALERT][Memory] the memory of ${id} could not be written: ${err.message}`,
+              );
+              return { id, error: String(err.message).slice(0, 200) };
+            }
+          }),
+        );
+      }
+      return { user_id: userId, chapters: out.length, memories: out };
+    },
+  );
+
+  // ── First Worlds: a new person's first Worlds (data fabric 4b) ──────────
+  // Started by the hourly dispatcher and by a drop filed while the person has
+  // none. Makes them, files what the person has, and writes their words.
+  const firstWorlds = inngest.createFunction(
+    {
+      id: 'context-first-worlds',
+      name: "Context: a new person's first Worlds",
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
+      retries: 1,
+    },
+    { event: 'app/worlds.first' },
+    async ({ event, step, env }) => {
+      const userId = event.data?.user_id;
+      if (!userId) throw new Error('user_id is required');
+      if (contextMode(env, userId) !== 'on')
+        return { skipped: 'the pipeline is not live for them' };
+      const made = await step.run('make', () => makeFirstWorlds(env, userId));
+      if (!made.made?.length) return { user_id: userId, ...made };
+      let filed = null;
+      if (backfill) {
+        try {
+          filed = await step.invoke('file-what-they-have', {
+            function: backfill,
+            data: { user_id: userId },
+            timeout: '1h',
+          });
+        } catch (err) {
+          filed = { error: String(err?.message || err).slice(0, 200) };
+          console.warn(
+            `[ALERT][FirstWorlds] filing what ${userId} has did not finish: ${filed.error}`,
+          );
+        }
+      }
+      const lines = await step.invoke('their-words', {
+        function: words,
+        data: { user_id: userId, reason: 'first_worlds' },
+        timeout: '30m',
+      });
+      return {
+        user_id: userId,
+        made: made.made,
+        model: made.model,
+        problems: made.problems,
+        filed: filed
+          ? { drops: filed.drops ?? null, error: filed.error || null }
+          : { error: 'no backfill given' },
+        words: lines
+          ? { written: lines.written, left_out: lines.left_out, empty: lines.empty }
+          : null,
+      };
+    },
+  );
+
   return {
     functions: [
       ledgerRead,
@@ -587,14 +720,19 @@ export function createContextFunctions(inngest) {
       storyScheduler,
       catchUpUser,
       catchUp,
+      words,
+      memories,
+      firstWorlds,
     ],
     weekly,
+    words,
+    memories,
   };
 }
 
 /**
- * Steps the hourly dispatcher adds: who has new records to read, and any
- * correction that arrived without its event.
+ * Steps the hourly dispatcher adds: who has new records to read, any
+ * correction that arrived without its event, and who is due first Worlds.
  */
 export async function hourlyContextEvents(env) {
   if (contextMode(env) === 'off') return [];
@@ -615,6 +753,12 @@ export async function hourlyContextEvents(env) {
       name: 'app/correction.apply',
       data: { correction_id: c.id, user_id: c.user_id },
     });
+  // first Worlds for anyone active with none who is due them (context/firstWorlds.js)
+  try {
+    events.push(...(await firstWorldsEvents(env)));
+  } catch (err) {
+    console.warn(`[ALERT][FirstWorlds] could not tell who is due first Worlds: ${err.message}`);
+  }
   return events;
 }
 

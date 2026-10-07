@@ -17,7 +17,6 @@ import {
 } from './analystObservations';
 import { generateAdaptiveSummary } from './generateAdaptiveSummary';
 import { createWorldsWeeklyRun } from './worldsWeeklyRun';
-import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
 import { createDropAssignmentBackfill } from './dropAssignmentBackfill';
 import { aiContext, installAiUsageLogging } from '../shared/aiUsage';
 import { CARE_RULES } from './careRules';
@@ -33,6 +32,10 @@ import { handleNotificationsApi } from './notifications/api';
 import { handlePlanPickApi } from './brief/planPick';
 import { handleDayTurnApi } from './brief/dayTurn';
 import { buildDcoV4, writeDco } from './context/daily';
+import { handleFirstWorldsApi } from './context/firstWorlds';
+import { handleChapterMemoryApi } from './context/memory';
+import { handleWordsFreshApi } from './context/words';
+import { sendEvents } from './notifications/planner';
 import { reviewQuestions } from './context/questions';
 import { weeklySummaryContext } from './context/summaryContext';
 
@@ -4205,8 +4208,12 @@ const detectChallengeCompletion = inngest.createFunction(
 );
 
 // Inngest serve handler
-// the weekly synthesis is run by each person's weekly pipe, on their weekly day
-const contextFunctions = createContextFunctions(inngest);
+// the weekly synthesis is run by each person's weekly pipe, on their weekly day,
+// and what is left of the Sunday classifier runs in the same pipe after it: it
+// has no schedule of its own any more (data fabric stage 4b)
+const worldsWeeklyRun = createWorldsWeeklyRun(inngest);
+const dropAssignmentBackfill = createDropAssignmentBackfill(inngest);
+const contextFunctions = createContextFunctions(inngest, { backfill: dropAssignmentBackfill });
 
 const inngestHandler = serve({
   client: inngest,
@@ -4218,11 +4225,15 @@ const inngestHandler = serve({
     weeklySummaryV07Worker,
     weeklySummaryV2Dispatcher,
     archiveStaleEvents,
-    createWorldsWeeklyRun(inngest),
-    createWorldsWeeklyScheduler(inngest),
-    createDropAssignmentBackfill(inngest),
+    worldsWeeklyRun,
+    dropAssignmentBackfill,
     ...contextFunctions.functions,
-    ...createWeekFunctions(inngest, { synthesis: contextFunctions.weekly }),
+    ...createWeekFunctions(inngest, {
+      synthesis: contextFunctions.weekly,
+      classifier: worldsWeeklyRun,
+      words: contextFunctions.words,
+      memories: contextFunctions.memories,
+    }),
     ...createBriefFunctions(inngest),
     ...createNotificationFunctions(inngest),
   ],
@@ -4335,6 +4346,19 @@ const appHandler = {
     // Notifications: the Lab's test send, through cortex
     if (url.pathname.startsWith('/api/notifications/')) {
       return handleNotificationsApi(request, env, corsResponse);
+    }
+
+    // Worlds and Chapters (data fabric stage 4b), through cortex for the signed
+    // in person: a drop filed while they have no Worlds; a Chapter's memory at
+    // the close; fresh words when they change something
+    if (url.pathname === '/api/first-worlds' && request.method === 'POST') {
+      return handleFirstWorldsApi(request, env, corsResponse, { send: sendEvents });
+    }
+    if (url.pathname === '/api/chapter-memory' && request.method === 'POST') {
+      return handleChapterMemoryApi(request, env, corsResponse);
+    }
+    if (url.pathname === '/api/words-fresh' && request.method === 'POST') {
+      return handleWordsFreshApi(request, env, corsResponse, { send: sendEvents });
     }
 
     // Daily brief in Chat: the app's first open, or a fresh brief for a later

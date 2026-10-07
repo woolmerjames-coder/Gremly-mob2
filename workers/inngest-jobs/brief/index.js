@@ -16,6 +16,7 @@ import { decideOffer, questionButtons } from './offer';
 import { writeBrief, BRIEF_PROMPT_VERSION } from './writer';
 import { readLastWrap } from './reaction';
 import { checkRunRow } from '../../shared/check/index.js';
+import { sendEvents } from '../notifications/planner';
 import {
   appendMessages,
   ensureThread,
@@ -237,6 +238,21 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
         }),
       ])
       .catch((err) => console.warn(`[DailyBrief] could not log the check: ${err.message}`));
+  }
+  // A return day: the words under their Worlds and Chapters are written again
+  // (context/words.js), once a day. The brief never waits on it.
+  if (g.ret) {
+    await sendEvents(env, [
+      {
+        id: `words-return-${userId}-${g.ritualDay}`,
+        name: 'app/words.write',
+        data: { user_id: userId, reason: 'return' },
+      },
+    ]).catch((err) =>
+      console.warn(
+        `[ALERT][DailyBrief] fresh words were not asked for on a return day: ${err.message}`,
+      ),
+    );
   }
   if (out.dropped.length || out.offerDropped) {
     console.warn(

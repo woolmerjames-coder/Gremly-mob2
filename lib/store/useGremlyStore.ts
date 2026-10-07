@@ -158,6 +158,20 @@ function rowsOrHeld<T>(
 }
 
 /**
+ * Tell Gremly a World or a Chapter changed (data fabric stage 4b): chat's cache
+ * is cleared and fresh words are asked for. Never waits, and a failure is only
+ * logged: the change itself is already saved.
+ */
+function tellGremlyChanged(table: 'worlds' | 'chapters', id: string) {
+  import('../cortex/CortexClient')
+    .then(({ callWorldsChanged }) => callWorldsChanged({ table, id }))
+    .then((r) => {
+      if (!r.ok) console.warn('[GremlyStore] Gremly was not told of the change:', r.error);
+    })
+    .catch((err) => console.warn('[GremlyStore] Gremly was not told of the change:', err));
+}
+
+/**
  * The habit days as read, with any still being saved kept beside them: a
  * day set a moment ago is in the store under a temporary id until its write
  * comes back, and a read that began before it would otherwise drop it.
@@ -10453,6 +10467,7 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] updateChapterDates — edit log insert failed:', logError);
             }
           }
+          tellGremlyChanged('chapters', input.chapterId);
         },
 
         updateChapterTitle: async (input: {
@@ -10510,6 +10525,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (logErr) {
             console.warn('[GremlyStore] updateChapterTitle — edit log insert failed:', logErr);
           }
+          tellGremlyChanged('chapters', input.chapterId);
         },
 
         // ── HABIT INSIGHT ──────────────────────────────────────────────────

@@ -23,6 +23,8 @@ export const SCENARIOS = [
     today: '2026-10-01',
     at: '07:40',
     person: PRIYA,
+    // Up next among their Chapters (data fabric stage 4b): there to know, never asked for
+    upNext: { title: 'Denver offsite', world: 'Work', date: '2026-10-08', which: 'starts', days_until: 7 },
     meetings: [
       ['08:00', '08:30', 'NA standup'],
       ['08:30', '09:15', 'Programmatic weekly'],
@@ -53,6 +55,7 @@ export const SCENARIOS = [
     today: '2026-10-06',
     at: '08:10',
     person: ALEX,
+    upNext: { title: 'Kitchen refit', world: 'Home', date: '2026-10-07', which: 'ends', days_until: 1 },
     meetings: [['10:00', '10:30', 'Design crit']],
     todos: ['Renew the parking permit', 'Return the library books'],
     habits: [{ title: 'Walk', daily: true }],
@@ -146,6 +149,7 @@ export const SCENARIOS = [
     today: '2026-10-07',
     at: '08:30',
     person: SAM,
+    upNext: { title: 'Moving flat', world: 'Home', date: '2026-10-10', which: 'starts', days_until: 3 },
     meetings: [['11:00', '11:30', 'Team sync']],
     todos: ['Renew passport'],
     habits: [
@@ -166,6 +170,7 @@ export const SCENARIOS = [
     today: '2026-10-03',
     at: '09:30',
     person: PRIYA,
+    upNext: { title: 'Half marathon training', world: 'Running', date: '2026-10-18', which: 'ends', days_until: 15 },
     meetings: [],
     allDay: ['Farmers market'],
     todos: ['Pick up the dry cleaning'],
@@ -185,6 +190,7 @@ export const SCENARIOS = [
     today: '2026-10-02',
     at: '06:10',
     person: ALEX,
+    upNext: { title: 'San Diego trip', world: 'Sam', date: '2026-10-02', which: 'starts', days_until: 0 },
     meetings: [
       ['08:00', '08:30', 'Team huddle'],
       ['16:00', '16:30', 'Timesheets'],

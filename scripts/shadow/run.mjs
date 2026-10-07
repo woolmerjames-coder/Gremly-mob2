@@ -9,6 +9,10 @@
  *   scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh filing --user <uuid> [--limit n] [--at ISO]
+ *   scripts/shadow/run.sh words --user <uuid>
+ *   scripts/shadow/run.sh memories --user <uuid> [--chapter <uuid>] [--limit n]
+ *   scripts/shadow/run.sh first-worlds --user <uuid>
+ *   scripts/shadow/run.sh up-next --user <uuid>
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -44,6 +48,11 @@ import { localStartIso } from '../../workers/shared/calendar.js';
 // a namespace import, so a tree without filing (before stage 4a) still bundles
 import * as filing from '../../workers/inngest-jobs/context/filing.js';
 import { db } from '../../workers/shared/db.js';
+// namespace imports, as for filing above: a job checks its function is there
+import * as stage4b from '../../workers/inngest-jobs/context/words.js';
+import * as stage4bMemory from '../../workers/inngest-jobs/context/memory.js';
+import * as stage4bFirst from '../../workers/inngest-jobs/context/firstWorlds.js';
+import * as upNextMod from '../../workers/shared/upNext.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -284,6 +293,94 @@ const JOBS = {
           rows,
         };
       },
+    };
+  },
+
+  // Data fabric stage 4b, read only: the words under each World and open
+  // Chapter beside what is there now; the memory each closed Chapter would get;
+  // the first Worlds a person with none would get; and Up next
+  async words() {
+    const userId = flag('--user');
+    if (!userId) fail('words needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: () => {
+        if (typeof stage4b.writeWords !== 'function') fail('This tree has no words writer.');
+        return stage4b.writeWords(env, userId, { reason: 'shadow', dryRun: true });
+      },
+      summarise: (out) => ({
+        written: out?.written,
+        left_out: out?.left_out,
+        empty: out?.empty,
+        failed: out?.failed,
+        lines: (out?.lines || []).map((l) => ({ table: l.table, id: l.id, outcome: l.outcome, now: l.was, words: l.text, problems: l.problems, error: l.error })),
+      }),
+    };
+  },
+
+  async memories() {
+    const userId = flag('--user');
+    if (!userId) fail('memories needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof stage4bMemory.writeMemory !== 'function') fail('This tree has no memory writer.');
+        const ids = flag('--chapter') ? [flag('--chapter')] : await stage4bMemory.chaptersWantingMemory(env, userId);
+        const out = [];
+        for (const id of ids.slice(0, Number(flag('--limit') || 20))) {
+          const [c] = await db(env).select(`chapters?id=eq.${id}&select=title,epigraph`);
+          try {
+            const r = await stage4bMemory.writeMemory(env, userId, id, { dryRun: true });
+            out.push({ id, title: c?.title, now: c?.epigraph || null, outcome: r.outcome, memory: r.memory, problems: r.problems });
+          } catch (err) {
+            out.push({ id, title: c?.title, error: String(err.message).slice(0, 300) });
+          }
+        }
+        return out;
+      },
+      summarise: (out) => ({
+        chapters: out?.length,
+        written: (out || []).filter((x) => x.memory).length,
+        left_out: (out || []).filter((x) => x.outcome === 'left_out').length,
+        memories: out,
+      }),
+    };
+  },
+
+  async 'first-worlds'() {
+    const userId = flag('--user');
+    if (!userId) fail('first-worlds needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: () => {
+        if (typeof stage4bFirst.makeFirstWorlds !== 'function') fail('This tree has no first Worlds.');
+        return stage4bFirst.makeFirstWorlds(env, userId, { dryRun: true });
+      },
+      summarise: (out) => ({
+        due: out?.stats ? stage4bFirst.firstWorldsDue(out.stats) : null,
+        stats: out?.stats,
+        model: out?.proposed?.model,
+        problems: out?.proposed?.problems,
+        worlds: (out?.proposed?.worlds || []).map((w) => ({ name: w.name, gremly: w.gremly, rests_on: w.rests_on.length, why: w.why })),
+      }),
+    };
+  },
+
+  async 'up-next'() {
+    const userId = flag('--user');
+    if (!userId) fail('up-next needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof upNextMod.loadUpNext !== 'function') fail('This tree has no Up next.');
+        const today = await filing.personToday(env, userId);
+        return { today, up_next: await upNextMod.loadUpNext(db(env), userId, today) };
+      },
+      summarise: (out) => ({ ...out, words: out?.up_next ? upNextMod.upNextWords(out.up_next) : null }),
     };
   },
 

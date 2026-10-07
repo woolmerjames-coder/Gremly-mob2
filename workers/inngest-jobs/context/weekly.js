@@ -769,7 +769,11 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       .map((r) => refs.get(r))
       .filter((f) => f && f.type === 'fact')
       .map((f) => f.id);
-  for (const { id, w, lived, cardOk } of worldUpdates) {
+  // The words under a World and a Chapter (card_subtitle), a Chapter's memory
+  // (epigraph) and its title each have one writer now (data fabric stage 4b):
+  // the words writer, the memory writer and the person. This pass writes
+  // Gremly's notes (summary) and the rest, and none of those three.
+  for (const { id, w, lived } of worldUpdates) {
     const src = sources.get(id) || {};
     const patch = {
       phase: w.phase,
@@ -780,12 +784,6 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     };
     if (lived && (!src.last_signal_at || String(src.last_signal_at).slice(0, 10) < lived))
       patch.last_signal_at = `${lived}T12:00:00Z`;
-    if (cardOk && src.card_subtitle_source !== 'user')
-      Object.assign(patch, {
-        card_subtitle: w.card_subtitle,
-        card_subtitle_source: 'synthesis',
-        card_subtitle_updated_at: nowIso,
-      });
     if (src.summary_source !== 'user')
       Object.assign(patch, {
         summary: w.summary,
@@ -796,21 +794,6 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     // phase nor the priorities are written: a World is there or hidden
     if (oldWorldsFieldsStopped(env)) delete patch.phase;
     await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, withoutOldFields('worlds', patch, env));
-    // the card line rests on the facts it cites (workers/shared/passageRefs.js)
-    if (patch.card_subtitle)
-      passages.push(
-        passageRow({
-          userId,
-          surface: 'world',
-          table: 'worlds',
-          id,
-          field: 'card_subtitle',
-          factIds: factIdsOf(w.card_fact_refs),
-          writer: 'weekly',
-          promptVersion: WEEKLY_PROMPT_VERSION,
-          at: nowIso,
-        }),
-      );
   }
 
   // Chapters: the words, stage label and priorities, never the person's own edits.
@@ -821,44 +804,15 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     );
     previous.chapters = prevChapters;
     const byId = new Map(prevChapters.map((r) => [r.id, r]));
-    for (const { id, c, cardOk } of chapterUpdates) {
+    for (const { id, c } of chapterUpdates) {
       const row = byId.get(id);
       if (!row) continue;
       const patch = { updated_at: nowIso };
-      if (cardOk && row.card_subtitle_source !== 'user')
-        Object.assign(patch, {
-          card_subtitle: trim(c.card_subtitle, 120),
-          card_subtitle_source: 'synthesis',
-          card_subtitle_updated_at: nowIso,
-        });
-      // A title is glanceable too: it changes only when the model gives a new one,
-      // the person did not set it, and the card's facts are not private.
-      const newTitle = typeof c.title === 'string' ? c.title.trim() : '';
-      if (cardOk && row.title_source !== 'user' && isProse(newTitle, 3) && newTitle !== row.title) {
-        Object.assign(patch, {
-          title: trim(newTitle, 80),
-          title_source: 'synthesis',
-          title_updated_at: nowIso,
-        });
-      }
       if (row.summary_source !== 'user')
         Object.assign(patch, {
           summary: trim(c.summary, 900),
           summary_source: 'synthesis',
           summary_updated_at: nowIso,
-        });
-      if (row.epigraph_source !== 'user' && isProse(c.epigraph, 20))
-        Object.assign(patch, {
-          epigraph: trim(c.epigraph, 250),
-          epigraph_source: 'synthesis',
-          epigraph_updated_at: nowIso,
-        });
-      // The model left the epigraph empty: older machine-written words do not stay behind.
-      else if (row.epigraph_source !== 'user' && !c.epigraph)
-        Object.assign(patch, {
-          epigraph: null,
-          epigraph_source: 'synthesis',
-          epigraph_updated_at: nowIso,
         });
       if (row.key_priorities_source !== 'user') {
         const kp =
@@ -905,8 +859,8 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         `chapters?id=eq.${id}&owner_id=eq.${userId}`,
         withoutOldFields('chapters', patch, env),
       );
-      // a chapter's words rest on the facts it cites; a field it cleared rests on nothing
-      for (const field of ['title', 'card_subtitle', 'summary', 'epigraph']) {
+      // Gremly's notes rest on the facts they cite; notes cleared rest on nothing
+      for (const field of ['summary']) {
         if (field in patch && !patch[field])
           await d.remove(
             `passage_refs?user_id=eq.${userId}&row_table=eq.chapters&row_id=eq.${id}&field=eq.${field}`,

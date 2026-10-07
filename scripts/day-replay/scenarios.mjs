@@ -682,6 +682,8 @@ export const SCENARIOS = [
       },
       day_frame: { away: { label: 'San Diego anniversary trip', through: '2026-10-04' } },
       voice_note: 'Keep things warm, unhurried, and supportive of them enjoying the trip.',
+      // Up next among their Chapters (data fabric stage 4b): there to know, never asked for
+      up_next: { title: 'San Diego anniversary trip', world: 'Sam', date: '2026-10-04', which: 'ends', days_until: 1 },
     },
     expect: {
       aboutDay: true,

@@ -60,6 +60,32 @@ beforeEach(() => {
 });
 
 describe('the records the brief is held to', () => {
+  it('give Up next its date, from the daily picture, with nothing asking for it to be said', () => {
+    const none = renderBriefInput(g, offer);
+    expect(none.text).not.toContain('UP NEXT');
+    const { records, text } = renderBriefInput(
+      {
+        ...g,
+        upNext: {
+          title: 'Lisbon at half term',
+          world: 'Travel',
+          date: '2026-10-23',
+          which: 'starts',
+          days_until: 15,
+        },
+      },
+      offer,
+    );
+    expect(text).toContain(
+      'UP NEXT AMONG THEIR CHAPTERS (u1): "Lisbon at half term", in their World Travel, starts on Friday 2026-10-23.',
+    );
+    expect(records.get('u1')).toMatchObject({
+      dates: ['2026-10-23'],
+      numbers: [15],
+      exact: ['date'],
+    });
+  });
+
   it('give each meeting, todo and habit what code can compare, and the shape of the day its times', () => {
     const { records, text } = renderBriefInput(g, offer);
     expect(records.get('c1')).toMatchObject({

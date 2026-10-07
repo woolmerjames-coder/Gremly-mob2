@@ -439,12 +439,10 @@ What the next batches need to know:
   habit weeks with `date_trunc('week')`), the Worlds tab's "this week" range
   (`components/worlds/WeeklySummaryCard.tsx`). The old Sweep's
   `resolveSweepBlock` went with it in batch 6.
-- The Worlds structure run is still Sunday at 10:00 UTC
-  (`worldsWeeklyScheduler.ts`). The synthesis used to follow it an hour
-  later. It now runs three hours before each person's slot, so for anyone far
-  enough east that this falls before 10:00 UTC on Sunday, or on another
-  weekly day, it reads the structure from the Sunday before. Everyone active
-  today is in London or Los Angeles on Sunday, where the order is as it was.
+- The Worlds structure run (`worlds-weekly-run`) no longer has a Sunday
+  schedule of its own. Since data fabric stage 4b it runs inside each
+  person's weekly pipe, straight after their synthesis, so it never reads
+  the structure from another day.
 
 Found on the way:
 

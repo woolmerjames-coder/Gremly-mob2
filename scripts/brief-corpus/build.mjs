@@ -114,6 +114,8 @@ export function buildSnapshot(s) {
     reach,
     ret,
     anchors: s.anchors || [],
+    // Up next among their Chapters, as the daily picture carries it (stage 4b)
+    upNext: s.upNext || null,
     claims: s.claims || [],
     dayShape: s.dayShape || null,
     reaction: s.reaction || null,

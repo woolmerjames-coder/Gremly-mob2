@@ -15,8 +15,9 @@ import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRu
 import { jsonCall, modelFor } from '../context/llm';
 import { addDays } from '../context/db';
 import { SENTENCE_SCHEMA, STATED_RULES, runCheck, problemList } from '../../shared/check/index.js';
+import { upNextWords } from '../../shared/upNext.js';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-08c';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-08d';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -272,6 +273,22 @@ export function renderBriefInput(g, offer) {
   L.push(
     `DATED THINGS AHEAD (shown on the day card already; ref | date | what):\n${anchorLines.join('\n') || 'none'}`,
   );
+  // Up next among their Chapters, worked out in code (shared/upNext.js). It is
+  // there to know; nothing asks for it to be mentioned
+  if (g.upNext?.title && g.upNext.date) {
+    L.push(
+      named(
+        'u1',
+        'up_next',
+        {
+          dates: [g.upNext.date],
+          numbers: Number.isFinite(g.upNext.days_until) ? [g.upNext.days_until] : [],
+          exact: ['date'],
+        },
+        `UP NEXT AMONG THEIR CHAPTERS (u1): ${upNextWords(g.upNext)}.`,
+      ),
+    );
+  }
   L.push('');
   const s = g.sweep || {};
   L.push(

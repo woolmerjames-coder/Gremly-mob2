@@ -379,6 +379,8 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     reach,
     ret,
     anchors: Array.isArray(dco?.named_anchors) ? dco.named_anchors : [],
+    // the open Chapter with the nearest date, as the daily picture carries it
+    upNext: dco?.up_next || null,
     claims: Array.isArray(brief.claims) ? brief.claims : [],
     dayShape: brief.day_shape || null,
     absence: dco?.absence || null,

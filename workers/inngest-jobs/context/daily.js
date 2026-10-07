@@ -48,6 +48,7 @@ import {
 } from '../../shared/check/index.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { askableQuestions } from '../../shared/questionRules.js';
+import { loadUpNext } from '../../shared/upNext.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-08h';
 
@@ -1109,9 +1110,15 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   // their day: after midnight it is still yesterday until their day ends, the
   // same day the brief reads (brief/data.js)
   const { today } = await personNow(env, userId, tz);
-  const [g, person] = await Promise.all([
+  const [g, person, upNextNow] = await Promise.all([
     gatherDay(env, userId, tz, today),
     personIdentity(env, userId),
+    // Up next (shared/upNext.js) is carried for the brief, the agent and the
+    // wrap up; the day is written without it when it cannot be read, and says so
+    loadUpNext(db(env), userId, today).catch((err) => {
+      console.warn(`[ALERT][DCO v4] Up next could not be read for ${userId}: ${err.message}`);
+      return null;
+    }),
   ]);
   g.cancelledIds = cancelledCalendarIds(g.calendar);
   const { text, refs, records, computed } = renderDay(g, tz);
@@ -1324,6 +1331,8 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
       return: ret,
     },
     absence: g.absence,
+    // the open Chapter with the nearest date, worked out in code (shared/upNext.js)
+    up_next: upNextNow,
     // Calendar entries the reader found cancelled that are still on the
     // calendar, today and the next few days (synced_calendar_events.cancelled_at).
     // The brief and the app's day card leave these out of the day.
