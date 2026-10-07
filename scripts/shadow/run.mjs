@@ -176,6 +176,7 @@ const JOBS = {
         people_new: out.people_new,
         ties: out.people_ties,
         rejected: out.people_rejected,
+        who_without_words: out.people_who_without_words,
         people: out.found,
         proposed_merges: out.proposed_merges,
       }),

@@ -20,7 +20,7 @@ import { db } from './db';
 import { jsonCall, modelFor } from './llm';
 import { personBlock, CARE_RULES } from '../careRules';
 
-export const PEOPLE_PROMPT_VERSION = 'people-2026-10-08f';
+export const PEOPLE_PROMPT_VERSION = 'people-2026-10-08m';
 
 /** Known people shown to a prompt at most. */
 const MAX_KNOWN = 150;
@@ -32,7 +32,8 @@ export const PEOPLE_RULES = `PEOPLE
 - Each entry is one human being in their life. Several people spoken of together are never one entry: list each one the record names, and nothing for those it does not.
 - A name is what someone is called. Who they are to the person, or a group they belong to, is never a name.
 - Use a known person's ref only when the record makes clear it is that person. When you are unsure which known person someone is, or whether they are one, give them once as someone not yet known, with maybe_ref, and give no known ref for them.
-- Give who someone is only when the person states it in this record, in their own words, and always as who they are to the person, without the person's own name. When the record says only who they are to someone else, give it that way, naming that someone. Never infer it from a name, an activity, an occasion, their being with the person, or anything else.
+- Give who someone is only when the person states it in this record, in their own words. Give it from the person's side, as who they are to the person, in words that name only that relationship. When the record says only who they are to someone else, give that instead, naming that someone as the person would. Never infer it from a name, an activity, an occasion, their being with the person, or anything else.
+- Who someone is is shown to the person, so no part of it ever refers to the person, by name or in any other way.
 - When the record gives a known person a name the list does not have for them, give that name with their ref.
 - When a record gives someone's name together with who they are to the person, and the ledger does not hold that, make a fact that says only that, about that person, even when the rest of the record only confirms or updates facts.
 - When someone you give as not yet known may be a known person, give that person's ref as maybe_ref, with why. They stay two until the person says they are one.
@@ -531,6 +532,29 @@ ${factLines.join('\n')}`;
  * last one found. In shadow nothing is written and the people found are
  * returned for reading.
  */
+/**
+ * The fill's answer as facts for planPeople. Who someone is comes only from the
+ * person's own words, so for a fact with none kept, who the model says someone
+ * is cannot rest on anything and is not kept: the statement is Gremly's wording.
+ * Returns how many were left out, so the run says so.
+ */
+export function fillFacts(judged, factRef) {
+  let unsourced = 0;
+  const facts = (judged || [])
+    .filter((x) => factRef.has(x.ref))
+    .map((x) => {
+      const fact = factRef.get(x.ref);
+      if (fact.source_quote) return { factId: fact.id, people: x.people };
+      const people = (x.people || []).map((e) => {
+        if (!e?.relationship) return e;
+        unsourced++;
+        return { ...e, relationship: null };
+      });
+      return { factId: fact.id, people };
+    });
+  return { facts, unsourced };
+}
+
 export async function fillPeople(
   env,
   userId,
@@ -558,6 +582,7 @@ export async function fillPeople(
     people_ties: 0,
     people_merges_proposed: 0,
     people_rejected: 0,
+    people_who_without_words: 0,
     shadow,
   };
   const found = shadow ? { people: new Map(), ties: [], merges: [] } : null;
@@ -576,11 +601,11 @@ export async function fillPeople(
       thinking: 'medium',
     });
     out.calls++;
+    const { facts: judged, unsourced } = fillFacts(output.facts, factRef);
+    out.people_who_without_words += unsourced;
     const plan = planPeople({
       known: personRef,
-      facts: (output.facts || [])
-        .filter((x) => factRef.has(x.ref))
-        .map((x) => ({ factId: factRef.get(x.ref).id, people: x.people })),
+      facts: judged,
       same: output.same_people,
       userId,
       runId,

@@ -13,6 +13,7 @@ import {
   peopleAfterCorrection,
   mergePeople,
   undoMerge,
+  fillFacts,
 } from '../people.js';
 
 let n = 0;
@@ -268,6 +269,40 @@ describe('planning what the model said', () => {
     });
     expect(plan.rejected).toBe(3);
     expect(plan.ties).toHaveLength(0);
+  });
+});
+
+describe('the first fill', () => {
+  it("keeps who someone is only for a fact with the person's own words, and counts the rest", () => {
+    const factRef = new Map([
+      ['f1', { id: 'fact-1', statement: 'Made up statement one.', source_quote: 'made up words' }],
+      ['f2', { id: 'fact-2', statement: 'Made up statement two.', source_quote: null }],
+    ]);
+    const { facts, unsourced } = fillFacts(
+      [
+        { ref: 'f1', people: [{ ref: null, new_ref: 'n1', name: null, relationship: 'cousin' }] },
+        {
+          ref: 'f2',
+          people: [
+            { ref: null, new_ref: 'n2', name: 'Rowan', relationship: 'cousin' },
+            { ref: null, new_ref: 'n3', name: null, relationship: 'neighbour' },
+            { ref: 'p1', name: null, relationship: null },
+          ],
+        },
+        { ref: 'f9', people: [{ ref: null, new_ref: 'n4', name: 'Kit', relationship: null }] },
+      ],
+      factRef,
+    );
+    expect(unsourced).toBe(2);
+    expect(facts.map((f) => f.factId)).toEqual(['fact-1', 'fact-2']);
+    expect(facts[0].people[0].relationship).toBe('cousin');
+    expect(facts[1].people.map((e) => e.relationship)).toEqual([null, null, null]);
+    expect(facts[1].people[0].name).toBe('Rowan');
+    // someone given only by who they are, with nothing to rest it on, is then
+    // nobody; the ref p1 is one this plan never gave, so it goes too
+    const plan = planPeople({ known: new Map(), facts, userId: 'u', runId: 'r', newId });
+    expect(plan.rejected).toBe(2);
+    expect(plan.creates.map((c) => c.name || c.relationship)).toEqual(['cousin', 'Rowan']);
   });
 });
 

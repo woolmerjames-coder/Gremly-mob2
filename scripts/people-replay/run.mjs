@@ -2,17 +2,18 @@
  * The people replay (workers/inngest-jobs/context/people.js and the reader's
  * people judgment): one made up person's records, read one at a time by the
  * model and prompt that ship, with the people records built up between reads
- * by the same code that writes them. Checked by ids, never by wording.
+ * by the same code that writes them. Checked by ids, and by who someone is
+ * never holding the person's name or a word standing for them.
  *
  *   scripts/people-replay/run.sh [--repeat n]
  *
  * The records hold a Sam at lunch, a Sam H, "my brother", "my brother Sam", a
  * Sam at work, a nickname and the full name, a sister whose surname changes on
- * marriage, and a misspelt name. It passes when the two Sams are never one
- * record, the brother is Sam only once the person has said so, who someone is
- * comes only from a record that states it, and nothing is ever merged. Every
- * name and record is made up. OPENAI_API_KEY and GEMINI_TEST_API_KEY come from
- * the environment.
+ * marriage, her husband, and a misspelt name. It passes when the two Sams are
+ * never one record, the brother is Sam only once the person has said so, who
+ * someone is comes only from a record that states it and never refers to the
+ * person, and nothing is ever merged. Every name and record is made up.
+ * OPENAI_API_KEY and GEMINI_TEST_API_KEY come from the environment.
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -24,7 +25,7 @@ import {
   READER_SCHEMA,
   READER_PROMPT_VERSION,
 } from '../../workers/inngest-jobs/context/reader.js';
-import { planPeople } from '../../workers/inngest-jobs/context/people.js';
+import { planPeople, PEOPLE_PROMPT_VERSION } from '../../workers/inngest-jobs/context/people.js';
 import { jsonCall, modelFor } from '../../workers/inngest-jobs/context/llm.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -51,6 +52,7 @@ const RECORDS = [
   { key: 'elizabeth', states: false, r: said('2026-09-29T18:00:00Z', 'Going to the theatre with Elizabeth on Friday, can you remind me to book the tickets?') },
   { key: 'sister', states: true, r: journal('2026-10-01T04:00:00Z', 'My sister Ana Silva is getting married in June!') },
   { key: 'ana-costa', states: false, r: journal('2026-10-04T04:00:00Z', 'Ana Costa sent out the wedding invitations today.') },
+  { key: 'sister-husband', states: true, r: journal('2026-10-05T05:00:00Z', 'My sister and her husband Tom are staying with us this weekend to plan the wedding.') },
   { key: 'priya', states: true, r: said('2026-10-05T17:00:00Z', 'Priya from yoga lent me a mat, I need to give it back on Thursday.') },
   { key: 'pryia', states: false, r: said('2026-10-07T17:00:00Z', 'Pryia says the Thursday class is moving to six.') },
 ];
@@ -134,16 +136,20 @@ function check(run) {
   const statedIn = new Set(RECORDS.filter((r) => r.states).map((r) => r.key));
   const unstated = [...store.people.values()].filter((p) => p.relationship && !statedIn.has(recordOfFact(store, p.relationship_fact_id)));
   const tiedSomewhere = RECORDS.filter((r) => peopleOf(store, r.key).size > 0).length;
+  // the person's name, or a word standing for the person, in who someone is to them
+  const toPerson = new Set([lower(PERSON.first_name), 'your', 'my']);
+  const ownName = [...store.people.values()].filter((p) => lower(p.relationship).split(/[^a-z]+/).some((w) => toPerson.has(w)));
   return [
     { name: 'the brother Sam and the Sam at work are never one record', ok: brotherSam.size > 0 && workSam.size > 0 && both.length === 0, detail: `${brotherSam.size} / ${workSam.size} people, ${both.length} shared` },
     { name: 'the brother is Sam only once the person has said so', ok: tooSoon.length === 0 && brotherNamed, detail: `${tooSoon.length} too soon, named after: ${brotherNamed}` },
     { name: 'who someone is comes only from a record that states it', ok: unstated.length === 0, detail: unstated.map((p) => `${p.name || '?'} as ${p.relationship} from ${recordOfFact(store, p.relationship_fact_id)}`).join('; ') || 'all stated' },
+    { name: 'who someone is never refers to the person', ok: ownName.length === 0, detail: ownName.map((p) => p.relationship).join('; ') || 'none' },
     { name: 'nothing is merged, only proposed', ok: store.merges.every((m) => m.status === 'proposed'), detail: `${store.merges.length} proposed` },
     { name: 'most records tie their facts to someone', ok: tiedSomewhere >= RECORDS.length - 2, detail: `${tiedSomewhere} of ${RECORDS.length}` },
   ];
 }
 
-console.log(`${READER_PROMPT_VERSION}: ${RECORDS.length} records, ${repeat} runs`);
+console.log(`${READER_PROMPT_VERSION}, ${PEOPLE_PROMPT_VERSION}: ${RECORDS.length} records, ${repeat} runs`);
 const runs = await Promise.all(Array.from({ length: repeat }, runOnce));
 let passed = 0;
 runs.forEach((run, i) => {
