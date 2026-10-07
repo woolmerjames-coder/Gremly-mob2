@@ -1581,7 +1581,8 @@ commit each, and one that follows from the fifth. No SQL.
   the challenge is quoted and not added up by the model.
 
 Versions: `week-read-2026-10-09c`; `brief-2026-10-09b` for these commits
-(`09c` belongs to 7c5a4164, the commit after them, from another chat).
+(`09c` belongs to 7c5a4164, the commit after them, from another chat, and
+`09d` to 2b9c1649, below).
 
 Deploy: inngest-jobs, then cortex, then the app. The workers have to be out
 before the app for the evening review, since older workers ignore `first`
@@ -1625,11 +1626,9 @@ Noticed and not changed:
   dropped: a line on the tool stopped it but made Gremly hold the review on
   a plain question in 13 runs of 31, and a line beside the picks changed
   nothing that could be measured.
-- Unseen work and a named task in one message: in about one run in four the
-  todo is left off the card while the reply says it would be added
-  (`week-unseen-work-and-a-task`).
 - The spread leaves the `calendar-life` person's three hour priority off
-  every day in most runs, before and after these commits.
+  every day in most runs, before and after these commits. The board now
+  catches it (549706cd, below); the spread itself is unchanged.
 - The read's list says "day X, which they chose" with the saved day for a
   todo they placed by hand on another day. The app treats a todo beyond the
   120 the read lists as released, while the worker keeps it fixed.
@@ -1645,6 +1644,60 @@ Noticed and not changed:
   is undone while another of their own is there.
 - For a while another chat worked in this same folder and committed
   7c5a4164 on the branch. None of its files are in the eight commits above.
+
+**Two more on the same branch (7 October), on top of c6081dd1.**
+
+- 2b9c1649, the missing todo. Told about unseen work and a task in one
+  message, Gremly left the task off the card: 16 of 30 runs had the todo,
+  over three made up messages. The cause was the wording of the review's
+  rule about unseen work in `weekContext`: it dwelt on the load, said "not a
+  todo", and came to the task last, as "a todo as ever". Gremly wrote the
+  task into the priority's words, spoke of it only in the reply, or held it
+  back to ask which day. The rule now takes the task first, as a thing to
+  do: a new todo, put on the card with add, without asking whether they want
+  it or which day (their day, a day before what it is for, or none, and the
+  board finds one). The priority is the load alone. One round of wording:
+  29 of 30 after, and the rest of the week set as before (33 of 35 both
+  times). `brief-2026-10-09d`. Two scenarios added:
+  `week-unseen-work-and-a-task-undated` and `-for-it`.
+- 549706cd, a todo that matters most and is on no day. Once the spread is on
+  the board, each todo their priorities cover that is in Later (and not by
+  their own hand) gets a card on the board's step, after the over-full
+  days: `unfitted` and the `unfitted` stage of `boardStage` in
+  `lib/week/board/model.ts`, `FitCard` in `components/week/KeepCards.tsx`,
+  `board.fit` and `board.unfit` in `useWeekReview`. It offers a day (one
+  with room as the board stands, else the day with the most room once what
+  Gremly placed gives way), a split (the fewest equal parts of half an hour
+  or more that each fit a day), leaving it for later, or the board. A split
+  is written at once through the change model: the todo becomes "(part 1 of
+  2)" and each other part is a new todo with the same hard date and Worlds,
+  added to the priority's `item_ids`. What they chose is kept in
+  `answers.fitted`, by todo id, and the last choice can be taken back (a
+  split only while this sitting holds its Undo). Done on the board closes
+  on the card while one waits. All from minutes, days and ids; no worker or
+  prompt change. Their own moves are not part of what a spread is made from,
+  so putting it on a day asks for no new spread; a split does, since it
+  makes todos.
+
+Checked at 549706cd: tsc clean, the whole jest suite passes (748 files,
+10,109 tests), day replay 38 of 39 (the one is a scenario of 7c5a4164's
+own), the week set 33 of 35, agent smoke 10 of 10. The two the week set
+missed were rerun eight times before and after: `week-worn-out` passes
+every time on both; `ease-lighter-words` missed 2 of 8 after and none
+before, with none of the changed words in its prompt (it is an ordinary
+day, with no review under way), and it missed 2 of 6 on unchanged code
+earlier the same day.
+
+Choices made here that James has not seen yet:
+
+- A todo that matters most gets its card whenever it is on no day, also
+  when a day would hold it as the board stands. The line then says it is on
+  no day yet, not that it fits none.
+- The card also shows after Just plan it, like an over-full day.
+- A split renames their todo, to "(part 1 of 2)", and is saved at once,
+  unlike the rest of the board, which is saved when they finish.
+- Parts are equal, of half an hour or more, and four at most. A todo with
+  no length, or under an hour, is not offered a split.
 
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
