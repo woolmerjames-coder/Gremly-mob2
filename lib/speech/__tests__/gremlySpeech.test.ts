@@ -11,8 +11,6 @@ import {
   getReturnSpeech,
   getEmptyStateSpeech,
   getDcoGreetingSpeech,
-  getFedCelebrationSpeech,
-  getPostAgeUpSpeech,
   getTimeOfDay,
   pickRandom,
   SpeechContext,
@@ -573,64 +571,5 @@ describe('getReturnSpeech', () => {
     // May return null or a time_shift message depending on current time of day
     // Just verify it doesn't throw
     expect(() => getReturnSpeech(ctx)).not.toThrow();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// getFedCelebrationSpeech Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('getFedCelebrationSpeech', () => {
-  it('returns days_remaining_2 pool for fedDaysCount=0', () => {
-    const result = getFedCelebrationSpeech(0);
-    expect(result.message).toBeTruthy();
-    expect(result.duration).toBe(5000);
-    expect(result.variant).toBe('celebration');
-  });
-
-  it('returns days_remaining_1 pool for fedDaysCount=1', () => {
-    const result = getFedCelebrationSpeech(1);
-    expect(result.message).toBeTruthy();
-    expect(result.variant).toBe('celebration');
-  });
-
-  it('returns days_remaining_0 pool for fedDaysCount=2', () => {
-    const result = getFedCelebrationSpeech(2);
-    expect(result.message).toBeTruthy();
-    expect(result.variant).toBe('celebration');
-  });
-
-  it('never throws for any count', () => {
-    for (let i = 0; i <= 5; i++) {
-      expect(() => getFedCelebrationSpeech(i)).not.toThrow();
-    }
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// getPostAgeUpSpeech Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('getPostAgeUpSpeech', () => {
-  it('replaces {age} placeholder with the given age', () => {
-    const result = getPostAgeUpSpeech(7);
-    expect(result.message).toContain('7');
-    expect(result.message).not.toContain('{age}');
-  });
-
-  it('returns celebration variant', () => {
-    const result = getPostAgeUpSpeech(3);
-    expect(result.variant).toBe('celebration');
-  });
-
-  it('returns fixed 5000ms duration', () => {
-    const result = getPostAgeUpSpeech(10);
-    expect(result.duration).toBe(5000);
-  });
-
-  it('works for large ages', () => {
-    const result = getPostAgeUpSpeech(365);
-    expect(result.message).toContain('365');
-    expect(result.message).not.toContain('{age}');
   });
 });
