@@ -200,6 +200,11 @@ function dbFor(s, to) {
     ...todos.map((r) => ({ type: 'todo', row: r, day: r.due_day, time: r.due_time })),
     ...habits.map((r) => ({ type: 'habit', row: r, day: null, time: null })),
   ];
+  // Gremly's questions in the scenario, each fact with an id of its own
+  const asked = (s.asked || []).map((q, i) => ({
+    question: q.question,
+    fact: { id: `10000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, ...q.fact },
+  }));
   return {
     select: async (path) => {
       const [table, query = ''] = path.split('?');
@@ -250,9 +255,14 @@ function dbFor(s, to) {
       }
       // the day's picture the brief is written from, when the scenario has one
       if (table === 'user_daily_state') return s.dco ? [{ dco: s.dco }] : [];
+      // Gremly's own questions, each with the fact it was written about, when the scenario has them
+      if (table === 'gremly_questions') return asked.map((q) => ({ question: q.question, about_fact_id: q.fact.id }));
       return [];
     },
     rpc: async (fn, a) => {
+      // what Gremly remembers (recall), and where a question's fact came from
+      if (fn === 'recall_life') return s.memories || [];
+      if (fn === 'fact_sources') return asked.map((q) => q.fact).filter((f) => (a.p_fact_ids || []).includes(f.id));
       if (fn !== 'find_items') return [];
       const words = String(a.p_query || '')
         .toLowerCase()

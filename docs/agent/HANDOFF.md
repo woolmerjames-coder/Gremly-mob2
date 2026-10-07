@@ -1643,6 +1643,26 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   list on a Sunday changes.
 - The Today card's words (James, 6 Oct): "A few minutes with Gremly to set
   up your week."
+- How Gremly knows (James, 7 Oct): asked how it knows something, Gremly says
+  where it came from, on every surface, from the record: the day, where they
+  said it and their own words. With no record it says it cannot tell, names no
+  source, and never says it came from anyone else. Every fact reaches the
+  model with its source (`workers/shared/factSource.js`, read from
+  `public.fact_sources` and `recall_life`; migration
+  `20261007120000_memory_sources.sql`, which James runs before the workers
+  deploy). In today's thread the question in play comes with the fact it was
+  written about (`questionSource` in `agent/brief.js`); the app sends the
+  question's words and not its id, so the row is found by its words. The rule
+  is `SOURCE_RULES` and `SOURCE_RULES_AGENT` in `careRules.js`, two wordings,
+  each the one that held up on its own replay. A reply to one of Gremly's
+  questions that asks something back is not its answer: the corrections job
+  decides (`answers_question`) and the question stays open. Replays: the five
+  "how gremly knows" scenarios in `scripts/day-replay/scenarios.mjs` and the
+  two in `scripts/chat-replay/scenarios.mjs`. Still open: the app shows "Saved
+  your answer" after any typed reply to a question, because it does not wait
+  for that decision; and `gemini-3-flash-preview` (chats about an item or a
+  World) still names a note that is not there now and then when nothing at
+  all is on record (1 in 20 on the probe, 3 in 20 before).
 
 ## How to work here
 

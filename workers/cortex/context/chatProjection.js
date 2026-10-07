@@ -470,7 +470,9 @@ export async function buildChatContext(userId, lane, opts, env) {
       fetchTemporalAnchors(userId, timezone, env, todayRead),
       fetchRecentChatSummaries(userId, currentChatId, env),
       getLifePack(userId, env),
-      opts?.message ? recallForMessage(userId, opts.message, env) : Promise.resolve(''),
+      opts?.message
+        ? recallForMessage(userId, opts.message, env, { timezone, today: todayRead })
+        : Promise.resolve(''),
       weekRead,
     ]);
 

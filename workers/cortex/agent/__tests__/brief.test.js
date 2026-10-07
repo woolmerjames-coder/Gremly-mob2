@@ -16,6 +16,9 @@ import {
   easedWords,
   learnFromTurn,
   prioritiesWords,
+  questionInPlay,
+  questionSource,
+  questionSourceContext,
   readWeek,
   readWrap,
   renderDay,
@@ -29,7 +32,7 @@ import {
   wrapContext,
 } from '../brief.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
-import { CHAT_WRITING_RULES } from '../../../inngest-jobs/careRules.js';
+import { CHAT_WRITING_RULES, SOURCE_RULES_AGENT } from '../../../inngest-jobs/careRules.js';
 import { configureModels } from '../../models.js';
 
 const MUM = '11111111-1111-4111-8111-111111111111';
@@ -1326,5 +1329,177 @@ describe("the person's week, when the app sends it", () => {
       // the weekly day is already Sunday: the model hears why that row was dropped
       expect(m.seen[1].turns.at(-1).results[0].text).toContain('c2: it already is that way');
     });
+  });
+});
+
+// ── Where Gremly's question came from ───────────────────────────────────────
+
+describe("where Gremly's question came from", () => {
+  const QUESTION =
+    'Did the move to the Lisbon office get confirmed, or are you still waiting to hear?';
+  const FACT_ID = '77777777-7777-4777-8777-777777777777';
+  const FACT = {
+    id: FACT_ID,
+    statement:
+      'Alex said work is busy but good, and that a move to the Lisbon office might be coming.',
+    about_date: '2026-09-29',
+    state: 'current',
+    private: false,
+    said_by: 'user',
+    source_table: 'user_corrections',
+    source_kind: 'question',
+    source_question: 'How is work going these days?',
+    source_quote:
+      'Busy but good. Might be moving to the Lisbon office in the new year, we will see',
+    // the evening of Tuesday 29 September in Los Angeles
+    observed_at: '2026-09-30T05:10:00Z',
+  };
+  /** A database holding the person's questions and each one's fact. */
+  const dbWith = (questions, facts = [FACT]) => {
+    const seen = [];
+    return {
+      seen,
+      select: async (path) => {
+        seen.push(path);
+        return path.startsWith('gremly_questions') ? questions : [];
+      },
+      rpc: async (fn, args) => {
+        seen.push([fn, args]);
+        return fn === 'fact_sources' ? facts.filter((f) => args.p_fact_ids.includes(f.id)) : [];
+      },
+    };
+  };
+  const WRAP = { step: 'questions', decisions: [], answering: { question: QUESTION } };
+
+  it("is the wrap up's question when the message answers one, else the thread's open one", () => {
+    const req = readTurnRequest({ ...BODY, question: 'Friday or Monday?' });
+    expect(questionInPlay(req, readWrap(WRAP))).toBe(QUESTION);
+    expect(questionInPlay(req, null)).toBe('Friday or Monday?');
+    expect(questionInPlay(readTurnRequest(BODY), null)).toBe('');
+  });
+
+  it("finds the question among the person's own by its words, then reads its fact's source", async () => {
+    const db = dbWith([
+      { question: 'Another question?', about_fact_id: '88888888-8888-4888-8888-888888888888' },
+      // spaces differ; the words are the same
+      {
+        question: `  ${QUESTION.replace('Lisbon office', 'Lisbon  office')} `,
+        about_fact_id: FACT_ID,
+      },
+    ]);
+    const fact = await questionSource({ db }, USER, QUESTION);
+    expect(fact).toEqual(FACT);
+    // only this person's questions, and only ones written about a fact
+    expect(db.seen[0]).toContain(`gremly_questions?user_id=eq.${USER}`);
+    expect(db.seen[0]).toContain('about_fact_id=not.is.null');
+    expect(db.seen[1]).toEqual(['fact_sources', { p_user: USER, p_fact_ids: [FACT_ID] }]);
+  });
+
+  it('is nothing when there is no question, no such question, or no fact behind it', async () => {
+    const db = dbWith([{ question: 'Another question?', about_fact_id: FACT_ID }]);
+    expect(await questionSource({ db }, USER, '')).toBeNull();
+    expect(db.seen).toEqual([]);
+    expect(await questionSource({ db }, USER, QUESTION)).toBeNull();
+    expect(
+      await questionSource(
+        { db: dbWith([{ question: QUESTION, about_fact_id: FACT_ID }], []) },
+        USER,
+        QUESTION,
+      ),
+    ).toBeNull();
+  });
+
+  it('never stops the turn when it cannot be read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = {
+      select: async () => {
+        throw new Error('select gremly_questions 500');
+      },
+      rpc: async () => [],
+    };
+    expect(await questionSource({ db }, USER, QUESTION)).toBeNull();
+    // said in the log, not swallowed
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('tells the agent what is on record and how Gremly knows it', () => {
+    expect(
+      questionSourceContext(QUESTION, FACT, {
+        today: '2026-10-03',
+        timezone: 'America/Los_Angeles',
+      }),
+    ).toBe(
+      `WHERE GREMLY'S QUESTION CAME FROM\nGremly asked "${QUESTION}" because of this on record about them: "${FACT.statement}"\nHow Gremly knows it: their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Busy but good. Might be moving to the Lisbon office in the new year, we will see"\nThis is the record itself, read just now. When they ask where the question came from, answer from it; it needs no lookup.`,
+    );
+    expect(questionSourceContext(QUESTION, null)).toBe('');
+    expect(questionSourceContext('', FACT)).toBe('');
+  });
+
+  it('comes last in what the agent knows about today, and only when there is one', () => {
+    const req = readTurnRequest({ text: 'hi', date: '2026-10-03', now: 1250, items: [] });
+    const block = questionSourceContext(QUESTION, FACT, { today: '2026-10-03', timezone: 'UTC' });
+    const all = dayContext(req, null, readWrap(WRAP), null, null, block);
+    expect(all.endsWith(block)).toBe(true);
+    expect(all.indexOf("THEIR MESSAGE ANSWERS GREMLY'S QUESTION")).toBeLessThan(all.indexOf(block));
+    expect(dayContext(req, null, readWrap(WRAP))).not.toContain(
+      "WHERE GREMLY'S QUESTION CAME FROM",
+    );
+  });
+
+  it('a message that asks about the question is not its answer', () => {
+    expect(wrapContext(readWrap(WRAP))).toContain(
+      'When their message asks about the question itself rather than answering it, it is not the answer: answer what they asked, with no card.',
+    );
+  });
+
+  it('reaches the model with the message, with the rule for saying how Gremly knows', async () => {
+    const m = scripted(reply('You told me on Tuesday, when I asked how work was going.'));
+    const db = dbWith([{ question: QUESTION, about_fact_id: FACT_ID }]);
+    const r = await runBriefTurn({
+      env: {},
+      userId: USER,
+      body: {
+        ...BODY,
+        text: 'How did you know about the Lisbon move?',
+        date: '2026-10-03',
+        wrap: WRAP,
+      },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: {
+        person: { first_name: 'Alex' },
+        ctx: { ...fakeCtx, db },
+        dayEndHour: 3,
+        agent: { callModel: m.callModel },
+      },
+    });
+    expect(r).toMatchObject({ engine: 'agent', stopped: 'answer' });
+    const sent = JSON.stringify(m.seen[0]);
+    expect(sent).toContain("WHERE GREMLY'S QUESTION CAME FROM");
+    expect(sent).toContain('on Tue 29 Sep 2026');
+    expect(sent).toContain('Might be moving to the Lisbon office in the new year');
+    // the rule is part of who Gremly is in the thread, so it is there on every turn
+    expect(m.seen[0].system).toContain(SOURCE_RULES_AGENT);
+    expect(briefPersona({ first_name: 'Alex' })).toContain(SOURCE_RULES_AGENT);
+  });
+
+  it('a turn with no question in play asks the database nothing more', async () => {
+    const m = scripted(reply('Morning.'));
+    const db = dbWith([{ question: QUESTION, about_fact_id: FACT_ID }]);
+    await runBriefTurn({
+      env: {},
+      userId: USER,
+      body: { ...BODY, text: 'morning' },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: {
+        person: {},
+        ctx: { ...fakeCtx, db },
+        dayEndHour: 3,
+        agent: { callModel: m.callModel },
+      },
+    });
+    expect(db.seen.filter((x) => String(x).startsWith('gremly_questions'))).toEqual([]);
+    expect(JSON.stringify(m.seen[0])).not.toContain("WHERE GREMLY'S QUESTION CAME FROM");
   });
 });

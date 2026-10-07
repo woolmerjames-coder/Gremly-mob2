@@ -14,6 +14,8 @@
  * changes any of this, so a correction reaches chat on the next message.
  */
 
+import { sourceWords } from '../../shared/factSource.js';
+
 const PACK_TTL_SECONDS = 1800;
 
 function trim(text, n) {
@@ -135,15 +137,24 @@ ${usage.join('\n')}${cur ? `\nGremly's age: ${cur.gremly_age ?? 'unknown'}; days
 /**
  * What Gremly remembers that bears on this message: ledger facts, story items
  * and chapters, best matches first. Not cached: it depends on the message.
+ * A fact says how Gremly knows it (workers/shared/factSource.js): where it
+ * came from, the day where they are (timezone; today, a day or a promise of
+ * one, marks today and yesterday) and their own words.
  */
-export async function recallForMessage(userId, message, env, { limit = 10 } = {}) {
+export async function recallForMessage(userId, message, env, { limit = 10, timezone = 'UTC', today = null } = {}) {
   const text = String(message || '').trim();
   if (!userId || text.length < 3) return '';
   try {
-    const rows = await rpc(env, 'recall_life', { p_user: userId, p_query: text.slice(0, 500), p_limit: limit });
+    const [rows, theirDay] = await Promise.all([
+      rpc(env, 'recall_life', { p_user: userId, p_query: text.slice(0, 500), p_limit: limit }),
+      Promise.resolve(today).catch(() => null),
+    ]);
     if (!Array.isArray(rows) || !rows.length) return '';
-    const lines = rows.map((r) => `- ${r.source}${r.about_date ? ` | ${r.about_date}` : ''}${r.state ? ` | ${r.state}` : ''} | ${r.title && r.source !== 'fact' ? `${trim(r.title, 80)}: ` : ''}${trim(r.body, 280)}${r.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`);
-    return `=== WHAT GREMLY REMEMBERS THAT MAY RELATE TO THIS MESSAGE (from their own records; use what helps, with its date, and ignore the rest) ===\n${lines.join('\n')}`;
+    const lines = rows.map((r) => {
+      const how = r.source === 'fact' ? sourceWords(r, { today: theirDay, timezone }) : '';
+      return `- ${r.source}${r.about_date ? ` | ${r.about_date}` : ''}${r.state ? ` | ${r.state}` : ''} | ${r.title && r.source !== 'fact' ? `${trim(r.title, 80)}: ` : ''}${trim(r.body, 280)}${how ? ` | how Gremly knows: ${how}` : ''}${r.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`;
+    });
+    return `=== WHAT GREMLY REMEMBERS THAT MAY RELATE TO THIS MESSAGE (from their own records; use what helps, with its date, and ignore the rest; a fact says how Gremly knows it) ===\n${lines.join('\n')}`;
   } catch (error) {
     console.error('[LifeContext] recall error:', error);
     return '';

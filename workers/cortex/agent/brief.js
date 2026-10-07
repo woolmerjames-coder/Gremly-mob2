@@ -20,6 +20,11 @@
 // When the agent cannot finish, the day turn answers instead, exactly as it
 // did before this step, so the thread always gets an answer.
 //
+// A question of Gremly's that is in play (the brief's open one, or the one the
+// wrap up says a message answers) comes with where it came from: the fact it
+// was written about and how Gremly knows that fact (questionSource), so a
+// person who asks how Gremly knew is told, truthfully.
+//
 // Once the answer is sent, the message reaches Gremly's memory as a chat
 // message does: a correction goes to the context pipeline straight away
 // (learnFromTurn), and the ledger reader reads the rest within the hour.
@@ -29,6 +34,7 @@ import {
   CARE_RULES,
   CHAT_WRITING_RULES,
   PRIVATE_RULES,
+  SOURCE_RULES_AGENT,
   personBlock,
 } from '../../inngest-jobs/careRules.js';
 import { readTurnRequest } from '../../inngest-jobs/brief/dayTurn.js';
@@ -51,9 +57,10 @@ import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
+import { sourceWords } from '../../shared/factSource.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-09b/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-09c/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -180,6 +187,7 @@ export function briefPersona(person) {
     `VOICE
 Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
     PRIVATE_RULES,
+    SOURCE_RULES_AGENT,
     CHAT_WRITING_RULES,
     personBlock(person),
   ].join('\n\n');
@@ -328,6 +336,11 @@ export function wrapContext(wrap, week = null) {
       '',
       "THEIR MESSAGE ANSWERS GREMLY'S QUESTION",
       `Gremly asked: "${a.question}"${about}. Their message is the answer. Take it in as a friend would, in one or two short sentences. ${first} ${same}, the reply is the whole turn: no card, and no remark that nothing changes. ${differs} is still as it was, because saving the answer to what Gremly knows about them changes no item: put the change to it on the card with propose_changes, with your reply, in this step${alone}.`,
+      // A message that asks about the question is not its answer (the day
+      // replay, 7 October: told only that the message is the answer, the model
+      // apologised for asking and said it could not tell where the question
+      // came from, or made a source up).
+      'When their message asks about the question itself rather than answering it, it is not the answer: answer what they asked, with no card.',
     );
   }
   return L.join('\n');
@@ -802,12 +815,83 @@ export function weekContext(week) {
   return L.join('\n');
 }
 
-/** What Gremly knows about today, with their latest message: what the day is about, the day itself, and the wrap up or the weekly review when one is under way. */
-export function dayContext(req, dco = null, wrap = null, dayEndHour = null, week = null) {
+/** Two wordings of one question are the same when they match after spaces are evened out, up to the length the app sends. */
+const sameWords = (v) =>
+  String(v || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/…$/, '')
+    .slice(0, 300);
+
+/**
+ * The question of Gremly's that is in play with this message: the one the wrap
+ * up says the message answers, or the open one the thread carries.
+ */
+export function questionInPlay(req, wrap) {
+  return wrap?.answering?.question || req?.question || '';
+}
+
+/**
+ * Where one of Gremly's questions came from: the fact it was written about,
+ * with how Gremly knows that fact (public.fact_sources). The app sends the
+ * question's words and not its id, so it is found among the person's own
+ * questions by its words, the newest first. Null when the question rests on no
+ * single fact; null, and said in the log, when it cannot be read. Never stops
+ * the turn.
+ */
+export async function questionSource(ctx, userId, question) {
+  const asked = sameWords(question);
+  if (!asked || !ctx?.db) return null;
+  try {
+    const rows = await ctx.db.select(
+      `gremly_questions?user_id=eq.${userId}&about_fact_id=not.is.null&select=question,about_fact_id&order=created_at.desc&limit=40`,
+    );
+    const hit = (rows || []).find((r) => sameWords(r.question) === asked);
+    if (!hit) return null;
+    const facts = await ctx.db.rpc('fact_sources', {
+      p_user: userId,
+      p_fact_ids: [hit.about_fact_id],
+    });
+    const fact = Array.isArray(facts) ? facts[0] : null;
+    return fact?.statement ? fact : null;
+  } catch (err) {
+    console.warn(
+      "[BriefTurn] where Gremly's question came from could not be read",
+      String(err?.message || err).slice(0, 200),
+    );
+    return null;
+  }
+}
+
+/**
+ * Where the question in play came from, for the agent: what is on record
+ * about them that it was written about, and how Gremly knows that. '' when
+ * there is no question or no source.
+ */
+export function questionSourceContext(question, fact, { today = null, timezone = 'UTC' } = {}) {
+  const asked = sameWords(question);
+  const statement = sameWords(fact?.statement);
+  if (!asked || !statement) return '';
+  const how = sourceWords(fact, { today, timezone, quote: 240 });
+  // Said to be the record itself (the day replay, 7 October): without that,
+  // Luna looked the fact up again on most turns, and when the lookup came back
+  // empty it believed the lookup, and said it could not tell, 4 times in 20.
+  return `WHERE GREMLY'S QUESTION CAME FROM\nGremly asked "${asked}" because of this on record about them: "${statement}"${how ? `\nHow Gremly knows it: ${how}` : ''}\nThis is the record itself, read just now. When they ask where the question came from, answer from it; it needs no lookup.`;
+}
+
+/** What Gremly knows about today, with their latest message: what the day is about, the day itself, the wrap up or the weekly review when one is under way, and where the question in play came from. */
+export function dayContext(
+  req,
+  dco = null,
+  wrap = null,
+  dayEndHour = null,
+  week = null,
+  asked = '',
+) {
   const meaning = dayMeaning(dco);
   const evening = wrapContext(wrap, week);
   const review = weekContext(week);
-  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}`;
+  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}${asked ? `\n\n${asked}` : ''}`;
 }
 
 /** Today's picture of the day, if the brief has made one; never stops the turn. */
@@ -863,19 +947,23 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day, week: weekFrame }
     : toolContext(env, { userId, today: req.date, timezone, day, week: weekFrame });
-  const [person, dco, dayEndHour] = await Promise.all([
+  const wrap = readWrap(body?.wrap);
+  const question = questionInPlay(req, wrap);
+  const [person, dco, dayEndHour, source] = await Promise.all([
     deps.person || personIdentity(env, userId),
     readDco(ctx, userId, req.date),
     // when their day ends, so the small hours read as the end of it
     deps.dayEndHour ?? dayEndHourOf(env, userId),
+    // where the question in play came from, so "how did you know" has its answer
+    questionSource(ctx, userId, question),
   ]);
+  const asked = questionSourceContext(question, source, { today: req.date, timezone });
 
-  const wrap = readWrap(body?.wrap);
   const r = await runAgent({
     surface: 'brief',
     variant: weekVariant(week, { answering: !!wrap?.answering }),
     persona: briefPersona(person),
-    context: dayContext(req, dco, wrap, dayEndHour, week),
+    context: dayContext(req, dco, wrap, dayEndHour, week, asked),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,

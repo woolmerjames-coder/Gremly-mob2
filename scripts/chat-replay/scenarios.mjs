@@ -132,6 +132,48 @@ export const SCENARIOS = [
     expect: { rows: 0, mentions: /brief|10k/i },
   },
   {
+    id: 'how-do-you-know',
+    kind: 'How Gremly knows',
+    // Gremly brought it up; they ask where it came from. The fact on record says:
+    // their own answer on Tuesday 29 September, when Gremly asked how work was going.
+    history: [
+      { role: 'user', content: 'morning' },
+      { role: 'assistant', content: "Morning. How's the thinking going on the Lisbon move?" },
+    ],
+    text: 'Wait, how do you know about Lisbon?',
+    items: [],
+    memories: [
+      {
+        source: 'fact',
+        about_date: '2026-09-29',
+        state: 'current',
+        title: 'Alex',
+        body: 'Alex said work is busy but good, and that a move to the Lisbon office might be coming.',
+        private: false,
+        said_by: 'user',
+        source_table: 'user_corrections',
+        source_kind: 'question',
+        source_question: 'How is work going these days?',
+        source_quote: 'Busy but good. Might be moving to the Lisbon office in the new year, we will see',
+        observed_at: '2026-09-30T05:10:00Z',
+      },
+    ],
+    expect: { rows: 0, mentions: /29|tuesday|asked how work/i, notSaid: /someone else/i },
+  },
+  {
+    id: 'how-do-you-know-nothing',
+    kind: 'How Gremly knows',
+    // Nothing on record shows it: said plainly, with no day, place or words of theirs made up
+    history: [
+      { role: 'user', content: 'morning' },
+      { role: 'assistant', content: 'Morning. Hope the interview went well yesterday.' },
+    ],
+    text: 'What interview? How do you know about an interview?',
+    items: [],
+    memories: [],
+    expect: { rows: 0, notSaid: /you (told|said|mentioned|wrote|added|saved)|someone else/i },
+  },
+  {
     id: 'exercise',
     kind: 'A feeling with a task in it',
     history: [

@@ -1,4 +1,5 @@
 import { models } from './models.js';
+import { SOURCE_RULES, SOURCE_RULES_AGENT } from '../inngest-jobs/careRules.js';
 
 /**
  * Gremly Persona — Mode-Based Chat System (Worker JS version)
@@ -425,6 +426,8 @@ export function chatAgentPersona() {
     GENERAL_INTRO,
     CONVERSATION_FEELS,
     GENERAL_TEMPORAL,
+    // the agent can look a record up (recall)
+    SOURCE_RULES_AGENT,
   ].join('\n\n');
 }
 
@@ -546,6 +549,11 @@ ${GENERAL_TEMPORAL}`);
 5. When the user mentions an upcoming event without a date, naturally ask for it in a conversational way — like a friend would, not like a form field. Knowing the date makes planning help much better.
 6. Getting a date wrong erodes trust faster than admitting uncertainty.`);
   }
+
+  // 11. How Gremly knows what it knows, in every kind of chat: asked where
+  // something came from, it says so from the record. This writer answers from
+  // what it is given, so it gets the wording for that (careRules.js)
+  parts.push(SOURCE_RULES);
 
   return parts.join('\n\n');
 }

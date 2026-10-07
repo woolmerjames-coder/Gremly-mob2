@@ -455,6 +455,51 @@ describe('recall', () => {
     expect(r.text).toContain('- fact | Fri 2 Oct (today) | current | Flying to San Diego on 2 Oct');
     expect(r.text).toMatch(/A hard year: Grief after a loss \[private: use it only when/);
   });
+
+  it('says how Gremly knows a fact, and nothing of the kind for its own writing', async () => {
+    const db = fakeDb(
+      {},
+      {
+        recall_life: [
+          {
+            source: 'fact',
+            title: 'Alex',
+            body: 'Alex might be moving to the Lisbon office.',
+            about_date: null,
+            state: 'current',
+            private: false,
+            said_by: 'user',
+            source_table: 'user_corrections',
+            source_kind: 'question',
+            source_question: 'How is work going these days?',
+            source_quote: 'Might be moving to the Lisbon office in the new year',
+            // the evening of Tuesday 29 September in Los Angeles
+            observed_at: '2026-09-30T05:10:00Z',
+          },
+          {
+            source: 'story',
+            title: 'A year of change',
+            body: 'Work shifted a lot this year.',
+            about_date: null,
+            state: 'shift',
+            private: false,
+          },
+        ],
+      },
+    );
+    const r = await runTool({ ...ctxWith(db), timezone: 'America/Los_Angeles' }, 'recall', {
+      query: 'Lisbon',
+    });
+    expect(r.text).toContain(
+      '- fact | current | Alex might be moving to the Lisbon office. | how Gremly knows: their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Might be moving to the Lisbon office in the new year"',
+    );
+    expect(r.text).toContain('- story | shift | A year of change: Work shifted a lot this year.');
+    expect(r.text.split('\n')[1]).not.toContain('how Gremly knows');
+    // the model is told the source is there to use
+    expect(TOOLS.find((t) => t.name === 'recall').description).toContain(
+      'a fact with how Gremly knows it',
+    );
+  });
 });
 
 describe('propose_changes', () => {
