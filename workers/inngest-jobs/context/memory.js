@@ -22,7 +22,7 @@ import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRu
 import { db, weekdayName, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { invalidateChatCache } from './cache';
-import { ITEM_TABLE, readFactPeople, markItems, itemOf, loadFiled } from './filed';
+import { ITEM_TABLE, readFactPeople, readItemMarks, markItems, itemOf, loadFiled } from './filed';
 import { personToday } from './filing';
 import { renderWords } from './words';
 import {
@@ -117,10 +117,13 @@ export async function loadMemoryRecords(env, userId, chapter) {
     .map((r) => itemOf('note', r))
     .filter((i) => !haveItem.has(`note:${i.id}`));
   const facts = [...filed.facts, ...extraFacts];
-  const morePeople = await readFactPeople(d, userId, extraFacts);
+  const [morePeople, marks] = await Promise.all([
+    readFactPeople(d, userId, extraFacts),
+    readItemMarks(d, userId, extraItems),
+  ]);
   const peopleOf = new Map([...filed.peopleOf, ...morePeople]);
-  // a journal entry is private when a fact from it is
-  const items = [...filed.items, ...markItems(extraItems, facts)];
+  // a journal entry is private when any fact from it is
+  const items = [...filed.items, ...markItems(extraItems, facts, marks)];
   return { items, facts, peopleOf };
 }
 
@@ -225,6 +228,8 @@ export async function writeMemory(env, userId, chapterId, { dryRun = false } = {
       `chapters?id=eq.${chapterId}&owner_id=eq.${userId}&select=id,title,phase,start_date,end_date,closed_at,primary_world_id,epigraph,epigraph_source`,
     )) || [];
   if (!chapter) throw new Error('no such chapter for this person');
+  // a memory is of a Chapter that has ended
+  if (chapter.phase !== 'closed') throw new Error('the chapter has not ended');
   const [world] = chapter.primary_world_id
     ? (await d.select(
         `worlds?id=eq.${chapter.primary_world_id}&owner_id=eq.${userId}&select=id,name,display_name`,
@@ -305,16 +310,20 @@ export async function chaptersWantingMemory(env, userId) {
 
 /**
  * POST /api/chapter-memory { user_id, chapter_id } (admin key checked upstream;
- * cortex sends it for the signed in person). Writes and keeps the memory and
- * says what it is.
+ * cortex sends it for the signed in person). Writes and keeps the memory of a
+ * closed Chapter and says what it is, only while the pipeline is live for
+ * them; otherwise it writes nothing and says why (409).
+ * @param deps.mode the pipeline mode for a person (context/functions.js contextMode)
  */
-export async function handleChapterMemoryApi(request, env, corsResponse) {
+export async function handleChapterMemoryApi(request, env, corsResponse, { mode = null } = {}) {
   try {
     const body = await request.json().catch(() => ({}));
     const userId =
       typeof body.user_id === 'string' && UUID.test(body.user_id) ? body.user_id : null;
     if (!userId || !UUID.test(String(body.chapter_id || '')))
       return corsResponse({ error: 'user_id and chapter_id are required' }, 400);
+    if (!mode || mode(env, userId) !== 'on')
+      return corsResponse({ error: 'the pipeline is not live for them' }, 409);
     const r = await writeMemory(env, userId, body.chapter_id);
     return corsResponse({
       ok: true,
@@ -324,6 +333,11 @@ export async function handleChapterMemoryApi(request, env, corsResponse) {
     });
   } catch (e) {
     const msg = String(e?.message || e).slice(0, 300);
-    return corsResponse({ error: msg }, msg.startsWith('no such chapter') ? 404 : 500);
+    const status = msg.startsWith('no such chapter')
+      ? 404
+      : msg.startsWith('the chapter has not ended')
+        ? 409
+        : 500;
+    return corsResponse({ error: msg }, status);
   }
 }

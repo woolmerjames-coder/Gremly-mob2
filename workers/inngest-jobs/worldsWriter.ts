@@ -321,9 +321,7 @@ export async function writeClassifierOutput(
         name: sanitizeAuthored(candidate.proposed_name, 22) ?? candidate.proposed_name,
         display_name: candidate.display_name,
         description: candidate.description,
-        card_subtitle: candidate.card_subtitle,
-        card_subtitle_source: 'classifier',
-        card_subtitle_updated_at: now(),
+        // the words under it are the words writer's (data fabric stage 4b)
         summary: sanitizeAuthored(candidate.summary, 160),
         key_priorities: candidate.key_priorities,
         summary_source: 'classifier',
@@ -386,9 +384,7 @@ export async function writeClassifierOutput(
         primary_world_id: primaryWorldId,
         target_description: candidate.target_description,
         target_summary: sanitizeAuthored(candidate.target_summary, 240),
-        card_subtitle: candidate.card_subtitle,
-        card_subtitle_source: 'classifier',
-        card_subtitle_updated_at: now(),
+        // the words under it are the words writer's (data fabric stage 4b)
         summary: candidate.summary,
         key_priorities: candidate.key_priorities,
         summary_source: 'classifier',
@@ -541,15 +537,8 @@ export async function writeClassifierOutput(
         patch.arc_shape_source = 'classifier';
         patch.arc_shape_updated_at = now();
       }
-      if (update.new_epigraph != null && chapterProt?.noEpigraph !== true) {
-        assertChapterWritable(chapter, 'epigraph', runOptions);
-        const clean = sanitizeAuthored(update.new_epigraph, 250);
-        if (clean) {
-          patch.epigraph = clean;
-          patch.epigraph_source = 'classifier';
-          patch.epigraph_updated_at = now();
-        }
-      }
+      // new_epigraph is not written: a closed Chapter's memory is the memory
+      // writer's, and an open Chapter's is not written (data fabric stage 4b)
       if (update.new_key_moments != null && chapterProt?.noKeyMoments !== true) {
         assertChapterWritable(chapter, 'key_moments', runOptions);
         patch.key_moments = update.new_key_moments;
@@ -595,13 +584,8 @@ export async function writeClassifierOutput(
         }
       }
 
-      // Source-protected fields
-      if (update.new_card_subtitle != null && !chapterProt?.noCardSubtitle) {
-        assertChapterWritable(chapter, 'card_subtitle', runOptions);
-        patch.card_subtitle = update.new_card_subtitle;
-        patch.card_subtitle_source = 'classifier';
-        patch.card_subtitle_updated_at = now();
-      }
+      // Source-protected fields. new_card_subtitle is not written: the words
+      // under a Chapter are the words writer's (data fabric stage 4b)
       if (update.new_summary != null && !chapterProt?.noSummary) {
         assertChapterWritable(chapter, 'summary', runOptions);
         patch.summary = update.new_summary;
@@ -665,11 +649,8 @@ export async function writeClassifierOutput(
     if (vu.new_display_name != null && !worldProt?.noSummary) {
       patch.display_name = sanitizeAuthored(vu.new_display_name, 22) ?? vu.new_display_name;
     }
-    if (vu.new_card_subtitle != null && !worldProt?.noCardSubtitle) {
-      patch.card_subtitle = vu.new_card_subtitle;
-      patch.card_subtitle_source = 'classifier';
-      patch.card_subtitle_updated_at = now();
-    }
+    // new_card_subtitle is not written: the words under a World are the
+    // words writer's (data fabric stage 4b)
     if (vu.new_summary != null && !worldProt?.noSummary) {
       patch.summary = sanitizeAuthored(vu.new_summary, 160);
       patch.key_priorities = vu.new_key_priorities ?? [];

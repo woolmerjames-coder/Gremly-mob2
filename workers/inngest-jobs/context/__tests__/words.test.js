@@ -5,7 +5,15 @@
  * 4b): the line under each World and open Chapter, through the check as a line
  * seen at a glance, kept in card_subtitle, or beside the person's own words.
  */
-import { renderWords, writeLine, keepLine, writeWords, WORDS_SOURCE } from '../words.js';
+import {
+  renderWords,
+  writeLine,
+  keepLine,
+  writeWords,
+  glanceRecords,
+  wordsPhases,
+  WORDS_SOURCE,
+} from '../words.js';
 import { db } from '../../../shared/db.js';
 import { jsonCall } from '../llm.js';
 import { WORDS_SCHEMA } from '../../../shared/check/index.js';
@@ -142,6 +150,64 @@ describe('what the words writer is given', () => {
   });
 });
 
+describe('what may be seen at a glance', () => {
+  it('leaves out private and health items and facts, and anyone known only from them', () => {
+    const P2 = '88888888-8888-4888-8888-888888888888';
+    const both = { id: P1, name: 'Sam' };
+    const hidden = { id: P2, name: 'Dr Lee' };
+    const got = glanceRecords({
+      items,
+      facts,
+      peopleOf: new Map([
+        [F1, [both]],
+        [F2, [both, hidden]],
+      ]),
+    });
+    expect(got.items.map((i) => i.id)).toEqual([T1]);
+    expect(got.facts.map((f) => f.id)).toEqual([F1]);
+    expect([...got.peopleOf.keys()]).toEqual([F1]);
+    expect(got.peopleOf.get(F1)).toEqual([both]);
+    const flat = [...got.peopleOf.values()].flat().map((p) => p.id);
+    expect(flat).not.toContain(P2);
+  });
+
+  it('leaves out an item marked private as well as one about health', () => {
+    const got = glanceRecords({
+      items: [{ ...items[0], private: true }],
+      facts: [],
+      peopleOf: new Map(),
+    });
+    expect(got.items).toEqual([]);
+  });
+});
+
+describe('which Worlds and Chapters get words', () => {
+  it('include Gremly’s suggestions until the old fields stop, and only taken up ones after', () => {
+    expect(wordsPhases({})).toEqual({
+      worlds: ['candidate', 'active', 'evolving'],
+      chapters: ['suggested', 'upcoming', 'active'],
+    });
+    expect(wordsPhases({ WORLDS_OLD_FIELDS: 'stop' })).toEqual({
+      worlds: ['active'],
+      chapters: ['upcoming', 'active'],
+    });
+  });
+
+  it('tell the writer a suggested Chapter is not yet taken up', () => {
+    const { text } = renderWords({
+      kind: 'chapter',
+      target: { id: C, title: 'The marathon', phase: 'suggested', end_date: '2027-04-25' },
+      items: [items[0]],
+      facts: [],
+      peopleOf: new Map(),
+      today: TODAY,
+    });
+    expect(text).toContain(
+      'YOU ARE WRITING FOR THE CHAPTER (k1): The marathon | suggested by Gremly, not yet taken up by them | no start set to 2027-04-25',
+    );
+  });
+});
+
 function answer({ writes, holds = true }) {
   const asked = [];
   jsonCall.mockImplementation(async (env, req) => {
@@ -186,12 +252,34 @@ describe('writing the words', () => {
     );
   });
 
-  it('never keeps a line resting on something about health, and gives no second try', async () => {
-    answer({ writes: [{ text: 'You are nursing a sore knee.', refs: ['f2'], stated: [] }] });
+  it('is given nothing private or about health, so no line can rest on it', async () => {
+    const asked = answer({
+      writes: [
+        { text: 'You are nursing a sore knee.', refs: ['f2'], stated: [] },
+        { text: 'You are nursing a sore knee.', refs: ['f2'], stated: [] },
+      ],
+    });
     const r = await writeLine({}, { userId: 'u-1', person: null, target, today: TODAY, filed });
     expect(r.outcome).toBe('left_out');
     expect(r.text).toBeNull();
-    expect(jsonCall).toHaveBeenCalledTimes(1);
+    const given = asked[0].user;
+    expect(given).toContain('Book the long run route');
+    expect(given).not.toMatch(/Knee|Sore after the run|\[private\]/);
+  });
+
+  it('asks nothing when all that is filed is private or about health', async () => {
+    const r = await writeLine(
+      {},
+      {
+        userId: 'u-1',
+        person: null,
+        target,
+        today: TODAY,
+        filed: { items: [items[1]], facts: [facts[1]], peopleOf: new Map() },
+      },
+    );
+    expect(r).toMatchObject({ outcome: 'empty', skipped: 'only private', text: null });
+    expect(jsonCall).not.toHaveBeenCalled();
   });
 
   it('sends a line that does not hold back once, and leaves it out when it fails again', async () => {
@@ -349,6 +437,12 @@ describe('a person’s words', () => {
     });
     const out = await writeWords({}, 'u-1', { reason: 'weekly' });
     expect(out).toMatchObject({ written: 1, empty: 1, failed: 0, reason: 'weekly' });
+    expect(calls.find((c) => c.path?.startsWith('worlds?owner_id')).path).toContain(
+      'phase=in.(candidate,active,evolving)',
+    );
+    expect(calls.find((c) => c.path?.startsWith('chapters?owner_id')).path).toContain(
+      'phase=in.(suggested,upcoming,active)',
+    );
     expect(calls.find((c) => c.op === 'insert' && c.table === 'check_runs').rows[0]).toMatchObject({
       job: 'words',
       checked: 1,

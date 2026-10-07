@@ -343,7 +343,8 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     loadStory(env, userId),
   ]);
   // Chapters the weekly writes: every open one, any closed in the last 120 days,
-  // and any whose words have not yet been written under these rules.
+  // and any whose notes (summary, the one of the three this pass writes) have
+  // not yet been written under these rules.
   const recentCut = new Date(Date.now() - 120 * 864e5).toISOString();
   const chapters = (chapterRows || [])
     .filter((c) => {
@@ -354,9 +355,7 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
       if (allUser) return false;
       if (c.phase !== 'closed') return true;
       if (c.closed_at && c.closed_at >= recentCut) return true;
-      return ![c.card_subtitle_source, c.summary_source, c.epigraph_source].every(
-        (s) => s === 'synthesis' || s === 'user',
-      );
+      return c.summary_source !== 'synthesis' && c.summary_source !== 'user';
     })
     .slice(0, 40);
   return {
@@ -600,9 +599,10 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   for (const w of output.worlds || []) {
     const ref = refs.get(w.world_ref);
     if (!ref || ref.type !== 'world') continue;
-    // A placeholder card or summary leaves that world as it is this week.
-    if (!isProse(w.card_subtitle) || !isProse(w.summary, 20)) {
-      skipped.push({ world_ref: w.world_ref, card_subtitle: w.card_subtitle, summary: w.summary });
+    // A placeholder summary leaves that world as it is this week. Its card
+    // line is the words writer's now (context/words.js), so it gates nothing.
+    if (!isProse(w.summary, 20)) {
+      skipped.push({ world_ref: w.world_ref, summary: w.summary });
       continue;
     }
     // When the world was last lived in, from the facts the model cited: the day
@@ -619,18 +619,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
       for (const day of days)
         if (validDate(day) && day <= today && (!lived || day > lived)) lived = day;
     }
-    // A card line is glanceable: it must rest on cited facts, none of them private.
-    const cardFacts = (w.card_fact_refs || [])
-      .map((r) => refs.get(r))
-      .filter((f) => f && f.type === 'fact');
-    const cardOk = cardFacts.length > 0 && !cardFacts.some((f) => f.private);
-    if (!cardOk)
-      skipped.push({
-        world_ref: w.world_ref,
-        card_subtitle: w.card_subtitle,
-        reason: cardFacts.length ? 'card rests on a private fact' : 'card cites no facts',
-      });
-    worldUpdates.push({ id: ref.id, w, lived, cardOk });
+    worldUpdates.push({ id: ref.id, w, lived });
   }
   const featured = (output.worlds_summary?.featured || [])
     .map((f) => ({
@@ -650,34 +639,21 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   for (const c of output.chapters || []) {
     const ref = refs.get(c.chapter_ref);
     if (!ref || ref.type !== 'chapter') continue;
-    if (!isProse(c.card_subtitle) || !isProse(c.summary, 20)) {
-      skipped.push({
-        chapter_ref: c.chapter_ref,
-        card_subtitle: c.card_subtitle,
-        summary: c.summary,
-      });
+    // A placeholder summary leaves that chapter as it is this week; its card
+    // line is the words writer's now, so it gates nothing.
+    if (!isProse(c.summary, 20)) {
+      skipped.push({ chapter_ref: c.chapter_ref, summary: c.summary });
       continue;
     }
-    // A chapter's words must rest on cited facts; its card line, on facts none of which is private.
-    const chCard = (c.card_fact_refs || [])
+    // A chapter's notes must rest on cited facts.
+    const cited = (c.card_fact_refs || [])
       .map((r) => refs.get(r))
       .filter((f) => f && f.type === 'fact');
-    if (!chCard.length) {
-      skipped.push({
-        chapter_ref: c.chapter_ref,
-        card_subtitle: c.card_subtitle,
-        reason: 'cites no facts',
-      });
+    if (!cited.length) {
+      skipped.push({ chapter_ref: c.chapter_ref, summary: c.summary, reason: 'cites no facts' });
       continue;
     }
-    const cardOk = !chCard.some((f) => f.private);
-    if (!cardOk)
-      skipped.push({
-        chapter_ref: c.chapter_ref,
-        card_subtitle: c.card_subtitle,
-        reason: 'card rests on a private fact',
-      });
-    chapterUpdates.push({ id: ref.id, c, cardOk });
+    chapterUpdates.push({ id: ref.id, c });
   }
 
   const applied = {

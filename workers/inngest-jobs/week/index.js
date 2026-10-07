@@ -415,24 +415,35 @@ export function createWeekFunctions(
         }
       }
       // Making the read and keeping it are two steps, so a save that fails is
-      // tried again without paying for the read a second time.
-      const ahead = await step.run('read-ahead', async () => {
-        if (synth?.error) {
-          console.warn(
-            `[ALERT][WeekPipe] the weekly synthesis did not finish for ${userId} on ${day}: ${synth.error}`,
-          );
-        }
-        const r = await prepareWeekRead(env, userId, { today: day, ahead: true });
-        return { on: r.on, read: r.read, skipped: r.skipped || null };
-      });
-      const kept = ahead.read
-        ? await step.run('keep-read', async () => {
-            const k = await keepWeekRead(env, userId, ahead.on, ahead.read);
-            return { made: k.made };
-          })
-        : null;
-      let skipped = ahead.skipped;
-      if (!skipped && !ahead.read) skipped = 'the week has its read';
+      // tried again without paying for the read a second time. A read that
+      // fails is raised and does not cost them their words and memories.
+      let ahead = null;
+      let kept = null;
+      let readError = null;
+      try {
+        ahead = await step.run('read-ahead', async () => {
+          if (synth?.error) {
+            console.warn(
+              `[ALERT][WeekPipe] the weekly synthesis did not finish for ${userId} on ${day}: ${synth.error}`,
+            );
+          }
+          const r = await prepareWeekRead(env, userId, { today: day, ahead: true });
+          return { on: r.on, read: r.read, skipped: r.skipped || null };
+        });
+        kept = ahead.read
+          ? await step.run('keep-read', async () => {
+              const k = await keepWeekRead(env, userId, ahead.on, ahead.read);
+              return { made: k.made };
+            })
+          : null;
+      } catch (err) {
+        readError = String(err?.message || err).slice(0, 200);
+        console.warn(
+          `[ALERT][WeekPipe] the read did not finish for ${userId} on ${day}: ${readError}`,
+        );
+      }
+      let skipped = ahead?.skipped || null;
+      if (!readError && !skipped && !ahead?.read) skipped = 'the week has its read';
       if (!skipped && kept && !kept.made) skipped = 'another read was kept first';
       // Then the words under each World and open Chapter, from what the week
       // filed, and a memory for each closed Chapter that has none (data fabric
@@ -473,8 +484,9 @@ export function createWeekFunctions(
         read: {
           made: !!kept?.made,
           skipped: skipped || null,
-          week_start: ahead.on.week_start,
-          kind: ahead.on.kind,
+          error: readError,
+          week_start: ahead?.on?.week_start ?? null,
+          kind: ahead?.on?.kind ?? null,
         },
       };
     },

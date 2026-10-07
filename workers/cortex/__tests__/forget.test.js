@@ -67,9 +67,25 @@ describe('Forget Everything', () => {
   it("clears only Gremly's words on Worlds and Chapters, never ones the person wrote", async () => {
     const calls = fakeDb();
     await forgetPerson({}, 'u-1');
-    const words = calls.filter((c) => c.op === 'update' && /^(worlds|chapters)\?/.test(c.path));
+    const words = calls.filter(
+      (c) => c.op === 'update' && /^(worlds|chapters)\?/.test(c.path) && !/_offered/.test(c.path),
+    );
     expect(words.length).toBe(5);
     for (const c of words) expect(c.path).toMatch(/_source\.neq\.user/);
+  });
+
+  it('clears the words Gremly offered beside theirs, which are always his', async () => {
+    const calls = fakeDb();
+    await forgetPerson({}, 'u-1');
+    const offered = calls.filter((c) => c.op === 'update' && /_offered=not\.is\.null/.test(c.path));
+    expect(offered.map((c) => Object.keys(c.patch).sort())).toEqual([
+      ['card_subtitle_offered', 'card_subtitle_offered_at'],
+      ['card_subtitle_offered', 'card_subtitle_offered_at'],
+      ['epigraph_offered', 'epigraph_offered_at'],
+    ]);
+    expect(offered.map((c) => c.path.split('?')[0])).toEqual(['worlds', 'chapters', 'chapters']);
+    for (const c of offered)
+      expect(c.patch[Object.keys(c.patch).find((k) => !k.endsWith('_at'))]).toBeNull();
   });
 
   it('starts reading again from now, so nothing forgotten is read back in', async () => {

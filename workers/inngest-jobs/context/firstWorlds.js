@@ -24,10 +24,9 @@
 import { CARE_RULES, PRIVATE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, daysBetween, weekdayName, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
-import { itemOf, readFacts, readFactPeople, markItems } from './filed';
+import { itemOf, readFacts, readFactPeople, readItemMarks, markItems } from './filed';
 import { stateWords } from '../../shared/factTiming.js';
 import { GREMLY_CATALOG, GREMLY_SLUGS, PLAIN_GREMLY } from '../../shared/gremlys.js';
-import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 
 export const FIRST_WORLDS_VERSION = 'first-worlds-2026-10-07c';
 
@@ -79,12 +78,51 @@ export function isNewTo(s) {
 }
 
 /**
- * The phases of a World a drop can be filed into (context/filing.js loadGraph):
- * a person whose Worlds are all dormant or archived has none to file into, and
- * is given first Worlds like anyone with none.
+ * Whether a person holds Worlds, from their Worlds' phases and which of their
+ * dormant Worlds have anything filed in them. Pure. A World in any phase but
+ * dormant counts, archived ones too: someone who put their Worlds away by
+ * hand made that choice, and is not given new ones. A dormant World counts
+ * when something is filed in it. Only dormant Worlds with nothing filed count
+ * as none, as Gremly made those and never used them.
+ * @param worlds [{ id, phase }]
+ * @param filedIn Set of the ids of dormant Worlds with something filed
  */
-export function livePhases(env) {
-  return oldWorldsFieldsStopped(env) ? 'active' : 'candidate,active,evolving';
+export function holdsWorlds(worlds, filedIn = new Set()) {
+  return (worlds || []).some((w) => w.phase !== 'dormant' || filedIn.has(w.id));
+}
+
+/**
+ * The people among these who hold Worlds (holdsWorlds), read in a few queries.
+ * @returns Set of owner ids
+ */
+export async function ownersWithWorlds(d, ownerIds) {
+  const held = new Set();
+  const dormant = [];
+  for (let i = 0; i < ownerIds.length; i += 100) {
+    const rows =
+      (await d.select(
+        `worlds?owner_id=in.(${ownerIds.slice(i, i + 100).join(',')})&select=id,owner_id,phase`,
+      )) || [];
+    for (const w of rows) {
+      if (w.phase !== 'dormant') held.add(w.owner_id);
+      else dormant.push(w);
+    }
+  }
+  const unsure = dormant.filter((w) => !held.has(w.owner_id));
+  const filed = await Promise.all(
+    unsure.map(
+      async (w) =>
+        (
+          (await d.select(
+            `drop_world_links?owner_id=eq.${w.owner_id}&world_id=eq.${w.id}&select=world_id&limit=1`,
+          )) || []
+        ).length > 0,
+    ),
+  );
+  unsure.forEach((w, i) => {
+    if (filed[i]) held.add(w.owner_id);
+  });
+  return held;
 }
 
 /** Their drops: what filing files, notes from a calendar left out. */
@@ -109,8 +147,8 @@ function dropSelects(userId, cols = 'id,created_at', limit = 500) {
 export async function firstWorldsStats(env, userId, { tz = null, at = new Date() } = {}) {
   const d = db(env);
   const zone = tz || (await userTimezone(env, userId));
-  const [worlds, marks, ...drops] = await Promise.all([
-    d.select(`worlds?owner_id=eq.${userId}&phase=in.(${livePhases(env)})&select=id&limit=1`),
+  const [held, marks, ...drops] = await Promise.all([
+    ownersWithWorlds(d, [userId]),
     d.select(
       `events?owner_id=eq.${userId}&kind=in.(${MADE_KIND},${TRIED_KIND})&select=kind,payload_json,created_at&order=created_at.desc&limit=20`,
     ),
@@ -123,7 +161,7 @@ export async function firstWorldsStats(env, userId, { tz = null, at = new Date()
   );
   const lastTry = (marks || []).find((m) => m.kind === TRIED_KIND) || null;
   return {
-    hasWorlds: (worlds || []).length > 0,
+    hasWorlds: held.has(userId),
     made: (marks || []).some((m) => m.kind === MADE_KIND),
     lastTry: lastTry ? { drops: lastTry.payload_json?.drops ?? 0 } : null,
     drops: all.length,
@@ -141,14 +179,10 @@ export async function firstWorldsEvents(env, at = new Date()) {
   const d = db(env);
   const people = (await d.rpc('get_active_people', { active_days: 30 })) || [];
   if (!people.length) return [];
-  const withWorlds = new Set();
-  for (let i = 0; i < people.length; i += 100) {
-    const ids = people.slice(i, i + 100).map((p) => p.user_id);
-    for (const r of (await d.select(
-      `worlds?owner_id=in.(${ids.join(',')})&phase=in.(${livePhases(env)})&select=owner_id`,
-    )) || [])
-      withWorlds.add(r.owner_id);
-  }
+  const withWorlds = await ownersWithWorlds(
+    d,
+    people.map((p) => p.user_id),
+  );
   const events = [];
   for (const p of people) {
     if (withWorlds.has(p.user_id)) continue;
@@ -371,8 +405,11 @@ export async function loadFirstWorldsRecords(env, userId) {
     0,
     MOST_FACTS,
   );
-  const peopleOf = await readFactPeople(d, userId, facts);
-  return { items: markItems(items, facts), facts, peopleOf };
+  const [peopleOf, marks] = await Promise.all([
+    readFactPeople(d, userId, facts),
+    readItemMarks(d, userId, items),
+  ]);
+  return { items: markItems(items, facts, marks), facts, peopleOf };
 }
 
 /** Ask for the Worlds. Writes nothing. */
@@ -409,7 +446,37 @@ export async function makeFirstWorlds(env, userId, { dryRun = false } = {}) {
   const tz = await userTimezone(env, userId);
   const stats = await firstWorldsStats(env, userId, { tz });
   const due = firstWorldsDue(stats);
-  if (!due.due && !dryRun) return { made: [], skipped: due.why, problems: [] };
+  if (!due.due && !dryRun) {
+    // a run that wrote its Worlds and stopped before it marked them made (the
+    // job's retry lands here): mark them, and hand them on to be filled
+    if (stats.hasWorlds && !stats.made) {
+      const ours = await d.select(
+        `worlds?owner_id=eq.${userId}&source=eq.${FIRST_WORLDS_SOURCE}&select=id,name,mascot_slug&order=created_at.asc`,
+      );
+      if (ours?.length) {
+        await d.insertQuiet('events', [
+          {
+            owner_id: userId,
+            kind: MADE_KIND,
+            payload_json: {
+              drops: stats.drops,
+              day: null,
+              worlds: ours.length,
+              recovered: true,
+              version: FIRST_WORLDS_VERSION,
+              problems: [],
+            },
+          },
+        ]);
+        return {
+          made: ours.map((w) => ({ id: w.id, name: w.name, gremly: w.mascot_slug })),
+          recovered: true,
+          problems: [],
+        };
+      }
+    }
+    return { made: [], skipped: due.why, problems: [] };
+  }
   const [person, got] = await Promise.all([
     personIdentity(env, userId),
     loadFirstWorldsRecords(env, userId),
@@ -424,11 +491,8 @@ export async function makeFirstWorlds(env, userId, { dryRun = false } = {}) {
   if (dryRun) return { made: [], proposed, stats, problems: proposed.problems };
 
   // they may have made one by hand while the model was asked
-  const [already] =
-    (await d.select(
-      `worlds?owner_id=eq.${userId}&phase=in.(${livePhases(env)})&select=id&limit=1`,
-    )) || [];
-  if (already) return { made: [], skipped: 'they have Worlds', problems: proposed.problems };
+  if ((await ownersWithWorlds(d, [userId])).has(userId))
+    return { made: [], skipped: 'they have Worlds', problems: proposed.problems };
 
   const now = new Date().toISOString();
   const rows = proposed.worlds.map((w) => {
@@ -474,6 +538,38 @@ export async function makeFirstWorlds(env, userId, { dryRun = false } = {}) {
     problems: proposed.problems,
     why: due.why,
   };
+}
+
+/**
+ * What filing what they have did, summed over its batches
+ * (dropAssignmentBackfill.ts), and whether that is a problem: a skipped run,
+ * or every drop skipped. Pure.
+ * @returns {{ drops, filed, skipped, problem: string|null }}
+ */
+export function filedTotals(result) {
+  if (!result) return { drops: null, filed: null, skipped: null, problem: 'no backfill ran' };
+  if (result.error)
+    return { drops: null, filed: null, skipped: null, problem: `it stopped: ${result.error}` };
+  const filed = { world: 0, chapter: 0, nowhere: 0, by_them: 0 };
+  const skipped = {};
+  for (const b of result.batches || []) {
+    filed.world += b.filed_world || 0;
+    filed.chapter += b.filed_chapter || 0;
+    filed.nowhere += b.filed_nowhere || 0;
+    filed.by_them += b.person_placed || 0;
+    for (const [why, n] of Object.entries(b.skipped || {})) skipped[why] = (skipped[why] || 0) + n;
+  }
+  const drops = result.drops ?? 0;
+  const skippedCount = Object.values(skipped).reduce((a, n) => a + n, 0);
+  const problem =
+    typeof result.skipped === 'string'
+      ? `the whole run was skipped: ${result.skipped}`
+      : drops > 0 && skippedCount >= drops
+        ? `all ${drops} drops were skipped: ${Object.entries(skipped)
+            .map(([w, n]) => `${w} ${n}`)
+            .join(', ')}`
+        : null;
+  return { drops, filed, skipped, problem };
 }
 
 /**

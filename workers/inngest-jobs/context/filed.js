@@ -5,9 +5,10 @@
  * them, and the people those facts are about.
  *
  * Code reads rows by ids and dates and marks what is private. It never reads
- * the person's words to decide anything. An item is private here when a fact
- * the reader took from it is private or about health: items carry no mark of
- * their own yet.
+ * the person's words to decide anything. An item is private here when any
+ * fact the reader took from it, in any state and however old, is private or
+ * about health: items carry no mark of their own yet. An item the reader has
+ * not read yet carries no mark.
  */
 
 import { db } from './db';
@@ -141,22 +142,67 @@ export async function readFactPeople(d, userId, facts) {
   return byFact;
 }
 
+const markKey = (table, id) => `${table}:${id}`;
+
 /**
- * Mark each item private or about health from the facts taken from it. Pure.
+ * Which of these items any fact the reader took from them marks private or
+ * about health: every fact, in every state, from every place it was taken
+ * (life_fact_sources), not only the facts a writer is given.
+ * @returns Map of 'table:id' to { private, health }, holding only marked items
+ */
+export async function readItemMarks(d, userId, items) {
+  const byTable = new Map();
+  for (const it of items || []) {
+    const t = ITEM_TABLE[it.type];
+    if (!t || !UUID.test(String(it.id))) continue;
+    if (!byTable.has(t)) byTable.set(t, new Set());
+    byTable.get(t).add(it.id);
+  }
+  const sources = [];
+  for (const [table, set] of byTable) {
+    const ids = [...set];
+    for (let i = 0; i < ids.length; i += 100)
+      sources.push(
+        ...((await d.select(
+          `life_fact_sources?user_id=eq.${userId}&source_table=eq.${table}&source_id=in.(${ids.slice(i, i + 100).join(',')})&select=fact_id,source_table,source_id`,
+        )) || []),
+      );
+  }
+  const factIds = [...new Set(sources.map((s) => s.fact_id))];
+  const flagged = new Map();
+  for (let i = 0; i < factIds.length; i += 100)
+    for (const f of (await d.select(
+      `life_facts?user_id=eq.${userId}&id=in.(${factIds.slice(i, i + 100).join(',')})&or=(private.is.true,health.is.true)&select=id,private,health`,
+    )) || [])
+      flagged.set(f.id, f);
+  const marks = new Map();
+  for (const s of sources) {
+    const f = flagged.get(s.fact_id);
+    if (!f) continue;
+    const k = markKey(s.source_table, s.source_id);
+    const was = marks.get(k) || { private: false, health: false };
+    marks.set(k, { private: was.private || !!f.private, health: was.health || !!f.health });
+  }
+  return marks;
+}
+
+/**
+ * Mark each item private or about health from the facts taken from it, and
+ * from the marks read for it (readItemMarks). Pure.
  * @returns items with private and health set
  */
-export function markItems(items, facts) {
-  const flags = new Map();
+export function markItems(items, facts, marks = null) {
+  const flags = new Map(marks || []);
   for (const f of facts) {
     if (!f.item_id) continue;
-    const k = `${f.item_table}:${f.item_id}`;
+    const k = markKey(f.item_table, f.item_id);
     const was = flags.get(k) || { private: false, health: false };
     flags.set(k, { private: was.private || !!f.private, health: was.health || !!f.health });
   }
-  return items.map((it) => ({
-    ...it,
-    ...(flags.get(`${ITEM_TABLE[it.type]}:${it.id}`) || { private: false, health: false }),
-  }));
+  return items.map((it) => {
+    const m = flags.get(markKey(ITEM_TABLE[it.type], it.id));
+    return { ...it, private: !!m?.private, health: !!m?.health };
+  });
 }
 
 /**
@@ -185,9 +231,10 @@ export async function loadFiled(env, userId, target, { items: most = 40 } = {}) 
   const items = read
     .slice(0, most)
     .map((it) => ({ ...it, placed: placed.has(`${it.type}:${it.id}`) }));
-  const facts = await readFacts(d, userId, items, {
-    worldId: target.table === 'worlds' ? target.id : null,
-  });
+  const [facts, marks] = await Promise.all([
+    readFacts(d, userId, items, { worldId: target.table === 'worlds' ? target.id : null }),
+    readItemMarks(d, userId, items),
+  ]);
   const peopleOf = await readFactPeople(d, userId, facts);
-  return { items: markItems(items, facts), facts, peopleOf };
+  return { items: markItems(items, facts, marks), facts, peopleOf };
 }

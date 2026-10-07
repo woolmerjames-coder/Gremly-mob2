@@ -13,6 +13,7 @@ import {
   makeFirstWorlds,
   handleFirstWorldsApi,
   firstWorldsEvents,
+  holdsWorlds,
   FIRST_WORLDS_SOURCE,
   MADE_KIND,
   TRIED_KIND,
@@ -53,6 +54,20 @@ describe('when first Worlds are due', () => {
     expect(firstWorldsDue({ ...base, drops: 2, firstDropDay: '2026-05-01' })).toMatchObject({
       due: true,
     });
+  });
+
+  it('counts a person as holding Worlds unless every one is dormant with nothing filed', () => {
+    expect(holdsWorlds([])).toBe(false);
+    expect(holdsWorlds([{ id: 'a', phase: 'dormant' }])).toBe(false);
+    expect(holdsWorlds([{ id: 'a', phase: 'dormant' }], new Set(['a']))).toBe(true);
+    expect(holdsWorlds([{ id: 'a', phase: 'archived' }])).toBe(true);
+    expect(holdsWorlds([{ id: 'a', phase: 'candidate' }])).toBe(true);
+    expect(
+      holdsWorlds([
+        { id: 'a', phase: 'dormant' },
+        { id: 'b', phase: 'active' },
+      ]),
+    ).toBe(true);
   });
 
   it('never for someone with Worlds, someone who had them made before, or with nothing dropped', () => {
@@ -161,15 +176,22 @@ describe('what code keeps of the answer', () => {
   });
 });
 
-function fakeDb({ worlds = [], marks = [], todos = [], inserted = [] } = {}) {
+function fakeDb({ worlds = [], marks = [], todos = [], links = [] } = {}) {
   const calls = [];
   let worldRows = worlds;
   db.mockReturnValue({
     select: async (path) => {
       calls.push({ op: 'select', path });
-      if (path.startsWith('worlds?owner_id')) return worldRows;
+      if (path.startsWith('worlds?owner_id')) {
+        const source = /source=eq\.([a-z_]+)/.exec(path)?.[1];
+        return source ? worldRows.filter((w) => w.source === source) : worldRows;
+      }
       if (path.startsWith('events?')) return marks;
       if (path.startsWith('todos?')) return todos;
+      if (path.startsWith('drop_world_links?'))
+        return links
+          .filter((id) => path.includes(`world_id=eq.${id}`))
+          .map((id) => ({ world_id: id }));
       return [];
     },
     rpc: async () => [
@@ -235,8 +257,38 @@ describe('making them', () => {
     });
   });
 
+  it('finishes a run that wrote its Worlds but stopped before marking them made', async () => {
+    const calls = fakeDb({
+      todos: fiveTodos,
+      worlds: [
+        {
+          id: 'w-1',
+          owner_id: 'u-1',
+          phase: 'active',
+          source: FIRST_WORLDS_SOURCE,
+          name: 'Singing',
+          mascot_slug: 'music_gremly',
+        },
+      ],
+    });
+    const r = await makeFirstWorlds({}, 'u-1');
+    expect(r).toMatchObject({
+      made: [{ id: 'w-1', name: 'Singing', gremly: 'music_gremly' }],
+      recovered: true,
+    });
+    expect(calls.some((c) => c.op === 'select' && /source=eq\.first_worlds/.test(c.path))).toBe(
+      true,
+    );
+    expect(calls.find((c) => c.table === 'events').rows[0]).toMatchObject({
+      kind: MADE_KIND,
+      payload_json: { recovered: true, worlds: 1 },
+    });
+    expect(calls.some((c) => c.op === 'insert')).toBe(false);
+    expect(jsonCall).not.toHaveBeenCalled();
+  });
+
   it('asks nothing when they are not due', async () => {
-    fakeDb({ worlds: [{ id: 'w' }], todos: fiveTodos });
+    fakeDb({ worlds: [{ id: 'w', owner_id: 'u-1', phase: 'active' }], todos: fiveTodos });
     const r = await makeFirstWorlds({}, 'u-1');
     expect(r).toMatchObject({ made: [], skipped: 'they have Worlds' });
     expect(jsonCall).not.toHaveBeenCalled();
@@ -266,5 +318,25 @@ describe('making them', () => {
     fakeDb({ todos: fiveTodos });
     const events = await firstWorldsEvents({});
     expect(events.map((e) => e.id)).toEqual(['first-worlds-u-1-5', 'first-worlds-u-2-5']);
+  });
+
+  it('gives them to someone whose only World is dormant with nothing filed, and not to someone who put theirs away', async () => {
+    fakeDb({
+      todos: fiveTodos,
+      worlds: [
+        { id: 'w-dormant', owner_id: 'u-1', phase: 'dormant' },
+        { id: 'w-away', owner_id: 'u-2', phase: 'archived' },
+      ],
+    });
+    expect((await firstWorldsEvents({})).map((e) => e.id)).toEqual(['first-worlds-u-1-5']);
+  });
+
+  it('does not give them to someone with a dormant World that has something filed', async () => {
+    fakeDb({
+      todos: fiveTodos,
+      worlds: [{ id: 'w-used', owner_id: 'u-1', phase: 'dormant' }],
+      links: ['w-used'],
+    });
+    expect((await firstWorldsEvents({})).map((e) => e.id)).toEqual(['first-worlds-u-2-5']);
   });
 });

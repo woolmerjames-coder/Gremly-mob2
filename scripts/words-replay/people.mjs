@@ -6,7 +6,9 @@
  * put it (data/gold.json). The words replay writes the line under each World
  * and open Chapter from those; the memory replay writes the memory of the
  * closed one, the Leeds half marathon. Facts and people are added here, with
- * one about health, which the line must never rest on.
+ * one about health, which the line must never rest on. A fourth Chapter is
+ * one Gremly suggested and Alex has not taken up, the Manchester marathon,
+ * with two drops filed in it, one of them the item the health fact is from.
  *
  * Two more closed Chapters test the memory alone: Ines's physio for her back,
  * where something private and about health shapes the Chapter, and Maya's
@@ -87,12 +89,25 @@ const ALEX_FACTS = [
   fact('Pat on the next plot will water the greenhouse while they are away', 'planned', '2026-10-24', 'd58', ['pat']),
 ];
 
+/** A Chapter Gremly suggested, not yet taken up, and the drops filed in it. */
+const SUGGESTED = {
+  id: 'b0000000-0000-4000-8000-000000000009',
+  title: 'Manchester marathon',
+  phase: 'suggested',
+  start_date: null,
+  end_date: '2027-04-25',
+  primary_world_id: WORLDS.find((w) => w.name === 'Running').id,
+  drops: ['d33', 'd28'],
+};
+
 /** What is filed in a World or a Chapter of Alex's, as context/filed.js reads it. */
 export function alexFiled(target) {
   const items =
     target.table === 'worlds'
       ? ALEX_ITEMS.filter((i) => i.world === target.name)
-      : ALEX_ITEMS.filter((i) => i.chapter === target.name);
+      : target.name === SUGGESTED.title
+        ? SUGGESTED.drops.map(item)
+        : ALEX_ITEMS.filter((i) => i.chapter === target.name);
   const ids = new Set(items.map((i) => i.id));
   const facts = ALEX_FACTS.filter((x) => ids.has(x.item_id));
   // an item is private when a fact from it is (context/filed.js markItems)
@@ -112,7 +127,7 @@ export function alexFiled(target) {
 export const ALEX = {
   person: { first_name: 'Alex', pronouns: 'they/them' },
   worlds: WORLDS.map((w) => ({ table: 'worlds', kind: 'world', name: w.name, row: { id: w.id, name: w.name } })),
-  chapters: CHAPTERS.map((c) => ({
+  chapters: [...CHAPTERS, SUGGESTED].map((c) => ({
     table: 'chapters',
     kind: 'chapter',
     name: c.title,

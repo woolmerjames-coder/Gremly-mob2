@@ -8,10 +8,13 @@
  * (summary) are not given: Gremly's text is not evidence, and the line is seen
  * at a glance.
  *
- * Every line goes through the check (workers/shared/check) as a line seen at a
- * glance: it must rest on something it names, and never on anything private or
- * about health. A line that fails goes back once; one that fails again is left
- * out, and the field is left blank. The words stay until they are next
+ * Nothing private or about health is given to it at all (glanceRecords): an
+ * item, a fact, or a person known only from those. A World that holds only
+ * such things gets no words. Every line goes through the check
+ * (workers/shared/check) as a line seen at a glance: it must rest on
+ * something it names, and never on anything private or about health. A line
+ * that fails goes back once; one that fails again is left out, and the field
+ * is left blank. The words stay until they are next
  * written, so they say nothing that stops being true as days pass.
  *
  * When the person wrote the words themselves, theirs stay, and Gremly's line
@@ -39,7 +42,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 
-export const WORDS_WRITER_VERSION = 'words-2026-10-07h';
+export const WORDS_WRITER_VERSION = 'words-2026-10-07i';
 
 /** What a person's words fields record as their writer. */
 export const WORDS_SOURCE = 'words';
@@ -94,6 +97,13 @@ function trim(text, n) {
     .trim();
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
+
+// where an open Chapter stands; a suggested one is shown until the old screens go
+const CHAPTER_PHASE_WORDS = {
+  suggested: 'suggested by Gremly, not yet taken up by them',
+  upcoming: 'set for later',
+  active: 'under way',
+};
 
 // every item is the person's own, which the check is told with each one
 const KIND_WORDS = {
@@ -152,7 +162,7 @@ export function renderWords({
     L.push(
       ended
         ? `THE CHAPTER THAT HAS ENDED (k1): ${trim(target.title, 80)} | ${dates}${inWorld}`
-        : `YOU ARE WRITING FOR THE CHAPTER (k1): ${trim(target.title, 80)} | ${target.phase === 'upcoming' ? 'set for later' : 'under way'} | ${dates}${inWorld}`,
+        : `YOU ARE WRITING FOR THE CHAPTER (k1): ${trim(target.title, 80)} | ${CHAPTER_PHASE_WORDS[target.phase] || CHAPTER_PHASE_WORDS.active} | ${dates}${inWorld}`,
     );
   }
 
@@ -243,16 +253,30 @@ export function renderWords({
   return { text: L.join('\n'), refs, records };
 }
 
+/**
+ * The phases of the Worlds and Chapters that get words. Until the old fields
+ * stop, Gremly's suggested Worlds and Chapters are shown too, so they get
+ * words from this writer, the one writer of those words.
+ */
+export function wordsPhases(env) {
+  return oldWorldsFieldsStopped(env)
+    ? { worlds: ['active'], chapters: [...OPEN_CHAPTER_PHASES] }
+    : {
+        worlds: ['candidate', 'active', 'evolving'],
+        chapters: ['suggested', ...OPEN_CHAPTER_PHASES],
+      };
+}
+
 /** The open Worlds and Chapters a person's words are written for, or the ones named. */
 export async function wordsTargets(env, userId, named = null) {
   const d = db(env);
-  const worldPhases = oldWorldsFieldsStopped(env) ? 'active' : 'active,evolving';
+  const phases = wordsPhases(env);
   const [worlds, chapters] = await Promise.all([
     d.select(
-      `worlds?owner_id=eq.${userId}&phase=in.(${worldPhases})&select=id,name,display_name,phase,card_subtitle,card_subtitle_source&order=created_at.asc`,
+      `worlds?owner_id=eq.${userId}&phase=in.(${phases.worlds.join(',')})&select=id,name,display_name,phase,card_subtitle,card_subtitle_source&order=created_at.asc`,
     ),
     d.select(
-      `chapters?owner_id=eq.${userId}&phase=in.(${OPEN_CHAPTER_PHASES.join(',')})&closed_at=is.null&select=id,title,phase,start_date,end_date,primary_world_id,card_subtitle,card_subtitle_source&order=created_at.asc`,
+      `chapters?owner_id=eq.${userId}&phase=in.(${phases.chapters.join(',')})&closed_at=is.null&select=id,title,phase,start_date,end_date,primary_world_id,card_subtitle,card_subtitle_source&order=created_at.asc`,
     ),
   ]);
   const want = named?.length ? new Set(named.map((t) => `${t.table}:${t.id}`)) : null;
@@ -274,14 +298,30 @@ export async function wordsTargets(env, userId, named = null) {
 }
 
 /**
+ * What the words writer may be given: what is filed, without anything private
+ * or about health. The facts' people come only from the facts kept, so someone
+ * known only from private facts is not given either. Pure.
+ */
+export function glanceRecords({ items, facts, peopleOf }) {
+  const open = (x) => !x.private && !x.health;
+  const kept = facts.filter(open);
+  const people = new Map();
+  for (const f of kept) if (peopleOf?.has(f.id)) people.set(f.id, peopleOf.get(f.id));
+  return { items: items.filter(open), facts: kept, peopleOf: people };
+}
+
+/**
  * Write the words for one World or Chapter, through the check. Writes nothing.
  * @returns { outcome, text, refs, model, check, input_chars, skipped }
  */
 export async function writeLine(env, { userId, person, target, today, filed = null }) {
-  const got = filed || (await loadFiled(env, userId, { table: target.table, id: target.row.id }));
+  const all = filed || (await loadFiled(env, userId, { table: target.table, id: target.row.id }));
   // nothing filed and nothing held: nothing true can be said, and no call is made
-  if (!got.items.length && !got.facts.length)
+  if (!all.items.length && !all.facts.length)
     return { outcome: 'empty', text: null, refs: [], ids: [], skipped: 'nothing filed' };
+  const got = glanceRecords(all);
+  if (!got.items.length && !got.facts.length)
+    return { outcome: 'empty', text: null, refs: [], ids: [], skipped: 'only private' };
   const { text, refs, records } = renderWords({
     kind: target.kind,
     target: target.row,

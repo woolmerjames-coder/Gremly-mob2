@@ -4355,7 +4355,7 @@ const appHandler = {
       return handleFirstWorldsApi(request, env, corsResponse, { send: sendEvents });
     }
     if (url.pathname === '/api/chapter-memory' && request.method === 'POST') {
-      return handleChapterMemoryApi(request, env, corsResponse);
+      return handleChapterMemoryApi(request, env, corsResponse, { mode: contextMode });
     }
     if (url.pathname === '/api/words-fresh' && request.method === 'POST') {
       return handleWordsFreshApi(request, env, corsResponse, { send: sendEvents });

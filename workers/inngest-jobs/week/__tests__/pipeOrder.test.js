@@ -35,6 +35,7 @@ function fakeStep({ fail = [] } = {}) {
     // the read's steps are stood in for: no database here
     run: async (name) => {
       order.push(`run:${name}`);
+      if (fail.includes(name)) throw new Error(`${name} broke`);
       if (name === 'read-ahead')
         return {
           on: { week_start: '2026-09-28', kind: 'weekly' },
@@ -89,6 +90,31 @@ describe('the weekly pipe', () => {
     expect(step.order).toContain('run:read-ahead');
     expect(warn.mock.calls.map((c) => c[0]).join('\n')).toMatch(
       /\[ALERT\]\[WeekPipe\] the classifier did not finish/,
+    );
+    warn.mockRestore();
+  });
+
+  it('goes on to the words and the memories when the read fails, and says so', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const step = fakeStep({ fail: ['read-ahead'] });
+    const out = await pipeHandler()({ event, step, env: {} });
+    expect(step.order).toEqual([
+      'invoke:synthesis',
+      'invoke:classifier',
+      'run:read-ahead',
+      'invoke:words',
+      'invoke:memories',
+    ]);
+    expect(out.read).toEqual({
+      made: false,
+      skipped: null,
+      error: 'read-ahead broke',
+      week_start: null,
+      kind: null,
+    });
+    expect(out.words).toMatchObject({ written: 3 });
+    expect(warn.mock.calls.map((c) => c[0]).join('\n')).toMatch(
+      /\[ALERT\]\[WeekPipe\] the read did not finish/,
     );
     warn.mockRestore();
   });

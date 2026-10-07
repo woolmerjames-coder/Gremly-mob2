@@ -197,6 +197,30 @@ describe('what the weekly pass records', () => {
   });
 });
 
+describe('the card line the weekly pass no longer writes', () => {
+  it('gates nothing: a placeholder card still lets Gremly\'s notes be written', async () => {
+    const calls = fakeDb();
+    const placeholder = {
+      ...output,
+      worlds: output.worlds.map((w) => ({ ...w, card_subtitle: '' })),
+      chapters: output.chapters.map((c) => ({ ...c, card_subtitle: 'N/A' })),
+    };
+    const out = await applyWeekly({}, USER, placeholder, refsSnapshot, {
+      shadow: false,
+      runId: 'run',
+      today: '2026-10-08',
+    });
+    const updates = calls.filter((c) => c.op === 'update');
+    const world = updates.find((c) => c.path.startsWith('worlds?id=eq.world-1'));
+    expect(world.patch).toHaveProperty('summary', 'Alex is building up to a half marathon.');
+    expect(world.patch).not.toHaveProperty('card_subtitle');
+    const chapter = updates.find((c) => c.path.startsWith('chapters?id=eq.chapter-1'));
+    expect(chapter.patch).toHaveProperty('summary');
+    expect(chapter.patch).not.toHaveProperty('card_subtitle');
+    expect(out.applied.worlds_skipped).toEqual([]);
+  });
+});
+
 describe('the old Worlds fields (shared/worldsFields.js)', () => {
   const run = async (env) => {
     const calls = fakeDb();

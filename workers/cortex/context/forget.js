@@ -10,7 +10,8 @@
  *   what they told Gremly about themselves on that screen
  *   Gremly's open and answered questions, and the date anchors
  *   the daily pictures and the weekly summaries
- *   Gremly's words on Worlds and Chapters (never words the person wrote)
+ *   Gremly's words on Worlds and Chapters (never words the person wrote),
+ *   and the words he offered beside theirs
  *   his summaries of chats, on items and on chats
  *   what each of his sentences was written from (passage_refs)
  *   the people he found in their life, and every tie to them
@@ -83,6 +84,25 @@ export async function forgetPerson(env, userId) {
     await d.update(`chapters?${o}&epigraph=not.is.null&${NOT_THEIRS('epigraph_source')}`, {
       epigraph: null,
       epigraph_updated_at: now,
+    }),
+  );
+  // Words Gremly offered beside the person's own are always his
+  out.world_offered = count(
+    await d.update(`worlds?${o}&card_subtitle_offered=not.is.null&select=id`, {
+      card_subtitle_offered: null,
+      card_subtitle_offered_at: now,
+    }),
+  );
+  out.chapter_offered = count(
+    await d.update(`chapters?${o}&card_subtitle_offered=not.is.null&select=id`, {
+      card_subtitle_offered: null,
+      card_subtitle_offered_at: now,
+    }),
+  );
+  out.chapter_epigraphs_offered = count(
+    await d.update(`chapters?${o}&epigraph_offered=not.is.null&select=id`, {
+      epigraph_offered: null,
+      epigraph_offered_at: now,
     }),
   );
   for (const table of ['todos', 'notes', 'habits']) {

@@ -40,7 +40,7 @@ import {
 import { writeUsageRow } from '../../shared/aiUsage';
 import { writeWords } from './words';
 import { writeMemory, chaptersWantingMemory } from './memory';
-import { makeFirstWorlds, firstWorldsEvents } from './firstWorlds';
+import { makeFirstWorlds, firstWorldsEvents, filedTotals } from './firstWorlds';
 
 /**
  * The pipeline mode, for one person when a user id is given. People listed in
@@ -673,21 +673,21 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
         return { skipped: 'the pipeline is not live for them' };
       const made = await step.run('make', () => makeFirstWorlds(env, userId));
       if (!made.made?.length) return { user_id: userId, ...made };
-      let filed = null;
+      let ran = null;
       if (backfill) {
         try {
-          filed = await step.invoke('file-what-they-have', {
+          ran = await step.invoke('file-what-they-have', {
             function: backfill,
             data: { user_id: userId },
             timeout: '1h',
           });
         } catch (err) {
-          filed = { error: String(err?.message || err).slice(0, 200) };
-          console.warn(
-            `[ALERT][FirstWorlds] filing what ${userId} has did not finish: ${filed.error}`,
-          );
+          ran = { error: String(err?.message || err).slice(0, 200) };
         }
       }
+      const filed = filedTotals(ran);
+      if (filed.problem)
+        console.warn(`[ALERT][FirstWorlds] filing what ${userId} has: ${filed.problem}`);
       const lines = await step.invoke('their-words', {
         function: words,
         data: { user_id: userId, reason: 'first_worlds' },
@@ -698,9 +698,8 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
         made: made.made,
         model: made.model,
         problems: made.problems,
-        filed: filed
-          ? { drops: filed.drops ?? null, error: filed.error || null }
-          : { error: 'no backfill given' },
+        recovered: made.recovered || false,
+        filed,
         words: lines
           ? { written: lines.written, left_out: lines.left_out, empty: lines.empty }
           : null,

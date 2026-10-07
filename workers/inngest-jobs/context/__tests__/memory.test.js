@@ -196,10 +196,12 @@ describe('a Chapter’s memory', () => {
     expect(await handleChapterMemoryApi(req({ user_id: 'u-1' }), {}, reply)).toMatchObject({
       status: 400,
     });
+    const live = { mode: () => 'on' };
     const ok = await handleChapterMemoryApi(
       req({ user_id: '99999999-9999-4999-8999-999999999999', chapter_id: C }),
       {},
       reply,
+      live,
     );
     expect(ok.body).toMatchObject({ ok: true, memory: MEMORY.text, field: 'epigraph' });
     fakeDb(null);
@@ -207,7 +209,30 @@ describe('a Chapter’s memory', () => {
       req({ user_id: '99999999-9999-4999-8999-999999999999', chapter_id: C }),
       {},
       reply,
+      live,
     );
     expect(missing.status).toBe(404);
+  });
+
+  it('writes nothing from the route while the pipeline is not live for them, or for a Chapter still open', async () => {
+    const reply = (body, status = 200) => ({ body, status });
+    const req = (body) => ({ json: async () => body });
+    const who = { user_id: '99999999-9999-4999-8999-999999999999', chapter_id: C };
+    let calls = fakeDb(CHAPTER);
+    answers(MEMORY);
+    for (const deps of [undefined, { mode: () => 'shadow' }]) {
+      const r = await handleChapterMemoryApi(req(who), {}, reply, deps);
+      expect(r).toMatchObject({
+        status: 409,
+        body: { error: 'the pipeline is not live for them' },
+      });
+    }
+    expect(calls).toEqual([]);
+    expect(jsonCall).not.toHaveBeenCalled();
+    calls = fakeDb({ ...CHAPTER, phase: 'active', closed_at: null });
+    const open = await handleChapterMemoryApi(req(who), {}, reply, { mode: () => 'on' });
+    expect(open).toMatchObject({ status: 409, body: { error: 'the chapter has not ended' } });
+    expect(calls.some((c) => c.op !== 'select')).toBe(false);
+    expect(jsonCall).not.toHaveBeenCalled();
   });
 });

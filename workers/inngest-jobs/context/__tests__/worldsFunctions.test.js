@@ -14,6 +14,7 @@ jest.mock('../memory.js', () => ({ writeMemory: jest.fn(), chaptersWantingMemory
 jest.mock('../firstWorlds.js', () => ({
   makeFirstWorlds: jest.fn(),
   firstWorldsEvents: jest.fn(),
+  filedTotals: jest.requireActual('../firstWorlds.js').filedTotals,
 }));
 
 function functions(deps) {
@@ -129,7 +130,21 @@ describe('the stage 4b functions', () => {
     writeWords.mockResolvedValue({ written: 1, left_out: 0, empty: 0 });
     const backfill = { id: 'drop-assignment-backfill' };
     const { byId } = functions({ backfill });
-    const s = step({ 'file-what-they-have': () => ({ drops: 12 }) });
+    const s = step({
+      'file-what-they-have': () => ({
+        drops: 12,
+        batches: [
+          {
+            filed_world: 5,
+            filed_chapter: 1,
+            filed_nowhere: 2,
+            person_placed: 0,
+            skipped: { error: 1 },
+          },
+          { filed_world: 3, filed_chapter: 0, filed_nowhere: 0, person_placed: 0, skipped: {} },
+        ],
+      }),
+    });
     const out = await byId('context-first-worlds').handler({
       event: { data: { user_id: U } },
       step: s,
@@ -138,7 +153,12 @@ describe('the stage 4b functions', () => {
     expect(s.order).toEqual(['run:make', 'invoke:file-what-they-have', 'invoke:their-words']);
     expect(out).toMatchObject({
       made: [{ id: 'w1' }],
-      filed: { drops: 12, error: null },
+      filed: {
+        drops: 12,
+        filed: { world: 8, chapter: 1, nowhere: 2, by_them: 0 },
+        skipped: { error: 1 },
+        problem: null,
+      },
       words: { written: 1 },
     });
     expect(writeWords).toHaveBeenCalledWith(
@@ -146,6 +166,34 @@ describe('the stage 4b functions', () => {
       U,
       expect.objectContaining({ reason: 'first_worlds' }),
     );
+  });
+
+  it('raise an alert when filing what they have skipped every drop, and still write their words', async () => {
+    makeFirstWorlds.mockResolvedValue({ made: [{ id: 'w1', name: 'Singing' }], problems: [] });
+    writeWords.mockResolvedValue({ written: 1, left_out: 0, empty: 0 });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { byId } = functions({ backfill: { id: 'b' } });
+    const s = step({
+      'file-what-they-have': () => ({ drops: 2, batches: [{ skipped: { no_model: 2 } }] }),
+    });
+    const out = await byId('context-first-worlds').handler({
+      event: { data: { user_id: U } },
+      step: s,
+      env: ON,
+    });
+    expect(out.filed.problem).toBe('all 2 drops were skipped: no_model 2');
+    expect(warn.mock.calls.some(([m]) => /\[ALERT\]\[FirstWorlds\].*all 2 drops/.test(m))).toBe(
+      true,
+    );
+    expect(s.order).toContain('invoke:their-words');
+    const whole = step({ 'file-what-they-have': () => ({ drops: 4, skipped: 'empty_graph' }) });
+    const again = await byId('context-first-worlds').handler({
+      event: { data: { user_id: U } },
+      step: whole,
+      env: ON,
+    });
+    expect(again.filed.problem).toBe('the whole run was skipped: empty_graph');
+    warn.mockRestore();
   });
 
   it('stop at once when none were made, and do nothing for someone not live', async () => {
