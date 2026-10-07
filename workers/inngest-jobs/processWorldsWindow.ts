@@ -8,7 +8,7 @@
  *   3. Classify via classifyWorldsWeekly.
  *   4. Write output to Supabase via writeClassifierOutput.
  *
- * Callers (worldsBootstrap, worldsWeeklyRun) wrap this in their own
+ * The caller (worldsWeeklyRun) wraps this in its own
  * step.run() as appropriate.
  */
 

@@ -259,7 +259,7 @@ export function createDropAssignmentBackfill(inngest: Inngest<{ id: 'gremly' }>)
         if (worlds.length === 0 && chapters.length === 0 && lifeContexts.length === 0) {
           throw new Error(
             'empty_graph: no active Worlds, Chapters, or Life Contexts found for this user. ' +
-              'Run the Worlds bootstrap first (app/worlds.bootstrap) before backfilling drop assignments.',
+              'There is nothing to file into until this person has Worlds.',
           );
         }
 
