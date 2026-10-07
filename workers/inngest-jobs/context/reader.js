@@ -28,6 +28,15 @@ import { personDay, personNow } from '../../shared/day.js';
 import { stateWords } from '../../shared/factTiming.js';
 import { FACT_KINDS, KIND_RULES, validKind } from '../../shared/factKinds.js';
 import {
+  FACT_PEOPLE_SCHEMA,
+  SAME_PEOPLE_SCHEMA,
+  PEOPLE_RULES,
+  loadPeople,
+  peopleLines,
+  planPeople,
+  writePeople,
+} from './people';
+import {
   answerRecord,
   calendarRecord,
   changeRecord,
@@ -43,7 +52,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-08';
+export const READER_PROMPT_VERSION = 'reader-2026-10-08f';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -69,12 +78,14 @@ export const READER_SCHEMA = {
           private: { type: 'boolean' },
           health: { type: 'boolean' },
           about_item: { type: 'boolean' },
+          people: FACT_PEOPLE_SCHEMA,
         },
         required: [
           'statement',
           'subject',
           'kind',
           'health',
+          'people',
           'date_confidence',
           'state',
           'source_ref',
@@ -147,7 +158,7 @@ export const READER_SCHEMA = {
       },
     },
   },
-  required: ['new_facts', 'fact_updates', 'confirmations', 'questions', 'calendar'],
+  required: ['new_facts', 'fact_updates', 'confirmations', 'questions', 'calendar', 'same_people'],
 };
 
 function readerSystemPrompt(today, person) {
@@ -167,6 +178,8 @@ WHAT BELONGS IN THE LEDGER
 - Records that say the same thing produce one fact, not one per record.
 
 ${KIND_RULES}
+
+${PEOPLE_RULES}
 
 EVIDENCE
 - Every new fact cites exactly one record by its ref, and quotes the person's own words from that record (or its title).
@@ -578,6 +591,9 @@ async function rollbackRun(d, userId, runId) {
   await d.remove(`life_fact_sources?user_id=eq.${userId}&run_id=eq.${rid}`);
   await d.remove(`gremly_questions?user_id=eq.${userId}&run_id=eq.${rid}&status=eq.open`);
   await d.remove(`life_facts?user_id=eq.${userId}&run_id=eq.${rid}`);
+  await d.remove(`person_merges?user_id=eq.${userId}&run_id=eq.${rid}&status=eq.proposed`);
+  await d.remove(`life_person_names?user_id=eq.${userId}&run_id=eq.${rid}`);
+  await d.remove(`life_people?user_id=eq.${userId}&run_id=eq.${rid}`);
 }
 
 /**
@@ -609,7 +625,16 @@ function factStanding(f, today) {
   return `${stateWords(f, today)}${f.private ? ' [private]' : ''}${item}`;
 }
 
-export function readerRequest({ today, person, chunk, openFacts, tz, dayEndHour = 0 }) {
+export function readerRequest({
+  today,
+  person,
+  chunk,
+  openFacts,
+  people = [],
+  tz,
+  dayEndHour = 0,
+}) {
+  const { lines: peopleRows, ref: personRef } = peopleLines(people);
   const factRef = new Map();
   const refOfFact = new Map();
   const factLines = openFacts.map((f, i) => {
@@ -640,12 +665,15 @@ export function readerRequest({ today, person, chunk, openFacts, tz, dayEndHour 
     return `${ref} | ${clock}${late} (${relativeDay(day, today)}) | ${mark}${r.text}${facts}`;
   });
 
-  const user = `FACTS THE LEDGER ALREADY HOLDS (ref | state | date | statement):
+  const user = `PEOPLE GREMLY KNOWS (ref | name | other names | who they are):
+${peopleRows.length ? peopleRows.join('\n') : '(none yet)'}
+
+FACTS THE LEDGER ALREADY HOLDS (ref | state | date | statement):
 ${factLines.length ? factLines.join('\n') : '(none yet)'}
 
 RECORDS, OLDEST FIRST (ref | when it happened | record):
 ${recordLines.join('\n')}`;
-  return { system: readerSystemPrompt(today, person), user, recRef, factRef };
+  return { system: readerSystemPrompt(today, person), user, recRef, factRef, personRef };
 }
 
 /**
@@ -664,15 +692,17 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   const runId = `${baseRunId}:${first.at}:${first.id}${first.part ? `#${first.part}` : ''}`;
   await rollbackRun(d, userId, runId);
   const fromRecords = [...new Set(chunk.flatMap((r) => r.factIds || []))];
-  const [openFacts, person] = await Promise.all([
+  const [openFacts, person, people] = await Promise.all([
     loadOpenFacts(env, userId, chunk[0].at, fromRecords),
     personIdentity(env, userId),
+    loadPeople(d, userId),
   ]);
-  const { system, user, recRef, factRef } = readerRequest({
+  const { system, user, recRef, factRef, personRef } = readerRequest({
     today,
     person,
     chunk,
     openFacts,
+    people,
     tz,
     dayEndHour,
   });
@@ -707,6 +737,8 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       .trim()}|${date || ''}`;
   const seen = new Set(openFacts.map((f) => sameKey(f.statement, f.about_date)));
   const newRows = [];
+  // the people each new fact is about, as the model gave them
+  const factPeople = [];
   // where each fact comes from: the record, and whether the fact is about the item itself
   const sourceRows = [];
   const sourceOf = (factId, src, quote, about) => ({
@@ -734,6 +766,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     seen.add(key);
     const id = crypto.randomUUID();
     sourceRows.push(sourceOf(id, src, f.quote, f.about_item === true));
+    factPeople.push({ factId: id, people: f.people || [] });
     newRows.push({
       id,
       user_id: userId,
@@ -766,6 +799,21 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     await d.insertQuiet('life_facts', newRows);
     counts.facts_added = newRows.length;
   }
+  // The people each new fact is about, and any two known people that may be one
+  Object.assign(
+    counts,
+    await writePeople(
+      d,
+      userId,
+      planPeople({
+        known: personRef,
+        facts: factPeople,
+        same: output.same_people,
+        userId,
+        runId,
+      }),
+    ),
+  );
 
   // Updates to existing facts
   for (const u of output.fact_updates || []) {
@@ -805,8 +853,24 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
         },
       ]);
       replacementId = rep?.id || null;
-      if (replacementId)
+      if (replacementId) {
         sourceRows.push(sourceOf(replacementId, src, null, u.replacement_about_item === true));
+        // the replacement is about the same people as the fact it replaces
+        const ties = await d.select(
+          `life_fact_people?fact_id=eq.${fact.id}&user_id=eq.${userId}&select=person_id`,
+        );
+        if (ties.length)
+          await d.insertIgnore(
+            'life_fact_people',
+            ties.map((t) => ({
+              fact_id: replacementId,
+              person_id: t.person_id,
+              user_id: userId,
+              run_id: runId,
+            })),
+            'fact_id,person_id',
+          );
+      }
     }
     // A fact with a replacement is no longer the true version, whatever the
     // model called it: it changed, and points at the fact that replaces it.
@@ -900,10 +964,11 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       counts.rejected++;
       continue;
     }
-    await d.update(`synced_calendar_events?id=eq.${src.id}&owner_id=eq.${userId}`, {
-      cancelled_at: c.cancelled ? nowIso : null,
-      cancelled_run: runId,
-    });
+    // on again only clears a stamp that is there
+    await d.update(
+      `synced_calendar_events?id=eq.${src.id}&owner_id=eq.${userId}${c.cancelled ? '' : '&cancelled_at=not.is.null'}`,
+      { cancelled_at: c.cancelled ? nowIso : null, cancelled_run: runId },
+    );
     counts[c.cancelled ? 'cancelled' : 'uncancelled'] =
       (counts[c.cancelled ? 'cancelled' : 'uncancelled'] || 0) + 1;
   }

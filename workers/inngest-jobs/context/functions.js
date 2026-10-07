@@ -12,12 +12,13 @@
  * except corrections, which always apply because the person asked for them.
  */
 
-import { db, userTimezone, localDate, addDays } from './db';
+import { db, userTimezone, localDate, addDays, personIdentity } from './db';
 import { cycleOf } from '../../shared/week.js';
 import { weekSettings } from '../week/settings';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
 import { giveKinds, usersLackingKinds } from './kinds';
+import { fillPeople, usersWithoutPeople } from './people';
 import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
 import { refreshDayFrame } from '../brief/frameRefresh';
@@ -524,11 +525,43 @@ export function createContextFunctions(inngest) {
     },
   );
 
+  // ── People: the one time fill from the facts held before people records ──
+  const peopleFill = inngest.createFunction(
+    {
+      id: 'context-people-fill',
+      name: "Context: find the people in each person's life from their facts",
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 2 }],
+      retries: 1,
+    },
+    { event: 'app/people.fill' },
+    async ({ event, step, env }) => {
+      if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
+      const userId = event.data?.user_id;
+      if (userId)
+        return step.run('fill', async () =>
+          fillPeople(env, userId, {
+            person: await personIdentity(env, userId),
+            before: event.data?.before || new Date().toISOString(),
+            shadow: event.data?.shadow ?? contextMode(env, userId) !== 'on',
+          }),
+        );
+      const ids = await step.run('who', () => usersWithoutPeople(env));
+      const before = new Date().toISOString();
+      if (ids.length)
+        await step.sendEvent(
+          'fan-out',
+          ids.map((id) => ({ name: 'app/people.fill', data: { user_id: id, before } })),
+        );
+      return { users: ids.length };
+    },
+  );
+
   return {
     functions: [
       ledgerRead,
       correctionApply,
       kinds,
+      peopleFill,
       dcoV4,
       weekly,
       story,

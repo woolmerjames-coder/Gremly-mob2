@@ -47,6 +47,7 @@ describe('Forget Everything', () => {
         'user_daily_state',
         'weekly_summaries',
         'passage_refs',
+        'life_people',
       ]),
     );
     for (const c of calls.filter((x) => x.op !== 'upsert'))

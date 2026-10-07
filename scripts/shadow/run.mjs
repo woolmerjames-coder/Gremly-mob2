@@ -7,6 +7,7 @@
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
+ *   scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -34,7 +35,9 @@ import { applyCorrection } from '../../workers/inngest-jobs/context/corrections.
 import { readWindow } from '../../workers/inngest-jobs/context/reader.js';
 // a namespace import, so a tree without weeklyRequestParams still bundles
 import * as weekly from '../../workers/inngest-jobs/context/weekly.js';
-import { userTimezone } from '../../workers/shared/db.js';
+import { userTimezone, personIdentity } from '../../workers/shared/db.js';
+// a namespace import, so a tree without people records still bundles
+import * as people from '../../workers/inngest-jobs/context/people.js';
 import { localStartIso } from '../../workers/shared/calendar.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -151,6 +154,31 @@ const JOBS = {
         });
       },
       summarise: (totals) => ({ from, to, totals, ...ledgerWrites(record) }),
+    };
+  },
+
+  // The first people fill for one person, read only: the people Gremly would
+  // find in their facts, who each is as the person said it, and the merges it
+  // would propose, for a person to read before anything is written
+  async 'people-fill'() {
+    const userId = flag('--user');
+    if (!userId) fail('people-fill needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof people.fillPeople !== 'function') fail('This tree has no people records.');
+        return people.fillPeople(env, userId, { person: await personIdentity(env, userId), shadow: true });
+      },
+      summarise: (out) => ({
+        facts: out.facts,
+        calls: out.calls,
+        people_new: out.people_new,
+        ties: out.people_ties,
+        rejected: out.people_rejected,
+        people: out.found,
+        proposed_merges: out.proposed_merges,
+      }),
     };
   },
 

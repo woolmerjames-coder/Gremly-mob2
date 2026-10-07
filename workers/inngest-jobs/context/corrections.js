@@ -15,6 +15,7 @@ import { db, userTimezone, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { refreshLifeMapStory } from './story';
 import { invalidateChatCache } from './cache';
+import { peopleAfterCorrection } from './people';
 import { personNow } from '../../shared/day.js';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-09-30';
@@ -368,6 +369,10 @@ ${anchorLines.join('\n') || '(none)'}`;
     correctedFacts.push(f);
     result.facts_corrected++;
   }
+
+  // Who someone is, when it came from a fact now corrected, is cleared:
+  // blank is better than wrong (context/people.js)
+  result.relationships_cleared = await peopleAfterCorrection(d, userId, correctedIds);
 
   // Changed: the old version stays in their history as what was planned.
   const changedFacts = [];
