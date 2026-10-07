@@ -13,6 +13,7 @@ import type { SpaceChatMessage } from '../types';
 import type { AgentTask } from '../cortex/CortexClient';
 import type { Change } from '../changes/model';
 import { applyChanges } from '../changes/apply';
+import { withoutUnticked } from '../changes/rows';
 import { briefMetaOf } from '../brief/messages';
 import { changedEventText, undoneEventText } from '../brief/applyChanges';
 import { cardOutcomeWords, DAY_TURN_COPY } from '../brief/useDayTurn';
@@ -113,7 +114,7 @@ export function useChatCard(deps: ChatCardDeps) {
         const meta = briefMetaOf(message);
         if (meta?.type !== 'brief-changes' || meta.status !== 'open' || !meta.card?.length) return;
         try {
-          const rows = meta.card.filter((c) => !unticked.includes(c.cid));
+          const rows = withoutUnticked(meta.card, unticked);
           const { outcomes, revertAll } = await applyChanges(rows, {
             source: 'chat',
             threadId: todaysThreadId(),
@@ -122,7 +123,11 @@ export function useChatCard(deps: ChatCardDeps) {
           const failed = outcomes.filter((o) => !o.ok).map((o) => o.cid);
           // the item each row made, so its row can open it
           const created: Record<string, string> = {};
-          for (const o of outcomes) if (o.ok && o.createdId) created[o.cid] = o.createdId;
+          for (const o of outcomes) {
+            if (!o.ok) continue;
+            if (o.createdId) created[o.cid] = o.createdId;
+            Object.assign(created, o.createdParts ?? {});
+          }
           if (done.length) {
             undoRef.current.set(message.id, { revert: revertAll, count: done.length });
             setUndoable((u) => [...u, message.id]);

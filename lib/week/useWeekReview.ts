@@ -132,6 +132,7 @@ import {
   stepOf,
   stepsFor,
   weekTurnContext,
+  withCardMilestones,
   easedFor,
   type ChatStep,
   type ReviewOn,
@@ -308,8 +309,8 @@ export interface WeekReview {
   carryOn: () => Promise<void>;
   /** A change card was applied in the thread while the review is under way */
   onApplied: (changes: Change[]) => Promise<void>;
-  /** A card's changes were taken back with its Undo while the review is under way */
-  onUndone: () => Promise<void>;
+  /** A card's changes, as they were applied, were taken back with its Undo while the review is under way */
+  onUndone: (changes: Change[]) => Promise<void>;
   /** Their week, for every message sent to Gremly from this thread; null until their week is read */
   context: () => WeekTurnContext | null;
   /** The review is under way in this thread: typed messages are its to take */
@@ -1251,6 +1252,9 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         });
       }
       const about = now.talking != null ? r.read?.needs_you?.[now.talking] : null;
+      // A milestone set up from the card is kept with the ones set up from the
+      // review's own card, so the summary counts its steps too.
+      const setUp = changes.some((c) => c.op === 'milestone');
       // One of their items was changed, or what matters most: the spread is
       // made from them, so it is made again. The week's own answers that are
       // part of what a spread is made for say so for themselves.
@@ -1262,6 +1266,9 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         await saveRow((x) => {
           const answers = { ...x.answers };
           if (touched) answers.touched = (answers.touched ?? 0) + 1;
+          if (setUp) {
+            answers.milestones = withCardMilestones(answers.milestones ?? [], changes, 'added');
+          }
           if (intention) {
             answers.intention = String(intention.fields?.text ?? '').trim() || null;
             answers.intention_id = intentionNote(x.week_start)?.id ?? answers.intention_id ?? null;
@@ -1289,16 +1296,32 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     [keepMovesSoon, saveRow],
   );
 
-  /** A card's changes were taken back: their items are as they were, so the spread is made again. */
-  const onUndone = useCallback(async () => {
-    const r = session().row;
-    if (!r || r.status !== 'started') return;
-    try {
-      await saveRow((x) => ({ answers: { ...x.answers, touched: (x.answers.touched ?? 0) + 1 } }));
-    } catch (err) {
-      console.warn('[Week] could not note that a change was taken back:', err);
-    }
-  }, [saveRow]);
+  /**
+   * A card's changes were taken back: their items are as they were, so the
+   * spread is made again, and a milestone the card set up is no longer one
+   * the review keeps as set up.
+   */
+  const onUndone = useCallback(
+    async (changes: Change[]) => {
+      const r = session().row;
+      if (!r || r.status !== 'started') return;
+      const setUp = changes.some((c) => c.op === 'milestone');
+      try {
+        await saveRow((x) => ({
+          answers: {
+            ...x.answers,
+            touched: (x.answers.touched ?? 0) + 1,
+            ...(setUp
+              ? { milestones: withCardMilestones(x.answers.milestones ?? [], changes, 'undone') }
+              : {}),
+          },
+        }));
+      } catch (err) {
+        console.warn('[Week] could not note that a change was taken back:', err);
+      }
+    },
+    [saveRow],
+  );
 
   const context = useCallback((): WeekTurnContext | null => {
     const now = session();

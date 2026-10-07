@@ -12,7 +12,7 @@
  */
 import type { WeekTurnContext } from '../../cortex/CortexClient';
 import { easesFrom } from '../habitWeek';
-import { WEEK_LIMITS, type Milestone } from '../../changes/model';
+import { WEEK_LIMITS, type Change, type Milestone } from '../../changes/model';
 import type { WeekAnswers, WeekRead, WeekReviewRow } from '../../repo/weekReviewRepo';
 import {
   DEFAULT_DAYS_OFF,
@@ -88,6 +88,36 @@ export function milestonesShown(read: WeekRead | null, today: string): ShownMile
     const steps = (m.steps ?? []).filter((s) => isDay(s.by) && s.by >= today && s.by <= m.date);
     if (!steps.length) continue;
     out.push({ key: m.about?.id ?? `${m.goal}:${m.date}`, goal: m.goal, date: m.date, steps });
+  }
+  return out;
+}
+
+/** A milestone the review keeps as set up: what it is about, its goal, and how many steps. */
+type KeptMilestone = NonNullable<WeekAnswers['milestones']>[number];
+
+/**
+ * The milestones a review keeps as set up, once the ones on a change card in
+ * its thread are added, or taken out again when that card is undone. They are
+ * kept beside the ones set up from the review's own card, so the summary
+ * counts every step set up, whichever way it was set up. One from a card is
+ * kept under its date and goal, a key no dated thing of the read's has, and
+ * its steps are the ones the card applied: a step unticked there was never
+ * set up. Two cards for one goal and date add up, and each takes back its own.
+ */
+export function withCardMilestones(
+  kept: KeptMilestone[],
+  changes: Change[],
+  how: 'added' | 'undone',
+): KeptMilestone[] {
+  let out = kept;
+  for (const c of changes) {
+    const m = c.op === 'milestone' ? c.milestone : null;
+    if (!m?.steps.length) continue;
+    const about = `card:${m.date}:${m.goal}`;
+    const had = out.find((x) => x.about === about)?.steps ?? 0;
+    const steps = how === 'added' ? had + m.steps.length : had - m.steps.length;
+    out = out.filter((x) => x.about !== about);
+    if (steps > 0) out = [...out, { about, goal: m.goal, steps }];
   }
   return out;
 }

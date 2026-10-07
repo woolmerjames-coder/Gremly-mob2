@@ -30,6 +30,7 @@ import {
   weekButton,
   weekCardToday,
   weekTurnContext,
+  withCardMilestones,
   easedFor,
 } from '../state';
 import { ID, MON, SAT, SUN, THU, TUE, WED, WEEK_START, madeUpRead, madeUpRow } from './madeUpWeek';
@@ -116,6 +117,49 @@ describe('the milestones a card shows', () => {
     expect(milestonesShown(madeUpRead(), '2026-10-17')).toEqual([]);
     expect(stepsFor(madeUpRead(), '2026-10-17')).not.toContain('ahead');
     expect(milestonesShown(null, SUN)).toEqual([]);
+  });
+});
+
+describe('the milestones set up from a card in the thread', () => {
+  const steps = [
+    { title: 'Draft the outline', by: WED, kind: 'todo' },
+    { title: 'Rehearse once', by: SAT, kind: 'todo' },
+  ];
+  const talk = (n: number): any => ({
+    cid: 'c1',
+    op: 'milestone',
+    type: null,
+    id: null,
+    title: 'Conference talk',
+    milestone: { goal: 'Conference talk', date: '2026-10-20', steps: steps.slice(0, n) },
+  });
+  const own = { about: ID.reports, goal: 'Reports handed in', steps: 3 };
+
+  it('are kept beside the ones set up from the review’s own card, with the steps the card applied', () => {
+    expect(withCardMilestones([own], [talk(2)], 'added')).toEqual([
+      own,
+      { about: 'card:2026-10-20:Conference talk', goal: 'Conference talk', steps: 2 },
+    ]);
+    // a change that is no milestone, or one with no step left, adds nothing
+    const later: any = { cid: 'c2', op: 'later', type: 'todo', id: ID.boiler, title: 'Boiler' };
+    expect(withCardMilestones([own], [later, talk(0)], 'added')).toEqual([own]);
+  });
+
+  it('add up when two cards set up steps for one goal and date, and each takes back its own', () => {
+    const both = withCardMilestones(
+      withCardMilestones([own], [talk(2)], 'added'),
+      [talk(1)],
+      'added',
+    );
+    expect(both[1]).toMatchObject({ steps: 3 });
+    const one = withCardMilestones(both, [talk(2)], 'undone');
+    expect(one).toEqual([
+      own,
+      { about: 'card:2026-10-20:Conference talk', goal: 'Conference talk', steps: 1 },
+    ]);
+    expect(withCardMilestones(one, [talk(1)], 'undone')).toEqual([own]);
+    // an undo of a card that set none up here changes nothing
+    expect(withCardMilestones([own], [talk(1)], 'undone')).toEqual([own]);
   });
 });
 

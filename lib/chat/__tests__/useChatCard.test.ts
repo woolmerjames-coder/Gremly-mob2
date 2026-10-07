@@ -103,6 +103,54 @@ describe('the card in a chat', () => {
     });
   });
 
+  it('sets up the steps of a milestone still ticked, and keeps the todo each made', async () => {
+    const talk = {
+      cid: 'c3',
+      op: 'milestone',
+      type: null,
+      id: null,
+      title: 'Conference talk',
+      milestone: {
+        goal: 'Conference talk',
+        date: '2026-10-20',
+        steps: [
+          { title: 'Draft the outline', by: '2026-10-08', kind: 'todo' },
+          { title: 'Rehearse once', by: '2026-10-16', kind: 'todo' },
+        ],
+      },
+    };
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [
+        { cid: 'c3', ok: true, summary: '', revert: jest.fn(), createdParts: { 'c3.2': 'made-2' } },
+      ],
+      revertAll: jest.fn(),
+    });
+    const { deps, hook } = setup();
+    const message = {
+      id: 'm9',
+      role: 'system',
+      content: '',
+      metadata_json: { ...chatCardMeta([...card, talk], []), status: 'open' },
+    } as unknown as SpaceChatMessage;
+    await act(() => hook.result.current.apply(message, ['c1', 'c2', 'c3.1']));
+    expect((applyChanges as jest.Mock).mock.calls[0][0]).toEqual([
+      {
+        ...talk,
+        milestone: {
+          ...talk.milestone,
+          steps: [{ title: 'Rehearse once', by: '2026-10-16', kind: 'todo', row: 'c3.2' }],
+        },
+      },
+    ]);
+    expect(deps.patchMessageMetadata).toHaveBeenCalledWith('m9', {
+      status: 'applied',
+      unticked: ['c1', 'c2', 'c3.1'],
+      applied: ['c3'],
+      failed: [],
+      created: { 'c3.2': 'made-2' },
+    });
+  });
+
   it('says so when a row could not be saved', async () => {
     (applyChanges as jest.Mock).mockResolvedValue({
       outcomes: [{ cid: 'c1', ok: false, reason: 'stale', message: 'edited since' }],

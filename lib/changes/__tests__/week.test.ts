@@ -840,6 +840,25 @@ describe('a milestone', () => {
     expect(mockDb.row.checkins).toEqual([]);
   });
 
+  it('says which todo each step made when it is applied from a card, by the row of the step', async () => {
+    const whole = mile();
+    // as a card applies it (lib/changes/rows.ts): each step with the row it was ticked on
+    const m = whole.milestone!;
+    const c = {
+      ...whole,
+      milestone: { ...m, steps: m.steps.map((s, i) => ({ ...s, row: `c1.${i + 1}` })) },
+    };
+    const before = mockState.todos.length;
+    const o = await applyChange(c, { source: 'thread' });
+    if (!o.ok) throw new Error('not applied');
+    const made = mockState.todos.slice(before).map((t: any) => t.id);
+    // a check in makes no todo, so its row has nothing to open
+    expect(o.createdParts).toEqual({ 'c1.1': made[0], 'c1.3': made[1] });
+    // set up from the review's own card, the steps have no rows and nothing is said
+    const plain = await applyChange(mile(), { source: 'thread' });
+    expect(plain).not.toHaveProperty('createdParts');
+  });
+
   it('needs no review when every step is a todo', async () => {
     useThisWeek.setState({ review: null });
     const c = mile({ ...milestone, steps: [milestone.steps[0]] });

@@ -420,7 +420,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       week: weekReviewRef.current?.context() ?? null,
     }),
     onApplied: (changes) => weekReviewRef.current?.onApplied(changes),
-    onUndone: () => weekReviewRef.current?.onUndone(),
+    onUndone: (changes) => weekReviewRef.current?.onUndone(changes),
   });
   const dayTurnRef = useRef(dayTurn);
   dayTurnRef.current = dayTurn;

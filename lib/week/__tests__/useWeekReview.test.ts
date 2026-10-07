@@ -2484,7 +2484,7 @@ describe('the week’s board', () => {
     expect(rows['row-1'].answers.touched).toBe(1);
     await tick(h, 1500);
     expect(callWeekSpread).toHaveBeenCalledTimes(2);
-    await h.go(() => r().onUndone());
+    await h.go(() => r().onUndone(card));
     expect(rows['row-1'].answers.touched).toBe(2);
     await tick(h, 1500);
     expect(callWeekSpread).toHaveBeenCalledTimes(3);
@@ -2493,6 +2493,58 @@ describe('the week’s board', () => {
       r().onApplied([{ cid: 'c2', op: 'week_shape', type: null, id: null, title: '' }] as any),
     );
     expect(rows['row-1'].answers.touched).toBe(2);
+  });
+
+  it('counts the steps of a milestone set up from a card in the thread, and not once that card is undone', async () => {
+    const h = await onBoard({
+      milestones: [{ about: ID.reports, goal: 'Reports handed in', steps: 2 }],
+    });
+    const r = () => h.hook.result.current;
+    // as the card applied it: one of its three steps was unticked
+    const talk = [
+      {
+        cid: 'c1',
+        op: 'milestone',
+        type: null,
+        id: null,
+        title: 'Conference talk',
+        milestone: {
+          goal: 'Conference talk',
+          date: '2026-10-20',
+          steps: [
+            { title: 'Draft the outline', by: WED, kind: 'todo', row: 'c1.1' },
+            { title: 'How is the draft going?', by: '2026-10-12', kind: 'check_in', row: 'c1.2' },
+          ],
+        },
+      },
+    ] as any;
+    const trip = [
+      {
+        ...talk[0],
+        title: 'Trip booked',
+        milestone: { goal: 'Trip booked', date: '2026-10-24', steps: [talk[0].milestone.steps[0]] },
+      },
+    ] as any;
+    await h.go(() => r().onApplied(talk));
+    await h.go(() => r().onApplied(trip));
+    expect(rows['row-1'].answers.milestones).toEqual([
+      { about: ID.reports, goal: 'Reports handed in', steps: 2 },
+      { about: 'card:2026-10-20:Conference talk', goal: 'Conference talk', steps: 2 },
+      { about: 'card:2026-10-24:Trip booked', goal: 'Trip booked', steps: 1 },
+    ]);
+    // the steps are new todos, so the week is spread again
+    expect(rows['row-1'].answers.touched).toBe(2);
+    await h.go(() => r().onUndone(trip));
+    expect(rows['row-1'].answers.milestones).toEqual([
+      { about: ID.reports, goal: 'Reports handed in', steps: 2 },
+      { about: 'card:2026-10-20:Conference talk', goal: 'Conference talk', steps: 2 },
+    ]);
+    await tick(h, 1500);
+    await finishBoard(h);
+    expect((h.cardOf('done')!.metadata_json as any).summary.tiles[2]).toEqual({
+      num: '4',
+      label: "steps set up for what's coming",
+    });
   });
 
   it('puts the row back first on Undo, and leaves the week planned when not all of it can be taken back', async () => {

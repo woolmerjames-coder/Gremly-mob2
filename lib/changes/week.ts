@@ -43,12 +43,19 @@ import { addDays, type WeekHours } from '../week/model';
 import { intentionText } from '../week/intention';
 import { WEEK_LIMITS, type Change, type WeekCheckContext } from './model';
 import { putOffTodo } from './later';
+import type { RowStep } from './rows';
 
 type Item = Record<string, any>;
 
 /** What applying one of the week's changes came to. */
 export type WeekOutcome =
-  | { ok: true; revert: () => Promise<void>; createdId?: string }
+  | {
+      ok: true;
+      revert: () => Promise<void>;
+      createdId?: string;
+      /** A milestone: the todo each step made, by the step's row on the card it was applied from */
+      createdParts?: Record<string, string>;
+    }
   | { ok: false; reason: 'stale' | 'gone' | 'failed'; message: string };
 
 function store(): any {
@@ -372,11 +379,13 @@ async function applyMilestone(change: Change): Promise<WeekOutcome> {
   const row = asks.length ? await reviewFor(weekOf(change)) : null;
   if (asks.length && !row) return failed('That week has no review to keep the check ins on yet.');
   const todoIds: string[] = [];
+  // the todo each step made, by the row it was ticked on, so that row can open it
+  const made: Record<string, string> = {};
   const undoTodos = async () => {
     for (const id of todoIds) await store().deleteTodo(id);
   };
   try {
-    for (const s of m.steps.filter((x) => x.kind === 'todo')) {
+    for (const s of (m.steps as RowStep[]).filter((x) => x.kind === 'todo')) {
       const created = await store().createTodo({
         name: s.title,
         due_day: s.by,
@@ -386,6 +395,7 @@ async function applyMilestone(change: Change): Promise<WeekOutcome> {
       });
       if (!created?.id) throw new Error('A step was not saved.');
       todoIds.push(created.id as string);
+      if (s.row) made[s.row] = created.id as string;
     }
     const added: WeekCheckIn[] = asks.map((s) => ({
       id: generateDropId(),
@@ -401,6 +411,7 @@ async function applyMilestone(change: Change): Promise<WeekOutcome> {
     const ids = new Set(added.map((c) => c.id));
     return {
       ok: true,
+      createdParts: made,
       revert: async () => {
         if (row && added.length) {
           await writeReview(row, (now) => ({
