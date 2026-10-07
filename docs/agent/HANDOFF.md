@@ -1349,6 +1349,158 @@ What comes after this batch:
 - The plan's seven batches are built. James audits batch 7 before testing
   on device, and device feedback on batch 4 is still to come.
 
+**The fix batch after batch 7 (7 Oct, `various-fixes-10.4`).** Seven items
+James asked for before testing on device, one commit each so any one can be
+reverted by itself. The commits were made from the index a hunk at a time,
+because several files are shared between items; each staged file was parsed
+before its commit, and the type check and the full test suite were run on
+the finished tree.
+
+- **1. A row on a change card opens its item (`d8143891`).**
+  `components/brief/ChangeCard.tsx`: the words of a row open the item
+  (`rowsOf` gives each row its item, looked up in the store, and looked up
+  again at the tap). On an open card the box alone is the tick. A row with
+  no item (a set time, the week's shape, an item not made yet, one put
+  away) is as before. Applying a card keeps the item each row made on the
+  message (`created`, from `lib/chat/useChatCard.ts` and
+  `lib/brief/applyChanges.ts`), so a new item's row opens it afterwards.
+  In an item's own chat (`openChangeItem` in `app/tabs/AskGremlyScreen.tsx`)
+  a row about that item closes the chat onto it; a row about another item
+  closes the chat and opens that one, and for a habit the overlay under the
+  chat is closed first (`useOpenEntity`'s `overOverlay`).
+- **2. An open item follows changes made from its chat (`00f3c79e`).**
+  `components/overlay/draftRefresh.ts` and `refreshFromItem` in
+  `useOverlayDraft.ts`. The overlay listens to the store while it is open.
+  When its item changes, every part of the draft the person has not touched
+  takes the new value; notes they have typed in get what was added put on
+  the end (and taken off again if the add is undone); the snapshot Save
+  builds on takes the fields that changed. Before this, a Save after a chat
+  change wrote the old draft back over it, history line included. The
+  overlay's own Save is skipped (`ui.saving`), since its way back after a
+  failed save would otherwise undo their edits, and a change is taken once
+  when two overlays share the draft (the cards screen mounts its own).
+  There was no update banner in the code: the history card stays.
+- **3. Plan my day counts the gaps (`856936c3`).** `planRoom` in
+  `lib/plan/planFlow.ts` places the picks as the plan would and says
+  `spaced` (with the minutes left, gaps counted), `tight` (two or more
+  picks that all fit only with no gaps) or `over`. The sheet shows it
+  (`roomWords`); Add something uses `addRoomFor`. On `tight`, `planPicked`
+  asks back to back or with some space (offer kind `plan_spacing`, the
+  picks kept on the message). `planSpacing` makes the plan: back to back
+  with `buffer: 0`, which is kept on the plan (`BriefPlanMeta.buffer`) and
+  passed by every later fit. With some space keeps the gaps; `sayUnfit`
+  names what did not fit and offers the todos among it the next day or
+  Later (`plan_unfit`, handled by `moveUnfit` through `checkChange` and
+  `applyChanges`). Only the newest offer in a thread has live buttons, so
+  the suggested changes under the plan wait until that offer is answered.
+  A typed message past the spacing question brings it back once
+  (`planOfferToBringBack`, `backToSpacingStep`).
+- **4. Break habits are out of the pick sheet and the plan (`21b034e6`).**
+  App: `isBreakHabit` in `lib/plan/candidatePool.ts`, used by
+  `pickItemsOf` and `candidateFromStore`. Workers: the app sends
+  `breaking: true` and the note "a habit they are breaking" on the day's
+  items; `plan_add` refuses one (`plan_breaking`), the old engine gives one
+  no time and no plan row, and the brief's `candidates` and `planned` leave
+  them out. A request without the flag is read as before. Today: the All
+  Day section now draws Stay mindful for break habits with no time of day
+  (it drew an empty header). Wrap up: on Just the journal, the break habits
+  get a card of their own after the journal (`after_journal` on the card;
+  the wrap up stays at `declined`; saving the card says good night), and
+  `break_asked` keeps the habits card from asking again that day.
+- **5. Today files an item under its planned time (`722e1c59`).**
+  `lib/now/sectionFor.ts`: a time planned for today first (by their Time
+  Blocks settings, the rule `plannedTimePatch` writes the block by), then
+  today's saved order, then the block. The saved brief is used only when
+  it is today's. `localDateOf` in `lib/brief/time.ts` now always reads a
+  moment: a planned time on the stroke of UTC midnight was read as the next
+  day's. A moved item in a plan on Today writes its block with its time.
+- **6. No MindDrop logo on the Add to Today sheet (`6f00d5bc`).**
+- **7. The wrap up's answer card (`3e3d86b7`).** The cause was the wording
+  of the answering block in `wrapContext` (`workers/cortex/agent/brief.js`):
+  "already saved to what Gremly knows" read as the matter being closed. It
+  now says saving the answer changes no item, puts the case that changes
+  nothing first, and keeps the change to the item asked about. Day replay
+  on Luna, `wrap-answer-fixes-item` with the week on: 18 of 30 before, 24
+  of 24 after (15 of 15 without the week); `wrap-answer-no-change`: 24 of
+  24 and 15 of 15, with no call to the card. A first rewording that put the
+  card rule first fixed the card and made the no change turn call
+  `propose_changes` 19 times in 20, so it was replaced. The week's job
+  text in `surfaces.js` was tried too and put back as it was: the fix does
+  not need it. The agent's version is `brief-2026-10-08b`.
+
+Checked at the end: tsc clean; 9,987 jest tests in 745 files; wrap replay
+93 of 94 (the old "tonight" check on a break habit's line), smoke 10 of 10,
+weekly read 8 of 8, brief corpus 36 of 36; day set 32 of 34, 34 of 34 with
+the week and 31 of 34 with ease; week set 25 of 25 both ways; chat 47, 46
+and 47 of 48.
+
+- **The replays were noisy on 7 October.** Every full run missed one to
+  three scenarios, different ones each time, none of them the scenarios
+  this batch touches. The committed code of the day before did the same in
+  the same hour (week 24 of 25, day with the week 32 of 34). For one
+  scenario (`ease-usual` in chat) the request body was compared byte for
+  byte between the two versions of the code: identical, yet 27 of 32
+  against 20 of 32. So a gap of that size between two arms is not evidence
+  by itself. James's rule for this batch: do not tune against it.
+- **Three independent reads of the diff** found, and this batch fixed: the
+  overlay's own Save going through the refresh (a failed save lost their
+  edits); a change applied twice with two overlays mounted; the break
+  habits' card leaving the wrap up stuck at the habits step, and asking the
+  same habit twice in a night; a todo moved to tomorrow staying in the plan
+  when a fit since the offer had placed it; the spacing question asked
+  about one pick, and its picks lost to a typed message; "or put off for
+  later" asked with no Later button; the first rewording of item 7 making
+  the no change turn slower.
+
+Noticed and not changed (James, 7 Oct: fix only within the seven items;
+anything else is a note here):
+
+- `updateTodo` leaves `body` stale in the store after the overlay saves a
+  todo's notes: Save sends `details`, the rename to `body` happens only on
+  the way to the database (`lib/store/useGremlyStore.ts`, the optimistic
+  write and the rename near the top of the file; `overlaySave.ts` writes
+  `details`). Reopening before a refetch shows the old notes, and a chat
+  add on top would then write the old notes plus the add over the saved
+  edit. Found by a review read; reproduced there, not fixed.
+- `habit_days` in `workers/shared/changes/check.js` accepts a break habit,
+  so a card can plan one on days; it then shows as planned for today. The
+  board never offers it. `checkEase` already refuses one.
+- A break habit still shows as something to do in: Due today
+  (`DueTodaySheet`) and the day card's "N today"; `get_day`, which does not
+  read `subtype` and prints it as daily and not done; the brief writer's
+  HABITS FOR TODAY when it has set weekdays or planned days; the Calendar
+  screen, which draws one with a part of day as a 30 minute block.
+- Today's last fallback for a section reads words in the item's name
+  (`inferTimeWindow` in `NowScreenV1.tsx` and `timeBlockHelpers.ts`). That
+  is pattern matching on their words, and older than the rule.
+- The plan card's "still X free" (`planSummary`) does not count gaps, so
+  it can read higher than the Add sheet beside it.
+- Opening another todo or note from a chat that sits on an overlay
+  replaces that overlay and drops its unsaved draft without a word (entity
+  cards did this already; change card rows now do too).
+- A plan message made by an older build that already holds a break habit
+  keeps it until the day is over.
+
+Known and left:
+
+- Not tonight with no further tap, or with tonight's journal already
+  written, shows no check in for break habits: they said no to the wrap up.
+- A typed answer to back to back or with some space goes to Gremly's day
+  turn, which does not hold the picks; the question then comes back once
+  with its buttons.
+- A back to back plan also has no gap beside meetings.
+- An app build from before this batch does not send `breaking`, so until it
+  updates Gremly can still offer a break habit a place in the plan.
+- Each of the seven commits was parsed, not type checked, by itself. Item
+  3 sits on files the others touch, so revert it first when reverting more
+  than one.
+
+What comes after this batch:
+
+- Deploy order: no SQL. inngest-jobs, then cortex, then the app. The
+  workers can go out before the app update.
+- James tests on device; device feedback on batch 4 is still to come.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
