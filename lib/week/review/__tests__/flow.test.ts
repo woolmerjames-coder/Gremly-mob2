@@ -162,7 +162,7 @@ describe('the opening', () => {
     });
     expect(offer.role).toBe('assistant');
     expect(offer.content).toBe(
-      'Sunday evening, the best time to look at the week together. Got ten minutes?',
+      'Sunday evening, the best time to look at the week together. Got a few minutes?',
     );
     expect(offer.meta).toMatchObject({ type: 'brief-offer', kind: 'week_open' });
     expect((offer.meta as any).buttons).toEqual([
@@ -174,7 +174,7 @@ describe('the opening', () => {
   it('says what it is by the day it is opened on', () => {
     // their own weekly day, whichever it is, at whatever time
     expect(openerLine({ kind: 'weekly', since: 0, weekday: 3, part: 'morning' })).toBe(
-      'Wednesday morning, the best time to look at the week together. Got ten minutes?',
+      'Wednesday morning, the best time to look at the week together. Got a few minutes?',
     );
     // a day or two after it
     expect(openerLine({ kind: 'weekly', since: 2, weekday: 2, part: 'evening' })).toContain(

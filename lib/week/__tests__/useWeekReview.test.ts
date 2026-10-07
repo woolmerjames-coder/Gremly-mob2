@@ -258,13 +258,13 @@ describe('the last line', () => {
 });
 
 describe('opening the review', () => {
-  it('on their weekly day is the mark, the time and Gremly asking for ten minutes', async () => {
+  it('on their weekly day is the mark, the time and Gremly asking for a few minutes', async () => {
     rows['row-1'] = madeUpRow();
     const h = harness();
     await h.go((r) => r.open());
     expect(h.thread()).toEqual([
       '[opening]',
-      'gremly: Sunday evening, the best time to look at the week together. Got ten minutes?',
+      'gremly: Sunday evening, the best time to look at the week together. Got a few minutes?',
     ]);
     expect((h.cardOf('opening')!.metadata_json as any).at).toBe('Sunday, 7:40 PM');
     // nothing is started, asked for or saved by looking
@@ -1352,7 +1352,7 @@ describe('once the week is planned', () => {
     expect(h.thread()).toEqual([
       `gremly: ${WEEK_COPY.yourWeek}`,
       '[done]',
-      "gremly: Want to plan next week a day early? I'll take a fresh look at everything first. Got ten minutes?",
+      "gremly: Want to plan next week a day early? I'll take a fresh look at everything first. Got a few minutes?",
     ]);
     // next week, brought forward: its own week, a fresh read
     expect(useWeekSession.getState().on).toMatchObject({
@@ -1399,7 +1399,7 @@ describe('a review on another day than their weekly day', () => {
     const h = harness();
     await h.go((r) => r.open());
     expect(h.thread()[1]).toBe(
-      "gremly: Want to plan the rest of this week together? I'll take a fresh look at everything first. Got ten minutes?",
+      "gremly: Want to plan the rest of this week together? I'll take a fresh look at everything first. Got a few minutes?",
     );
     await h.tap('week_start');
     await h.go((r) => r.justPlan());

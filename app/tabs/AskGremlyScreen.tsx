@@ -47,6 +47,7 @@ import {
   Bookmark,
   ChevronRight,
   ChevronDown,
+  ArrowDown,
   X,
 } from 'lucide-react-native';
 import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
@@ -64,7 +65,14 @@ import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
-import { addedBy, followOffset, nearBottom } from '../../lib/chat/follow';
+import {
+  addedBy,
+  belowFor,
+  followOffset,
+  nearBottom,
+  startsBelow,
+  type Below,
+} from '../../lib/chat/follow';
 import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 import { findItemChat } from '../../lib/chat/itemChat';
@@ -529,14 +537,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const seenRowsRef = useRef(0);
   // the typing bubble under the thread, part of its height until a line takes its place
   const footerHeightRef = useRef(0);
-  const [moreBelow, setMoreBelow] = useState(false);
+  // what is below the fold, for the pill over the thread: a reply of Gremly's
+  // they have not seen, or only the latest; null while they are at the end
+  const [moreBelow, setMoreBelow] = useState<Below | null>(null);
   // a chat opened afresh starts at its end, following
   useEffect(() => {
     followRef.current = true;
     anchorTopRef.current = null;
     caughtUpRef.current = true;
     seenRowsRef.current = 0;
-    setMoreBelow(false);
+    setMoreBelow(null);
   }, [activeChat?.id]);
 
   // Poll extractions when resuming an existing chat
@@ -1346,22 +1356,32 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       return;
     }
     const by = rows.length > seen ? addedBy(rows, seen) : null;
+    // where what was added begins: above the room the thread keeps under its
+    // last line, and above the typing bubble that stood there
+    const start = Math.max(0, before - (embedded ? 120 : 200) - footerBefore);
     // what they send or tap brings them to it
     if (by === 'them') followRef.current = true;
     if (by && !followRef.current) {
-      setMoreBelow(true);
+      // They are reading further up: nothing moves, and the pill says there
+      // is more. It says Gremly replied when a reply landed out of their sight.
+      const hidden = startsBelow(start, metricsRef.current);
+      setMoreBelow((was) => belowFor(rows, seen, was, hidden));
       return;
     }
     if (!followRef.current) return;
     if (by === 'them' || (by && (anchorTopRef.current === null || caughtUpRef.current))) {
-      const pad = embedded ? 120 : 200;
-      anchorTopRef.current = Math.max(0, before - pad - footerBefore);
+      anchorTopRef.current = start;
     }
     const end = Math.max(0, content - metricsRef.current.height);
     const to = followOffset(metricsRef.current, anchorTopRef.current);
     // a line that runs past the screen stays at its top while it grows
     caughtUpRef.current = to >= end;
-    if (!caughtUpRef.current) setMoreBelow(true);
+    if (!caughtUpRef.current) {
+      // The end is below the fold. A reply whose start is in view has been
+      // seen; one that landed under a line still being read has not.
+      const hidden = startsBelow(start, { y: to, height: metricsRef.current.height });
+      setMoreBelow((was) => belowFor(rows, seen, was, hidden));
+    }
     list.scrollToOffset({ offset: to, animated: true });
   };
 
@@ -1384,14 +1404,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     if (near) {
       anchorTopRef.current = null;
       caughtUpRef.current = true;
-      setMoreBelow(false);
+      setMoreBelow(null);
     }
   };
   const toLatest = () => {
     followRef.current = true;
     anchorTopRef.current = null;
     caughtUpRef.current = true;
-    setMoreBelow(false);
+    setMoreBelow(null);
     flatListRef.current?.scrollToEnd({ animated: true });
   };
   // the message Gremly is working on, until it is saved into the thread
@@ -1679,7 +1699,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       followRef.current = true;
       anchorTopRef.current = null;
       caughtUpRef.current = true;
-      setMoreBelow(false);
+      setMoreBelow(null);
       return applyChanges(message, unticked);
     },
     [applyChanges],
@@ -2127,7 +2147,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 }}
                 scrollEventThrottle={64}
                 onScroll={(e) => {
-                  if (readerAt(e) && moreBelow) setMoreBelow(false);
+                  if (readerAt(e) && moreBelow) setMoreBelow(null);
                 }}
                 onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
                 // Inside the Gremly home, Gremly steps aside while you scroll
@@ -2211,11 +2231,23 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   onPress={toLatest}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="Jump to the latest"
-                  testID="chat-more-below"
+                  accessibilityLabel={
+                    moreBelow === 'reply' ? 'Gremly replied. Jump to it' : 'Jump to the latest'
+                  }
+                  testID={moreBelow === 'reply' ? 'chat-gremly-replied' : 'chat-more-below'}
                 >
-                  <ChevronDown size={15} color={MOSS} strokeWidth={2.4} />
-                  <Text style={styles.moreBelowText}>Latest</Text>
+                  {moreBelow === 'reply' ? (
+                    // a reply of Gremly's landed below the fold: said in words, arrow after
+                    <>
+                      <Text style={styles.moreBelowText}>Gremly replied</Text>
+                      <ArrowDown size={15} color={MOSS} strokeWidth={2.4} />
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={15} color={MOSS} strokeWidth={2.4} />
+                      <Text style={styles.moreBelowText}>Latest</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               ) : null}
             </>

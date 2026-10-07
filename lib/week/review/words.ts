@@ -310,12 +310,12 @@ export function openerLine(o: {
   part: DayPartName;
 }): string {
   if (o.kind === 'brought_forward')
-    return "Want to plan next week a day early? I'll take a fresh look at everything first. Got ten minutes?";
+    return "Want to plan next week a day early? I'll take a fresh look at everything first. Got a few minutes?";
   if (o.kind === 'extra')
-    return "Want to plan the rest of this week together? I'll take a fresh look at everything first. Got ten minutes?";
+    return "Want to plan the rest of this week together? I'll take a fresh look at everything first. Got a few minutes?";
   if (o.since === 0)
-    return `${dayName(o.weekday)} ${o.part}, the best time to look at the week together. Got ten minutes?`;
-  return "The week has started, and there's still time to plan the rest of it together. Got ten minutes?";
+    return `${dayName(o.weekday)} ${o.part}, the best time to look at the week together. Got a few minutes?`;
+  return "The week has started, and there's still time to plan the rest of it together. Got a few minutes?";
 }
 
 /** Gremly's line after Not this week. */
