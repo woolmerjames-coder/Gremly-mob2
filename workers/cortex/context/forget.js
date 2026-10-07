@@ -40,6 +40,7 @@ export async function forgetPerson(env, userId) {
   out.daily_pictures = count(await d.remove(`user_daily_state?${u}&select=id`));
   out.weekly_summaries = count(await d.remove(`weekly_summaries?${u}&select=id`));
   out.passages = count(await d.remove(`passage_refs?${u}&select=id`));
+  out.check_runs = count(await d.remove(`check_runs?${u}&select=id`));
   // the people records, with their names, ties to facts and Chapters, and merges
   out.people = count(await d.remove(`life_people?${u}&select=id`));
   out.profile = count(
