@@ -2,9 +2,11 @@
  * The morning brief writer (Daily brief in Chat).
  *
  * The model writes Gremly's words; everything it may mention is given to it by
- * ref, and every line says which refs it mentions. It phrases the DCO's
- * decisions (claims, reach, question, return) for the moment the brief is
- * read, and words the offer the code chose. It never chooses its own.
+ * ref, and every line says which refs it rests on and what it states. It
+ * phrases the DCO's decisions (claims, reach, question, return) for the moment
+ * the brief is read, and words the offer the code chose. It never chooses its
+ * own. Every line, the offer and the catch up go through the check
+ * (workers/shared/check, data fabric stage 3).
  *
  * Prompt policy: semantic rules only, no examples, no word lists.
  */
@@ -12,8 +14,9 @@
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { jsonCall, modelFor } from '../context/llm';
 import { addDays } from '../context/db';
+import { SENTENCE_SCHEMA, STATED_RULES, runCheck, problemList } from '../../shared/check/index.js';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-05a';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-08b';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -51,22 +54,52 @@ function weekdayLabel(dateStr) {
   );
 }
 
-/** The writer's input text and the refs it may cite. Exported for the corpus. */
+/** A time of day in minutes as HH:MM on a 24 hour clock, as the check compares it. */
+function hhmm(min) {
+  const m = Math.max(0, Math.round(min));
+  return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The writer's input text, the refs it may cite and the records the check
+ * holds each line to (workers/shared/check). Exported for the corpus.
+ */
 export function renderBriefInput(g, offer) {
   const refs = new Map();
+  const records = new Map();
   const add = (prefix, obj) => {
     const n = [...refs.keys()].filter((k) => k.startsWith(prefix)).length + 1;
     const ref = `${prefix}${n}`;
     refs.set(ref, obj);
     return ref;
   };
+  // the record behind a line: what code can compare, and the line itself,
+  // with what its section says of it when the line alone does not
+  const hold = (ref, fields, line, section = '') => {
+    records.set(ref, { ...fields, label: section ? `${line} | ${section}` : line });
+    return line;
+  };
+  const named = (ref, type, fields, line) => {
+    refs.set(ref, { type });
+    return hold(ref, fields, line);
+  };
   const L = [];
   L.push(
-    `TODAY: ${weekdayLabel(g.today)} ${g.today}. TIME NOW: ${clockTime(g.now)}, the ${g.part}.`,
+    named(
+      'n1',
+      'now',
+      { dates: [g.today], times: [hhmm(g.now)], exact: ['date'] },
+      `TODAY (n1): ${weekdayLabel(g.today)} ${g.today}. TIME NOW: ${clockTime(g.now)}, the ${g.part}.`,
+    ),
   );
   L.push(
     g.ret
-      ? `RETURNING AFTER TIME AWAY: yes, ${g.ret.days_away} days away from the app before today. The DCO's welcome: "${trim(g.ret.note, 200)}"`
+      ? named(
+          'b1',
+          'return',
+          { numbers: [g.ret.days_away].filter(Number.isFinite), exact: [] },
+          `RETURNING AFTER TIME AWAY (b1): yes, ${g.ret.days_away} days away from the app before today. The DCO's welcome: "${trim(g.ret.note, 200)}"`,
+        )
       : 'RETURNING AFTER TIME AWAY: no.',
   );
   L.push('');
@@ -74,11 +107,22 @@ export function renderBriefInput(g, offer) {
     const ref = add('c', { type: 'calendar', id: m.id });
     const state =
       m.end <= g.now ? 'already over' : m.start <= g.now ? 'happening now' : 'still ahead';
-    return `${ref} | ${clockTime(m.start)} to ${clockTime(m.end)} | ${state} | ${trim(m.title, 100)}`;
+    return hold(
+      ref,
+      { dates: [g.today], times: [hhmm(m.start), hhmm(m.end)], exact: ['date', 'time'] },
+      `${ref} | ${clockTime(m.start)} to ${clockTime(m.end)} | ${state} | ${trim(m.title, 100)}`,
+      'on their calendar today',
+    );
   });
-  const allDayLines = g.allDay.map(
-    (e) => `${add('c', { type: 'calendar', id: e.id })} | all day | ${trim(e.title, 100)}`,
-  );
+  const allDayLines = g.allDay.map((e) => {
+    const ref = add('c', { type: 'calendar', id: e.id });
+    return hold(
+      ref,
+      { dates: [g.today], exact: ['date', 'time'] },
+      `${ref} | all day | ${trim(e.title, 100)}`,
+      'on their calendar today',
+    );
+  });
   L.push(
     `TODAY'S CALENDAR (ref | when | state | title):\n${[...meetingLines, ...allDayLines].join('\n') || '(nothing on the calendar)'}`,
   );
@@ -91,21 +135,70 @@ export function renderBriefInput(g, offer) {
     }.`,
   );
   const ahead = g.busy.filter((b) => b.to > g.now);
+  const clear = g.free.filter((f) => f.to - Math.max(f.from, g.now) >= 45);
+  const planEnd = g.day?.planEnd < 22 * 60 ? g.day.planEnd : 22 * 60;
   L.push(
-    `SHAPE OF THE REST OF TODAY, WORKED OUT IN CODE: busy ${ahead.map((b) => `${fromTime(b.from, g.now)} to ${clockTime(b.to)}`).join(', ') || 'nothing'}; clear stretches ${
-      g.free
-        .filter((f) => f.to - Math.max(f.from, g.now) >= 45)
-        .map((f) => `${fromTime(f.from, g.now)} to ${clockTime(f.to)}`)
-        .join(', ') || 'none'
-    } (the day is counted from 8am to ${
-      g.day?.planEnd < 22 * 60 ? `${clockTime(g.day.planEnd)}, when they set off` : '10pm'
-    }).`,
+    named(
+      's1',
+      'shape',
+      {
+        dates: [g.today],
+        times: [
+          hhmm(g.now),
+          ...ahead.flatMap((b) => [hhmm(Math.max(b.from, g.now)), hhmm(b.to)]),
+          ...clear.flatMap((f) => [hhmm(Math.max(f.from, g.now)), hhmm(f.to)]),
+          '08:00',
+          hhmm(planEnd),
+        ],
+        numbers: [45],
+        exact: ['time'],
+      },
+      `SHAPE OF THE REST OF TODAY (s1), WORKED OUT IN CODE: busy ${ahead.map((b) => `${fromTime(b.from, g.now)} to ${clockTime(b.to)}`).join(', ') || 'nothing'}; clear stretches ${
+        clear.map((f) => `${fromTime(f.from, g.now)} to ${clockTime(f.to)}`).join(', ') || 'none'
+      } (the day is counted from 8am to ${
+        g.day?.planEnd < 22 * 60 ? `${clockTime(g.day.planEnd)}, when they set off` : '10pm'
+      }).`,
+    ),
   );
-  for (const line of dayRecordLines(g, refOf)) L.push(line);
-  if (g.dayShape) L.push(`THE DCO'S READ OF THE DAY: ${trim(g.dayShape, 240)}`);
+  const frame = dayRecordLines(g, refOf);
+  if (frame.length) {
+    const day = g.day || {};
+    L.push(
+      named(
+        'f1',
+        'frame',
+        {
+          dates: [g.today, day.away?.through].filter(Boolean),
+          times: [
+            ...(Number.isFinite(day.travel?.departs) ? [hhmm(day.travel.departs)] : []),
+            ...(day.blocks || []).map((b) => hhmm(b.start)),
+            ...(day.duringTravel || []).map((m) => hhmm(m.start)),
+          ],
+          exact: [],
+        },
+        `THE DAY'S FRAME (f1):\n${frame.join('\n')}`,
+      ),
+    );
+  }
+  if (g.dayShape)
+    L.push(
+      named('m1', 'dco', { exact: [] }, `THE DCO'S READ OF THE DAY (m1): ${trim(g.dayShape, 240)}`),
+    );
   L.push('');
   L.push(
-    `DUE TODAY (ref | title):\n${g.todosDue.map((t) => `${add('t', { type: 'todo', id: t.id })} | ${trim(t.title, 100)}`).join('\n') || '(none)'}`,
+    `DUE TODAY (ref | title):\n${
+      g.todosDue
+        .map((t) => {
+          const ref = add('t', { type: 'todo', id: t.id });
+          return hold(
+            ref,
+            { dates: [g.today], exact: [] },
+            `${ref} | ${trim(t.title, 100)}`,
+            'a todo of theirs, due today',
+          );
+        })
+        .join('\n') || '(none)'
+    }`,
   );
   L.push(
     `HABITS FOR TODAY (ref | habit | this week):\n${
@@ -115,46 +208,114 @@ export function renderBriefInput(g, offer) {
           const week = h.target
             ? `${h.done} of ${h.target} this week${h.behind ? ', behind for the week' : ''}`
             : 'daily';
-          return `${ref} | ${trim(h.title, 80)} | ${week}${lighterWords(h.lighter)}`;
+          return hold(
+            ref,
+            {
+              numbers: [h.done, h.target, h.target ? h.target - h.done : null].filter(
+                Number.isFinite,
+              ),
+              exact: [],
+            },
+            `${ref} | ${trim(h.title, 80)} | ${week}${lighterWords(h.lighter)}`,
+            'a habit of theirs, for today',
+          );
         })
         .join('\n') || '(none)'
     }`,
   );
   L.push(
-    `THE DCO'S CLAIMS ON TODAY (what has a real claim and why): ${g.claims.map((c) => `${trim(c.title, 80)}: ${trim(c.why, 120)}`).join('; ') || 'none'}`,
+    g.claims.length
+      ? named(
+          'k1',
+          'claims',
+          { exact: [] },
+          `THE DCO'S CLAIMS ON TODAY (k1; what has a real claim and why): ${g.claims.map((c) => (c.why ? `${trim(c.title, 80)}: ${trim(c.why, 120)}` : trim(c.title, 80))).join('; ')}`,
+        )
+      : "THE DCO'S CLAIMS ON TODAY (what has a real claim and why): none",
   );
   if (g.planned?.length) {
     L.push(
       `ALREADY PLANNED FOR TODAY (they said yes to this plan earlier, and it is on the day card; ref | time | title):\n${g.planned
-        .map(
-          (p) =>
-            `${add('p', { type: p.type, id: p.id })} | ${clockTime(p.start)} | ${trim(p.title, 80)}`,
-        )
+        .map((p) => {
+          const ref = add('p', { type: p.type, id: p.id });
+          return hold(
+            ref,
+            { dates: [g.today], times: [hhmm(p.start)], exact: ['time'] },
+            `${ref} | ${clockTime(p.start)} | ${trim(p.title, 80)}`,
+            'planned for today: they said yes to this plan earlier, and it is on the day card',
+          );
+        })
         .join('\n')}`,
     );
   }
   if (g.reach) {
     const ref = add('r', { type: g.reach.type, id: g.reach.id });
     L.push(
-      `THE DCO'S REACH (one undated thing worth suggesting today, and the reason): ${ref} | ${trim(g.reach.title || g.reach.statement, 120)} | why: ${trim(g.reach.why, 200)} | from what they said: ${(g.reach.facts || []).map((f) => `"${trim(f.statement, 160)}"`).join('; ')}`,
+      hold(
+        ref,
+        { exact: [] },
+        `THE DCO'S REACH (one undated thing worth suggesting today, and the reason): ${ref} | ${trim(g.reach.title || g.reach.statement, 120)} | why: ${trim(g.reach.why, 200)} | from what they said: ${(g.reach.facts || []).map((f) => `"${trim(f.statement, 160)}"`).join('; ')}`,
+      ),
     );
   }
   const anchorLines = (g.anchors || [])
     .filter((a) => a.date >= g.today || (a.date_end && a.date_end >= g.today))
-    .map((a) => `${a.date} | ${trim(a.short_label || a.label, 120)}`);
-  L.push(`DATED THINGS AHEAD (shown on the day card already): ${anchorLines.join('; ') || 'none'}`);
+    .map((a) => {
+      const ref = add('a', { type: 'anchor', id: a.fact_id || null });
+      return hold(
+        ref,
+        { spans: [[a.date, a.date_end || a.date]], exact: ['date'] },
+        `${ref} | ${a.date} | ${trim(a.short_label || a.label, 120)}`,
+        'a dated thing ahead, on the day card',
+      );
+    });
+  L.push(
+    `DATED THINGS AHEAD (shown on the day card already; ref | date | what):\n${anchorLines.join('\n') || 'none'}`,
+  );
   L.push('');
-  L.push(`NEEDS A DECISION IN SWEEP: ${sweepLine(g)}`);
-  if (g.reaction) L.push(g.reaction);
-  if (g.wrap) L.push(g.wrap);
+  const s = g.sweep || {};
+  L.push(
+    named(
+      'w1',
+      'sweep',
+      {
+        numbers: [
+          s.quick,
+          s.pastDay,
+          s.noDay,
+          s.other,
+          s.notes,
+          s.newSince,
+          g.overdue,
+          g.unsorted,
+        ].filter(Number.isFinite),
+        exact: ['number'],
+      },
+      `NEEDS A DECISION IN SWEEP (w1): ${sweepLine(g)}`,
+    ),
+  );
+  if (g.reaction) L.push(named('e1', 'reaction', { exact: [] }, `(e1) ${g.reaction}`));
+  if (g.wrap) L.push(named('e2', 'wrap', { exact: [] }, `(e2) ${g.wrap}`));
   L.push('');
-  L.push(`THE OFFER, DECIDED IN CODE: ${offerBrief(offer, g)}`);
+  L.push(
+    named(
+      'o1',
+      'offer',
+      {
+        times: Number.isFinite(offer?.plan?.gapFrom)
+          ? [hhmm(Math.max(offer.plan.gapFrom, g.now))]
+          : [],
+        exact: [],
+      },
+      `THE OFFER, DECIDED IN CODE (o1): ${offerBrief(offer, g)}`,
+    ),
+  );
   if (g.question && !g.ret) {
     L.push(
       `THE QUESTION TO ASK: "${trim(g.question.question, 240)}"${g.question.choices?.length ? ` with the answers ${g.question.choices.map((c) => `"${c}"`).join(', ')}` : ', which has no answers to tap yet'}`,
     );
   }
-  return { text: L.join('\n'), refs };
+  return { text: L.join('\n'), refs, records };
 }
 
 /**
@@ -279,25 +440,26 @@ function offerBrief(offer, g) {
 const SCHEMA = {
   type: 'object',
   properties: {
-    lines: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          text: { type: 'string' },
-          refs: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['text', 'refs'],
-      },
-    },
-    offer: { type: 'string' },
-    offer_refs: { type: 'array', items: { type: 'string' } },
+    lines: { type: 'array', items: SENTENCE_SCHEMA },
+    offer: SENTENCE_SCHEMA,
     question_line: { type: 'string', nullable: true },
     question_choices: { type: 'array', items: { type: 'string' } },
-    catch_up: { type: 'string', nullable: true },
+    catch_up: SENTENCE_SCHEMA,
   },
-  required: ['lines', 'offer', 'offer_refs', 'question_line', 'question_choices', 'catch_up'],
+  required: ['lines', 'offer', 'question_line', 'question_choices', 'catch_up'],
 };
+
+/** What each kind of line is, for the brief's prompt and for a line sent back. */
+const LINE_RULES = {
+  line: 'lines: two or three short chat messages, each its own entry in lines and each one or two sentences, read in the part of the day given in TIME NOW. They give one read of the day: what shapes it, the one or two things that matter, and when it is clear. A meeting that is already over is never described as coming up; at noon or later, write about the rest of the day. When nothing is left today, one line is enough.',
+  offer:
+    'offer: one or two sentences that end the brief, wording the offer decided in code. The buttons appear under it, so do not name them. Planning is offered as an invitation, never an instruction. Sweep is suggested, never pushed; on a return day say plainly that a sweep would help and that it is fine to skip it. With no offer, the offer is a warm one-sentence sign-off, and the lines do not sign off themselves.',
+  catch_up:
+    'catch_up: on a return day only, one or two kind sentences saying what is waiting, using the counts in NEEDS A DECISION IN SWEEP as given, and that nothing has been lost. It is shown only if they ask. Otherwise empty.',
+};
+
+const BRIEF_VOICE = `VOICE
+Warm, plain and brief, like a friend who knows their day. Suggest, never instruct: never tell them what they ought to do, never shame or pressure, never tell them how they feel.`;
 
 function systemPrompt(person) {
   return {
@@ -306,8 +468,8 @@ function systemPrompt(person) {
 ${CARE_RULES}
 
 WHAT YOU WRITE
-- lines: two or three short chat messages, each its own entry in lines and each one or two sentences, read in the part of the day given in TIME NOW. They give one read of the day: what shapes it, the one or two things that matter, and when it is clear. A meeting that is already over is never described as coming up; at noon or later, write about the rest of the day. When nothing is left today, one line is enough.
-- Every meeting, todo, habit or reach item a line names is cited in that line's refs, by the refs given in the input. Refs go only in the refs fields, never in the text. Name nothing that is not in the input. Times come from the input as given; never work out or add up times or counts yourself.
+- ${LINE_RULES.line}
+- Every meeting, todo, habit or reach item a line names is cited in that line's refs, by the refs given in the input. Name nothing that is not in the input. Times come from the input as given; never work out or add up times or counts yourself.
 - Talk about todos and habits the way a person would say them in conversation, rather than pasting a title in as the subject of a sentence. Name a todo as the action itself, in the words a person would say out loud, never as an -ing word or a list of titles. Read each line back as speech: it must be grammatical and sound like something a friend would say aloud.
 - Say an occasion falls today (a birthday, an anniversary, a launch) only when the input gives that occasion's own date as today. A trip, plan, task or present named after an occasion does not date the occasion itself.
 - Mention a clash only when the input lists one still ahead.
@@ -317,41 +479,41 @@ WHAT YOU WRITE
 - The dated things ahead are on the day card. Mention one only when today genuinely needs it, never to fill a line.
 - LAST NIGHT'S WRAP UP, when given, is how they closed yesterday with Gremly, and it is background for today. What they moved to today and a plan they said yes to are their own choices, so speak of them as theirs. Touch on the evening at most once and lightly, never recap it, never mention their journal, and never mention anything they left unfinished.
 - On a return day: the first line says once, warmly, that it is good to see them and that time away is fine, then the lines talk about today. Never count, list or hint at what was missed, never guess why they were away, never mention streaks. The counts of what is waiting belong only in catch_up, never in the lines or the offer.
-- offer: one or two sentences that end the brief, wording the offer decided in code. The buttons appear under it, so do not name them. Planning is offered as an invitation, never an instruction. Sweep is suggested, never pushed; on a return day say plainly that a sweep would help and that it is fine to skip it. With no offer, the offer is a warm one-sentence sign-off, and the lines do not sign off themselves. Cite in offer_refs anything the offer names.
+- ${LINE_RULES.offer}
 - question_line: when the input gives a question to ask, ask it in your own words as a short chat message, keeping its meaning exactly. Otherwise empty.
 - question_choices: required whenever the question has no answers to tap yet: two to four short answers that cover what the person would most likely say, each a few words. Otherwise empty.
-- catch_up: on a return day only, one or two kind sentences saying what is waiting, using the counts in NEEDS A DECISION IN SWEEP as given, and that nothing has been lost. It is shown only if they ask. Otherwise empty.
+- ${LINE_RULES.catch_up}
 
-VOICE
-Warm, plain and brief, like a friend who knows their day. Suggest, never instruct: never tell them what they ought to do, never shame or pressure, never tell them how they feel.
+${BRIEF_VOICE}
 
 ${PRIVATE_RULES}
 
-${WRITING_RULES}`,
+${WRITING_RULES}
+
+${STATED_RULES}
+- The offer and the catch up, like each line, come with their refs and what they state. A line's refs include every record it draws on: the shape of the day when it says when the day is busy or clear, the offer decided in code when it words it, Sweep when it says what needs a decision, and TODAY when it names the day or the time.`,
     varying: personBlock(person),
   };
 }
 
-/** Lines whose refs are all in the input; any other line is dropped and reported. */
-export function checkRefs(output, refs) {
-  const dropped = [];
-  const lines = [];
-  for (const l of output.lines || []) {
-    const text = trim(l?.text, 400);
-    if (!text) continue;
-    const bad = (l.refs || []).filter((r) => !refs.has(r));
-    if (bad.length) {
-      dropped.push({ text, bad });
-      continue;
-    }
-    lines.push({ text: stripRefs(text), ids: (l.refs || []).map((r) => refs.get(r).id) });
-  }
-  const offerBad = (output.offer_refs || []).filter((r) => !refs.has(r));
-  return { lines, dropped, offerOk: offerBad.length === 0, offerBad };
+/**
+ * What the model is told when one line goes back to it: the brief's own
+ * rules, and which line it is writing again.
+ */
+export function briefRewritePrompt(person, key) {
+  const { fixed, varying } = systemPrompt(person);
+  const which =
+    key === 'offer' ? 'the offer' : key === 'catch_up' ? 'the catch up' : 'one of the lines';
+  return `${fixed}
+
+${varying}
+
+ONE SENTENCE AGAIN
+You are given ${which} you wrote, what was wrong with it, and only the records it rests on. Write it again, so that it says only what those records hold, with its refs and what it states. Cite only the records given here. When nothing true can be said from them, return empty text.`;
 }
 
 // A ref the model wrote into the text by mistake, such as "[c1, c2]" or "(t1)"
-const REFS_IN_TEXT = /\s*[[(]\s*[cthrp]\d+(?:\s*,\s*[cthrp]\d+)*\s*[\])]/g;
+const REFS_IN_TEXT = /\s*[[(]\s*[a-z]\d+(?:\s*,\s*[a-z]\d+)*\s*[\])]/g;
 export function stripRefs(s) {
   return s ? String(s).replace(REFS_IN_TEXT, '').trim() : s;
 }
@@ -365,32 +527,105 @@ export function noDashes(s) {
     : s;
 }
 
+/** A line as the model gave it, its words cleaned of refs and dashes before the check reads it. */
+function cleaned(sentence, n) {
+  return sentence && typeof sentence === 'object'
+    ? { ...sentence, text: noDashes(stripRefs(trim(sentence.text, n))) }
+    : null;
+}
+
 export async function writeBrief(env, g, offer) {
-  const { text, refs } = renderBriefInput(g, offer);
+  const { text, refs, records } = renderBriefInput(g, offer);
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'brief'),
     fallback: modelFor(env, 'briefFallback'),
     system: systemPrompt(g.person),
     user: text,
     schema: SCHEMA,
-    maxTokens: 3000,
+    maxTokens: 4000,
     thinking: 'low',
     effort: 'low',
   });
-  const checked = checkRefs(output, refs);
-  const offerText = checked.offerOk ? noDashes(stripRefs(trim(output.offer, 400))) : null;
+
+  // Every line, the offer and the catch up through the check; one that fails
+  // goes back once, alone with its records, to the model that wrote it
+  const lines = (output.lines || []).map((l) => cleaned(l, 400)).filter((l) => l?.text);
+  const items = lines.map((sentence, i) => ({ key: `line_${i}`, sentence }));
+  const offerLine = cleaned(output.offer, 400);
+  if (offerLine?.text) items.push({ key: 'offer', sentence: offerLine });
+  const catchUp = g.ret ? cleaned(output.catch_up, 400) : null;
+  if (catchUp?.text) items.push({ key: 'catch_up', sentence: catchUp });
+  const [wrote, other] =
+    model === modelFor(env, 'briefFallback').model
+      ? [modelFor(env, 'briefFallback'), modelFor(env, 'brief')]
+      : [modelFor(env, 'brief'), modelFor(env, 'briefFallback')];
+  const check = await runCheck({
+    items,
+    records,
+    today: g.today,
+    moment: `read at ${clockTime(g.now)}, in the ${g.part}`,
+    person: g.person,
+    ask: async (req) =>
+      (
+        await jsonCall(env, {
+          primary: modelFor(env, 'check'),
+          fallback: modelFor(env, 'checkFallback'),
+          ...req,
+          maxTokens: 600,
+          effort: 'low',
+          thinking: 'low',
+        })
+      ).output,
+    rewrite: async ({ key, sentence, records: own, problems }) =>
+      cleaned(
+        (
+          await jsonCall(env, {
+            primary: wrote,
+            fallback: other,
+            system: briefRewritePrompt(g.person, key),
+            user: `THE LINE: ${key === 'offer' ? 'the offer' : key === 'catch_up' ? 'the catch up' : 'one of the lines'}\nTODAY: ${weekdayLabel(g.today)} ${g.today}. TIME NOW: ${clockTime(g.now)}.\n\nRECORDS:\n${own.map((r) => r.label).join('\n') || '(none)'}\n\nWHAT YOU WROTE: ${sentence.text}\n\nWHAT WAS WRONG:\n${problems.map((p) => `- ${p}`).join('\n')}`,
+            schema: SENTENCE_SCHEMA,
+            maxTokens: 1200,
+            thinking: 'low',
+            effort: 'low',
+          })
+        ).output,
+        400,
+      ),
+  });
+  const result = (key) => check.results.get(key);
+  const idsOf = (r) => (r?.refs || []).map((x) => refs.get(x)?.id).filter(Boolean);
+  const kept = [];
+  const dropped = [];
+  lines.forEach((l, i) => {
+    const r = result(`line_${i}`);
+    if (r?.sentence) kept.push({ text: r.sentence.text, ids: idsOf(r) });
+    else {
+      const d = check.details.find((x) => x.key === `line_${i}`);
+      dropped.push({ text: l.text, bad: problemList(d) });
+    }
+  });
+  const offerResult = offerLine?.text ? result('offer') : null;
+  const offerDetail = check.details.find((x) => x.key === 'offer');
   return {
     model,
     input: text,
-    lines: checked.lines.map((l) => ({ ...l, text: noDashes(l.text) })),
-    dropped: checked.dropped,
-    offer: offerText,
-    offerDropped: checked.offerOk ? null : { text: output.offer, bad: checked.offerBad },
+    lines: kept,
+    dropped,
+    offer: offerResult?.sentence?.text || null,
+    offerDropped:
+      offerLine?.text && !offerResult?.sentence
+        ? {
+            text: offerLine.text,
+            bad: problemList(offerDetail),
+          }
+        : null,
     questionLine:
       g.question && !g.ret
         ? noDashes(stripRefs(trim(output.question_line, 300))) || g.question.question
         : null,
     questionChoices: (output.question_choices || []).map((c) => trim(c, 40)).filter(Boolean),
-    catchUp: g.ret ? noDashes(stripRefs(trim(output.catch_up, 400))) || null : null,
+    catchUp: g.ret ? result('catch_up')?.sentence?.text || null : null,
+    check: { counts: check.counts, details: check.details },
   };
 }

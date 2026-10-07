@@ -2,7 +2,7 @@
  * @jest-environment node
  *
  * The brief's data rules, in the worker: the offer, behind this week, the
- * shape of the day, the ID check, yesterday's reaction and when a brief is due.
+ * shape of the day, the writer's input, yesterday's reaction and when a brief is due.
  */
 import { decideOffer, planLabel, questionButtons } from '../offer';
 import { isBehindThisWeek, weeklyTarget } from '../behind';
@@ -15,15 +15,7 @@ import {
   minutesIn,
   localStartIso,
 } from '../data';
-import {
-  checkRefs,
-  clockTime,
-  noDashes,
-  renderBriefInput,
-  stripRefs,
-  sweepLine,
-  sweptWhen,
-} from '../writer';
+import { clockTime, noDashes, renderBriefInput, stripRefs, sweepLine, sweptWhen } from '../writer';
 import { summariseThread, summariseWrap } from '../reaction';
 import { dueBriefs, dueForBrief, fallbackOffer, MORNING_ACTIVE_DAYS } from '../index';
 
@@ -240,33 +232,7 @@ describe('who gets a brief made ahead', () => {
   });
 });
 
-describe("the writer's ID check", () => {
-  const refs = new Map([
-    ['c1', { type: 'calendar', id: 'cal-1' }],
-    ['t1', { type: 'todo', id: 'todo-1' }],
-  ]);
-
-  it('keeps lines whose refs were all in the input and drops the rest', () => {
-    const out = checkRefs(
-      {
-        lines: [
-          { text: 'Standup at 8.', refs: ['c1'] },
-          { text: 'And the dentist.', refs: ['t9'] },
-          { text: 'Clear from 1:15.', refs: [] },
-        ],
-        offer_refs: ['t1'],
-      },
-      refs,
-    );
-    expect(out.lines).toEqual([
-      { text: 'Standup at 8.', ids: ['cal-1'] },
-      { text: 'Clear from 1:15.', ids: [] },
-    ]);
-    expect(out.dropped).toEqual([{ text: 'And the dentist.', bad: ['t9'] }]);
-    expect(out.offerOk).toBe(true);
-    expect(checkRefs({ lines: [], offer_refs: ['x'] }, refs).offerOk).toBe(false);
-  });
-
+describe("the writer's words", () => {
   it('takes refs out of the text', () => {
     expect(stripRefs('Checkout at 10am, then the flight. [c1, c2]')).toBe(
       'Checkout at 10am, then the flight.',
@@ -275,8 +241,8 @@ describe("the writer's ID check", () => {
       'Pack the charger before you go.',
     );
     expect(stripRefs('Call Mum at 6pm.')).toBe('Call Mum at 6pm.');
-    const out = checkRefs({ lines: [{ text: 'Standup at 8 [c1].', refs: ['c1'] }] }, refs);
-    expect(out.lines[0].text).toBe('Standup at 8.');
+    expect(stripRefs('Standup at 8 [c1].')).toBe('Standup at 8.');
+    expect(stripRefs('Clear from 1pm (s1, n1).')).toBe('Clear from 1pm.');
   });
 
   it('writes times the way people say them', () => {

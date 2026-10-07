@@ -117,14 +117,16 @@ describe('writing the brief', () => {
     expect(rows[2].content).toBe(fallbackOffer('plan'));
   });
 
-  it('still arrives when every line failed the ID check, and still asks the question', async () => {
+  it('still arrives when every line failed the check, and still asks the question', async () => {
     gatherBrief.mockResolvedValue(
       day({ question: { id: 'q1', question: 'Is the haircut Friday?', choices: ['Yes', 'No'] } }),
     );
     writeBrief.mockResolvedValue({
       model: 'gemini',
       lines: [],
-      dropped: [{ text: 'Your 3pm with Bob', bad: ['c9'] }],
+      dropped: [
+        { text: 'Your 3pm with Bob', bad: ['it states time 15:00 from a record it was not given'] },
+      ],
       offer: null,
       offerDropped: null,
       questionLine: null,
