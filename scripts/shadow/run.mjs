@@ -6,6 +6,7 @@
  *   scripts/shadow/run.sh story-copy --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
+ *   scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -31,6 +32,8 @@ import { buildDcoV4, writeDco } from '../../workers/inngest-jobs/context/daily.j
 import * as story from '../../workers/inngest-jobs/context/story.js';
 import { applyCorrection } from '../../workers/inngest-jobs/context/corrections.js';
 import { readWindow } from '../../workers/inngest-jobs/context/reader.js';
+// a namespace import, so a tree without weeklyRequestParams still bundles
+import * as weekly from '../../workers/inngest-jobs/context/weekly.js';
 import { userTimezone } from '../../workers/shared/db.js';
 import { localStartIso } from '../../workers/shared/calendar.js';
 
@@ -148,6 +151,31 @@ const JOBS = {
         });
       },
       summarise: (totals) => ({ from, to, totals, ...ledgerWrites(record) }),
+    };
+  },
+
+  // What the weekly pass would be given, built without asking the model: how
+  // long it is, and how many plans it shows as passed
+  async 'weekly-input'() {
+    const userId = flag('--user');
+    if (!userId) fail('weekly-input needs --user');
+    const at = flag('--at') || new Date().toISOString();
+    return {
+      at,
+      userId,
+      run: () => {
+        if (typeof weekly.weeklyRequestParams !== 'function') fail('This tree has no weekly request.');
+        return weekly.weeklyRequestParams(env, userId, at.slice(0, 10));
+      },
+      summarise: (out) => {
+        const user = out?.params?.messages?.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n') || '';
+        return {
+          today: out?.today,
+          input_chars: out?.inputChars,
+          facts: (out?.refsSnapshot || []).filter(([, v]) => v.type === 'fact').length,
+          passed_plans: (user.match(/planned, date passed/g) || []).length,
+        };
+      },
     };
   },
 
