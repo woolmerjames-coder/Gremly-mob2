@@ -120,6 +120,9 @@ export function useChatCard(deps: ChatCardDeps) {
           });
           const done = outcomes.filter((o) => o.ok).map((o) => o.cid);
           const failed = outcomes.filter((o) => !o.ok).map((o) => o.cid);
+          // the item each row made, so its row can open it
+          const created: Record<string, string> = {};
+          for (const o of outcomes) if (o.ok && o.createdId) created[o.cid] = o.createdId;
           if (done.length) {
             undoRef.current.set(message.id, { revert: revertAll, count: done.length });
             setUndoable((u) => [...u, message.id]);
@@ -129,6 +132,7 @@ export function useChatCard(deps: ChatCardDeps) {
             unticked,
             applied: done,
             failed,
+            ...(Object.keys(created).length ? { created } : {}),
           });
           if (done.length) {
             await d.appendBriefMessage('system', changedEventText(done.length), {

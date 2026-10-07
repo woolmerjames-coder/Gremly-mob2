@@ -647,6 +647,7 @@ export function useDayTurn(deps: DayTurnDeps) {
           unticked,
           applied: res.done,
           failed: res.failed,
+          ...(Object.keys(res.created).length ? { created: res.created } : {}),
         });
         if (res.done.length) {
           await d.appendBriefMessage('system', changedEventText(res.done.length), {

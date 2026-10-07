@@ -295,6 +295,8 @@ export interface BriefChangesMeta extends BriefMetaBase {
   /** After Apply: the changes made, and any that could not be */
   applied?: string[];
   failed?: string[];
+  /** After Apply: the item each row made (a new item, or the one an item became), by row */
+  created?: Record<string, string>;
   prompt_version?: string;
 }
 

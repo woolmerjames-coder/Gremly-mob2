@@ -127,7 +127,7 @@ import { useThisWeek } from '../../lib/week/thisWeek';
 import { WeekBoardSheet } from '../../components/week/BoardStep';
 import { WeekCard } from '../../components/week/WeekCard';
 import { WeekFooter, WeekOfferButton } from '../../components/week/WeekFooter';
-import { useRenderChanges } from '../../components/brief/ChangeCard';
+import { useRenderChanges, type ChangeRowItem } from '../../components/brief/ChangeCard';
 import { dayRecordFromStore } from '../../lib/plan/storePlan';
 import { creditFirstReply } from '../../lib/brief/feeding';
 import { clearFrom } from '../../lib/brief/pinned';
@@ -1672,8 +1672,28 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     },
     [applyChanges],
   );
+  // A tap on a change card's row opens the item the row is about. An item's
+  // own chat sits on top of that item, so there the chat closes onto it; a
+  // row about another item closes the chat and opens that one. The chat may
+  // sit on an overlay, which a habit's page would open behind.
+  const openChangeItem = useCallback(
+    (target: ChangeRowItem) => {
+      if (item) {
+        item.onClose();
+        if (item.anchor.id === target.id) return;
+      }
+      openEntity(
+        { id: target.id, type: target.type, title: target.title },
+        { overOverlay: !!item },
+      );
+    },
+    [item, openEntity],
+  );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
-  const renderChanges = useRenderChanges({ ...changeActions, apply: applyAndFollow });
+  const renderChanges = useRenderChanges(
+    { ...changeActions, apply: applyAndFollow },
+    openChangeItem,
+  );
   const renderPlan = useCallback(
     (message: SpaceChatMessage, meta: BriefPlanMeta) => (
       <BriefPlanBlock

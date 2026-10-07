@@ -423,6 +423,7 @@ describe('the day turn, when it answers', () => {
     });
     (applyDayChanges as jest.Mock).mockResolvedValue({
       done: ['c1', 'c2'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: true,
@@ -465,6 +466,7 @@ describe('the day turn, when it answers', () => {
     const revert = jest.fn(async () => undefined);
     (applyDayChanges as jest.Mock).mockResolvedValue({
       done: ['c1', 'c2'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: true,
@@ -729,6 +731,7 @@ describe('the agent', () => {
     });
     (applyCardChanges as jest.Mock).mockResolvedValue({
       done: ['c1'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [{ id: 'mum', start: 720 }] },
       frameChanged: false,
@@ -753,6 +756,32 @@ describe('the agent', () => {
     });
   });
 
+  it('keeps the item a row made, so the row can open it', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Sure.', card: CARD, tasks: [] },
+    });
+    (applyCardChanges as jest.Mock).mockResolvedValue({
+      done: ['c1'],
+      created: { c1: 'new-todo' },
+      failed: [],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      revert: jest.fn(),
+    });
+    const { hook, messages } = harness();
+    await act(async () => {
+      await hook.result.current.run('call mum at 12', null);
+    });
+    await act(async () => {
+      await hook.result.current.apply(messages[3], ['c2']);
+    });
+    expect(messages[3].metadata_json).toMatchObject({
+      status: 'applied',
+      created: { c1: 'new-todo' },
+    });
+  });
+
   it("starts the planner when they accept Gremly's offer to plan the day", async () => {
     const offer = [
       { cid: 'c1', op: 'plan', title: 'Plan the rest of today', plan: { kind: 'plan_day' } },
@@ -768,6 +797,7 @@ describe('the agent', () => {
     });
     (applyCardChanges as jest.Mock).mockResolvedValue({
       done: ['c1'],
+      created: {},
       failed: [],
       plan: { add: [], remove: [], pin: [] },
       frameChanged: false,
@@ -986,6 +1016,7 @@ describe('their week, and the weekly review', () => {
     ];
     (applyCardChanges as jest.Mock).mockResolvedValue({
       done: ['c1'],
+      created: {},
       failed: ['c2'],
       plan: { add: [], remove: [], pin: [] },
       frameChanged: false,

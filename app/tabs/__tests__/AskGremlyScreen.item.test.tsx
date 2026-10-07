@@ -97,7 +97,13 @@ jest.mock('../../../hooks/useWakeOnInput', () => ({ useWakeOnInput: () => jest.f
 jest.mock('../../../hooks/useMascotActions', () => ({
   useMascotActions: () => ({ celebrate: jest.fn() }),
 }));
-jest.mock('../../../hooks/useOpenEntity', () => ({ useOpenEntity: () => jest.fn() }));
+const mockOpenEntity = jest.fn();
+jest.mock('../../../hooks/useOpenEntity', () => ({
+  useOpenEntity:
+    () =>
+    (...args: unknown[]) =>
+      mockOpenEntity(...args),
+}));
 jest.mock('../../../components/chat/ChatHistorySheet', () => ({ ChatHistorySheet: () => null }));
 jest.mock('../../../components/chat/SaveSheet', () => ({ SaveSheet: () => null }));
 jest.mock('../../../components/help/GremlyHelpCard', () => () => null);
@@ -226,6 +232,55 @@ describe('an item chat outside any screen', () => {
     fireEvent.press(getByTestId('item-starter-break_down'));
     fireEvent.press(getByTestId('item-starter-break_down'));
     await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1));
+  });
+
+  describe('a row on a change card', () => {
+    const card = {
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      created_at: '2026-10-07T10:00:00Z',
+      metadata_json: {
+        type: 'brief-changes',
+        status: 'open',
+        changes: [],
+        card: [
+          { cid: 'c1', op: 'change', type: 'todo', id: 't1', title: 'Walk Bella', fields: {} },
+          { cid: 'c2', op: 'change', type: 'todo', id: 't2', title: 'Call the vet', fields: {} },
+        ],
+      },
+    };
+    beforeEach(() => {
+      mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Bella' });
+      mockChat.messages = [card];
+      mockStoreState.todos = [
+        { id: 't1', name: 'Walk Bella' },
+        { id: 't2', name: 'Call the vet' },
+      ];
+      mockStoreState.notes = [];
+    });
+    afterEach(() => {
+      mockStoreState.todos = [];
+    });
+
+    it("about the chat's own item closes the chat onto it", async () => {
+      const opened = item();
+      const { findByTestId } = render(<AskGremlyScreen item={opened} />);
+      fireEvent.press(await findByTestId('change-open-c1'));
+      expect(opened.onClose).toHaveBeenCalledTimes(1);
+      expect(mockOpenEntity).not.toHaveBeenCalled();
+    });
+
+    it('about another item closes the chat and opens that one, over the overlay the chat sat on', async () => {
+      const opened = item();
+      const { findByTestId } = render(<AskGremlyScreen item={opened} />);
+      fireEvent.press(await findByTestId('change-open-c2'));
+      expect(opened.onClose).toHaveBeenCalledTimes(1);
+      expect(mockOpenEntity).toHaveBeenCalledWith(
+        { id: 't2', type: 'todo', title: 'Call the vet' },
+        { overOverlay: true },
+      );
+    });
   });
 
   it('close goes back to the item', () => {

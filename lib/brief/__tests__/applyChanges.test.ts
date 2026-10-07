@@ -183,6 +183,8 @@ describe('applying the change card', () => {
       time_estimate_minutes: 20,
     });
     expect(res.plan.add).toEqual([{ id: 'new-1', kind: 'todo', start: 600, minutes: 20 }]);
+    // the row can open what it made
+    expect(res.created).toEqual({ c1: 'new-1' });
   });
 
   it('a change that fails is reported, not claimed', async () => {
