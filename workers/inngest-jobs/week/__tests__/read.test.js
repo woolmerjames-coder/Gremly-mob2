@@ -12,9 +12,11 @@ import {
   WEEK_READ_VERSION,
   bookedMinutes,
   checkRead,
+  dayLoads,
   figuresOf,
   habitAllowance,
   habitSentence,
+  hoursWords,
   lengthWords,
   monthsBefore,
   readSystem,
@@ -497,6 +499,49 @@ describe('what the model reads', () => {
     );
     expect(r.text).toContain(
       't3 | Call the plumber | no length set | added 2026-09-20 | never moved | no date',
+    );
+  });
+
+  it('gives what already sits on each day being planned, worked out, so a day is never added up by the model', () => {
+    const todo = (id, due_day, minutes) => ({
+      id,
+      title: id,
+      minutes,
+      created: '2026-09-01',
+      moved: 0,
+      due_day,
+      deadline: null,
+      back_on: null,
+    });
+    const todos = [
+      todo('a', '2026-10-05', 45),
+      todo('b', '2026-10-05', 60),
+      // no length: half an hour, as the board counts it
+      todo('c', '2026-10-05', null),
+      todo('d', '2026-10-08', 60),
+      // a day outside the days being planned, and no day at all
+      todo('e', '2026-10-20', 90),
+      todo('f', null, 30),
+    ];
+    expect(dayLoads(todos, ['2026-10-05', '2026-10-06', '2026-10-08'])).toEqual([
+      { day: '2026-10-05', todos: 3, minutes: 135 },
+      { day: '2026-10-06', todos: 0, minutes: 0 },
+      { day: '2026-10-08', todos: 1, minutes: 60 },
+    ]);
+    expect([135, 60, 20, 390].map(hoursWords)).toEqual([
+      '2.5 hours',
+      '1 hour',
+      '0.5 hours',
+      '6.5 hours',
+    ]);
+    const text = renderRead(gathered({ todos })).text;
+    expect(text).toContain(
+      'ON EACH DAY BEING PLANNED (the todos that have that day, worked out exactly, one with no length counted as half an hour): Monday 2026-10-05: 3 todos, 2.5 hours; Tuesday 2026-10-06: none;',
+    );
+    expect(text).toContain('Thursday 2026-10-08: 1 todo, 1 hour;');
+    // with nothing on any of the days there is nothing to say
+    expect(renderRead(gathered({ todos: [todo('f', null, 30)] })).text).not.toContain(
+      'ON EACH DAY BEING PLANNED',
     );
   });
 

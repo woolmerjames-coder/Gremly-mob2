@@ -44,7 +44,7 @@ import { easesFrom, pauseSpans } from '../../shared/habitWeek.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
 import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields.js';
 
-export const WEEK_READ_VERSION = 'week-read-2026-10-09b';
+export const WEEK_READ_VERSION = 'week-read-2026-10-09c';
 
 /** The most open todos the read lists; the figures still count every one. */
 export const TODO_LIST_MAX = 120;
@@ -80,6 +80,26 @@ export function lengthWords(min) {
   return [h ? plural(h, 'hour', 'hours') : '', m || !h ? plural(m, 'minute', 'minutes') : '']
     .filter(Boolean)
     .join(' ');
+}
+
+/** "2.5 hours", "1 hour", "0.5 hours": minutes to the nearest half hour, the way the review speaks of time. */
+export function hoursWords(min) {
+  const h = Math.round(min / 30) / 2;
+  return `${h} ${h === 1 ? 'hour' : 'hours'}`;
+}
+
+/**
+ * What already sits on each day being planned: how many open todos have that
+ * day, and the minutes they add up to, a todo with no length counted as the
+ * board counts it (minutesOf).
+ * @param {object[]} todos every open todo, listed or not
+ * @param {string[]} days the days being planned
+ */
+export function dayLoads(todos, days) {
+  return days.map((day) => {
+    const on = todos.filter((t) => t.due_day === day);
+    return { day, todos: on.length, minutes: on.reduce((n, t) => n + minutesOf(t), 0) };
+  });
 }
 
 /** The day this many calendar months before a day, kept inside the shorter month. */
@@ -771,6 +791,22 @@ export function renderRead(g, o = {}) {
       ? `FIGURES (worked out exactly, use these rather than adding up yourself): ${plural(figures.open, 'open todo', 'open todos')} adding up to about ${plural(figures.hours, 'hour', 'hours')}. ${figures.old} of them were added more than three months ago. ${figures.moved} have been moved to another day ten times or more. ${figures.gone} have a day or a date that has already gone by. ${figures.dated} have a day or a date on the days being planned.${capped}`
       : 'FIGURES (worked out exactly): they have no open todos.',
   );
+  // What already sits on each day being planned. A single day can be the
+  // challenge, and its load is then quoted from here, not added up by the
+  // model (9 October: two runs in six quoted a day's total of their own).
+  const loads = dayLoads(g.todos, days);
+  if (loads.some((x) => x.todos)) {
+    L.push(
+      `ON EACH DAY BEING PLANNED (the todos that have that day, worked out exactly, one with no length counted as half an hour): ${loads
+        .map(
+          (x) =>
+            `${weekdayName(x.day)} ${x.day}: ${
+              x.todos ? `${plural(x.todos, 'todo', 'todos')}, ${hoursWords(x.minutes)}` : 'none'
+            }`,
+        )
+        .join('; ')}.`,
+    );
+  }
 
   L.push('', 'OPEN TODOS (id | title | length | added | moved | dates):');
   if (!listed.length) L.push('(none)');
