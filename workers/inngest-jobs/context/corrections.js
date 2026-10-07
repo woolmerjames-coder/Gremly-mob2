@@ -372,7 +372,7 @@ ${anchorLines.join('\n') || '(none)'}`;
 
   // Who someone is, when it came from a fact now corrected, is cleared:
   // blank is better than wrong (context/people.js)
-  result.relationships_cleared = await peopleAfterCorrection(d, userId, correctedIds);
+  result.people = await peopleAfterCorrection(d, userId, correctedIds);
 
   // Changed: the old version stays in their history as what was planned.
   const changedFacts = [];

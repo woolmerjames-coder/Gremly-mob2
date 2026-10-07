@@ -42,9 +42,16 @@ export function passageRow({
   };
 }
 
-/** Record passages, replacing any earlier record of the same table, row and field. */
+/**
+ * Record passages, replacing any earlier record of the same table, row and
+ * field. A field given twice in one call keeps its last record: the database
+ * refuses one upsert that touches a row twice.
+ */
 export async function recordPassages(d, rows) {
-  const list = (rows || []).filter((r) => r && r.row_id && r.field);
+  const byKey = new Map();
+  for (const r of rows || [])
+    if (r && r.row_id && r.field) byKey.set(`${r.row_table}|${r.row_id}|${r.field}`, r);
+  const list = [...byKey.values()];
   if (!list.length) return 0;
   await d.upsert('passage_refs', list, PASSAGE_KEY);
   return list.length;

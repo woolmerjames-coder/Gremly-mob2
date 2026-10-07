@@ -52,7 +52,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-08f';
+export const READER_PROMPT_VERSION = 'reader-2026-10-08g';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -146,6 +146,7 @@ export const READER_SCHEMA = {
         required: ['question'],
       },
     },
+    same_people: SAME_PEOPLE_SCHEMA,
     calendar: {
       type: 'array',
       items: {
@@ -575,6 +576,12 @@ const SAID_BY = {
  * Undo whatever an earlier attempt of this chunk wrote: restore the states it
  * changed, then remove the facts and open questions it added.
  */
+/** Each chunk writes under its own run id; the first record names it, its part too. */
+export function chunkRunId(baseRunId, chunk) {
+  const first = chunk[0];
+  return `${baseRunId}:${first.at}:${first.id}${first.part ? `#${first.part}` : ''}`;
+}
+
 async function rollbackRun(d, userId, runId) {
   const rid = encodeURIComponent(runId);
   const changes = await d.select(
@@ -590,6 +597,23 @@ async function rollbackRun(d, userId, runId) {
   if (changes.length) await d.remove(`life_fact_changes?user_id=eq.${userId}&run_id=eq.${rid}`);
   await d.remove(`life_fact_sources?user_id=eq.${userId}&run_id=eq.${rid}`);
   await d.remove(`gremly_questions?user_id=eq.${userId}&run_id=eq.${rid}&status=eq.open`);
+  // What the run set on people made before it: who they are, from its facts,
+  // and a first name it gave someone known only by who they are. The run reads
+  // the same records again, so it sets them again.
+  const runFacts = await d.select(`life_facts?user_id=eq.${userId}&run_id=eq.${rid}&select=id`);
+  if (runFacts.length)
+    await d.update(
+      `life_people?user_id=eq.${userId}&run_id=neq.${rid}&name=not.is.null&relationship_by=eq.gremly&relationship_fact_id=in.(${runFacts.map((f) => f.id).join(',')})`,
+      { relationship: null, relationship_fact_id: null },
+    );
+  const runNames = await d.select(
+    `life_person_names?user_id=eq.${userId}&run_id=eq.${rid}&select=person_id,name`,
+  );
+  for (const n of runNames)
+    await d.update(
+      `life_people?id=eq.${n.person_id}&user_id=eq.${userId}&run_id=neq.${rid}&name_by=eq.gremly&relationship=not.is.null&name=eq.${encodeURIComponent(n.name)}`,
+      { name: null },
+    );
   await d.remove(`life_facts?user_id=eq.${userId}&run_id=eq.${rid}`);
   await d.remove(`person_merges?user_id=eq.${userId}&run_id=eq.${rid}&status=eq.proposed`);
   await d.remove(`life_person_names?user_id=eq.${userId}&run_id=eq.${rid}`);
@@ -688,8 +712,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   // rows a failed attempt left behind are removed first, so a retry never
   // duplicates facts or questions.
   // the first record names the chunk, its part too, so two chunks never share a run id
-  const first = chunk[0];
-  const runId = `${baseRunId}:${first.at}:${first.id}${first.part ? `#${first.part}` : ''}`;
+  const runId = chunkRunId(baseRunId, chunk);
   await rollbackRun(d, userId, runId);
   const fromRecords = [...new Set(chunk.flatMap((r) => r.factIds || []))];
   const [openFacts, person, people] = await Promise.all([
@@ -832,9 +855,9 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
           user_id: userId,
           statement: trim(u.replacement_statement, 400),
           subject: fact.subject,
-          // the same sort of statement as the fact it replaces
-          kind: validKind(fact.kind),
-          health: fact.health === true,
+          // its kind and health flag are judged by the kind pass, as any fact's
+          kind: null,
+          health: null,
           about_date: validDate(u.replacement_about_date),
           about_date_end: validDate(u.replacement_about_date_end),
           date_confidence: validDate(u.replacement_about_date) ? 'exact' : 'unknown',
@@ -1074,7 +1097,12 @@ export async function readWindow(
   const { retired } = await retireDeleted(env, userId, rows.deleted, `${runId}:deleted:${toIso}`);
   if (retired) totals.retired = retired;
   const items = await buildRecordList(env, tz, rows);
-  for (const chunk of chunkRecords(items)) {
+  const chunks = chunkRecords(items);
+  // A retry of this window starts clean: what any of its chunks wrote before
+  // goes first, so no chunk reads people a later chunk had made.
+  const d = db(env);
+  for (const chunk of chunks) await rollbackRun(d, userId, chunkRunId(runId, chunk));
+  for (const chunk of chunks) {
     const c = await readChunk(env, userId, tz, chunk, runId);
     for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + (c[k] || 0);
   }

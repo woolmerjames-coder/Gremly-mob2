@@ -18,7 +18,8 @@ import { weekSettings } from '../week/settings';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
 import { giveKinds, usersLackingKinds } from './kinds';
-import { fillPeople, usersWithoutPeople } from './people';
+import { fillPeople, usersWithFacts } from './people';
+import { invalidateChatCache } from './cache';
 import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
 import { refreshDayFrame } from '../brief/frameRefresh';
@@ -134,12 +135,26 @@ export function createContextFunctions(inngest) {
         });
         for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + c[k];
       }
-      if (totals.records > 0) {
-        // Every fact gets a kind and a health flag: the read gives them to its
-        // own facts, and this gives them to any fact still without (context/kinds.js).
-        totals.kinds = await step.run('kinds', () =>
-          giveKinds(env, userId, { shadow: contextMode(env, userId) !== 'on' }),
+      // The one time people fill (context/people.js) runs here when asked, so it
+      // never runs beside a read for the same person.
+      if (event.data?.people_fill) {
+        totals.people_fill = await step.run('people-fill', async () =>
+          fillPeople(env, userId, {
+            person: await personIdentity(env, userId),
+            before: event.data?.before || plan.until,
+            shadow: event.data?.shadow ?? contextMode(env, userId) !== 'on',
+          }),
         );
+      }
+      if (totals.records > 0 && contextMode(env, userId) === 'on') {
+        // Every fact gets a kind and a health flag: the read gives them to its
+        // own facts, and this gives them to any fact still without
+        // (context/kinds.js). In shadow it would judge the same facts every read.
+        totals.kinds = await step.run('kinds', () => giveKinds(env, userId));
+        // Chat reads what the read changed on its next message
+        await step.run('chat-cache', () => invalidateChatCache(env, userId));
+      }
+      if (totals.records > 0) {
         // Questions written while reading old records are checked against today.
         totals.question_review = await step.run('questions', () =>
           reviewQuestions(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
@@ -519,38 +534,42 @@ export function createContextFunctions(inngest) {
       if (ids.length)
         await step.sendEvent(
           'fan-out',
-          ids.map((id) => ({ name: 'app/kinds.give', data: { user_id: id } })),
+          ids.map((id) => ({
+            name: 'app/kinds.give',
+            data:
+              event.data?.shadow == null
+                ? { user_id: id }
+                : { user_id: id, shadow: event.data.shadow },
+          })),
         );
       return { users: ids.length };
     },
   );
 
   // ── People: the one time fill from the facts held before people records ──
+  // It asks the ledger read to run it (people_fill), for one person or everyone
+  // with facts, so it shares the read's one-at-a-time hold on each person.
   const peopleFill = inngest.createFunction(
-    {
-      id: 'context-people-fill',
-      name: "Context: find the people in each person's life from their facts",
-      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 2 }],
-      retries: 1,
-    },
+    { id: 'context-people-fill', name: "Context: find the people in each person's life" },
     { event: 'app/people.fill' },
     async ({ event, step, env }) => {
       if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
-      const userId = event.data?.user_id;
-      if (userId)
-        return step.run('fill', async () =>
-          fillPeople(env, userId, {
-            person: await personIdentity(env, userId),
-            before: event.data?.before || new Date().toISOString(),
-            shadow: event.data?.shadow ?? contextMode(env, userId) !== 'on',
-          }),
-        );
-      const ids = await step.run('who', () => usersWithoutPeople(env));
-      const before = new Date().toISOString();
+      const ids = event.data?.user_id
+        ? [event.data.user_id]
+        : await step.run('who', () => usersWithFacts(env));
+      const before = event.data?.before || new Date().toISOString();
       if (ids.length)
         await step.sendEvent(
           'fan-out',
-          ids.map((id) => ({ name: 'app/people.fill', data: { user_id: id, before } })),
+          ids.map((id) => ({
+            name: 'app/ledger.read',
+            data: {
+              user_id: id,
+              people_fill: true,
+              before,
+              ...(event.data?.shadow == null ? {} : { shadow: event.data.shadow }),
+            },
+          })),
         );
       return { users: ids.length };
     },

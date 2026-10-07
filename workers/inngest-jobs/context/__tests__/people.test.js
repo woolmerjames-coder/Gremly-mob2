@@ -143,12 +143,15 @@ describe('planning what the model said', () => {
     expect(plan.ties).toHaveLength(1);
   });
 
-  it('makes one record for someone new named twice in one read', () => {
+  it('makes one record for someone new the model gives the same new ref twice', () => {
     const plan = planPeople({
       known: new Map(),
       facts: [
-        { factId: 'f-1', people: [{ ref: null, name: 'Jo', relationship: null }] },
-        { factId: 'f-2', people: [{ ref: null, name: 'jo', relationship: 'partner' }] },
+        { factId: 'f-1', people: [{ ref: null, new_ref: 'n1', name: 'Jo', relationship: null }] },
+        {
+          factId: 'f-2',
+          people: [{ ref: null, new_ref: 'n1', name: 'Jo', relationship: 'partner' }],
+        },
       ],
       userId: 'u',
       runId: 'r',
@@ -161,6 +164,41 @@ describe('planning what the model said', () => {
       relationship_fact_id: 'f-2',
     });
     expect(plan.ties).toHaveLength(2);
+  });
+
+  it("never joins two new people because they share a name: only the model's own new ref joins mentions", () => {
+    const plan = planPeople({
+      known: new Map(),
+      facts: [
+        {
+          factId: 'f-1',
+          people: [{ ref: null, new_ref: 'n1', name: 'Alex', relationship: 'nephew' }],
+        },
+        {
+          factId: 'f-2',
+          people: [{ ref: null, new_ref: 'n2', name: 'Alex', relationship: 'manager' }],
+        },
+        { factId: 'f-3', people: [{ ref: null, new_ref: null, name: 'Alex', relationship: null }] },
+      ],
+      userId: 'u',
+      runId: 'r',
+      newId,
+    });
+    expect(plan.creates).toHaveLength(3);
+    expect(plan.creates.map((c) => c.relationship)).toEqual(['nephew', 'manager', null]);
+  });
+
+  it('keeps who someone is for a person known only by it', () => {
+    const plan = planPeople({
+      known: known([BROTHER]),
+      facts: [
+        { factId: 'f-7', people: [{ ref: 'p1', name: null, relationship: 'older brother' }] },
+      ],
+      userId: 'u',
+      runId: 'r',
+      newId,
+    });
+    expect(plan.updates.get('p-bro')).toBeUndefined();
   });
 
   it('turns two known people the model thinks are one into a proposal, keeping the older, and merges nothing', () => {
@@ -238,7 +276,7 @@ describe('writing', () => {
     const calls = [];
     const d = {
       insertQuiet: async (t, rows) => calls.push({ op: 'insert', t, rows }),
-      update: async (path, patch) => calls.push({ op: 'update', path, patch }),
+      update: async (path, patch) => (calls.push({ op: 'update', path, patch }), [{ id: 'p-sam' }]),
       insertIgnore: async (t, rows, on) => calls.push({ op: 'ignore', t, rows, on }),
     };
     const plan = planPeople({
@@ -261,15 +299,21 @@ describe('writing', () => {
     });
   });
 
-  it('clears who someone is when the fact it came from is corrected, and only then', async () => {
+  it('clears who someone is when the fact it came from is corrected, and removes a record that rested on it alone', async () => {
     const calls = [];
-    const d = { update: async (path, patch) => (calls.push({ path, patch }), [{ id: 'p' }]) };
-    expect(await peopleAfterCorrection(d, 'u', ['f-1', 'f-2'])).toBe(1);
+    const d = {
+      remove: async (path) => (calls.push({ op: 'remove', path }), [{ id: 'p-bro' }]),
+      update: async (path, patch) => (calls.push({ op: 'update', path, patch }), [{ id: 'p-sam' }]),
+    };
+    expect(await peopleAfterCorrection(d, 'u', ['f-1', 'f-2'])).toEqual({ cleared: 1, removed: 1 });
     expect(calls[0].path).toBe(
-      'life_people?user_id=eq.u&relationship_by=eq.gremly&relationship_fact_id=in.(f-1,f-2)',
+      'life_people?user_id=eq.u&relationship_by=eq.gremly&name=is.null&relationship_fact_id=in.(f-1,f-2)&select=id',
     );
-    expect(calls[0].patch).toMatchObject({ relationship: null, relationship_fact_id: null });
-    expect(await peopleAfterCorrection(d, 'u', [])).toBe(0);
+    expect(calls[1].path).toBe(
+      'life_people?user_id=eq.u&relationship_by=eq.gremly&name=not.is.null&relationship_fact_id=in.(f-1,f-2)',
+    );
+    expect(calls[1].patch).toMatchObject({ relationship: null, relationship_fact_id: null });
+    expect(await peopleAfterCorrection(d, 'u', [])).toEqual({ cleared: 0, removed: 0 });
   });
 });
 
@@ -406,6 +450,42 @@ describe('a merge the person said yes to', () => {
       ),
     );
     expect(d.tables.person_merges[0].status).toBe('undone');
+  });
+
+  it('undo leaves a field the person wrote after the merge', async () => {
+    const d = start();
+    // the kept record had no relationship; the merge brings one
+    d.tables.life_people[0].relationship = null;
+    await mergePeople(d, 'u', 'm-1');
+    const a = d.tables.life_people.find((p) => p.id === 'p-a');
+    Object.assign(a, { relationship: 'oldest friend', relationship_by: 'person' });
+    await undoMerge(d, 'u', 'm-1');
+    expect(d.tables.life_people.find((p) => p.id === 'p-a')).toMatchObject({
+      relationship: 'oldest friend',
+      relationship_by: 'person',
+    });
+  });
+
+  it('carries on with the same plan when a merge is tried again after a partial write', async () => {
+    const d = start();
+    const realUpdate = d.update;
+    let failOnce = true;
+    d.update = async (path, patch) => {
+      if (failOnce && path.startsWith('life_people?id=eq.p-b')) {
+        failOnce = false;
+        throw new Error('network');
+      }
+      return realUpdate(path, patch);
+    };
+    await expect(mergePeople(d, 'u', 'm-1')).rejects.toThrow('network');
+    expect(await mergePeople(d, 'u', 'm-1')).toMatchObject({ merged: true, names: 1, facts: 2 });
+    await undoMerge(d, 'u', 'm-1');
+    expect(
+      d.tables.life_fact_people.filter((t) => t.person_id === 'p-a').map((t) => t.fact_id),
+    ).toEqual(['f-1']);
+    expect(
+      d.tables.life_person_names.filter((n) => n.person_id === 'p-a').map((n) => n.name),
+    ).toEqual(['Lizzie']);
   });
 
   it('happens once', async () => {

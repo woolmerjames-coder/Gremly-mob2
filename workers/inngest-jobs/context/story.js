@@ -438,6 +438,8 @@ export async function applyStory(
   const nowIso = new Date().toISOString();
   // New items first, then the old ones step aside, so a failure never leaves
   // the person with no story.
+  // a retry starts clean: the items a failed attempt of this run wrote go first
+  await d.remove(`story_items?user_id=eq.${userId}&run_id=eq.${runId}`);
   await d.insertQuiet('story_items', rows);
   await d.update(
     `story_items?user_id=eq.${userId}&state=eq.current&or=(run_id.is.null,run_id.neq.${runId})`,

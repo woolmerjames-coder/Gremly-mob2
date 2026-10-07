@@ -60,6 +60,7 @@ describe('what the story records', () => {
       insertQuiet: async (table, rows) => calls.push({ op: 'insert', table, rows }),
       upsert: async (table, rows, onConflict) =>
         calls.push({ op: 'upsert', table, rows, onConflict }),
+      remove: async (path) => calls.push({ op: 'remove', path }),
     });
     const out = await applyStory({}, 'u-1', output, refsSnapshot, {
       shadow: false,
@@ -84,5 +85,12 @@ describe('what the story records', () => {
       }
     }
     expect(out.applied.passages).toBe(items.length * 2);
+    // a retry starts clean: this run's items go before it writes them
+    const cleanAt = calls.findIndex(
+      (c) => c.op === 'remove' && c.path === 'story_items?user_id=eq.u-1&run_id=eq.run',
+    );
+    const insertAt = calls.findIndex((c) => c.op === 'insert' && c.table === 'story_items');
+    expect(cleanAt).toBeGreaterThan(-1);
+    expect(cleanAt).toBeLessThan(insertAt);
   });
 });

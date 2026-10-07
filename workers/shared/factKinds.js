@@ -6,7 +6,7 @@
  *
  * The reader gives each new fact a kind and a health flag, and the kind pass
  * (workers/inngest-jobs/context/kinds.js) gives one to every fact that has
- * none. supabase/migrations/20261008093000_fact_kinds_check.sql holds
+ * none. scripts/sql/fact_kinds_check.sql holds
  * life_facts.kind to this list once every fact has one.
  */
 

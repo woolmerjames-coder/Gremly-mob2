@@ -1,5 +1,8 @@
 -- Data fabric stage 2: hold life_facts.kind to the seven kinds.
 --
+-- Kept out of supabase/migrations on purpose: a push applies migrations in
+-- order, and this must wait for the deploy and the kind pass.
+--
 -- Run only after inngest-jobs with the kind pass is deployed and the one time
 -- pass (event app/kinds.give with no user) has given every fact a kind. Until
 -- then the old reader writes kinds of its own and this would refuse its facts.
@@ -12,6 +15,9 @@
 -- A fact may have no kind for a while: corrections add facts without one, and
 -- the next pass gives it.
 
+begin;
+set local lock_timeout = '10s';
+
 do $c$
 begin
   if not exists (select 1 from pg_constraint where conname = 'life_facts_kind_check'
@@ -22,3 +28,5 @@ begin
   end if;
 end $c$;
 alter table public.life_facts validate constraint life_facts_kind_check;
+
+commit;

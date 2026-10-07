@@ -96,8 +96,10 @@ export async function judgeKinds(env, facts) {
 export async function giveKinds(env, userId, { maxCalls = 6, shadow = false } = {}) {
   const d = db(env);
   const lacking = await d.select(
-    `life_facts?user_id=eq.${userId}&or=(kind.is.null,kind.not.in.(${FACT_KINDS.join(',')}),health.is.null)&select=id,statement&order=created_at.asc&limit=${KINDS_PER_CALL * maxCalls}`,
+    `life_facts?user_id=eq.${userId}&or=(kind.is.null,kind.not.in.(${FACT_KINDS.join(',')}),health.is.null)&select=id,statement,kind&order=created_at.asc&limit=${KINDS_PER_CALL * maxCalls}`,
   );
+  // a fact that already has a kind from the list keeps it: only its health flag is asked for
+  const hasKind = new Set(lacking.filter((f) => validKind(f.kind)).map((f) => f.id));
   const out = { lacking: lacking.length, given: 0, health: 0, left_out: 0, calls: 0, shadow };
   for (let i = 0; i < lacking.length; i += KINDS_PER_CALL) {
     const batch = lacking.slice(i, i + KINDS_PER_CALL);
@@ -112,7 +114,8 @@ export async function giveKinds(env, userId, { maxCalls = 6, shadow = false } = 
     }
     // one write for each kind, and one for each health answer
     const byKind = new Map();
-    for (const j of judged) byKind.set(j.kind, [...(byKind.get(j.kind) || []), j.id]);
+    for (const j of judged.filter((x) => !hasKind.has(x.id)))
+      byKind.set(j.kind, [...(byKind.get(j.kind) || []), j.id]);
     for (const [kind, ids] of byKind)
       await d.update(`life_facts?user_id=eq.${userId}&id=in.(${ids.join(',')})`, { kind });
     for (const flag of [true, false]) {
@@ -126,10 +129,16 @@ export async function giveKinds(env, userId, { maxCalls = 6, shadow = false } = 
   return out;
 }
 
-/** The people who have facts without a kind, for the one time pass over everyone. */
+/** The people who have facts without a kind, for the one time pass over everyone, a page at a time. */
 export async function usersLackingKinds(env) {
-  const rows = await db(env).select(
-    `life_facts?or=(kind.is.null,kind.not.in.(${FACT_KINDS.join(',')}),health.is.null)&select=user_id&limit=5000`,
-  );
-  return [...new Set(rows.map((r) => r.user_id))];
+  const d = db(env);
+  const users = new Set();
+  for (let offset = 0; ; offset += 1000) {
+    const rows = await d.select(
+      `life_facts?or=(kind.is.null,kind.not.in.(${FACT_KINDS.join(',')}),health.is.null)&select=user_id&order=user_id.asc&limit=1000&offset=${offset}`,
+    );
+    for (const r of rows) users.add(r.user_id);
+    if (rows.length < 1000) break;
+  }
+  return [...users];
 }

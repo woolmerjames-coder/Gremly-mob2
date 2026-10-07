@@ -780,7 +780,6 @@ export async function readTodayCalendar(env, g, tz, today) {
 // field that fails is dropped instead, so most days need one draft.
 const MUST_PASS = new Set(['headline', 'lead_what']);
 
-/** Generate, check, retry once if needed, assemble. Returns the DCO object and run notes. */
 /**
  * The day card's dated chips: the upcoming facts the model cited as genuinely
  * ahead, open ones only, within 30 days, at most eight, and a dated thing once:
@@ -810,6 +809,7 @@ export function upcomingAnchorFacts(anchorRefs, refs, facts, today) {
     .slice(0, 8);
 }
 
+/** Generate, check, retry once if needed, assemble. Returns the DCO object and run notes. */
 export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const tz = tzIn || (await userTimezone(env, userId));
   // their day: after midnight it is still yesterday until their day ends, the

@@ -121,6 +121,21 @@ describe('the kind pass', () => {
     ]);
   });
 
+  it('keeps a kind a fact already has from the list, and asks only for its health flag', async () => {
+    const { writes } = fakeDb([
+      { id: 'a', statement: 'Alex has a dentist appointment on Thursday.', kind: 'event' },
+    ]);
+    jsonCall.mockResolvedValue({
+      output: { facts: [{ ref: 'f1', kind: 'situation', health: true }] },
+      model: 'm',
+    });
+    await giveKinds({}, 'u-1');
+    expect(writes.some((w) => w.patch.kind)).toBe(false);
+    expect(writes).toEqual([
+      { path: 'life_facts?user_id=eq.u-1&id=in.(a)', patch: { health: true } },
+    ]);
+  });
+
   it('writes nothing in shadow, and says what it would have given', async () => {
     const { writes } = fakeDb();
     jsonCall.mockResolvedValue({

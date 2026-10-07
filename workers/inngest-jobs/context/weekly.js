@@ -897,8 +897,12 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         });
       }
       await d.update(`chapters?id=eq.${id}&owner_id=eq.${userId}`, patch);
-      // a chapter's words rest on the facts it cites
-      for (const field of ['title', 'card_subtitle', 'summary', 'epigraph'])
+      // a chapter's words rest on the facts it cites; a field it cleared rests on nothing
+      for (const field of ['title', 'card_subtitle', 'summary', 'epigraph']) {
+        if (field in patch && !patch[field])
+          await d.remove(
+            `passage_refs?user_id=eq.${userId}&row_table=eq.chapters&row_id=eq.${id}&field=eq.${field}`,
+          );
         if (patch[field])
           passages.push(
             passageRow({
@@ -913,9 +917,12 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
               at: nowIso,
             }),
           );
+      }
     }
   }
 
+  // a retry asks its questions once: open ones a failed attempt wrote go first
+  await d.remove(`gremly_questions?user_id=eq.${userId}&run_id=eq.${runId}&status=eq.open`);
   for (const q of output.questions || []) {
     if (!q.question) continue;
     const f = q.fact_ref ? refs.get(q.fact_ref) : null;

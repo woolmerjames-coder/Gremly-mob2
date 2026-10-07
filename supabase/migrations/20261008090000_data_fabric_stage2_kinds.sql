@@ -9,7 +9,7 @@
 -- 3. life_facts_now carries both new columns, at its end.
 --
 -- life_facts.kind is held to the seven kinds by
--- 20261008093000_fact_kinds_check.sql, which runs only once the new reader is
+-- scripts/sql/fact_kinds_check.sql, which runs only once the new reader is
 -- deployed and the kind pass has given every fact one.
 --
 -- All additive. Run it as one piece.

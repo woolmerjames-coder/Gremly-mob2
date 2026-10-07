@@ -148,7 +148,20 @@ describe('what the weekly pass records', () => {
       runId: 'run',
       today: '2026-10-08',
     });
-    const removeAt = calls.findIndex((c) => c.op === 'remove' && c.path.startsWith('passage_refs'));
+    const removeAt = calls.findIndex(
+      (c) =>
+        c.op === 'remove' &&
+        c.path.startsWith('passage_refs?user_id=eq.u-1&row_table=eq.user_life_map'),
+    );
+    // the epigraph it cleared no longer rests on anything
+    expect(
+      calls.some(
+        (c) =>
+          c.op === 'remove' &&
+          c.path ===
+            'passage_refs?user_id=eq.u-1&row_table=eq.chapters&row_id=eq.chapter-1&field=eq.epigraph',
+      ),
+    ).toBe(true);
     const upsertAt = calls.findIndex((c) => c.op === 'upsert' && c.table === 'passage_refs');
     expect(removeAt).toBeGreaterThan(-1);
     expect(calls[removeAt].path).toBe(
