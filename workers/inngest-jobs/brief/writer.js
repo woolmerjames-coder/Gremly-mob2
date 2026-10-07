@@ -16,7 +16,7 @@ import { jsonCall, modelFor } from '../context/llm';
 import { addDays } from '../context/db';
 import { SENTENCE_SCHEMA, STATED_RULES, runCheck, problemList } from '../../shared/check/index.js';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-08b';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-08c';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -469,7 +469,7 @@ ${CARE_RULES}
 
 WHAT YOU WRITE
 - ${LINE_RULES.line}
-- Every meeting, todo, habit or reach item a line names is cited in that line's refs, by the refs given in the input. Name nothing that is not in the input. Times come from the input as given; never work out or add up times or counts yourself.
+- Every meeting, todo, habit or reach item a line names is cited in that line's refs, by the refs given in the input. Name nothing that is not in the input. Times come from the input and from nowhere else; never work out or add up times or counts yourself.
 - Talk about todos and habits the way a person would say them in conversation, rather than pasting a title in as the subject of a sentence. Name a todo as the action itself, in the words a person would say out loud, never as an -ing word or a list of titles. Read each line back as speech: it must be grammatical and sound like something a friend would say aloud.
 - Say an occasion falls today (a birthday, an anniversary, a launch) only when the input gives that occasion's own date as today. A trip, plan, task or present named after an occasion does not date the occasion itself.
 - Mention a clash only when the input lists one still ahead.

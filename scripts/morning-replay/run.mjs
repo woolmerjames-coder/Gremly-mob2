@@ -8,6 +8,8 @@
  * Scored by code, never by wording:
  * - every number written in digits in what Gremly wrote is one it was given
  *   (an hour may be on either clock);
+ * - no time is written in the stated list's form, with a leading zero or an
+ *   hour past twelve: a sentence says it on the 12 hour clock;
  * - where the tree keeps what each line rests on, no line seen at a glance
  *   rests on a fact the day says never to show there;
  * - what the check sent back and left out, the cost and the time.
@@ -137,6 +139,9 @@ function givenNumbers(calls) {
 }
 
 const GLANCEABLE = /^(headline|day_shape|lead_what|lead_why_today|today_focus_\d+|reach_why)$/;
+// A time in the form the stated list uses, which a sentence never takes: an
+// hour with a leading zero, or past twelve, before a colon
+const LIST_CLOCK = /\b(0\d|1[3-9]|2[0-3]):[0-5]\d\b/g;
 
 function score(day, built, calls) {
   const lines = linesOf(built?.dco);
@@ -157,7 +162,10 @@ function score(day, built, calls) {
           shown.push({ field: k.key, id, why: 'never at a glance' });
     }
   }
-  return { invented, glanceable: kept ? shown : null };
+  const clock = [];
+  for (const [field, text] of Object.entries(lines))
+    for (const m of String(text).match(LIST_CLOCK) || []) clock.push({ field, time: m });
+  return { invented, glanceable: kept ? shown : null, clock };
 }
 
 async function runOne(day) {
@@ -211,13 +219,14 @@ console.log(`${label}: ${days.length} days, ${repeat} each`);
 const runs = await Promise.all(days.flatMap((d) => Array.from({ length: repeat }, () => runOne(d))));
 let clean = 0;
 for (const r of runs) {
-  const ok = !r.error && !r.score.invented.length && !(r.score.glanceable || []).length;
+  const ok = !r.error && !r.score.invented.length && !(r.score.glanceable || []).length && !r.score.clock.length;
   if (ok) clean++;
   console.log(
     `${ok ? 'ok  ' : 'FAIL'}  ${r.day} · ${r.ms}ms · ${r.cents} cents · ${r.calls} calls${r.check ? ` · checked ${r.check.checked}, sent back ${r.check.sent_back}, left out ${r.check.left_out}` : ` · ${r.flags.length} flagged, ${r.attempts} drafts`}`,
   );
   if (r.error) console.log(`      error: ${r.error.split('\n')[0]}`);
   for (const i of r.score.invented) console.log(`      a number it was not given: ${i.number} in ${i.field}`);
+  for (const c of r.score.clock) console.log(`      a time in the list's form: ${c.time} in ${c.field}`);
   for (const g of r.score.glanceable || []) console.log(`      ${g.field} rests on ${g.id} (${g.why})`);
   for (const [field, text] of Object.entries(r.lines)) console.log(`      ${field} | ${text}`);
   for (const f of r.flags) {

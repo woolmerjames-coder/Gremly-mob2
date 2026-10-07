@@ -52,7 +52,7 @@ export const SENTENCE_SCHEMA = {
 /** The rule every writer under the check carries. Semantic only. */
 export const STATED_RULES = `REFS AND WHAT EACH SENTENCE STATES
 - With every sentence, list in refs the records it rests on, by the refs given in the input. Refs go only in refs, never in the text.
-- List in stated every time, date, number and person the sentence states, each with the ref of the record that holds it: a time as HH:MM on a 24 hour clock, a date as YYYY-MM-DD, a number in digits, and a person by the name the sentence uses for them. A day named in words, whether relative or by name, is a date. A time or a number said in words is listed the same way, and so is a number that is part of a name or title the sentence uses. These forms are for the list only: the sentence itself says times and dates as a person would say them aloud.
+- List in stated every time, date, number and person the sentence states, each with the ref of the record that holds it: a time as HH:MM on a 24 hour clock, a date as YYYY-MM-DD, a number in digits, and a person by the name the sentence uses for them. A day named in words, whether relative or by name, is a date. A time or a number said in words is listed the same way, and so is a number that is part of a name or title the sentence uses. These forms are for the list only. In the sentence itself, a time is written as a person says it aloud, on the 12 hour clock, and a date as a person says it; neither is ever written in the list's form.
 - State nothing that no record holds. A sentence that rests on no record states nothing.`;
 
 const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;

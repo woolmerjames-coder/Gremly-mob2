@@ -49,7 +49,7 @@ import {
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { askableQuestions } from '../../shared/questionRules.js';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-08g';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-08h';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -930,7 +930,7 @@ const FIELD_RULES = {
   headline:
     'headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice. When little is known about today, name what is true: a quiet day or something genuinely ahead. The headline is only ever about today: it never mentions time away, a return or a welcome back, even for someone returning, because the welcome waits for the brief itself.',
   day_shape:
-    "day_shape: one sentence on how full the day is and when the clear stretches are, taken from TODAY'S SHAPE. Use its times as given and never count or add up entries yourself. When no calendar is connected, say only what is due or planned, never that the day is open, clear or free, and leave it empty when nothing is due or planned.",
+    "day_shape: one sentence on how full the day is and when the clear stretches are, taken from TODAY'S SHAPE. Take its times from it and from nowhere else, and never count or add up entries yourself. When no calendar is connected, say only what is due or planned, never that the day is open, clear or free, and leave it empty when nothing is due or planned.",
   lead: "lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, which is not always what fills the most time.",
   focus:
     'today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly.',

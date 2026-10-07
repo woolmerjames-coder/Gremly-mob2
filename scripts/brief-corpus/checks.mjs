@@ -8,6 +8,9 @@ const SENTENCE_END = /[.!?](\s|$)/g;
 const TIMES = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)|\b\d{1,2}:\d{2}\b/gi;
 const hasCount = (text) => /\d/.test(text.replace(TIMES, ''));
 const REF = /\b[ctdhpraswfmkebno]\d+\b/;
+// A time in the form the stated list uses, which the sentence never takes: an
+// hour with a leading zero, or past twelve, before a colon
+const LIST_CLOCK = /\b(0\d|1[3-9]|2[0-3]):[0-5]\d\b/;
 
 export function checkBrief(g, offer, out) {
   const results = [];
@@ -23,6 +26,8 @@ export function checkBrief(g, offer, out) {
   );
   const withRefs = texts.filter((t) => REF.test(t));
   add('fail', 'No refs in the text', withRefs.length === 0, withRefs.join(' | '));
+  const listClock = texts.filter((t) => LIST_CLOCK.test(t));
+  add('fail', 'Times said on the 12 hour clock', listClock.length === 0, listClock.join(' | '));
   add(
     'fail',
     'Every line passed the check',
