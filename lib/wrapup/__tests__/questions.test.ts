@@ -73,3 +73,21 @@ test('the kind of item a question is about', () => {
   expect(itemKindOf('notes')).toBe('note');
   expect(itemKindOf('life_facts')).toBeNull();
 });
+
+test('a question held until a later day waits until then', () => {
+  const open = [q('held', { hold_until: '2026-10-02' }), q('now')];
+  expect(pickQuestions(open, none).map((x) => x.id)).toEqual(['now']);
+  expect(pickQuestions(open, { ...none, day: '2026-10-02' }).map((x) => x.id)).toEqual([
+    'held',
+    'now',
+  ]);
+});
+
+test('the numbers are the ones every place that asks keeps to (workers/shared/questionRules.js)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const rules = require('../../../workers/shared/questionRules.js');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const wrap = require('../questions');
+  expect(wrap.MOST_QUESTIONS).toBe(rules.QUESTION_CAPS.wrap);
+  expect(wrap.ASKED_WAIT_DAYS).toBe(rules.ASKED_WAIT_DAYS);
+});

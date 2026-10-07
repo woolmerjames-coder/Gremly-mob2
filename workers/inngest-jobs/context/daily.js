@@ -47,6 +47,7 @@ import {
   problemWords,
 } from '../../shared/check/index.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
+import { askableQuestions } from '../../shared/questionRules.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-08g';
 
@@ -214,7 +215,7 @@ export async function gatherDay(env, userId, tz, today) {
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
     ),
     d.select(
-      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,choices,created_at,asked_at,fact:life_facts(private,health)&order=created_at.asc&limit=20`,
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,choices,created_at,asked_at,hold_until,fact:life_facts(private,health)&order=created_at.asc&limit=20`,
     ),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 5 }),
@@ -612,13 +613,11 @@ export function renderDay(g, tz) {
     );
   });
 
-  // Questions about private facts are for conversation, never the brief. A
-  // fact about health is private here too (careRules.js).
-  // A question put to them in the last three days (and skipped or left) waits
-  const askedSince = addDays(today, -3);
-  const qLines = g.questions
-    .filter((q) => !q.fact?.private && !q.fact?.health)
-    .filter((q) => !q.asked_at || q.asked_at.slice(0, 10) < askedSince)
+  // The questions the rules allow today (workers/shared/questionRules.js): none
+  // about a private fact, which is for conversation, or about health, which is
+  // private here too (careRules.js); none held until a later day; and one put
+  // to them in the last few days, and skipped or left, waits
+  const qLines = askableQuestions(g.questions, { day: today })
     .slice(0, 10)
     .map((q) => {
       const ref = addRef('q', {
