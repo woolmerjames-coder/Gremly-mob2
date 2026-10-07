@@ -951,6 +951,37 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
     }
   }, [visible, currentEntityId, mode]);
 
+  // The draft is a snapshot from when the overlay opened. When the item
+  // changes in the store after that (Gremly adds to its notes from the item's
+  // chat, which sits on top of this overlay), the draft takes what changed and
+  // keeps what the person has edited (draftRefresh.ts).
+  //
+  // The store is listened to directly, so that what the overlay is doing is
+  // known at the moment of each change. Its own Save writes the draft to the
+  // store, and takes it back if the save fails: neither is news to the draft,
+  // and treating the failed save's way back as news would undo their edits.
+  useEffect(() => {
+    if (!visible || !currentEntityId || mode === 'create') return;
+    const find = (s: ReturnType<typeof useGremlyStore.getState>): Record<string, any> | undefined =>
+      s.todos.find((t) => t.id === currentEntityId) ??
+      s.notes.find((n) => n.id === currentEntityId) ??
+      s.habits.find((h) => h.id === currentEntityId);
+    // the first sight of the item is what the overlay opened on: nothing to bring in
+    let seen = find(useGremlyStore.getState());
+    return useGremlyStore.subscribe((s) => {
+      const now = find(s);
+      if (now === seen) return;
+      const before = seen;
+      seen = now;
+      if (!before || !now || useOverlayDraft.getState().ui.saving) return;
+      useOverlayDraft.getState().refreshFromItem({
+        before,
+        after: now,
+        hydrate: (entity) => hydrateEntityToDraft(entity, mode as any, initialSpaceId),
+      });
+    });
+  }, [visible, currentEntityId, mode, initialSpaceId]);
+
   // Track if we started in view mode so we can show a back button
   const startedInViewMode = mode === 'view';
 
