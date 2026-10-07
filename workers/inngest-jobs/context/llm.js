@@ -13,8 +13,9 @@
 export const MODELS = {
   reader: { provider: 'openai', model: 'gpt-6-luna' },
   readerFallback: { provider: 'google', model: 'gemini-3.8-flash' },
-  daily: { provider: 'google', model: 'gemini-3.8-flash' },
-  dailyFallback: { provider: 'openai', model: 'gpt-6-luna' },
+  // the daily picture (daily.js): Luna, chosen on the morning replay (scripts/morning-replay)
+  daily: { provider: 'openai', model: 'gpt-6-luna' },
+  dailyFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   // the check's one question about each sentence (workers/shared/check/words.js)
   check: { provider: 'openai', model: 'gpt-6-luna' },
   checkFallback: { provider: 'google', model: 'gemini-3.8-flash' },
