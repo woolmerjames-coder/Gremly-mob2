@@ -17,8 +17,12 @@
  *   the people he found in their life, and every tie to them
  *
  * Reading starts again from now, so what is forgotten is not read back in.
+ * A marker in events says when (context.forgotten): what came before it is
+ * never read again, so it carries no private mark, and the words seen at a
+ * glance leave it out (inngest-jobs context/filed.js).
  */
 import { db } from '../../shared/db.js';
+import { FORGOTTEN_KIND } from '../../shared/forgotten.js';
 import { invalidateChatCache } from '../../shared/chatCache.js';
 
 const NOT_THEIRS = (col) => `or=(${col}.is.null,${col}.neq.user)`;
@@ -30,6 +34,11 @@ export async function forgetPerson(env, userId) {
   const o = `owner_id=eq.${userId}`;
   const count = (rows) => (Array.isArray(rows) ? rows.length : 0);
   const out = {};
+  // Said first, so a forget that stops part way still keeps older items off
+  // the words seen at a glance; a forget that cannot say it does not start
+  await d.insert('events', [
+    { owner_id: userId, kind: FORGOTTEN_KIND, payload_json: { by: 'forget_everything' } },
+  ]);
   // Facts first: where each came from and how it changed go with them (on delete cascade)
   out.facts = count(await d.remove(`life_facts?${u}&select=id`));
   out.story = count(await d.remove(`story_items?${u}&select=id`));

@@ -3,9 +3,10 @@
  *
  * What is filed in a World or a Chapter (context/filed.js, data fabric stage
  * 4b): an item is marked private or about health from every fact the reader
- * took from it, not only the facts a writer is given.
+ * took from it, not only the facts a writer is given, and says whether the
+ * reader has read it at all.
  */
-import { markItems, readItemMarks, loadFiled } from '../filed.js';
+import { markItems, readItemMarks, readItemSources, itemRead, loadFiled } from '../filed.js';
 import { db } from '../db.js';
 
 jest.mock('../db.js', () => ({ db: jest.fn() }));
@@ -76,10 +77,59 @@ describe('marking items', () => {
     expect(read).not.toMatch(/state=/);
   });
 
+  it('reads every place a fact was taken from, a page at a time, so none is cut off', async () => {
+    const page = (n, from) =>
+      Array.from({ length: n }, (_, i) => ({
+        fact_id: `f-${from + i}`,
+        source_table: 'todos',
+        source_id: T1,
+      }));
+    const d = fakeD([
+      [
+        'life_fact_sources?',
+        (path) => (/offset=0(&|$)/.test(path) ? page(1000, 0) : page(3, 1000)),
+      ],
+      [
+        'life_facts?',
+        (path) => (path.includes('f-1002') ? [{ id: 'f-1002', private: true, health: false }] : []),
+      ],
+    ]);
+    const { marks, sourced } = await readItemSources(d, U, [{ type: 'todo', id: T1 }]);
+    expect(d.calls.filter((c) => c.startsWith('life_fact_sources?'))).toHaveLength(2);
+    expect(marks.get(`todos:${T1}`)).toEqual({ private: true, health: false });
+    expect(sourced.has(`todos:${T1}`)).toBe(true);
+  });
+
   it('asks nothing for no items', async () => {
     const d = fakeD([]);
     expect((await readItemMarks(d, U, [])).size).toBe(0);
     expect(d.calls).toEqual([]);
+  });
+});
+
+describe('whether the reader has read an item', () => {
+  const reading = {
+    readThrough: '2026-10-07T12:00:00Z',
+    forgotAt: null,
+    sourced: new Set(),
+  };
+  const todo = (changed_at) => ({ type: 'todo', id: T1, changed_at });
+
+  it('has, when it last changed at or before the reader’s cursor', () => {
+    expect(itemRead(todo('2026-10-07T11:00:00Z'), reading)).toBe(true);
+    expect(itemRead(todo('2026-10-07T12:00:00Z'), reading)).toBe(true);
+    expect(itemRead(todo('2026-10-07T12:30:00Z'), reading)).toBe(false);
+    expect(itemRead(todo(null), reading)).toBe(false);
+    expect(itemRead(todo('2026-10-07T11:00:00Z'), { ...reading, readThrough: null })).toBe(false);
+  });
+
+  it('has not, for what came before Forget Everything, unless facts were taken from it since', () => {
+    const forgot = { ...reading, forgotAt: '2026-10-06T00:00:00Z' };
+    expect(itemRead(todo('2026-10-05T09:00:00Z'), forgot)).toBe(false);
+    expect(itemRead(todo('2026-10-06T09:00:00Z'), forgot)).toBe(true);
+    expect(
+      itemRead(todo('2026-10-05T09:00:00Z'), { ...forgot, sourced: new Set([`todos:${T1}`]) }),
+    ).toBe(true);
   });
 });
 
@@ -104,12 +154,49 @@ describe('what is filed', () => {
       ['life_facts_now?', []],
       ['life_fact_sources?', [{ fact_id: FA, source_table: 'todos', source_id: T1 }]],
       ['life_facts?', [{ id: FA, private: false, health: true }]],
+      ['ledger_cursor?', [{ read_through: '2026-10-07T00:00:00Z' }]],
+      ['events?', []],
     ]);
     db.mockReturnValue(d);
     const got = await loadFiled({}, U, { table: 'worlds', id: 'w-1' });
     expect(got.items).toEqual([
-      expect.objectContaining({ id: T1, health: true, private: false, placed: false }),
-      expect.objectContaining({ id: T2, health: false, private: false, placed: true }),
+      expect.objectContaining({ id: T1, health: true, private: false, placed: false, read: true }),
+      expect.objectContaining({ id: T2, health: false, private: false, placed: true, read: true }),
     ]);
+  });
+
+  it('says an item changed since the reader last read, or from before a Forget, is not read', async () => {
+    const d = fakeD([
+      [
+        'drop_world_links?',
+        [
+          { drop_id: T1, drop_type: 'todo', assigned_by: 'classifier' },
+          { drop_id: T2, drop_type: 'todo', assigned_by: 'classifier' },
+        ],
+      ],
+      [
+        'todos?',
+        [
+          // changed after the reader's cursor
+          {
+            id: T1,
+            name: 'New todo',
+            created_at: '2026-10-07T09:00:00Z',
+            updated_at: '2026-10-07T13:00:00Z',
+          },
+          // from before the person asked Gremly to forget
+          { id: T2, name: 'Old todo', created_at: '2026-09-01T09:00:00Z' },
+        ],
+      ],
+      ['ledger_cursor?', [{ read_through: '2026-10-07T12:00:00Z' }]],
+      ['events?', [{ created_at: '2026-10-01T00:00:00Z' }]],
+    ]);
+    db.mockReturnValue(d);
+    const got = await loadFiled({}, U, { table: 'worlds', id: 'w-1' });
+    expect(got.items.map((i) => [i.id, i.read])).toEqual([
+      [T1, false],
+      [T2, false],
+    ]);
+    expect(d.calls.find((c) => c.startsWith('events?'))).toContain('kind=eq.context.forgotten');
   });
 });

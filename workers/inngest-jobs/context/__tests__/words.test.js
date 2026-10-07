@@ -171,6 +171,15 @@ describe('what may be seen at a glance', () => {
     expect(flat).not.toContain(P2);
   });
 
+  it('leaves out an item the reader has not read, as whether it is private is not known', () => {
+    const got = glanceRecords({
+      items: [{ ...items[0], read: false }, { ...items[0], id: 'read', read: true }, items[0]],
+      facts: [],
+      peopleOf: new Map(),
+    });
+    expect(got.items.map((i) => i.id)).toEqual(['read', T1]);
+  });
+
   it('leaves out an item marked private as well as one about health', () => {
     const got = glanceRecords({
       items: [{ ...items[0], private: true }],
@@ -278,7 +287,7 @@ describe('writing the words', () => {
         filed: { items: [items[1]], facts: [facts[1]], peopleOf: new Map() },
       },
     );
-    expect(r).toMatchObject({ outcome: 'empty', skipped: 'only private', text: null });
+    expect(r).toMatchObject({ outcome: 'empty', skipped: 'only private or unread', text: null });
     expect(jsonCall).not.toHaveBeenCalled();
   });
 
@@ -426,6 +435,8 @@ describe('a person’s words', () => {
       'todos?owner_id': [
         { id: T1, name: 'Book the long run route', created_at: '2026-10-05T09:00:00Z' },
       ],
+      // the reader has read it
+      'ledger_cursor?user_id': [{ read_through: '2026-10-07T00:00:00Z' }],
     });
     jsonCall.mockImplementation(async (env, req) => {
       if (req.schema === WORDS_SCHEMA)

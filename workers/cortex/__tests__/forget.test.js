@@ -24,6 +24,10 @@ function fakeDb() {
       calls.push({ op: 'upsert', table, rows });
       return rows;
     },
+    insert: async (table, rows) => {
+      calls.push({ op: 'insert', table, rows });
+      return rows;
+    },
   });
   return calls;
 }
@@ -51,7 +55,7 @@ describe('Forget Everything', () => {
         'life_people',
       ]),
     );
-    for (const c of calls.filter((x) => x.op !== 'upsert'))
+    for (const c of calls.filter((x) => x.op !== 'upsert' && x.op !== 'insert'))
       expect(c.path).toMatch(/(user_id|owner_id)=eq\.u-1/);
     const profile = calls.find((c) => c.op === 'update' && c.path.startsWith('user_profiles'));
     expect(profile.patch).toEqual({
@@ -94,6 +98,18 @@ describe('Forget Everything', () => {
     const cursor = calls.find((c) => c.op === 'upsert' && c.table === 'ledger_cursor');
     expect(cursor.rows[0].user_id).toBe('u-1');
     expect(cursor.rows[0].read_through).toBe(cursor.rows[0].backfilled_at);
+  });
+
+  it('first says when it forgot, so what came before is kept off the words seen at a glance', async () => {
+    const calls = fakeDb();
+    await forgetPerson({}, 'u-1');
+    expect(calls[0]).toEqual({
+      op: 'insert',
+      table: 'events',
+      rows: [
+        { owner_id: 'u-1', kind: 'context.forgotten', payload_json: { by: 'forget_everything' } },
+      ],
+    });
   });
 
   it('needs a person', async () => {

@@ -7,11 +7,18 @@
  * Code reads rows by ids and dates and marks what is private. It never reads
  * the person's words to decide anything. An item is private here when any
  * fact the reader took from it, in any state and however old, is private or
- * about health: items carry no mark of their own yet. An item the reader has
- * not read yet carries no mark.
+ * about health: items carry no mark of their own yet.
+ *
+ * An item the reader has not read carries no mark, so whether it is private
+ * is not known. Each item says whether it has been read (read): it has, when
+ * it last changed before the reader's cursor, and after the person's last
+ * Forget Everything unless facts were taken from it since. Forget Everything
+ * leaves a marker for this (FORGOTTEN_KIND), as reading starts again from
+ * then and what came before is never read back in.
  */
 
 import { db } from './db';
+import { FORGOTTEN_KIND } from '../../shared/forgotten.js';
 
 /** The table each kind of filed item lives in. */
 export const ITEM_TABLE = Object.freeze({ note: 'notes', todo: 'todos', habit: 'habits' });
@@ -38,15 +45,30 @@ export function itemOf(type, r) {
     // a note keeps the day it is about; anything else, the day it was made
     date: (type === 'note' && day(r.date || r.target_date)) || day(r.created_at),
     created_at: r.created_at || null,
+    // when it last changed, for whether the reader has read it as it is
+    changed_at: r.updated_at || r.created_at || null,
     done: type === 'todo' ? day(r.completed_at) : null,
   };
 }
 
 const COLUMNS = {
-  note: 'id,title,body,subtype,date,target_date,created_at',
-  todo: 'id,name,title,body,notes,created_at,completed_at',
-  habit: 'id,name,title,notes,subtype,created_at',
+  note: 'id,title,body,subtype,date,target_date,created_at,updated_at',
+  todo: 'id,name,title,body,notes,created_at,updated_at,completed_at',
+  habit: 'id,name,title,notes,subtype,created_at,updated_at',
 };
+
+/** Rows a page of a select holds at most (the API's own ceiling). */
+const PAGE = 1000;
+
+/** Every row of a select, a page at a time: the API stops at a page without saying so. */
+async function selectAll(d, path) {
+  const out = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const rows = (await d.select(`${path}&limit=${PAGE}&offset=${offset}`)) || [];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
 
 /** The items with these links, read by type and id; archived ones are left out. */
 export async function readItems(d, userId, links) {
@@ -145,12 +167,12 @@ export async function readFactPeople(d, userId, facts) {
 const markKey = (table, id) => `${table}:${id}`;
 
 /**
- * Which of these items any fact the reader took from them marks private or
- * about health: every fact, in every state, from every place it was taken
- * (life_fact_sources), not only the facts a writer is given.
- * @returns Map of 'table:id' to { private, health }, holding only marked items
+ * What the reader took from these items: which any fact marks private or
+ * about health (every fact, in every state, from every place it was taken,
+ * not only the facts a writer is given), and which it took any fact from.
+ * @returns {{ marks: Map<'table:id', {private, health}>, sourced: Set<'table:id'> }}
  */
-export async function readItemMarks(d, userId, items) {
+export async function readItemSources(d, userId, items) {
   const byTable = new Map();
   for (const it of items || []) {
     const t = ITEM_TABLE[it.type];
@@ -163,11 +185,13 @@ export async function readItemMarks(d, userId, items) {
     const ids = [...set];
     for (let i = 0; i < ids.length; i += 100)
       sources.push(
-        ...((await d.select(
-          `life_fact_sources?user_id=eq.${userId}&source_table=eq.${table}&source_id=in.(${ids.slice(i, i + 100).join(',')})&select=fact_id,source_table,source_id`,
-        )) || []),
+        ...(await selectAll(
+          d,
+          `life_fact_sources?user_id=eq.${userId}&source_table=eq.${table}&source_id=in.(${ids.slice(i, i + 100).join(',')})&select=fact_id,source_table,source_id&order=id.asc`,
+        )),
       );
   }
+  const sourced = new Set(sources.map((x) => markKey(x.source_table, x.source_id)));
   const factIds = [...new Set(sources.map((s) => s.fact_id))];
   const flagged = new Map();
   for (let i = 0; i < factIds.length; i += 100)
@@ -183,7 +207,40 @@ export async function readItemMarks(d, userId, items) {
     const was = marks.get(k) || { private: false, health: false };
     marks.set(k, { private: was.private || !!f.private, health: was.health || !!f.health });
   }
-  return marks;
+  return { marks, sourced };
+}
+
+/** Which of these items any fact the reader took from them marks private or about health. */
+export async function readItemMarks(d, userId, items) {
+  return (await readItemSources(d, userId, items)).marks;
+}
+
+/** How far the reader has read for a person, and when they last asked Gremly to forget. */
+export async function readReading(d, userId) {
+  const [cursor, forgot] = await Promise.all([
+    d.select(`ledger_cursor?user_id=eq.${userId}&select=read_through`),
+    d.select(
+      `events?owner_id=eq.${userId}&kind=eq.${FORGOTTEN_KIND}&select=created_at&order=created_at.desc&limit=1`,
+    ),
+  ]);
+  return {
+    readThrough: cursor?.[0]?.read_through || null,
+    forgotAt: forgot?.[0]?.created_at || null,
+  };
+}
+
+/**
+ * Whether the reader has read an item as it is now. Pure. It has when it last
+ * changed at or before the reader's cursor, and, when the person has asked
+ * Gremly to forget, after that unless facts were taken from it since (what
+ * came before a Forget is never read back in).
+ */
+export function itemRead(it, { readThrough, forgotAt, sourced }) {
+  const at = it.changed_at ? Date.parse(it.changed_at) : NaN;
+  if (!readThrough || Number.isNaN(at) || at > Date.parse(readThrough)) return false;
+  if (forgotAt && at <= Date.parse(forgotAt) && !sourced.has(markKey(ITEM_TABLE[it.type], it.id)))
+    return false;
+  return true;
 }
 
 /**
@@ -231,10 +288,18 @@ export async function loadFiled(env, userId, target, { items: most = 40 } = {}) 
   const items = read
     .slice(0, most)
     .map((it) => ({ ...it, placed: placed.has(`${it.type}:${it.id}`) }));
-  const [facts, marks] = await Promise.all([
+  const [facts, { marks, sourced }, reading] = await Promise.all([
     readFacts(d, userId, items, { worldId: target.table === 'worlds' ? target.id : null }),
-    readItemMarks(d, userId, items),
+    readItemSources(d, userId, items),
+    readReading(d, userId),
   ]);
   const peopleOf = await readFactPeople(d, userId, facts);
-  return { items: markItems(items, facts, marks), facts, peopleOf };
+  return {
+    items: markItems(items, facts, marks).map((it) => ({
+      ...it,
+      read: itemRead(it, { ...reading, sourced }),
+    })),
+    facts,
+    peopleOf,
+  };
 }

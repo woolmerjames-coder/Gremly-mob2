@@ -14,6 +14,7 @@ import {
   handleFirstWorldsApi,
   firstWorldsEvents,
   holdsWorlds,
+  livePhases,
   FIRST_WORLDS_SOURCE,
   MADE_KIND,
   TRIED_KIND,
@@ -56,17 +57,28 @@ describe('when first Worlds are due', () => {
     });
   });
 
-  it('counts a person as holding Worlds unless every one is dormant with nothing filed', () => {
-    expect(holdsWorlds([])).toBe(false);
-    expect(holdsWorlds([{ id: 'a', phase: 'dormant' }])).toBe(false);
-    expect(holdsWorlds([{ id: 'a', phase: 'dormant' }], new Set(['a']))).toBe(true);
-    expect(holdsWorlds([{ id: 'a', phase: 'archived' }])).toBe(true);
-    expect(holdsWorlds([{ id: 'a', phase: 'candidate' }])).toBe(true);
+  it('counts a World a drop can be filed into, one put away by hand, or one with something filed', () => {
+    const keep = livePhases({});
+    const stop = livePhases({ WORLDS_OLD_FIELDS: 'stop' });
+    expect(keep).toEqual(['candidate', 'active', 'evolving']);
+    expect(stop).toEqual(['active']);
+    expect(holdsWorlds([], keep)).toBe(false);
+    expect(holdsWorlds([{ id: 'a', phase: 'dormant' }], keep)).toBe(false);
+    expect(holdsWorlds([{ id: 'a', phase: 'dormant' }], keep, new Set(['a']))).toBe(true);
+    expect(holdsWorlds([{ id: 'a', phase: 'archived' }], keep)).toBe(true);
+    expect(holdsWorlds([{ id: 'a', phase: 'archived' }], stop)).toBe(true);
+    expect(holdsWorlds([{ id: 'a', phase: 'candidate' }], keep)).toBe(true);
+    // once the old fields stop, nothing is filed into a suggestion
+    expect(holdsWorlds([{ id: 'a', phase: 'candidate' }], stop)).toBe(false);
+    expect(holdsWorlds([{ id: 'a', phase: 'candidate' }], stop, new Set(['a']))).toBe(true);
     expect(
-      holdsWorlds([
-        { id: 'a', phase: 'dormant' },
-        { id: 'b', phase: 'active' },
-      ]),
+      holdsWorlds(
+        [
+          { id: 'a', phase: 'dormant' },
+          { id: 'b', phase: 'active' },
+        ],
+        stop,
+      ),
     ).toBe(true);
   });
 
@@ -329,6 +341,21 @@ describe('making them', () => {
       ],
     });
     expect((await firstWorldsEvents({})).map((e) => e.id)).toEqual(['first-worlds-u-1-5']);
+  });
+
+  it('gives them, once the old fields stop, to someone whose only World is a suggestion with nothing filed', async () => {
+    fakeDb({
+      todos: fiveTodos,
+      worlds: [
+        { id: 'w-suggested', owner_id: 'u-1', phase: 'candidate' },
+        { id: 'w-live', owner_id: 'u-2', phase: 'candidate' },
+      ],
+    });
+    expect((await firstWorldsEvents({ WORLDS_OLD_FIELDS: 'stop' })).map((e) => e.id)).toEqual([
+      'first-worlds-u-1-5',
+      'first-worlds-u-2-5',
+    ]);
+    expect(await firstWorldsEvents({})).toEqual([]);
   });
 
   it('does not give them to someone with a dormant World that has something filed', async () => {

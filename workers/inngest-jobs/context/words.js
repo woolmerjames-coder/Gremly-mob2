@@ -9,8 +9,9 @@
  * at a glance.
  *
  * Nothing private or about health is given to it at all (glanceRecords): an
- * item, a fact, or a person known only from those. A World that holds only
- * such things gets no words. Every line goes through the check
+ * item, a fact, or a person known only from those. Nor is an item the reader
+ * has not read, as whether it is private is not known yet (context/filed.js).
+ * A World that holds only such things gets no words. Every line goes through the check
  * (workers/shared/check) as a line seen at a glance: it must rest on
  * something it names, and never on anything private or about health. A line
  * that fails goes back once; one that fails again is left out, and the field
@@ -299,15 +300,20 @@ export async function wordsTargets(env, userId, named = null) {
 
 /**
  * What the words writer may be given: what is filed, without anything private
- * or about health. The facts' people come only from the facts kept, so someone
- * known only from private facts is not given either. Pure.
+ * or about health, and without an item the reader has not read (read false).
+ * The facts' people come only from the facts kept, so someone known only from
+ * private facts is not given either. Pure.
  */
 export function glanceRecords({ items, facts, peopleOf }) {
   const open = (x) => !x.private && !x.health;
   const kept = facts.filter(open);
   const people = new Map();
   for (const f of kept) if (peopleOf?.has(f.id)) people.set(f.id, peopleOf.get(f.id));
-  return { items: items.filter(open), facts: kept, peopleOf: people };
+  return {
+    items: items.filter((it) => open(it) && it.read !== false),
+    facts: kept,
+    peopleOf: people,
+  };
 }
 
 /**
@@ -321,7 +327,7 @@ export async function writeLine(env, { userId, person, target, today, filed = nu
     return { outcome: 'empty', text: null, refs: [], ids: [], skipped: 'nothing filed' };
   const got = glanceRecords(all);
   if (!got.items.length && !got.facts.length)
-    return { outcome: 'empty', text: null, refs: [], ids: [], skipped: 'only private' };
+    return { outcome: 'empty', text: null, refs: [], ids: [], skipped: 'only private or unread' };
   const { text, refs, records } = renderWords({
     kind: target.kind,
     target: target.row,

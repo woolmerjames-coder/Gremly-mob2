@@ -3,8 +3,9 @@
  * them without asking. It is the one time Gremly makes something without a
  * tap (James's rule 4).
  *
- * Code decides when (firstWorldsDue): an active person with no Worlds to file
- * into (one whose Worlds are all dormant or archived has none), who has
+ * Code decides when (firstWorldsDue): an active person who holds no Worlds
+ * (holdsWorlds: none a drop can be filed into, none they put away by hand,
+ * and none with anything filed in it), who has
  * dropped something, once they have 5 drops or reach their third day,
  * whichever comes first. Their first day is the day of their first drop. The
  * same holds for a returning person with none, who is past their third day.
@@ -26,6 +27,7 @@ import { db, userTimezone, localDate, daysBetween, weekdayName, personIdentity }
 import { jsonCall, modelFor } from './llm';
 import { itemOf, readFacts, readFactPeople, readItemMarks, markItems } from './filed';
 import { stateWords } from '../../shared/factTiming.js';
+import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 import { GREMLY_CATALOG, GREMLY_SLUGS, PLAIN_GREMLY } from '../../shared/gremlys.js';
 
 export const FIRST_WORLDS_VERSION = 'first-worlds-2026-10-07c';
@@ -78,50 +80,63 @@ export function isNewTo(s) {
 }
 
 /**
- * Whether a person holds Worlds, from their Worlds' phases and which of their
- * dormant Worlds have anything filed in them. Pure. A World in any phase but
- * dormant counts, archived ones too: someone who put their Worlds away by
- * hand made that choice, and is not given new ones. A dormant World counts
- * when something is filed in it. Only dormant Worlds with nothing filed count
- * as none, as Gremly made those and never used them.
- * @param worlds [{ id, phase }]
- * @param filedIn Set of the ids of dormant Worlds with something filed
+ * The phases of a World a drop can be filed into (context/filing.js loadGraph).
  */
-export function holdsWorlds(worlds, filedIn = new Set()) {
-  return (worlds || []).some((w) => w.phase !== 'dormant' || filedIn.has(w.id));
+export function livePhases(env) {
+  return oldWorldsFieldsStopped(env) ? ['active'] : ['candidate', 'active', 'evolving'];
+}
+
+/**
+ * Whether one World means its owner holds Worlds. Pure. It does when a drop
+ * can be filed into it; when the person put it away by hand (archived), as
+ * that was their choice and they are not given new ones; or when something is
+ * filed in it. A World Gremly made that holds nothing and that nothing can be
+ * filed into (a dormant one, or a suggestion once the old fields stop) does
+ * not.
+ * @param w { id, phase }
+ * @param live the phases a drop can be filed into (livePhases)
+ * @param filedIn Set of the ids of Worlds with something filed
+ */
+export function countsAsWorld(w, live, filedIn = new Set()) {
+  return live.includes(w.phase) || w.phase === 'archived' || filedIn.has(w.id);
+}
+
+/** Whether a person holds Worlds (countsAsWorld for any of theirs). Pure. */
+export function holdsWorlds(worlds, live, filedIn = new Set()) {
+  return (worlds || []).some((w) => countsAsWorld(w, live, filedIn));
 }
 
 /**
  * The people among these who hold Worlds (holdsWorlds), read in a few queries.
  * @returns Set of owner ids
  */
-export async function ownersWithWorlds(d, ownerIds) {
+export async function ownersWithWorlds(env, d, ownerIds) {
+  const live = livePhases(env);
+  const byOwner = new Map();
+  for (let i = 0; i < ownerIds.length; i += 100)
+    for (const w of (await d.select(
+      `worlds?owner_id=in.(${ownerIds.slice(i, i + 100).join(',')})&select=id,owner_id,phase`,
+    )) || [])
+      byOwner.set(w.owner_id, [...(byOwner.get(w.owner_id) || []), w]);
   const held = new Set();
-  const dormant = [];
-  for (let i = 0; i < ownerIds.length; i += 100) {
-    const rows =
-      (await d.select(
-        `worlds?owner_id=in.(${ownerIds.slice(i, i + 100).join(',')})&select=id,owner_id,phase`,
-      )) || [];
-    for (const w of rows) {
-      if (w.phase !== 'dormant') held.add(w.owner_id);
-      else dormant.push(w);
-    }
+  const unsure = [];
+  for (const [owner, worlds] of byOwner) {
+    if (holdsWorlds(worlds, live)) held.add(owner);
+    else unsure.push(...worlds);
   }
-  const unsure = dormant.filter((w) => !held.has(w.owner_id));
-  const filed = await Promise.all(
-    unsure.map(
-      async (w) =>
-        (
-          (await d.select(
-            `drop_world_links?owner_id=eq.${w.owner_id}&world_id=eq.${w.id}&select=world_id&limit=1`,
-          )) || []
-        ).length > 0,
-    ),
+  // only for those whose Worlds all fall short: is anything filed in one?
+  const filedIn = new Set();
+  await Promise.all(
+    unsure.map(async (w) => {
+      const [link] =
+        (await d.select(
+          `drop_world_links?owner_id=eq.${w.owner_id}&world_id=eq.${w.id}&select=world_id&limit=1`,
+        )) || [];
+      if (link) filedIn.add(w.id);
+    }),
   );
-  unsure.forEach((w, i) => {
-    if (filed[i]) held.add(w.owner_id);
-  });
+  for (const [owner, worlds] of byOwner)
+    if (!held.has(owner) && holdsWorlds(worlds, live, filedIn)) held.add(owner);
   return held;
 }
 
@@ -148,7 +163,7 @@ export async function firstWorldsStats(env, userId, { tz = null, at = new Date()
   const d = db(env);
   const zone = tz || (await userTimezone(env, userId));
   const [held, marks, ...drops] = await Promise.all([
-    ownersWithWorlds(d, [userId]),
+    ownersWithWorlds(env, d, [userId]),
     d.select(
       `events?owner_id=eq.${userId}&kind=in.(${MADE_KIND},${TRIED_KIND})&select=kind,payload_json,created_at&order=created_at.desc&limit=20`,
     ),
@@ -180,6 +195,7 @@ export async function firstWorldsEvents(env, at = new Date()) {
   const people = (await d.rpc('get_active_people', { active_days: 30 })) || [];
   if (!people.length) return [];
   const withWorlds = await ownersWithWorlds(
+    env,
     d,
     people.map((p) => p.user_id),
   );
@@ -491,7 +507,7 @@ export async function makeFirstWorlds(env, userId, { dryRun = false } = {}) {
   if (dryRun) return { made: [], proposed, stats, problems: proposed.problems };
 
   // they may have made one by hand while the model was asked
-  if ((await ownersWithWorlds(d, [userId])).has(userId))
+  if ((await ownersWithWorlds(env, d, [userId])).has(userId))
     return { made: [], skipped: 'they have Worlds', problems: proposed.problems };
 
   const now = new Date().toISOString();
