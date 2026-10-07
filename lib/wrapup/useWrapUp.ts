@@ -1492,6 +1492,17 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             });
             if (ok) movedTo[h.id] = day;
           }
+          // A break habit not held tonight is kept with the day, apart from
+          // habit_progress, which every reader counts as done
+          const notHeld = Object.keys(held).filter((id) => held[id] === 'not');
+          const ownerId = store().userId;
+          if (notHeld.length && ownerId) {
+            const { error } = await supabase.from('habit_not_held' as any).upsert(
+              notHeld.map((habit_id) => ({ owner_id: ownerId, habit_id, day: card.date })),
+              { onConflict: 'owner_id,habit_id,day', ignoreDuplicates: true },
+            );
+            if (error) console.warn('[WrapUp] could not record a habit not held:', error);
+          }
           await patch(message.id, {
             status: 'saved',
             done: built,

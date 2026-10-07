@@ -54,8 +54,14 @@ jest.mock('../../story/storyApi', () => ({
   markQuestionAsked: (...a: unknown[]) => mockAsked(...a),
 }));
 const mockInsert = jest.fn();
+const mockUpsert = jest.fn();
 jest.mock('../../supabase/client', () => ({
-  supabase: { from: (table: string) => ({ insert: (row: unknown) => mockInsert(table, row) }) },
+  supabase: {
+    from: (table: string) => ({
+      insert: (row: unknown) => mockInsert(table, row),
+      upsert: (rows: unknown, opts: unknown) => mockUpsert(table, rows, opts),
+    }),
+  },
 }));
 const mockCompleted = jest.fn();
 jest.mock('../../sweep/engine', () => ({
@@ -252,6 +258,7 @@ beforeEach(() => {
   mockWrapWords.mockResolvedValue(null);
   mockCompleted.mockResolvedValue({ streak: 5 });
   mockInsert.mockResolvedValue({ error: null });
+  mockUpsert.mockResolvedValue({ error: null });
   mockFetchQuestions.mockResolvedValue([]);
   mockFetchCheckIns.mockResolvedValue([]);
   mockAnswerCheckIn.mockResolvedValue(true);
@@ -624,6 +631,17 @@ describe('the wrap up: habits', () => {
     expect(t.messages.map((m) => m.content)).toContain(
       'No worries about No coffee, tomorrow is a fresh one.',
     );
+  });
+
+  it('keeps a habit that did not hold with the day, apart from the habits done', async () => {
+    const t = await clearNight();
+    await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), [], { h3: 'not' }));
+    expect(mockUpsert).toHaveBeenCalledWith(
+      'habit_not_held',
+      [{ owner_id: 'u1', habit_id: 'h3', day: DAY }],
+      { onConflict: 'owner_id,habit_id,day', ignoreDuplicates: true },
+    );
+    expect(mockInsert).not.toHaveBeenCalledWith('habit_progress', expect.anything());
   });
 });
 
