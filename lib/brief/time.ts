@@ -40,9 +40,16 @@ export function minutesOfTheirDay(): number {
   return getDateService().minutesIntoDay();
 }
 
-/** The local YYYY-MM-DD of an instant. */
+/**
+ * The local YYYY-MM-DD of an instant. Always read as a moment: a time on the
+ * stroke of UTC midnight (8:00 pm in New York in summer) is that evening, not
+ * the next day, which is how a date kept as UTC midnight would be read.
+ */
 export function localDateOf(iso: string): string | null {
-  return getDateService().extractLocalDate(iso);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return getDateService().toLocalDate(d);
 }
 
 /** "HH:mm" to minutes. */

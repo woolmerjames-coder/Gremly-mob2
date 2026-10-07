@@ -1,5 +1,5 @@
 import { getDateService } from '../../date/DateService';
-import { hhmmToMinutes, localMinutesToIso, minutesOfDay } from '../time';
+import { hhmmToMinutes, localDateOf, localMinutesToIso, minutesOfDay } from '../time';
 
 describe('brief time helpers', () => {
   const ds = getDateService();
@@ -20,6 +20,18 @@ describe('brief time helpers', () => {
     ds.setTimezone('America/Los_Angeles');
     expect(minutesOfDay('2026-09-30T20:15:00.000Z')).toBe(13 * 60 + 15);
     expect(minutesOfDay(localMinutesToIso('2026-10-01', 7 * 60 + 40))).toBe(460);
+  });
+
+  it('reads the day of a moment in their time zone, even on the stroke of UTC midnight', () => {
+    ds.setTimezone('America/New_York');
+    // 8:00 pm on the 7th in New York
+    expect(localDateOf('2026-10-08T00:00:00.000Z')).toBe('2026-10-07');
+    expect(localDateOf('2026-10-08T00:00:00+00:00')).toBe('2026-10-07');
+    expect(localDateOf('2026-10-07T13:30:00.000Z')).toBe('2026-10-07');
+    ds.setTimezone('Asia/Tokyo');
+    expect(localDateOf('2026-10-07T16:00:00.000Z')).toBe('2026-10-08');
+    expect(localDateOf('2026-10-07')).toBe('2026-10-07');
+    expect(localDateOf('soon')).toBeNull();
   });
 
   it('parses HH:mm', () => {

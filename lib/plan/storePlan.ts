@@ -209,6 +209,17 @@ export function saveEstimates(estimates: { id: string; kind: string; minutes: nu
   }
 }
 
+/**
+ * What a planned start writes on its todo or habit: the time, and the block
+ * that time falls in, so the two never disagree.
+ */
+export function plannedTimePatch(
+  date: string,
+  start: number,
+): { daily_block: 'morning' | 'day' | 'evening'; scheduled_start_iso: string } {
+  return { daily_block: blockFor(start), scheduled_start_iso: localMinutesToIso(date, start) };
+}
+
 function blockFor(start: number): 'morning' | 'day' | 'evening' {
   const b = getTimeBlockBoundaries(useGremlyStore.getState().timeBlockPreferences);
   const h = Math.floor(start / 60);
@@ -247,10 +258,7 @@ export async function lockPlanItems(
       kind = 'todo';
       created.push(item.title);
     }
-    const patch = {
-      daily_block: blockFor(item.start),
-      scheduled_start_iso: localMinutesToIso(date, item.start),
-    };
+    const patch = plannedTimePatch(date, item.start);
     if (kind === 'habit') await store.updateHabit(id, patch);
     else await store.updateTodo(id, patch);
     locked.push({ ...item, id, kind });

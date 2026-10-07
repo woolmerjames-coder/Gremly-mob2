@@ -48,12 +48,12 @@ import {
   dayRecordFromStore,
   lockPlanItems,
   meetingsFromStore,
+  plannedTimePatch,
   poolForDay,
   saveEstimates,
 } from './storePlan';
 import { DEFAULT_PLAN_END, type DayRecord, type DayThreadMeta } from '../brief/dayRecord';
 import { generateDropId } from '../minddrop/ids';
-import { localMinutesToIso } from '../brief/time';
 import { syncPlanItems, timeSignature, type StoreTimes } from './livePlan';
 import { PLAN_DAY_END, freeMinutes } from './slotFitter';
 import { getDateService, nowTimestamp } from '../date/DateService';
@@ -321,13 +321,13 @@ export function usePlanFlow(deps: PlanFlowDeps) {
       const seenOf = new Map(sync.items.map((x) => [x.id, x.seen]));
       patch = { ...fit, items: fit.items.map((x) => ({ ...x, seen: seenOf.get(x.id) })) };
     } else if (moved.size && meta.status === 'locked') {
-      // Today follows the card: the planned start moves with the item
+      // Today follows the card: the planned start, and the block it falls in,
+      // move with the item
       const s = useGremlyStore.getState();
       patch = {
         items: sync.items.map((x) => {
           if (!moved.has(x.id)) return x;
-          const iso = localMinutesToIso(meta.date, x.start);
-          const write = { scheduled_start_iso: iso };
+          const write = plannedTimePatch(meta.date, x.start);
           if (x.kind === 'habit') void s.updateHabit(x.id, write);
           else void s.updateTodo(x.id, write);
           return {

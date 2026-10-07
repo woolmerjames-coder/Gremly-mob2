@@ -1,4 +1,4 @@
-import { lockPlanItems, placedOn, poolForDay } from '../storePlan';
+import { lockPlanItems, placedOn, plannedTimePatch, poolForDay } from '../storePlan';
 import { getDateService } from '../../date/DateService';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../../capacity/capacityTypes';
 import type { PlanItem } from '../../brief/types';
@@ -77,6 +77,17 @@ describe('saying yes to a plan', () => {
       expect(Object.keys(call[1]).some((k) => /commit|locked/.test(k))).toBe(false);
     }
     expect(res.items.map((x) => x.id)).toEqual(['deck', 'run']);
+  });
+
+  it('writes a planned start with the block it falls in, so the two never disagree', () => {
+    expect(plannedTimePatch('2026-10-01', 9 * 60)).toEqual({
+      daily_block: 'morning',
+      scheduled_start_iso: '2026-10-01T09:00:00',
+    });
+    expect(plannedTimePatch('2026-10-01', 18 * 60 + 30)).toEqual({
+      daily_block: 'evening',
+      scheduled_start_iso: '2026-10-01T18:30:00',
+    });
   });
 
   it('makes a suggestion into a todo due that day', async () => {

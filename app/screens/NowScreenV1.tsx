@@ -99,6 +99,8 @@ import {
   getTimeBlockForHour,
   type TimeBlock,
 } from '../../lib/now/timeBlockHelpers';
+import { briefFor, plannedMinutesOn, sectionFor, sequencesOf } from '../../lib/now/sectionFor';
+import { getTimeBlockBoundaries } from '../../lib/capacity/capacityHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
@@ -312,8 +314,10 @@ export default function NowScreenV1() {
   // Unified event notes for today (external + native, from Phase 1 normalization)
   const todayEventNotes = useEventNotesForDate(todayStr);
 
-  // The day's sequences (written by the plan's Lock it in)
-  const { brief } = useMorningBrief();
+  // The day's sequences (written by the plan's Lock it in). The store keeps
+  // the last brief it read, so one from an earlier day is not today's order.
+  const { brief: savedBrief } = useMorningBrief();
+  const brief = useMemo(() => briefFor(savedBrief, todayStr), [savedBrief, todayStr]);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -965,6 +969,7 @@ export default function NowScreenV1() {
           onAddToToday={handleAddToToday}
           bottomInset={insets.bottom}
           brief={brief}
+          today={todayStr}
           eventNotes={todayEventNotes}
           onEventPress={handleKeyDatePress}
           onEventQuickAction={handleEventQuickAction}
@@ -1263,11 +1268,14 @@ type TodayFocusListProps = {
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;
   bottomInset: number;
+  /** Today's saved order (never another day's) */
   brief?: {
     morning_sequence?: { id: string }[];
     day_sequence?: { id: string }[];
     evening_sequence?: { id: string }[];
   } | null;
+  /** The person's day */
+  today: string;
   /** All event notes for today (external + native, from useEventNotesForDate) */
   eventNotes?: Note[];
   onEventPress?: (event: Note) => void;
@@ -1287,6 +1295,7 @@ function TodayFocusList({
   onAddToToday,
   bottomInset,
   brief,
+  today,
   eventNotes = [],
   onEventPress,
   onEventQuickAction,
@@ -1297,6 +1306,7 @@ function TodayFocusList({
   // Raw store data for scheduled time lookups
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
 
   // Group all event notes by time block
   const eventNotesByBlock = useMemo(() => groupKeyDatesByTimeBlock(eventNotes ?? []), [eventNotes]);
@@ -1326,52 +1336,32 @@ function TodayFocusList({
     return allItems.sort((a, b) => getSequencePriority(a.id) - getSequencePriority(b.id));
   }, [activeItems, brief]);
 
-  // Group items by time block using multiple signals (brief sequences, store time_window, scheduled time)
+  // What the store holds on each item's time: its planned start, and its block
+  // for the day (else its usual time of day)
+  const timesById = useMemo(() => {
+    const map = new Map<string, { plannedIso: string | null; block: string | null }>();
+    for (const x of [...todos, ...habits]) {
+      map.set(x.id, {
+        plannedIso: x.scheduled_start_iso ?? null,
+        block: x.daily_block ?? x.time_window ?? null,
+      });
+    }
+    return map;
+  }, [todos, habits]);
+
+  // Group items by section. A time planned for today decides first, then
+  // today's saved order, then the item's block (lib/now/sectionFor.ts).
   const { itemsByBlock, breakHabitsByBlock } = useMemo(() => {
-    const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
-    const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
-    const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
-
-    // Build a map of effective block values from the store (daily_block overrides time_window)
-    const storeTimeWindow = new Map<string, string | null>();
-    for (const t of todos) storeTimeWindow.set(t.id, t.daily_block ?? t.time_window ?? null);
-    for (const h of habits) storeTimeWindow.set(h.id, h.daily_block ?? h.time_window ?? null);
-
-    // Resolve which block an item belongs to using layered signals:
-    // 1. Brief sequences (authoritative if present)
-    // 2. Effective block: daily_block ?? time_window (set by organize, most reliable)
-    // 3. scheduled_start_iso hour → derive block via getTimeBlockForHour
-    // 4. inferTimeWindow (NowActiveItem.timeWindow + name keywords)
-    const resolveBlock = (item: NowActiveItem): TimeBlock => {
-      // 1. Brief sequences
-      if (morningIds.has(item.id)) return 'morning';
-      if (dayIds.has(item.id)) return 'afternoon';
-      if (eveningIds.has(item.id)) return 'evening';
-
-      // 2. Raw store time_window (handles 'morning', 'day', 'evening')
-      const rawTw = storeTimeWindow.get(item.id);
-      if (rawTw === 'morning') return 'morning';
-      if (rawTw === 'day') return 'afternoon';
-      if (rawTw === 'evening') return 'evening';
-
-      // 3. Derive from scheduled_start_iso
-      const todo = todos.find((t) => t.id === item.id);
-      const habit = habits.find((h) => h.id === item.id);
-      const iso = todo?.scheduled_start_iso || habit?.scheduled_start_iso;
-      if (iso) {
-        const d = new Date(iso);
-        if (!isNaN(d.getTime())) {
-          return getTimeBlockForHour(d.getHours());
-        }
-      }
-
-      // 4. inferTimeWindow fallback (NowActiveItem.timeWindow + name keywords)
-      const tw = inferTimeWindow(item);
-      if (tw === 'morning') return 'morning';
-      if (tw === 'afternoon' || tw === 'midday' || tw === 'day') return 'afternoon';
-      if (tw === 'evening') return 'evening';
-      return 'anytime';
-    };
+    const sequences = sequencesOf(brief);
+    // where their morning and afternoon end, as their Time Blocks settings say
+    const ends = getTimeBlockBoundaries(timeBlockPreferences);
+    const resolveBlock = (item: NowActiveItem): TimeBlock =>
+      sectionFor(
+        { id: item.id, ...timesById.get(item.id), inferred: inferTimeWindow(item) },
+        today,
+        sequences,
+        ends,
+      );
 
     const grouped: Record<TimeBlock, NowActiveItem[]> = {
       allday: [],
@@ -1405,7 +1395,7 @@ function TodayFocusList({
     }
 
     return { itemsByBlock: grouped, breakHabitsByBlock: breakNames };
-  }, [sortedItems, brief, todos, habits]);
+  }, [sortedItems, brief, timesById, today, timeBlockPreferences]);
 
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
@@ -1430,15 +1420,10 @@ function TodayFocusList({
       return !isNaN(h) ? h * 60 + (m || 0) : null;
     };
 
-    // Helper: get start minutes from an active item's scheduled time
-    const itemStartMins = (item: NowActiveItem): number | null => {
-      const todo = todos.find((t) => t.id === item.id);
-      const habit = habits.find((h) => h.id === item.id);
-      const iso = todo?.scheduled_start_iso || habit?.scheduled_start_iso;
-      if (!iso) return null;
-      const d = new Date(iso);
-      return d.getHours() * 60 + d.getMinutes();
-    };
+    // Helper: start minutes of an item's time planned for today (a time
+    // planned for another day says nothing about today's order)
+    const itemStartMins = (item: NowActiveItem): number | null =>
+      plannedMinutesOn(timesById.get(item.id)?.plannedIso, today);
 
     for (const block of blocks) {
       const entries: (typeof result)[string] = [];
@@ -1494,7 +1479,7 @@ function TodayFocusList({
     }
 
     return result;
-  }, [eventNotesByBlock, itemsByBlock, todos, habits]);
+  }, [eventNotesByBlock, itemsByBlock, timesById, today]);
 
   // Helper to check if a block should render
   const shouldRenderBlock = (block: TimeBlock) => {
