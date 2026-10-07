@@ -29,8 +29,9 @@ export const MODELS = {
   // a closed Chapter's memory (memory.js), and a new person's first Worlds
   // (firstWorlds.js): Sonnet 5.5 unless the replay showed a cheaper model does
   // as well (James, 7 Oct). Luna met the bar on both replays and Flash did not
-  // (scripts/words-replay, scripts/first-worlds-replay); Sonnet could not be run
-  // there, with no Anthropic key on the replay machine
+  // (scripts/words-replay, scripts/first-worlds-replay). Sonnet, run on James's
+  // Mac, missed it on both at about eight times the cost, so Luna it is (James,
+  // 7 Oct)
   memory: { provider: 'openai', model: 'gpt-6-luna' },
   memoryFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   firstWorlds: { provider: 'openai', model: 'gpt-6-luna' },
