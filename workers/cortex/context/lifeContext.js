@@ -14,6 +14,8 @@
  * changes any of this, so a correction reaches chat on the next message.
  */
 
+import { stateWords } from '../../shared/factTiming.js';
+
 const PACK_TTL_SECONDS = 1800;
 
 function trim(text, n) {
@@ -136,13 +138,17 @@ ${usage.join('\n')}${cur ? `\nGremly's age: ${cur.gremly_age ?? 'unknown'}; days
  * What Gremly remembers that bears on this message: ledger facts, story items
  * and chapters, best matches first. Not cached: it depends on the message.
  */
-export async function recallForMessage(userId, message, env, { limit = 10 } = {}) {
+export async function recallForMessage(userId, message, env, { limit = 10, today = null, timezone = 'UTC' } = {}) {
   const text = String(message || '').trim();
   if (!userId || text.length < 3) return '';
   try {
-    const rows = await rpc(env, 'recall_life', { p_user: userId, p_query: text.slice(0, 500), p_limit: limit });
+    const rows = await rpc(env, 'recall_life_now', { p_user: userId, p_query: text.slice(0, 500), p_limit: limit });
     if (!Array.isArray(rows) || !rows.length) return '';
-    const lines = rows.map((r) => `- ${r.source}${r.about_date ? ` | ${r.about_date}` : ''}${r.state ? ` | ${r.state}` : ''} | ${r.title && r.source !== 'fact' ? `${trim(r.title, 80)}: ` : ''}${trim(r.body, 280)}${r.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`);
+    // their day, so a plan whose date has passed says so (an exact comparison, code's to make)
+    const day =
+      (await Promise.resolve(today).catch(() => null)) ||
+      new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+    const lines = rows.map((r) => `- ${r.source}${r.about_date ? ` | ${r.about_date}${r.about_date_end && r.about_date_end !== r.about_date ? ` to ${r.about_date_end}` : ''}` : ''}${r.state ? ` | ${r.source === 'fact' ? stateWords(r, day) : r.state}` : ''} | ${r.title && r.source !== 'fact' ? `${trim(r.title, 80)}: ` : ''}${trim(r.body, 280)}${r.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`);
     return `=== WHAT GREMLY REMEMBERS THAT MAY RELATE TO THIS MESSAGE (from their own records; use what helps, with its date, and ignore the rest) ===\n${lines.join('\n')}`;
   } catch (error) {
     console.error('[LifeContext] recall error:', error);

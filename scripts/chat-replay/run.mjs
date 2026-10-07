@@ -154,7 +154,7 @@ function dbFor(s, to) {
       return [];
     },
     rpc: async (fn, a) => {
-      if (fn === 'recall_life') return s.memories || [];
+      if (fn === 'recall_life' || fn === 'recall_life_now') return s.memories || [];
       if (fn !== 'find_items') return [];
       // as the database's english search: common words dropped, stems matched,
       // any of them, a match in the name counting most

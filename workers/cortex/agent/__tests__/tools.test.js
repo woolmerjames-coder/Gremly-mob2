@@ -426,7 +426,7 @@ describe('recall', () => {
     const db = fakeDb(
       {},
       {
-        recall_life: [
+        recall_life_now: [
           {
             source: 'fact',
             title: 'Trip',

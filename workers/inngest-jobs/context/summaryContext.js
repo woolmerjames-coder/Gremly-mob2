@@ -19,8 +19,8 @@ export async function weeklySummaryContext(env, userId, weekStart, weekEnd) {
   const d = db(env);
   const after = addDays(weekEnd, 1);
   const [open, thisWeek, corrections, story] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=statement,about_date,about_date_end,state,private&order=about_date.asc.nullslast&limit=150`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed,superseded)&about_date=gte.${weekStart}&about_date=lte.${weekEnd}&select=statement,about_date,state,state_reason,private&order=about_date.asc&limit=60`),
+    d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=statement,about_date,about_date_end,state,private&order=about_date.asc.nullslast&limit=150`),
+    d.select(`life_facts_now?user_id=eq.${userId}&state=in.(happened,changed,superseded)&about_date=gte.${weekStart}&about_date=lte.${weekEnd}&select=statement,about_date,state,state_reason,private&order=about_date.asc&limit=60`),
     recentCorrections(env, userId, 365),
     loadStory(env, userId, { includePrivate: true, limit: 60 }).catch(() => []),
   ]);

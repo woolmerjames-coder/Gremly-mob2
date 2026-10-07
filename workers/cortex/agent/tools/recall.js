@@ -1,11 +1,12 @@
 // ============================================================================
 // recall: search what Gremly remembers about the person's life, the same
-// search the chat context uses for each message (public.recall_life): facts
+// search the chat context uses for each message (public.recall_life_now): facts
 // they have told Gremly, their story and the Chapters of their life.
 // ============================================================================
 
 import { int, obj, str } from './schema.js';
 import { dayWords, trim } from './words.js';
+import { stateWords } from '../../../shared/factTiming.js';
 
 const PRIVATE_HINT =
   ' [private: use it only when it bears on what they are talking about, in their own words, and never open with it]';
@@ -26,7 +27,7 @@ export const recall = {
   async run(ctx, input = {}) {
     const query = String(input.query || '').trim();
     if (query.length < 2) return { memories: [] };
-    const rows = await ctx.db.rpc('recall_life', {
+    const rows = await ctx.db.rpc('recall_life_now', {
       p_user: ctx.userId,
       p_query: query.slice(0, 300),
       p_limit: Number.isInteger(input.limit) ? Math.min(Math.max(input.limit, 1), 20) : 10,
@@ -41,7 +42,8 @@ export const recall = {
         const parts = [
           m.source,
           m.about_date ? dayWords(m.about_date, ctx.today) : '',
-          m.state || '',
+          // a plan whose date has passed says so: never handed on as still ahead
+          m.source === 'fact' ? stateWords(m, ctx.today) : m.state || '',
           `${m.title && m.source !== 'fact' ? `${trim(m.title, 80)}: ` : ''}${trim(m.body, 280)}`,
         ].filter(Boolean);
         return `- ${parts.join(' | ')}${m.private ? PRIVATE_HINT : ''}`;

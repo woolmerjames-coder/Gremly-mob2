@@ -177,7 +177,7 @@ export async function gatherStory(env, userId) {
   const d = db(env);
   const [facts, corrections, chapters, weeks, usage, current] = await Promise.all([
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`,
     ),
     recentCorrections(env, userId, 3650),
     d.select(

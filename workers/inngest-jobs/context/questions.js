@@ -74,7 +74,7 @@ export async function reviewQuestions(env, userId, tz, { shadow }) {
   if (!questions.length) return { checked: 0 };
   const yearAgo = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
   const [facts, corrections, person] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&or=(state.in.(current,planned,unconfirmed),about_date.gte.${yearAgo})&select=id,statement,about_date,state,state_reason,observed_at&order=about_date.desc.nullslast&limit=300`),
+    d.select(`life_facts_now?user_id=eq.${userId}&or=(state.in.(current,planned,unconfirmed),about_date.gte.${yearAgo})&select=id,statement,about_date,state,state_reason,observed_at&order=about_date.desc.nullslast&limit=300`),
     recentCorrections(env, userId, 365),
     personIdentity(env, userId),
   ]);

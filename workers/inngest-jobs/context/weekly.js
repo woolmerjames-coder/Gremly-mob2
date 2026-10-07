@@ -37,6 +37,7 @@ import { recentCorrections } from './corrections';
 import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../../shared/aiUsage';
+import { stateWords } from '../../shared/factTiming.js';
 
 export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01d';
 
@@ -297,10 +298,10 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     story,
   ] = await Promise.all([
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`,
     ),
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private&order=updated_at.desc&limit=150`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private&order=updated_at.desc&limit=150`,
     ),
     d.select(
       `life_fact_changes?user_id=eq.${userId}&${between('created_at')}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.asc&limit=100`,
@@ -393,7 +394,7 @@ export function renderWeek(g, today) {
     const when = f.about_date
       ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
       : 'no date';
-    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`;
+    return `${ref} | ${stateWords(f, today)}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`;
   };
   const weekItemIds = new Set([...g.created.map((t) => t.id), ...g.completed.map((t) => t.id)]);
   const worldActivity = new Map();

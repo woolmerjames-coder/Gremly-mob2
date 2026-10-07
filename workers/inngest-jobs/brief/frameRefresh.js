@@ -16,7 +16,7 @@ import { personNow } from '../../shared/day.js';
 /** Facts about today, as the frame reads them. */
 async function factsAboutToday(env, userId, today) {
   const rows = await db(env).select(
-    `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=lte.${today}&or=(about_date.eq.${today},about_date_end.gte.${today})&select=id,statement,about_date,about_date_end,state,private,created_at,updated_at&limit=100`,
+    `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=lte.${today}&or=(about_date.eq.${today},about_date_end.gte.${today})&select=id,statement,about_date,about_date_end,state,private,created_at,updated_at&limit=100`,
   );
   return (rows || []).filter((f) => coversToday(f, today));
 }

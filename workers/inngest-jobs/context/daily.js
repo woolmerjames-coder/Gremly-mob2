@@ -33,6 +33,7 @@ import { personNow } from '../../shared/day.js';
 import { spanDays, weeklyDayOf } from '../../shared/week.js';
 import { dayOfWeek, easeOn, unpaused, weekAround } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
+import { stateWords } from '../../shared/factTiming.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-01d';
 
@@ -194,7 +195,7 @@ export async function gatherDay(env, userId, tz, today) {
       `notes?owner_id=eq.${userId}&subtype=eq.journal&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -3)))}&select=id,title,body,mood,created_at&order=created_at.asc&limit=10`,
     ),
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=250`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=250`,
     ),
     d.select(
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
@@ -213,7 +214,7 @@ export async function gatherDay(env, userId, tz, today) {
     ),
     recentCorrections(env, userId),
     d.select(
-      `life_facts?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason,private&order=about_date.desc&limit=80`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(happened,changed)&about_date=gte.${addDays(today, -365)}&select=id,statement,about_date,state,state_reason,private&order=about_date.desc&limit=80`,
     ),
     d.select(
       `synced_calendar_events?owner_id=eq.${userId}&archived=eq.false&start_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -30)))}&select=id&limit=1`,
@@ -391,7 +392,7 @@ export function renderDay(g, tz) {
     const when = f.about_date
       ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
       : 'no date';
-    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 200)} | recorded ${f.observed_at.slice(0, 10)}, last confirmed ${f.last_confirmed_at.slice(0, 10)}`;
+    return `${ref} | ${stateWords(f, today)}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 200)} | recorded ${f.observed_at.slice(0, 10)}, last confirmed ${f.last_confirmed_at.slice(0, 10)}`;
   };
   const factLines = [
     ...dated

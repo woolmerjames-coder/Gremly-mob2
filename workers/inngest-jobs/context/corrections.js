@@ -304,8 +304,8 @@ export async function applyCorrection(env, correctionId, runId) {
   }
 
   const facts = correction.fact_ids?.length
-    ? await d.select(`life_facts?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,state,private`)
-    : await d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,state,private&order=last_confirmed_at.desc&limit=300`);
+    ? await d.select(`life_facts_now?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,state,private`)
+    : await d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,state,private&order=last_confirmed_at.desc&limit=300`);
   // An answer to one of Gremly's questions arrives as a correction about that question.
   const [question] = correction.surface === 'question' && correction.target_ref?.id && /^[0-9a-f-]{36}$/i.test(correction.target_ref.id)
     ? await d.select(`gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status`)
