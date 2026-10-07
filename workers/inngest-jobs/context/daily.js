@@ -726,6 +726,16 @@ function clearField(o, field) {
   if (field === 'reach_why') o.reach_ref = null;
 }
 
+/**
+ * Clears every field the check failed. A headline that failed stays blank:
+ * no other line of the day stands in for it, so the brief leads with its lead
+ * line and the app shows its own greeting (blank is better than wrong).
+ */
+export function clearFailed(output, problems) {
+  for (const p of problems || []) clearField(output, p.field);
+  return output;
+}
+
 const CANCELLED_SCHEMA = {
   type: 'object',
   properties: { cancelled_refs: { type: 'array', items: { type: 'string' } } },
@@ -815,14 +825,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     model = retry.model;
     problems = await checkDay(env, text, output, person);
   }
-  for (const p of problems) clearField(output, p.field);
-  // The brief always needs a headline: fall back to a sound line the checker passed.
-  if (!output.headline) {
-    const fallback = [output.day_shape, output.lead_what].find(
-      (t) => typeof t === 'string' && t.trim(),
-    );
-    output.headline = fallback ? trim(fallback, 120) : null;
-  }
+  clearFailed(output, problems);
 
   // References must exist; unknown ones are dropped.
   const claims = (output.claims || [])
