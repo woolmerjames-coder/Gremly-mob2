@@ -1,0 +1,574 @@
+{
+  "labels": [
+    {
+      "id": "d01",
+      "chapter": "Year 11 mock exams",
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Setting a Year 11 mock paper is the Chapter itself",
+      "basis": "agreed"
+    },
+    {
+      "id": "d02",
+      "chapter": "Year 11 mock exams",
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Booking the hall gets ready for the mocks",
+      "basis": "agreed"
+    },
+    {
+      "id": "d03",
+      "chapter": "Year 11 mock exams",
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Marking the Year 11 mocks is part of the Chapter",
+      "basis": "agreed"
+    },
+    {
+      "id": "d04",
+      "chapter": "Year 11 mock exams",
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Revision timetable prepares Year 11 for the mocks",
+      "basis": "agreed"
+    },
+    {
+      "id": "d05",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Parents evening for Year 8, general school work",
+      "basis": "agreed"
+    },
+    {
+      "id": "d06",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Lab equipment, general school work",
+      "basis": "agreed"
+    },
+    {
+      "id": "d07",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Year 8 lesson planning",
+      "basis": "agreed"
+    },
+    {
+      "id": "d08",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": true,
+      "note": "School exchange visit; shares only the place with the Lisbon trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d09",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Colleague news about the science department",
+      "basis": "agreed"
+    },
+    {
+      "id": "d10",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Cover work for classes",
+      "basis": "agreed"
+    },
+    {
+      "id": "d11",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Running the school science club",
+      "basis": "agreed"
+    },
+    {
+      "id": "d12",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Year 9 reports, not the mocks",
+      "basis": "agreed"
+    },
+    {
+      "id": "d13",
+      "chapter": "Year 11 mock exams",
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Supporting Year 11s through the mocks",
+      "basis": "agreed"
+    },
+    {
+      "id": "d14",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Vague school trip idea; only shares the place with the Lisbon trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d15",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Trip logistics",
+      "basis": "agreed"
+    },
+    {
+      "id": "d16",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Currency for the half term trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d17",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Packing for the upcoming trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d18",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Dinner plans during the Lisbon week",
+      "basis": "agreed"
+    },
+    {
+      "id": "d19",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Passport check for the trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d20",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Sights to see in Lisbon",
+      "basis": "agreed"
+    },
+    {
+      "id": "d21",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Repair around the flat",
+      "basis": "agreed"
+    },
+    {
+      "id": "d22",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Family lunch with Jo's mum",
+      "basis": "agreed"
+    },
+    {
+      "id": "d23",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Household bill for the flat",
+      "basis": "agreed"
+    },
+    {
+      "id": "d24",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Family birthday",
+      "basis": "agreed"
+    },
+    {
+      "id": "d25",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Sorting the flat",
+      "basis": "agreed"
+    },
+    {
+      "id": "d26",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Arranging cat care while away gets ready for the trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d27",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": true,
+      "note": "Surprise party for Jo's 40th in March",
+      "basis": "agreed"
+    },
+    {
+      "id": "d28",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Training run",
+      "basis": "agreed"
+    },
+    {
+      "id": "d29",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Running kit",
+      "basis": "agreed"
+    },
+    {
+      "id": "d30",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Weekly run club habit",
+      "basis": "agreed"
+    },
+    {
+      "id": "d31",
+      "chapter": "Leeds half marathon",
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Looks back on the Leeds race",
+      "basis": "agreed"
+    },
+    {
+      "id": "d32",
+      "chapter": "Leeds half marathon",
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Reflection on the Leeds race",
+      "basis": "agreed"
+    },
+    {
+      "id": "d33",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": true,
+      "note": "New race goal, Manchester marathon in April",
+      "basis": "agreed"
+    },
+    {
+      "id": "d34",
+      "chapter": "Leeds half marathon",
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Keeping the photos from the Leeds race",
+      "basis": "agreed"
+    },
+    {
+      "id": "d35",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": true,
+      "note": "Looks forward to a new spring race, not back on Leeds",
+      "basis": "agreed"
+    },
+    {
+      "id": "d36",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Recovery kit",
+      "basis": "agreed"
+    },
+    {
+      "id": "d37",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [
+        "Running"
+      ],
+      "starts_something": false,
+      "note": "Plans for what to do during the Lisbon week",
+      "basis": "agreed"
+    },
+    {
+      "id": "d38",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Planting at the plot",
+      "basis": "agreed"
+    },
+    {
+      "id": "d39",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Allotment shed repair",
+      "basis": "agreed"
+    },
+    {
+      "id": "d40",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Harvest from the plot",
+      "basis": "agreed"
+    },
+    {
+      "id": "d41",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Allotment committee request",
+      "basis": "agreed"
+    },
+    {
+      "id": "d42",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Winter care for the beds",
+      "basis": "agreed"
+    },
+    {
+      "id": "d43",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [
+        "Teaching"
+      ],
+      "starts_something": false,
+      "note": "Surplus produce from the plot going to school",
+      "basis": "agreed"
+    },
+    {
+      "id": "d44",
+      "chapter": null,
+      "world": "The allotment",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Next season's growing plans",
+      "basis": "agreed"
+    },
+    {
+      "id": "d45",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Personal admin, no World covers it",
+      "basis": "agreed"
+    },
+    {
+      "id": "d46",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Unrelated interest",
+      "basis": "agreed"
+    },
+    {
+      "id": "d47",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Errand outside the Worlds",
+      "basis": "agreed"
+    },
+    {
+      "id": "d48",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Personal health appointment",
+      "basis": "agreed"
+    },
+    {
+      "id": "d49",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": true,
+      "note": "Possible new course, outside the Worlds",
+      "basis": "agreed"
+    },
+    {
+      "id": "d50",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Shared household subscription",
+      "basis": "agreed"
+    },
+    {
+      "id": "d51",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Preparing language for the trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d52",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Book club friend, outside the Worlds",
+      "basis": "agreed"
+    },
+    {
+      "id": "d53",
+      "chapter": null,
+      "world": "Running",
+      "also_fair": [
+        "Teaching"
+      ],
+      "starts_something": false,
+      "note": "A run that ends at school",
+      "basis": "agreed"
+    },
+    {
+      "id": "d54",
+      "chapter": null,
+      "world": null,
+      "also_fair": [],
+      "starts_something": false,
+      "note": "General wellbeing note",
+      "basis": "agreed"
+    },
+    {
+      "id": "d55",
+      "chapter": null,
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Professional training for the new spec, not the mocks",
+      "basis": "agreed"
+    },
+    {
+      "id": "d56",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Packing for Lisbon",
+      "basis": "agreed"
+    },
+    {
+      "id": "d57",
+      "chapter": "Year 11 mock exams",
+      "world": "Teaching",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Invigilation for the mock week",
+      "basis": "agreed"
+    },
+    {
+      "id": "d58",
+      "chapter": "Lisbon at half term",
+      "world": "Home and family",
+      "also_fair": [
+        "The allotment"
+      ],
+      "starts_something": false,
+      "note": "Arranging cover while away for the trip",
+      "basis": "agreed"
+    },
+    {
+      "id": "d59",
+      "chapter": "Leeds half marathon",
+      "world": "Running",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Memory of the Leeds finish",
+      "basis": "agreed"
+    },
+    {
+      "id": "d60",
+      "chapter": null,
+      "world": "Home and family",
+      "also_fair": [],
+      "starts_something": false,
+      "note": "Family visit for grandad's 90th",
+      "basis": "agreed"
+    }
+  ],
+  "guide_questions": [
+    {
+      "id": "d34",
+      "question": "A closed Chapter takes a drop only when it looks back on what happened; the guide does not say whether a practical follow-up todo about the event (downloading race photos) counts as looking back or should go to the World."
+    },
+    {
+      "id": "d37",
+      "question": "The guide says sharing a place is not enough, but not whether an activity done during a Chapter that is mostly about another World (running while on the Lisbon trip) belongs to the Chapter or to its own World."
+    },
+    {
+      "id": "d58",
+      "question": "The guide does not say whether arrangements in another World made because of a Chapter (allotment watering while away) count as getting ready for that Chapter or stay in their own World."
+    },
+    {
+      "id": "d45",
+      "question": "The guide does not say whether household admin not tied to the flat or family (car insurance) falls under Home and family or belongs to no World; compare d50, filed to Home and family."
+    },
+    {
+      "id": "d49",
+      "question": "starts_something asks whether the drop could become a Chapter, but a Chapter sits inside one World; the guide does not say whether it can be true when no World fits."
+    }
+  ]
+}
