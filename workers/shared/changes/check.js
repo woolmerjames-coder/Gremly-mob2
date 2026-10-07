@@ -569,6 +569,9 @@ export function checkWeekChange(raw, ctx = {}) {
     case 'habit_days': {
       const r = itemFor('habit');
       if (r.reason) return { ok: false, reason: r.reason };
+      // a habit they are breaking has nothing to do on a day, so it is never
+      // planned on one (as it is never paused or made lighter)
+      if (r.item.subtype === 'break_habit') return { ok: false, reason: 'days_breaking' };
       const stated = dayList(raw.days);
       if (!stated) return { ok: false, reason: 'bad_days' };
       // A day already gone that the habit was planned on stays as it is, so

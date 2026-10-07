@@ -537,6 +537,12 @@ describe("the week's own changes", () => {
       );
       expect(days(['2026-10-03'], { ...planned, archived: true }).reason).toBe('archived');
     });
+
+    it('is never for a habit they are breaking', () => {
+      expect(days(['2026-10-03'], { ...planned, subtype: 'break_habit' }).reason).toBe(
+        'days_breaking',
+      );
+    });
   });
 
   describe('the shape of the week', () => {

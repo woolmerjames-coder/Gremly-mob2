@@ -360,6 +360,7 @@ const HINTS = {
   ease_ends_first: 'its last day is on or after its first day',
   ease_too_far: 'a pause or a lighter version ends within four weeks of today',
   ease_breaking: 'a habit they are breaking is not paused or made lighter',
+  days_breaking: 'a habit they are breaking is never planned on days',
 };
 
 // what a week change's own value has to be, when it could not be read
