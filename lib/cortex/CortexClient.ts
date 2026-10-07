@@ -2138,6 +2138,9 @@ export async function callForgetMe(): Promise<
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.error)
       return { ok: false, error: String(data?.error || res.status), status: res.status };
+    // Only the forget handler answers ok: a cortex without it falls through to
+    // chat and answers 200, which must not read as forgotten
+    if (data?.ok !== true) return { ok: false, error: 'cortex did not forget', status: res.status };
     return { ok: true, data };
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };
