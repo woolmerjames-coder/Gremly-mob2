@@ -1525,6 +1525,127 @@ run in three today, on 545b81c8 as on these commits (6 runs each, side by
 side): "back to usual" from a message is weak and worth a look later; the
 habit screen's Back to usual button does not depend on the model.
 
+**Weekly review fixes (7 October, branch `weekly-review-fixes`, off main at
+359c29e3).** Seven things James found in his first review on device, a
+commit each, and one that follows from the fifth. No SQL.
+
+- 3eb4724f, a day they fill by hand. His own items stay where he put them,
+  and the day still counts as over its room: `BoardTodo.byHand` in
+  `lib/week/board/model.ts`, counted by the keep question and the over-full
+  card. Anything Gremly placed on such a day gives way, by the worker's own
+  rule (last placed first, priorities last, to the next day with room, else
+  Later). Done on the board closes onto the over-full card instead of
+  saving, and the week is spread once more for a day filled by hand. The
+  worker was already right when given the board; the cause was in the app.
+  Replay: `filled-by-hand` in `scripts/week-replay/relief.mjs`.
+- adb84ab3, an evening review plans from tomorrow. From 5pm
+  (`EVENING_FROM` in `workers/shared/week.js`) the app sends `first` with
+  the read and the spread, and both workers plan from it. Today's unfinished
+  todos stay on today. Every todo on the board has a done tick
+  (`WeekBoard` `onTick`), also on Your week.
+- f853844e, work Gremly cannot see. A load they mention is the shape of the
+  week (busy days, and hours only when they give them) and, when it is what
+  the week is for, a priority: the new change kind `priority`, text only,
+  three at most, one per card. A named task is still a todo. Nothing is made
+  to stand for a calendar entry, and `get_week` now shows the calendar for
+  each day. An app build says it can keep a priority by sending
+  `week.priorities`; one that does not is never handed the kind.
+- cd127346, milestone cards. Each step is a row of its own with its own
+  tick (`lib/changes/rows.ts`: `stepCid`, `withoutUnticked`); a step to do
+  opens the todo it made. A milestone set up from a card in the review's
+  thread is kept in `answers.milestones` (`withCardMilestones`), so the Done
+  summary counts its steps, and is taken out when the card is undone.
+- e5808bc0, the read. Calendar entries are entries and booked time, never
+  meetings, in the input and by rule; each entry on the days being planned
+  has an id (`c1`, kept in `refs.calendar`) so coming up can hold the ones
+  that are moments in their life. A milestone is for an event or deliverable
+  that needs preparing for, never one piece of work. The length of the list
+  is the challenge only when nothing more particular is. A needs you title
+  is in the todos' own words (the health rule comes first). Each needs you
+  card has two to four `answers` of its own, which the app shows as the
+  chips (`talkMsgs`); `TALK_REASONS` is only for a read without them.
+  Talking a card through ends with one concrete offer on the change card
+  (`weekContext` in `agent/brief.js`).
+- e1f69438, the intention. Their own words first, then Suggest one and
+  Skip. The read writes one line to hold onto with each priority option
+  (`priority_options[].intention`), and the card suggests the line of what
+  they chose (`intentionSuggestions` in `lib/week/review/state.ts`), another
+  on a second tap. `read.intention_drafts` is now made by the check, for app
+  builds that still show three drafts.
+- 55dd18aa, the pill. It says "Gremly replied" with a down arrow when a
+  reply of his landed where they cannot see it start, and "Latest" otherwise
+  (`belowFor`, `startsBelow` in `lib/chat/follow.ts`), in every chat. The
+  opener asks "Got a few minutes?".
+- 51afc4df, each day's load. The read's input says how many todos each day
+  being planned has and how long they come to (`dayLoads`), so a day that is
+  the challenge is quoted and not added up by the model.
+
+Versions: `week-read-2026-10-09c`; `brief-2026-10-09b` for these commits
+(`09c` belongs to 7c5a4164, the commit after them, from another chat).
+
+Deploy: inngest-jobs, then cortex, then the app. The workers have to be out
+before the app for the evening review, since older workers ignore `first`
+and plan from today. Everything else works in either order.
+
+Checked in a clean copy of the branch. At 51afc4df: tsc clean, the whole
+jest suite passes (10,064 tests), day replay 34 of 34, the week set 32 of
+33, the spread 18 of 18. With 7c5a4164 on top: the week set 31 of 33 (a
+different one or two each run), day replay 38 of 39 (the one is a scenario
+of that commit's own), wrap replay 70 of 72, agent smoke 10 of 10, the read
+10 of 10, relief 5 of 5, chat 72 of 75 (`ease-sooner` fails two runs in five
+on main as well). The numbers for each prompt change are in its commit
+message. The message of e1f69438 says 28 runs each: before was 27, one
+timed out.
+
+The read's replay (`scripts/week-replay`) has two new made up people,
+`calendar-life` and `long-list`, and each person now says what is true of
+them (`calendar`, `specific`, `deliverables`), which the checks read. A judge
+model reads the challenge of a person whose week turns on one thing. Every
+run ends with the rules that were broken and how often.
+
+Choices made here that James has not seen yet:
+
+- A todo of Gremly's that has a hard date on an over-full day stays there
+  (the worker's rule, unchanged).
+- Evening starts at 5pm.
+- When a week already has three priorities, Gremly says so and asks which
+  to replace. There is no kind that replaces one.
+- A milestone can still lead up to a dated todo when the model judges it a
+  deliverable. Only the prompt says one piece of work never gets one.
+- Suggest one comes from the read, a line written with each priority, and
+  not from a call made when they tap.
+- A person the spread is known to get wrong (`spreadMiss` on a scenario) is
+  named on every run of the spread's replay and run only by name.
+
+Noticed and not changed:
+
+- Told the challenge is wrong, Gremly now and then adds a priority that says
+  the remaining picks again (`week-challenge-corrected`, about one run in
+  ten at the end of the day, 7 of 41 over it). Two wordings were tried and
+  dropped: a line on the tool stopped it but made Gremly hold the review on
+  a plain question in 13 runs of 31, and a line beside the picks changed
+  nothing that could be measured.
+- Unseen work and a named task in one message: in about one run in four the
+  todo is left off the card while the reply says it would be added
+  (`week-unseen-work-and-a-task`).
+- The spread leaves the `calendar-life` person's three hour priority off
+  every day in most runs, before and after these commits.
+- The read's list says "day X, which they chose" with the saved day for a
+  todo they placed by hand on another day. The app treats a todo beyond the
+  120 the read lists as released, while the worker keeps it fixed.
+- `weekCheckContext().has_review` is this week's even in a review brought
+  forward.
+- A milestone set up in chat for the same dated thing the review's own card
+  offers is still offered there.
+- The day's own context still says "meetings" (`CALENDAR TODAY` in
+  `agent/brief.js`). Only the read was asked for.
+- The synced calendar holds about a week ahead, so coming up can take timed
+  calendar moments only from the days being planned.
+- The priorities draft can point at the wrong option when an added priority
+  is undone while another of their own is there.
+- For a while another chat worked in this same folder and committed
+  7c5a4164 on the branch. None of its files are in the eight commits above.
+
 **Step 11, focused model audit.** After chat and Sweep, a smaller audit of
 only the places that could be better, from replays and real use: a stronger
 model for harder jobs where it earns its cost, `none` thinking on a bigger
@@ -1663,6 +1784,23 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   for that decision; and `gemini-3-flash-preview` (chats about an item or a
   World) still names a note that is not there now and then when nothing at
   all is on record (1 in 20 on the probe, 3 in 20 before).
+- The weekly review after its first week on device (James, 7 Oct). A day
+  they fill by hand is theirs to keep, and the review still shows it is over
+  its room; Gremly never adds to a day over its room. An evening review
+  plans from tomorrow. Every todo on the board has a done tick. Work Gremly
+  cannot see is the shape of the week and a priority, and a todo only when
+  they name a task; nothing duplicates what is on their calendar. A
+  milestone card lists each step as a row, and the Done summary counts
+  steps set up in chat. In the read: calendar entries are what is on their
+  calendar, not meetings, and coming up includes the ones that are moments
+  in their life, as the model judges; milestones are for events and
+  deliverables that need preparing for, never a single todo; the backlog is
+  the challenge only when nothing more specific is; needs you titles use the
+  items' own words, each card has answers that fit its question, and talking
+  one through ends with a concrete offer. The intention is their own words
+  first, with Suggest one (one draft tied to the week's priorities) and
+  Skip. A "Gremly replied" pill shows when a reply lands below the fold, and
+  the opener says "a few minutes".
 
 ## How to work here
 
