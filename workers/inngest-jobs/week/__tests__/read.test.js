@@ -162,13 +162,20 @@ function reply(over = {}) {
       { about: 'd1', when: '2026-10-09', what: 'Dinner on Friday' },
     ],
     priority_options: [
-      { text: 'Start the report', why: 'It is due soon.', gremly_pick: true, item_ids: ['t2'] },
-      { text: 'Book the venue', why: 'It is on Tuesday.', gremly_pick: false, item_ids: ['t1'] },
-    ],
-    intention_drafts: [
-      'I will start the report early.',
-      'I will keep evenings free.',
-      'I will ask for help.',
+      {
+        text: 'Start the report',
+        why: 'It is due soon.',
+        gremly_pick: true,
+        item_ids: ['t2'],
+        intention: 'I will start before it feels urgent.',
+      },
+      {
+        text: 'Book the venue',
+        why: 'It is on Tuesday.',
+        gremly_pick: false,
+        item_ids: ['t1'],
+        intention: 'I will settle things early.',
+      },
     ],
     free_hours_guess: {
       normal_day: 2,
@@ -727,7 +734,13 @@ describe('what comes back', () => {
     const { read, dropped } = check(
       reply({
         priority_options: [
-          { text: 'Start', why: '', gremly_pick: true, item_ids: ['t2', 't99', 'todo-a'] },
+          {
+            text: 'Start',
+            why: '',
+            gremly_pick: true,
+            item_ids: ['t2', 't99', 'todo-a'],
+            intention: 'I will begin.',
+          },
         ],
         needs_you: [{ item_ids: ['t42'], title: 'Mystery', stuck_because: 'x', question: 'y' }],
         habit_days: [{ habit_id: 'h9', days: ['2026-10-06'], reason: '' }],
@@ -745,13 +758,18 @@ describe('what comes back', () => {
     ]);
   });
 
-  it('keeps to the limits: five options, three picks, four figures, three drafts', () => {
-    const option = (i) => ({ text: `Option ${i}`, why: '', gremly_pick: true, item_ids: [] });
+  it('keeps to the limits: five options, three picks, four figures', () => {
+    const option = (i) => ({
+      text: `Option ${i}`,
+      why: '',
+      gremly_pick: true,
+      item_ids: [],
+      intention: `Line ${i}.`,
+    });
     const { read, dropped } = check(
       reply({
         priority_options: [1, 2, 3, 4, 5, 6].map(option),
         evidence: [1, 2, 3, 4, 5].map((n) => ({ figure: `${n}`, label: 'things' })),
-        intention_drafts: ['One.', 'Two.', 'Three.', 'Four.'],
       }),
     );
     expect(read.priority_options).toHaveLength(READ_LIMITS.priorities);
@@ -763,14 +781,47 @@ describe('what comes back', () => {
       false,
     ]);
     expect(read.evidence).toHaveLength(READ_LIMITS.evidence);
-    expect(read.intention_drafts).toEqual(['One.', 'Two.', 'Three.']);
     expect(dropped.filter((d) => d.why === 'too_many').map((d) => d.what)).toEqual([
       'evidence',
       'priority_pick',
       'priority_pick',
       'priority',
-      'intention',
     ]);
+  });
+
+  it('keeps the line to hold onto with each priority, and gives an older app three of them as drafts', () => {
+    const option = (text, pick, intention) => ({
+      text,
+      why: '',
+      gremly_pick: pick,
+      item_ids: [],
+      intention,
+    });
+    const { read, dropped } = check(
+      reply({
+        priority_options: [
+          option('Tidy the desk', false, 'I will leave things as I want to find them.'),
+          option('Start the report', true, 'I will start before it feels urgent.'),
+          option('Rest', true, '   '),
+          option('Call home', true, 'I will start before it feels urgent.'),
+          option('See friends', false, 'I will say yes to one evening out.'),
+        ],
+      }),
+    );
+    expect(read.priority_options.map((p) => p.intention)).toEqual([
+      'I will leave things as I want to find them.',
+      'I will start before it feels urgent.',
+      '',
+      'I will start before it feels urgent.',
+      'I will say yes to one evening out.',
+    ]);
+    // Gremly's picks first, each line once, three at most
+    expect(read.intention_drafts).toEqual([
+      'I will start before it feels urgent.',
+      'I will leave things as I want to find them.',
+      'I will say yes to one evening out.',
+    ]);
+    expect(dropped.map((d) => `${d.what}:${d.why}`)).toEqual(['intention:empty']);
   });
 
   it('takes a coming up date from the data, and only one that is ahead and within six weeks', () => {

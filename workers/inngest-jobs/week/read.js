@@ -5,10 +5,11 @@
  * effort; at low it took a habit's name for a count). Code gathers what Gremly
  * knows about the person, works out every count and total, and gives each item
  * a short id. The model writes the challenge and its evidence, what they are
- * coming off and what is coming up, priority options, intention drafts, a
- * guess at their free hours, busy days, milestones, what needs them and habit
- * days. Code then turns the short ids back into real ones, drops anything it
- * does not know, checks every date and number and takes the dashes out.
+ * coming off and what is coming up, priority options, each with a line that
+ * could be the week's intention, a guess at their free hours, busy days,
+ * milestones, what needs them and habit days. Code then turns the short ids
+ * back into real ones, drops anything it does not know, checks every date and
+ * number and takes the dashes out.
  *
  *   gatherRead (reads)  →  renderRead (pure)  →  the model  →  checkRead (pure)
  *
@@ -43,7 +44,7 @@ import { easesFrom, pauseSpans } from '../../shared/habitWeek.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
 import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields.js';
 
-export const WEEK_READ_VERSION = 'week-read-2026-10-09a';
+export const WEEK_READ_VERSION = 'week-read-2026-10-09b';
 
 /** The most open todos the read lists; the figures still count every one. */
 export const TODO_LIST_MAX = 120;
@@ -803,8 +804,7 @@ The challenge is the single thing most likely to make this week go wrong, said p
 Evidence is two to four figures that prove the challenge, each a short number or count with a few words of label, all taken from the data. A date is not a figure, though the number of days until it can be.
 Coming off is one sentence about the week they just had, from what the data shows.
 Coming up lists up to eight dated moments in the next six weeks that should shape this week, in date order, each said briefly and without its date, which has a field of its own. What is on their calendar belongs here too when it is a moment in their life: something that matters to them beyond an ordinary day, as far as you can judge from what you know of them. An entry that is part of their routine does not. When a moment is one of the dated things or one of the calendar entries in the data, give its id with it.
-Priority options are up to five things that could matter most this week, each tied to the todo ids it covers when there are any. Mark at most three as your picks. Favour hard dates, things that unblock bigger goals, and things they named as priorities.
-Intention drafts are three short first person lines they could adopt as their intention for the week, each of ten words or fewer and each in a different spirit.
+Priority options are up to five things that could matter most this week, each tied to the todo ids it covers when there are any. Mark at most three as your picks. Favour hard dates, things that unblock bigger goals, and things they named as priorities. With each give an intention: one short first person line of ten words or fewer that they could hold onto all week if this is what their week is for. It says how they mean to go about the week, in their own voice, and does not repeat the priority as a task to do.
 Free hours guess is how many hours on a normal day, a busy day and a day off they likely have for their own things outside work and fixed commitments, in half hour steps, with a short reason. When they set their free hours in their last review, start from those. When there is no calendar, guess from what you know of their life and say that it is a guess they can change.
 Busy days are the days being planned that look heavy from the calendar or dated things, each given as its date. Leave it empty when nothing shows it.
 Milestones are for events and deliverables more than a week away that need preparing for: something that takes several pieces of work on the days before it. A dated thing that is itself one piece of work is a todo, however far off it is, and never gets a milestone. Each one leads up to one dated thing in the data, which you name by its id. For each, give two to four steps in order, each with a date to finish by, rough minutes, and whether it is a todo to do or a check in Gremly should hold during an evening wrap up to see how it is going. Each step is something new to add to their list, never a todo they already have, and at least one step of every milestone is a todo to do. Only include goals the data supports.
@@ -861,10 +861,12 @@ export const READ_SCHEMA = obj({
         { type: 'string' },
         'the ids of the todos it covers, none when it covers none',
       ),
+      intention: text(
+        'one first person line of ten words or fewer to hold onto if this is what the week is for',
+      ),
     }),
     'up to five',
   ),
-  intention_drafts: list({ type: 'string' }, 'three'),
   free_hours_guess: obj({
     normal_day: { type: 'number', description: 'hours, in half hour steps' },
     busy_day: { type: 'number', description: 'hours, in half hour steps' },
@@ -1052,20 +1054,31 @@ export function checkRead(output, g, r) {
     const pick = p?.gremly_pick === true && picks < READ_LIMITS.picks;
     if (p?.gremly_pick === true && !pick) drop('priority_pick', 'too_many');
     if (pick) picks += 1;
+    // the line to hold onto if this is what their week is for: the one the
+    // intention card suggests once they have chosen it
+    const intention = said(p?.intention, WEEK_LIMITS.intention);
+    if (!intention) drop('intention', 'empty');
     read.priority_options.push({
       text: words,
       why: said(p?.why, 200),
       gremly_pick: pick,
       item_ids: todoIds(p?.item_ids, 'priority_item'),
+      intention,
     });
   }
 
+  // An app build from before each priority had a line of its own shows three
+  // drafts to choose from: it is given the lines of Gremly's picks, then the
+  // others', each once.
   read.intention_drafts = [];
-  for (const line of asList(o.intention_drafts)) {
-    const words = said(line, WEEK_LIMITS.intention);
-    if (!words) drop('intention', 'empty');
-    else if (read.intention_drafts.length >= READ_LIMITS.intentions) drop('intention', 'too_many');
-    else read.intention_drafts.push(words);
+  const byPick = [...read.priority_options].sort(
+    (a, b) => Number(b.gremly_pick) - Number(a.gremly_pick),
+  );
+  for (const p of byPick) {
+    if (read.intention_drafts.length >= READ_LIMITS.intentions) break;
+    if (p.intention && !read.intention_drafts.includes(p.intention)) {
+      read.intention_drafts.push(p.intention);
+    }
   }
 
   const f = o.free_hours_guess && typeof o.free_hours_guess === 'object' ? o.free_hours_guess : {};

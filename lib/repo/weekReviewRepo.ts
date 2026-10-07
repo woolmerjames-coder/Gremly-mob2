@@ -54,7 +54,14 @@ export interface WeekRead {
   /** item is the dated thing the moment is, when it is one of theirs */
   coming_up: { when: string; what: string; item: { type: string; id: string } | null }[];
   /** Up to five, at most three of them Gremly's picks; item_ids are todos */
-  priority_options: { text: string; why: string; gremly_pick: boolean; item_ids: string[] }[];
+  /** intention is the line to hold onto if this is what the week is for; a read made before 9 October 2026 has none */
+  priority_options: {
+    text: string;
+    why: string;
+    gremly_pick: boolean;
+    item_ids: string[];
+    intention?: string;
+  }[];
   intention_drafts: string[];
   /** Hours for their own things on each kind of day, in half hours; null when none could be used */
   free_hours_guess: (WeekHours & { reason: string }) | null;

@@ -165,8 +165,11 @@ export const WEEK_COPY = {
   markBusy: 'Mark busy days above',
   shapeDone: "That's the shape",
 
-  intentionIntro: 'One line to hold onto this week? Here are a few, or write your own.',
-  ownWords: 'Or in your own words',
+  intentionIntro:
+    'One line to hold onto this week? Put it in your own words, or I can suggest one.',
+  ownWords: 'In your own words',
+  suggestOne: 'Suggest one',
+  skipIntention: 'Skip',
   keepThis: 'Keep this one',
   noIntention: 'No intention this week',
 

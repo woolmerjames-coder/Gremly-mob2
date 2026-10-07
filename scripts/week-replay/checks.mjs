@@ -27,8 +27,12 @@ export function wordsOf(read) {
   for (const p of read.priority_options || []) {
     add('priority', p.text);
     add('priority why', p.why);
+    add('priority intention', p.intention);
   }
-  for (const line of read.intention_drafts || []) add('intention', line);
+  // a read from before each priority had a line of its own: its three drafts
+  if (!(read.priority_options || []).some((p) => p.intention)) {
+    for (const line of read.intention_drafts || []) add('intention', line);
+  }
   add('free hours reason', read.free_hours_guess?.reason);
   for (const m of read.milestones || []) {
     add('milestone', m.goal);
@@ -154,9 +158,9 @@ export function checkRun(s, out) {
   // the prompt asks for ten words or fewer; up to twelve still fits the card, so only more fails
   add(
     'fail',
-    'Three intention drafts, none over twelve words',
-    read.intention_drafts.length === 3 && read.intention_drafts.every((l) => words(l) <= 12),
-    read.intention_drafts.map((l) => `${words(l)}`).join(', '),
+    'Every priority option has an intention, none over twelve words',
+    read.priority_options.every((p) => p.intention && words(p.intention) <= 12),
+    read.priority_options.map((p) => `${p.intention ? words(p.intention) : 'none'}`).join(', '),
   );
 
   const f = read.free_hours_guess;

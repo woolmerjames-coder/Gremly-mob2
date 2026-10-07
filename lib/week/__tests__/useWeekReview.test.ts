@@ -529,8 +529,12 @@ describe('going through the steps', () => {
       'Busiest on Tue, Wed, Thu. About 2h 30m free on a normal day, no time on a busy one, 4h at weekends.',
     );
 
-    // the intention: one of Gremly's drafts, kept as the week's note
-    await h.go(() => r().intention.pick(1));
+    // the intention: Gremly's line for the first thing they chose, kept as the week's note
+    await h.go(() => r().intention.suggest());
+    expect(useWeekSession.getState().draft?.intention).toEqual({
+      pick: 0,
+      own: 'Start the reports before Thursday.',
+    });
     await h.go(() => r().intention.done());
     const kept = (applyChange as jest.Mock).mock.calls[0][0];
     expect(kept).toMatchObject({
@@ -538,11 +542,11 @@ describe('going through the steps', () => {
       type: 'note',
       id: null,
       week_start: WEEK_START,
-      fields: { text: 'Leave school by five twice.' },
+      fields: { text: 'Start the reports before Thursday.' },
     });
     expect(rows['row-1'].answers).toMatchObject({
       step: 'ahead',
-      intention: 'Leave school by five twice.',
+      intention: 'Start the reports before Thursday.',
       intention_id: 'note-intention',
     });
 
@@ -590,7 +594,7 @@ describe('going through the steps', () => {
       `gremly: ${doneLine({ habits: false, checkIns: [] })}`,
     ]);
     expect((h.cardOf('done')!.metadata_json as any).summary).toEqual({
-      intention: 'Leave school by five twice.',
+      intention: 'Start the reports before Thursday.',
       tiles: [
         { num: '0', label: 'todos spread across the week' },
         { num: '0', label: 'habit sessions with a day' },
@@ -634,16 +638,54 @@ describe('going through the steps', () => {
     expect(h.last().metadata_json).toMatchObject({ card: 'board' });
   });
 
-  it('keeps their own words as the intention, ahead of a draft', async () => {
+  it('keeps their own words as the intention, ahead of a line of Gremly’s', async () => {
     const h = await started({ status: 'started', answers: { step: 'intention' } });
     const r = () => h.hook.result.current;
     await h.go(() => {
-      r().intention.pick(0);
+      r().intention.suggest();
       r().intention.write('Sleep before midnight');
+    });
+    // changed by them, the words are theirs: it is no longer one of his lines
+    expect(useWeekSession.getState().draft?.intention).toEqual({
+      pick: null,
+      own: 'Sleep before midnight',
     });
     await h.go(() => r().intention.done());
     expect((applyChange as jest.Mock).mock.calls[0][0].fields.text).toBe('Sleep before midnight');
     expect(rows['row-1'].answers.intention).toBe('Sleep before midnight');
+  });
+
+  it('suggests the line that goes with what they chose, and the next one on another tap', async () => {
+    const h = await started({
+      status: 'started',
+      answers: {
+        step: 'intention',
+        priorities: [
+          { text: 'Sort the boiler', item_ids: [ID.boiler] },
+          { text: 'Clear the marking', item_ids: [ID.marking] },
+        ],
+      },
+    });
+    const r = () => h.hook.result.current;
+    const field = () => useWeekSession.getState().draft?.intention;
+    await h.go(() => r().intention.suggest());
+    expect(field()).toEqual({ pick: 0, own: 'Fewer things, finished.' });
+    await h.go(() => r().intention.suggest());
+    expect(field()).toEqual({ pick: 1, own: 'Leave school by five twice.' });
+    // round again to the first
+    await h.go(() => r().intention.suggest());
+    expect(field()).toEqual({ pick: 0, own: 'Fewer things, finished.' });
+  });
+
+  it('Skip keeps no intention, whatever the field holds', async () => {
+    const h = await started({ status: 'started', answers: { step: 'intention' } });
+    const r = () => h.hook.result.current;
+    await h.go(() => r().intention.write('Half a thought'));
+    await h.go(() => r().intention.skip());
+    expect(applyChange).not.toHaveBeenCalled();
+    expect(rows['row-1'].answers).toMatchObject({ step: 'ahead', intention: null });
+    expect((h.cardOf('intention')!.metadata_json as any).settled).toBe('No intention this week');
+    expect(useWeekSession.getState().draft?.intention).toEqual({ pick: null, own: '' });
   });
 
   it('takes a milestone back with one tap while the review is still on it', async () => {
@@ -1825,7 +1867,7 @@ describe('the week’s board', () => {
     expect(callWeekSpread).toHaveBeenCalledTimes(1);
     // Their intention is part of what the week is spread from. Ahead of the
     // board nobody is waiting on the spread, so it is asked for a little later.
-    await h.go(() => r().intention.pick(1));
+    await h.go(() => r().intention.suggest());
     await h.go(() => r().intention.done());
     expect(rows['row-1'].answers.intention).toBeTruthy();
     await tick(h, 5900);

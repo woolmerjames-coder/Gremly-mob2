@@ -122,6 +122,7 @@ import {
   daysPlanned,
   guessedPriorities,
   intentionOf,
+  intentionSuggestions,
   isPast,
   milestonesShown,
   prioritiesOf,
@@ -334,9 +335,13 @@ export interface WeekReview {
     done: () => Promise<void>;
   };
   intention: {
-    pick: (index: number) => void;
+    /** Put one of Gremly's lines in the field: the one for what they chose as mattering most, then the next */
+    suggest: () => void;
     write: (text: string) => void;
+    /** Keep the words in the field as the week's intention */
     done: () => Promise<void>;
+    /** No intention this week, whatever the field holds */
+    skip: () => Promise<void>;
   };
   ahead: {
     toggleStep: (key: string, index: number) => void;
@@ -1461,73 +1466,81 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     [run, settle, tell],
   );
 
-  const intention = useMemo(
-    () => ({
-      pick: (index: number) => {
+  const intention = useMemo(() => {
+    /** The intention step is settled: with the words in the field, or with none when they skip. */
+    const settleIntention = (keep: boolean) =>
+      run(async () => {
+        const now = session();
+        const r = now.row;
+        if (!now.draft || !now.on || !r || !editable('intention')) return;
+        if (!keep) patchDraft((d) => ({ ...d, intention: { pick: null, own: '' } }));
+        const text = keep ? intentionOf(now.draft.intention) : '';
+        let noteId = r.answers.intention_id ?? null;
+        if (text) {
+          // kept as the week's intention note, the way a card of Gremly's keeps it
+          const note = intentionNote(r.week_start);
+          const was = String(note?.body ?? note?.title ?? '').trim();
+          const checked = checkWeekChange(
+            { cid: 'week-intention', op: 'intention', intention: text },
+            {
+              today: today(),
+              week: {
+                first: now.on.span_start,
+                last: now.on.span_end,
+                week_start: r.week_start,
+                has_review: true,
+                intention: note ? { id: note.id, text: was } : null,
+              },
+            },
+          );
+          if (checked.ok) {
+            const out = await applyChange(checked.change, { source: 'thread' });
+            if (!out.ok) throw new Error(out.message);
+            noteId = out.createdId ?? (note?.id as string | undefined) ?? noteId;
+          } else if (checked.reason === 'no_change') {
+            noteId = (note?.id as string | undefined) ?? noteId;
+          } else {
+            throw new Error(`The intention could not be kept: ${checked.reason}`);
+          }
+        } else if (r.answers.intention) {
+          // None this week after all, where the review held one: its note is
+          // put away, so the week and Gremly no longer have it.
+          const note = intentionNote(r.week_start);
+          if (note) {
+            await store().archiveNote(note.id, 'cleared in the weekly review');
+            if (intentionNote(r.week_start)) {
+              throw new Error("The week's intention could not be cleared.");
+            }
+          }
+          noteId = null;
+        }
+        await settle('intention', (a) => ({
+          ...a,
+          intention: text || null,
+          intention_id: noteId,
+        }));
+      });
+    return {
+      suggest: () => {
         if (!editable('intention')) return;
-        patchDraft((d) => ({ ...d, intention: { pick: index, own: '' } }));
+        const r = session().row;
+        const lines = intentionSuggestions(r?.read ?? null, r?.answers);
+        if (!lines.length) return;
+        // the first of his lines, or the next when the field already holds one of them
+        patchDraft((d) => {
+          const at = d.intention.pick == null ? 0 : (d.intention.pick + 1) % lines.length;
+          return { ...d, intention: { pick: at, own: lines[at] } };
+        });
       },
       write: (text: string) => {
         if (!editable('intention')) return;
-        patchDraft((d) => ({
-          ...d,
-          intention: { pick: text.trim() ? null : d.intention.pick, own: text },
-        }));
+        // once they change it, the words are theirs
+        patchDraft((d) => ({ ...d, intention: { pick: null, own: text } }));
       },
-      done: () =>
-        run(async () => {
-          const now = session();
-          const r = now.row;
-          if (!now.draft || !now.on || !r || !editable('intention')) return;
-          const text = intentionOf(r.read, now.draft.intention);
-          let noteId = r.answers.intention_id ?? null;
-          if (text) {
-            // kept as the week's intention note, the way a card of Gremly's keeps it
-            const note = intentionNote(r.week_start);
-            const was = String(note?.body ?? note?.title ?? '').trim();
-            const checked = checkWeekChange(
-              { cid: 'week-intention', op: 'intention', intention: text },
-              {
-                today: today(),
-                week: {
-                  first: now.on.span_start,
-                  last: now.on.span_end,
-                  week_start: r.week_start,
-                  has_review: true,
-                  intention: note ? { id: note.id, text: was } : null,
-                },
-              },
-            );
-            if (checked.ok) {
-              const out = await applyChange(checked.change, { source: 'thread' });
-              if (!out.ok) throw new Error(out.message);
-              noteId = out.createdId ?? (note?.id as string | undefined) ?? noteId;
-            } else if (checked.reason === 'no_change') {
-              noteId = (note?.id as string | undefined) ?? noteId;
-            } else {
-              throw new Error(`The intention could not be kept: ${checked.reason}`);
-            }
-          } else if (r.answers.intention) {
-            // None this week after all, where the review held one: its note is
-            // put away, so the week and Gremly no longer have it.
-            const note = intentionNote(r.week_start);
-            if (note) {
-              await store().archiveNote(note.id, 'cleared in the weekly review');
-              if (intentionNote(r.week_start)) {
-                throw new Error("The week's intention could not be cleared.");
-              }
-            }
-            noteId = null;
-          }
-          await settle('intention', (a) => ({
-            ...a,
-            intention: text || null,
-            intention_id: noteId,
-          }));
-        }),
-    }),
-    [run, settle],
-  );
+      done: () => settleIntention(true),
+      skip: () => settleIntention(false),
+    };
+  }, [run, settle]);
 
   const ahead = useMemo(
     () => ({

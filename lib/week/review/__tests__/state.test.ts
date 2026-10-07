@@ -15,6 +15,7 @@ import {
   guessedPriorities,
   hoursTotal,
   intentionOf,
+  intentionSuggestions,
   isPast,
   isWeekend,
   milestonesShown,
@@ -120,6 +121,46 @@ describe('the milestones a card shows', () => {
   });
 });
 
+describe('the line Gremly suggests as the intention', () => {
+  const read = madeUpRead();
+  const chose = (...texts: string[]) => ({
+    priorities: texts.map((text) => ({ text, item_ids: [] })),
+  });
+
+  it('is the one that goes with what they chose as mattering most, in their order', () => {
+    expect(intentionSuggestions(read, chose('Sort the boiler', 'Get the reports started'))).toEqual(
+      ['Fewer things, finished.', 'Start the reports before Thursday.'],
+    );
+    // one of theirs with no line of its own gives none, and the others still do
+    expect(intentionSuggestions(read, chose('Two swims', 'Clear the marking'))).toEqual([
+      'Leave school by five twice.',
+    ]);
+  });
+
+  it('is one of Gremly’s picks’ when nothing they chose has a line', () => {
+    const picks = ['Start the reports before Thursday.', 'Leave school by five twice.'];
+    expect(intentionSuggestions(read, chose())).toEqual(picks);
+    expect(intentionSuggestions(read, null)).toEqual(picks);
+    // in their own words, or with no line of its own: the read knows no line for it
+    expect(intentionSuggestions(read, chose('Sleep', 'Two swims'))).toEqual(picks);
+  });
+
+  it('comes from the three drafts of a read made before each priority had a line', () => {
+    const old = madeUpRead({
+      priority_options: read.priority_options.map(({ intention: _line, ...o }) => o),
+    });
+    expect(intentionSuggestions(old, chose('Sort the boiler'))).toEqual([
+      'Start the reports before Thursday.',
+      'Leave school by five twice.',
+      'Fewer things, finished.',
+    ]);
+    expect(intentionSuggestions(null, null)).toEqual([]);
+    expect(
+      intentionSuggestions(madeUpRead({ priority_options: [], intention_drafts: [] }), null),
+    ).toEqual([]);
+  });
+});
+
 describe('the milestones set up from a card in the thread', () => {
   const steps = [
     { title: 'Draft the outline', by: WED, kind: 'todo' },
@@ -199,8 +240,8 @@ describe('what the cards start from', () => {
     expect(d.hours).toEqual({ normal_day: 1.5, busy_day: 0, weekend_day: 3 });
     expect(d.busy).toEqual([WED]);
     expect(d.datesOut).toEqual([`note:${ID.fair}`]);
-    // one of Gremly's drafts: picked, not typed
-    expect(d.intention).toEqual({ pick: 1, own: '' });
+    // the intention they kept is the words in the field, whoever first wrote them
+    expect(d.intention).toEqual({ pick: null, own: 'Leave school by five twice.' });
     const own = draftFor(madeUpRow({ answers: { intention: 'Sleep more' } }), DAYS);
     expect(own.intention).toEqual({ pick: null, own: 'Sleep more' });
   });
@@ -213,9 +254,8 @@ describe('what the cards start from', () => {
 
   it('reads the intention, the priorities and Gremly’s picks from the read', () => {
     const read = madeUpRead();
-    expect(intentionOf(read, { pick: 0, own: '' })).toBe('Start the reports before Thursday.');
-    expect(intentionOf(read, { pick: 0, own: '  My own  ' })).toBe('My own');
-    expect(intentionOf(read, { pick: null, own: '' })).toBe('');
+    expect(intentionOf({ pick: 0, own: '  My own  ' })).toBe('My own');
+    expect(intentionOf({ pick: null, own: '' })).toBe('');
     expect(prioritiesOf(read, [2, 0])).toEqual([
       { text: 'Sort the boiler', item_ids: [ID.boiler] },
       { text: 'Get the reports started', item_ids: [ID.reports] },

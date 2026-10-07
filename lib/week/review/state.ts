@@ -171,7 +171,11 @@ export interface WeekDraft {
   busy: string[];
   /** Deadlines taken off the list, by key (dateKey) */
   datesOut: string[];
-  /** The draft picked (an index into the read's drafts), or their own words */
+  /**
+   * The words in the intention's field: their own, or a line of Gremly's they
+   * asked for. While it stands as he gave it, pick says which of his lines it
+   * is (intentionSuggestions), so another tap gives the next.
+   */
   intention: { pick: number | null; own: string };
   /** Steps left out of each milestone, by the milestone's key */
   stepsOut: Record<string, number[]>;
@@ -204,9 +208,7 @@ export function draftFor(
   const read = row?.read ?? null;
   const a = row?.answers ?? {};
   const options = priorityOptions(read, a);
-  const drafts = read?.intention_drafts ?? [];
   const kept = typeof a.intention === 'string' ? a.intention.trim() : '';
-  const pick = kept ? drafts.findIndex((d) => d.trim() === kept) : -1;
   const inSpan = (list: string[] | undefined) => (list ?? []).filter((d) => days.includes(d));
   return {
     priorities: (a.priorities ?? [])
@@ -220,16 +222,42 @@ export function draftFor(
     },
     busy: a.busy_days ? inSpan(a.busy_days) : inSpan(read?.busy_days),
     datesOut: a.dates_out ?? [],
-    intention: { pick: pick >= 0 ? pick : null, own: pick >= 0 ? '' : kept },
+    intention: { pick: null, own: kept },
     stepsOut: {},
   };
 }
 
-/** The intention the card holds now: their own words when there are any, else the draft picked. */
-export function intentionOf(read: WeekRead | null, d: WeekDraft['intention']): string {
-  const own = d.own.trim();
-  if (own) return own;
-  return d.pick != null ? (read?.intention_drafts?.[d.pick] ?? '').trim() : '';
+/** The intention the card holds now: the words in its field. */
+export function intentionOf(d: WeekDraft['intention']): string {
+  return d.own.trim();
+}
+
+/**
+ * The lines Gremly can suggest as the week's intention, the first being the
+ * one Suggest one gives. Each of the read's priority options comes with a
+ * line to hold onto if that is what the week is for, so what is suggested is
+ * tied to what they chose as mattering most: the lines of their priorities,
+ * in their order. When none of what they chose is one of the read's options,
+ * Gremly's picks stand in, then the other options. A read made before a
+ * priority had a line of its own gives its three drafts.
+ */
+export function intentionSuggestions(
+  read: WeekRead | null,
+  answers: WeekAnswers | null | undefined,
+): string[] {
+  const options = read?.priority_options ?? [];
+  const lines = (list: typeof options) =>
+    list.map((o) => (o.intention ?? '').trim()).filter(Boolean);
+  const chosen = (answers?.priorities ?? []).flatMap((p) =>
+    options.filter((o) => o.text === p.text),
+  );
+  const from = [
+    lines(chosen),
+    lines(options.filter((o) => o.gremly_pick)),
+    lines(options),
+    (read?.intention_drafts ?? []).map((d) => d.trim()).filter(Boolean),
+  ].find((list) => list.length > 0);
+  return [...new Set(from ?? [])];
 }
 
 /** One thing they can keep as mattering most this week, as its chip on the card. */

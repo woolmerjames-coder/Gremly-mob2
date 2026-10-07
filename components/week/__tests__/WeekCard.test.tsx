@@ -89,7 +89,7 @@ function fakeReview(live = true): WeekReview {
       addDate: jest.fn(),
       done: jest.fn(),
     },
-    intention: { pick: jest.fn(), write: jest.fn(), done: jest.fn() },
+    intention: { suggest: jest.fn(), write: jest.fn(), done: jest.fn(), skip: jest.fn() },
     ahead: { toggleStep: jest.fn(), setUp: jest.fn(), undo: jest.fn(), done: jest.fn() },
     needsYou: { talk: jest.fn(), done: jest.fn() },
     board: {
@@ -736,28 +736,67 @@ describe('the shape of the week', () => {
 });
 
 describe('the intention', () => {
-  it('offers Gremly’s drafts and their own words', () => {
+  const field = (intention: { pick: number | null; own: string }) =>
+    useWeekSession.setState((s) => ({ draft: { ...s.draft!, intention } }));
+
+  it('opens on their own words, with Suggest one and Skip, and none of Gremly’s lines in sight', () => {
     underWay('intention');
+    field({ pick: null, own: '' });
+    const review = fakeReview();
+    const { getByText, getByTestId, queryByText, queryByTestId } = render(
+      <WeekCard messageId="m5" meta={meta('intention')} review={review} />,
+    );
+    expect(getByTestId('week-intention-own').props.placeholder).toBe('In your own words');
+    expect(getByText('Suggest one')).toBeTruthy();
+    expect(getByText('Skip')).toBeTruthy();
+    expect(queryByText('Leave school by five twice.')).toBeNull();
+    // nothing to keep yet
+    expect(queryByTestId('week-intention-done')).toBeNull();
+    fireEvent.changeText(getByTestId('week-intention-own'), 'Sleep more');
+    expect(review.intention.write).toHaveBeenCalledWith('Sleep more');
+    fireEvent.press(getByTestId('week-intention-suggest'));
+    expect(review.intention.suggest).toHaveBeenCalledTimes(1);
+    fireEvent.press(getByTestId('week-intention-skip'));
+    expect(review.intention.skip).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the line Gremly suggested in the field, to keep, change or swap for another', () => {
+    underWay('intention');
+    field({ pick: 0, own: 'Start the reports before Thursday.' });
     const review = fakeReview();
     const { getByText, getByTestId } = render(
       <WeekCard messageId="m5" meta={meta('intention')} review={review} />,
     );
-    expect(getByText('Leave school by five twice.')).toBeTruthy();
-    expect(getByText('Skip this')).toBeTruthy();
-    fireEvent.press(getByTestId('week-intention-1'));
-    expect(review.intention.pick).toHaveBeenCalledWith(1);
-    fireEvent.changeText(getByTestId('week-intention-own'), 'Sleep more');
-    expect(review.intention.write).toHaveBeenCalledWith('Sleep more');
+    expect(getByTestId('week-intention-own').props.value).toBe(
+      'Start the reports before Thursday.',
+    );
+    expect(getByText('Suggest one')).toBeTruthy();
+    fireEvent.press(getByText('Keep this one'));
+    expect(review.intention.done).toHaveBeenCalledTimes(1);
   });
 
-  it('says Keep this one once there is one to keep', () => {
+  it('once kept, shows the one they kept as they kept it, with Change', () => {
+    underWay('ahead', { intention: 'Sleep more' });
+    const review = fakeReview();
+    const { getByText, getByTestId, queryByTestId } = render(
+      <WeekCard messageId="m5" meta={meta('intention')} review={review} />,
+    );
+    expect(getByTestId('week-intention-kept')).toBeTruthy();
+    expect(getByText('Sleep more')).toBeTruthy();
+    expect(queryByTestId('week-intention-own')).toBeNull();
+    fireEvent.press(getByTestId('week-intention-change'));
+    expect(review.edit).toHaveBeenCalledWith('intention');
+  });
+
+  it('stops offering a line once the words are their own', () => {
     underWay('intention');
-    useWeekSession.setState((s) => ({ draft: { ...s.draft!, intention: { pick: 2, own: '' } } }));
-    const { getByText, getByTestId } = render(
+    field({ pick: null, own: 'Sleep more' });
+    const { getByText, queryByText } = render(
       <WeekCard messageId="m5" meta={meta('intention')} review={fakeReview()} />,
     );
+    expect(queryByText('Suggest one')).toBeNull();
     expect(getByText('Keep this one')).toBeTruthy();
-    expect(getByTestId('week-intention-2').props.accessibilityState.selected).toBe(true);
+    expect(getByText('Skip')).toBeTruthy();
   });
 });
 
