@@ -21,7 +21,6 @@ import { JournalPageHost } from './components/journal/JournalPageHost';
 import RootNavigator from './navigation/RootNavigator';
 import { supabase } from './lib/supabase/client';
 import { logAppEvent } from './lib/appEvents';
-import { runCortexProxyDiag } from './lib/cortex/diag';
 import { env } from './lib/env';
 import { useBrandFonts } from './app/theme/fonts';
 import { testLogger } from './src/utils/TestLogger';
@@ -199,11 +198,6 @@ function App() {
       });
     }
 
-    // Run Cortex proxy diagnostics (dev only)
-    if (__DEV__) {
-      runCortexProxyDiag();
-    }
-
     // Handle deep linking for magic link authentication
     const subscription = Linking.addEventListener('url', ({ url }) => {
       if (__DEV__) {
@@ -370,43 +364,3 @@ function App() {
 }
 
 export default Sentry.wrap(App);
-
-/*
- * ============================================================================
- * CORTEX PROXY DIAG CHECKLIST
- * ============================================================================
- *
- * Required config in .env.local:
- * -------------------------------
- * EXPO_PUBLIC_DEBUG_CORTEX=true
- * EXPO_PUBLIC_CORTEX_URL=https://<project-ref>.supabase.co/functions/v1/cortex-proxy
- *
- * Server secrets (already set in Supabase):
- * ------------------------------------------
- * OPENAI_API_KEY=sk-...
- * CORTEX_TIMEOUT_MS=12000
- * CORTEX_RATE_WINDOW_MS=60000
- * CORTEX_RATE_MAX=30
- *
- * Restart command:
- * ----------------
- * npm start -c
- *
- * What you should see in Metro logs:
- * -----------------------------------
- * ✅ If proxy is configured:
- *    [CORTEX][PROXY_CHECK] { hasUrl: true, urlPrefix: 'https://...', model: 'gpt-4o-mini', timeout: 12000 }
- *
- * ✅ If proxy is working:
- *    [CORTEX][PROXY_TEST] { ok: true, hasResponse: true, platform: 'ios' }
- *
- * ❌ If proxy missing:
- *    [CORTEX][PROXY_CHECK] { hasUrl: false, ... }
- *
- * ❌ If proxy fails:
- *    [CORTEX][PROXY_TEST] error: [cortex] Missing EXPO_PUBLIC_CORTEX_URL
- *
- * Next Steps:
- * -----------
- * See SECURE_AI_PROXY_COMPLETE.md for deployment guide
- */

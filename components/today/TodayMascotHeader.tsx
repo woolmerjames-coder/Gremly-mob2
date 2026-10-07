@@ -5,19 +5,9 @@
  */
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import {
-  View,
-  StyleSheet,
-  Alert,
-  ToastAndroid,
-  Platform,
-  Pressable,
-  Animated,
-  Image,
-} from 'react-native';
+import { View, StyleSheet, Pressable, Animated, Image } from 'react-native';
 import { Box, Text } from '../../ui';
 import { useTokens } from '../../design/makeStyles';
-import { runCortexProxyDiag } from '../../lib/cortex/diag';
 import { isReducedMotion } from '../../lib/a11y/reducedMotion';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const Mascot = require('../../assets/mascot/gremly-mascot.png');
@@ -53,17 +43,6 @@ export default function TodayMascotHeader({
   const [isWaving, setIsWaving] = useState(false);
   const waveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scaleAnim = useMemo(() => new Animated.Value(1), []);
-
-  // Dev-only: Cortex ping via long-press
-  const devPing = async () => {
-    const res = await runCortexProxyDiag();
-    const msg = res.ok ? 'Cortex OK' : `Cortex FAIL: ${res.error}`;
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(msg, ToastAndroid.SHORT);
-    } else {
-      Alert.alert('Cortex Ping', msg);
-    }
-  };
 
   // Trigger wave animation when waveTick changes
   useEffect(() => {
@@ -152,9 +131,7 @@ export default function TodayMascotHeader({
       {/* Mascot with PNG image */}
       <Pressable
         onPress={onMascotPress}
-        onLongPress={__DEV__ ? devPing : undefined}
-        delayLongPress={250}
-        disabled={!onMascotPress && !__DEV__}
+        disabled={!onMascotPress}
         testID="today-mascot"
         accessibilityLabel="Gremly mascot"
         accessibilityRole="button"
