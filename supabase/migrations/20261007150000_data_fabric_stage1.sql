@@ -14,7 +14,8 @@
 --    is the reader's judgment, so only facts read from now on carry "about".
 -- 3. life_facts_now: each fact with the current dates and status of the item
 --    it is about, so an item is the truth for its own dates.
--- 4. recall_life reads life_facts_now.
+-- 4. recall_life_now: recall with the item's own dates, each fact's end date
+--    and where it came from. recall_life is left as it is.
 -- 5. A cancelled stamp on calendar entries, set when the reader judges an
 --    entry cancelled.
 -- 6. habit_not_held: a break habit marked not held in the wrap up.
@@ -284,50 +285,32 @@ comment on view public.life_facts_now is
   'life_facts with the current dates and status of the item each fact is about (life_fact_sources, role about). stated_date keeps what the fact itself says.';
 revoke all on public.life_facts_now from anon;
 
--- 4. Recall reads the item's own dates ---------------------------------------
+-- 4. Recall with the item's own dates ----------------------------------------
+-- recall_life_now is the search recall_life makes, with where each fact came
+-- from (fact_sources, 20261007120000_memory_sources.sql, which runs first),
+-- read from life_facts_now so a fact about an item carries the item's dates,
+-- and with each fact's end date, so a plan still under way is not taken for
+-- one whose date has passed (workers/shared/factTiming.js). recall_life is
+-- left as it is.
 
-create or replace function public.recall_life(p_user uuid, p_query text, p_limit integer default 12)
-returns table (source text, id uuid, title text, body text, about_date date, state text, private boolean, rank real)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  with q as (
-    -- Any of the words, so a message like "how did the honeymoon go" finds the trip.
-    select to_tsquery('english', string_agg(lexeme, ' | ')) as tq
-    from unnest(tsvector_to_array(to_tsvector('english', coalesce(p_query, '')))) as lexeme
-  ),
-  hits as (
-    select 'fact'::text as source, f.id, f.subject as title, f.statement as body, f.about_date, f.state, f.private,
-      ts_rank(to_tsvector('english', coalesce(f.statement, '') || ' ' || coalesce(f.subject, '')), q.tq) as rank
-    from life_facts_now f, q
-    where f.user_id = p_user and q.tq is not null
-      and f.state not in ('corrected', 'superseded')
-      and to_tsvector('english', coalesce(f.statement, '') || ' ' || coalesce(f.subject, '')) @@ q.tq
-    union all
-    select 'story', s.id, s.title, s.body, s.period_start, s.kind, s.private,
-      ts_rank(to_tsvector('english', coalesce(s.title, '') || ' ' || coalesce(s.body, '')), q.tq) * 1.5
-    from story_items s, q
-    where s.user_id = p_user and s.state = 'current' and q.tq is not null
-      and to_tsvector('english', coalesce(s.title, '') || ' ' || coalesce(s.body, '')) @@ q.tq
-    union all
-    select 'chapter', c.id, c.title, coalesce(c.summary, c.card_subtitle, ''), c.start_date, c.phase, false,
-      ts_rank(to_tsvector('english', coalesce(c.title, '') || ' ' || coalesce(c.summary, '')), q.tq) * 1.2
-    from chapters c, q
-    where c.owner_id = p_user and q.tq is not null
-      and to_tsvector('english', coalesce(c.title, '') || ' ' || coalesce(c.summary, '')) @@ q.tq
-  )
-  select * from hits order by rank desc, about_date desc nulls last limit greatest(1, least(p_limit, 40));
-$$;
-revoke execute on function public.recall_life(uuid, text, integer) from anon, authenticated, public;
-grant execute on function public.recall_life(uuid, text, integer) to service_role;
-
--- The same recall with each fact's end date, so a plan still under way is not
--- taken for one whose date has passed (workers/shared/factTiming.js).
 create or replace function public.recall_life_now(p_user uuid, p_query text, p_limit integer default 12)
-returns table (source text, id uuid, title text, body text, about_date date, about_date_end date,
-  state text, private boolean, rank real)
+returns table (
+  source text,
+  id uuid,
+  title text,
+  body text,
+  about_date date,
+  about_date_end date,
+  state text,
+  private boolean,
+  rank real,
+  said_by text,
+  source_table text,
+  source_kind text,
+  source_question text,
+  source_quote text,
+  observed_at timestamptz
+)
 language sql
 stable
 security definer
@@ -358,8 +341,19 @@ as $$
     from chapters c, q
     where c.owner_id = p_user and q.tq is not null
       and to_tsvector('english', coalesce(c.title, '') || ' ' || coalesce(c.summary, '')) @@ q.tq
+  ),
+  top as (
+    select h.* from hits h
+    order by h.rank desc, h.about_date desc nulls last
+    limit greatest(1, least(p_limit, 40))
   )
-  select * from hits order by rank desc, about_date desc nulls last limit greatest(1, least(p_limit, 40));
+  select t.source, t.id, t.title, t.body, t.about_date, t.about_date_end, t.state, t.private, t.rank::real,
+    s.said_by, s.source_table, s.source_kind, s.source_question, s.source_quote, s.observed_at
+  from top t
+  left join public.fact_sources(
+    p_user, array(select x.id from top x where x.source = 'fact')
+  ) s on t.source = 'fact' and s.id = t.id
+  order by t.rank desc, t.about_date desc nulls last;
 $$;
 revoke execute on function public.recall_life_now(uuid, text, integer) from anon, authenticated, public;
 grant execute on function public.recall_life_now(uuid, text, integer) to service_role;
