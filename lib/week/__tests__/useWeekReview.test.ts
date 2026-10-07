@@ -2060,13 +2060,20 @@ describe('the week’s board', () => {
       },
     ],
   });
-  /** A review on the board with their own todos on it, and the spread in with its suggestions. */
-  async function onOwn(answers: Record<string, unknown> = {}, todos = [...TODOS, ...OWN]) {
+  /**
+   * A review on the board with their own todos on it, and the spread in with its suggestions.
+   * @param days the over-full days the suggestions speak of, when not Wednesday alone
+   */
+  async function onOwn(
+    answers: Record<string, unknown> = {},
+    todos = [...TODOS, ...OWN],
+    days?: unknown[],
+  ) {
     mockStore.todos = todos.map((t) => ({ ...t }));
     mockStore.habits = HABITS;
     (callWeekSpread as jest.Mock).mockImplementation(async () => ({
       ok: true,
-      data: { on: useWeekSession.getState().on, spread: spreadNow({ relief: reliefNow() }) },
+      data: { on: useWeekSession.getState().on, spread: spreadNow({ relief: reliefNow(days) }) },
     }));
     const h = await started({
       status: 'started',
@@ -2122,6 +2129,64 @@ describe('the week’s board', () => {
     expect(callWeekSpread).toHaveBeenCalledTimes(2);
   });
 
+  it('shows a day they filled by hand on the board before the week is finished, and asks for suggestions for it', async () => {
+    // They said rearrange it all, so nothing kept overfills a day. The spread
+    // is in, with nothing to say of Wednesday. Then they fill it by hand.
+    const loose = OWN.map((t) => ({ ...t, due_day: undefined }));
+    const h = await onOwn({ keep: 'none' }, [...TODOS, ...loose], []);
+    const r = () => h.hook.result.current;
+    expect(callWeekSpread).toHaveBeenCalledTimes(1);
+    await h.go(() => r().board.open());
+    await h.go(() => {
+      for (const t of loose) r().board.move(t.id, WED);
+    });
+    // nothing is asked for while they are still on the board
+    await tick(h, 5000);
+    expect(callWeekSpread).toHaveBeenCalledTimes(1);
+    // Done: Wednesday is 80 minutes over with their own, so the board closes on its card
+    await h.go(() => r().board.done());
+    expect(saveBoard).not.toHaveBeenCalled();
+    expect(rows['row-1'].status).toBe('started');
+    expect(useWeekSession.getState().boardOpen).toBe(false);
+    expect(rows['row-1'].answers.board.placed).toMatchObject({ 'own-0': WED, 'own-4': WED });
+    // the week is spread again around what they put there, and the suggestions come with it
+    (callWeekSpread as jest.Mock).mockImplementation(async () => ({
+      ok: true,
+      data: { on: useWeekSession.getState().on, spread: spreadNow({ relief: reliefNow() }) },
+    }));
+    await tick(h);
+    expect(callWeekSpread).toHaveBeenCalledTimes(2);
+    expect((callWeekSpread as jest.Mock).mock.calls[1][0].board.placed).toContainEqual({
+      id: 'own-0',
+      day: WED,
+    });
+    // asked once for the board as it stands
+    await tick(h, 20000);
+    expect(callWeekSpread).toHaveBeenCalledTimes(2);
+    // they leave the day as it is: it is theirs, and the week can be finished
+    await h.go(() => r().board.relieve(WED, 'left'));
+    expect(rows['row-1'].answers.relieved).toEqual({ [WED]: 'left' });
+    await h.go(() => r().board.open());
+    await h.go(() => r().board.done());
+    expect(saveBoard).toHaveBeenCalledTimes(1);
+    expect(rows['row-1'].status).toBe('done');
+  });
+
+  it('asks once more only, when the suggestions that come back still say nothing of a day they filled', async () => {
+    const loose = OWN.map((t) => ({ ...t, due_day: undefined }));
+    const h = await onOwn({ keep: 'none' }, [...TODOS, ...loose], []);
+    const r = () => h.hook.result.current;
+    await h.go(() => r().board.open());
+    await h.go(() => {
+      for (const t of loose) r().board.move(t.id, WED);
+    });
+    await h.go(() => r().board.close());
+    await tick(h);
+    await tick(h, 20000);
+    // the first spread, and one for the day they filled: its card then says none could be worked out
+    expect(callWeekSpread).toHaveBeenCalledTimes(2);
+  });
+
   it('takes Gremly’s suggested moves for an over-full day as their own, then spreads the week around them', async () => {
     const h = await onOwn({ keep: 'all' });
     const r = () => h.hook.result.current;
@@ -2147,10 +2212,10 @@ describe('the week’s board', () => {
   it('goes through their over-full days before spreading again, and leaves one alone when told to', async () => {
     // Tuesday is over too: the marking and two more of theirs
     const more = [5, 6].map((i) => ({ ...OWN[0], id: `own-${i}`, name: `Own ${i}`, due_day: TUE }));
-    const h = await onOwn({ keep: 'all' }, [...TODOS, ...OWN, ...more]);
-    const r = () => h.hook.result.current;
-    rows['row-1'].spread = spreadNow({
-      relief: reliefNow([
+    const h = await onOwn(
+      { keep: 'all' },
+      [...TODOS, ...OWN, ...more],
+      [
         {
           day: TUE,
           over: 20,
@@ -2159,9 +2224,10 @@ describe('the week’s board', () => {
           note: '',
         },
         { day: WED, over: 80, moves: [], still: 80, note: '' },
-      ]),
-    });
-    useWeekSession.setState({ row: { ...rows['row-1'] } });
+      ],
+    );
+    const r = () => h.hook.result.current;
+    expect(callWeekSpread).toHaveBeenCalledTimes(1);
     await h.go(() => r().board.relieve(TUE, 'moved'));
     expect(rows['row-1'].answers.relieved).toEqual({ [TUE]: 'moved' });
     // Wednesday is still to be looked at: the suggestions in hand stay
@@ -2238,7 +2304,15 @@ describe('the week’s board', () => {
         spread: spreadNow({ basis: 'worded another way' }),
       },
     }));
-    const h = await started({ status: 'started', answers: { step: 'board' } });
+    // hours that hold what is theirs: no day is over, so the board is theirs to finish
+    const h = await started({
+      status: 'started',
+      answers: {
+        step: 'board',
+        hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
+        busy_days: [THU],
+      },
+    });
     const r = () => h.hook.result.current;
     await tick(h);
     await tick(h, 20000);

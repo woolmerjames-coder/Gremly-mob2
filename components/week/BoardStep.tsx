@@ -114,7 +114,9 @@ export function BoardStep({
     const over = board.days.find((d) => d.day === day)?.over ?? 0;
     // The suggestions come with the spread. Until one made for these answers
     // is in, they are on their way; one that came back without any has none.
-    const waiting = !relief && !failed && (fitting || !spread || stale);
+    // A day they filled by hand since the spread was made has none yet either,
+    // and the week is being spread again around it.
+    const waiting = !offered && !failed && (fitting || !spread || stale);
     body = (
       <OverfullCard
         day={day}

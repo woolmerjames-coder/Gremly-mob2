@@ -729,6 +729,39 @@ describe('the days they gave their todos themselves', () => {
     expect(r.text).not.toContain('which they chose');
   });
 
+  it('are theirs again on a day they put them by hand, whatever they said: nothing of the spread’s goes on a day they filled', () => {
+    // they said rearrange it all, then put the report and the taxes on Thursday themselves:
+    // three hours on a busy day with one
+    const { g, frame, r, ref } = made(gathered(), answered({ keep: 'none', busy_days: [THU] }), {
+      placed: [
+        { id: REPORT, day: THU },
+        { id: TAXES, day: THU },
+      ],
+    });
+    expect(frame.room.find((x) => x.day === THU)).toMatchObject({ fixed: 180, left: 0, over: 120 });
+    // the model is told the day is over, and puts two quick ones on it all the same
+    expect(r.text).toContain('it is over by 120 minutes');
+    const out = checkSpread(
+      {
+        days: [{ day: THU, todo_ids: [ref(PLUMBER), ref(IDEA)], note: 'Two quick ones.' }],
+        later: [],
+      },
+      g,
+      frame,
+      r,
+    );
+    expect(out.place.filter((p) => p.day === THU)).toEqual([]);
+    expect(out.counts.spilled).toBe(2);
+    // each went to the next day with room
+    expect(out.place).toEqual(
+      expect.arrayContaining([
+        { id: PLUMBER, day: FRI },
+        { id: IDEA, day: FRI },
+      ]),
+    );
+    expect(out.notes).toEqual([]);
+  });
+
   it('are given one at a time when they keep some: only the ones they freed', () => {
     const { frame, r, ref } = made(withTwo(), answered({ keep: 'some', freed: [WALK] }));
     expect([...frame.fixed]).toEqual([[VENUE, TUE]]);

@@ -833,8 +833,11 @@ describe('the days they gave their todos themselves', () => {
   it('stand under their own moves on the board, which are theirs anyway', () => {
     const b = kept({ board: { placed: { marking: SAT } } });
     expect(b.theirs.map((t) => t.id)).toEqual(['step']);
-    expect(at(b, 'marking')).toMatchObject({ day: SAT, theirs: false, gremly: false });
-    expect(b.days.find((d) => d.day === SAT)).toMatchObject({ theirMinutes: 0, ownMinutes: 60 });
+    // a day they gave it on the board is theirs like one they gave it before
+    expect(at(b, 'marking')).toMatchObject({ day: SAT, theirs: true, byHand: true, gremly: false });
+    expect(b.days.find((d) => d.day === SAT)).toMatchObject({ theirMinutes: 60, ownMinutes: 60 });
+    // one kept on the day it is saved on was not put there on the board
+    expect(at(b, 'step')).toMatchObject({ theirs: true, byHand: false });
   });
 
   it('record where Gremly put each todo, for the next time this week is planned', () => {
@@ -1025,9 +1028,160 @@ describe('Gremly’s suggestions for an over-full day', () => {
     });
     const after = board({ board: moves });
     expect(after.days.find((d) => d.day === WED)).toMatchObject({ theirMinutes: 90, over: 0 });
-    // what they moved is theirs by their own hand now, not a kept day
-    expect(after.days.find((d) => d.day === FRI)!.todos.map((t) => [t.id, t.theirs])).toEqual([
-      ['paint', false],
+    // what they moved is theirs by their own hand now
+    expect(
+      after.days.find((d) => d.day === FRI)!.todos.map((t) => [t.id, t.theirs, t.byHand]),
+    ).toEqual(expect.arrayContaining([['paint', true, true]]));
+  });
+});
+
+describe('a day they fill by hand on the board', () => {
+  // Maya said rearrange it all, the spread came back, and then she put four
+  // of her own on Wednesday herself: 200 minutes on a day with two hours.
+  const filled = { fill0: WED, fill1: WED, fill2: WED, fill3: WED };
+  const fill = Array.from({ length: 4 }, (_, i) =>
+    todo(`fill${i}`, { name: `Fill ${i}`, time_estimate_minutes: 50 }),
+  );
+  const at = (b: ReturnType<typeof boardOf>, id: string) =>
+    [...b.days.flatMap((d) => d.todos), ...b.later].find((t) => t.id === id)!;
+  const board = (answers: Record<string, unknown> = {}, over: Partial<BoardInput> = {}) =>
+    boardOf(
+      input(
+        { todos: [...TODOS, ...fill], ...over },
+        { keep: 'none', board: { placed: filled }, ...answers },
+      ),
+    );
+
+  it('is over-full like one they kept, whatever they said of their own days', () => {
+    const b = board();
+    const wed = b.days.find((d) => d.day === WED)!;
+    expect(wed).toMatchObject({ theirMinutes: 200, over: 80 });
+    expect(wed.todos.every((t) => t.theirs && t.byHand)).toBe(true);
+    // the day gets its card, and is dealt with like any other
+    expect(boardStage(b, { keep: 'none' })).toEqual({ stage: 'overfull', day: WED });
+    expect(boardStage(b, { keep: 'none', relieved: { [WED]: 'left' } })).toEqual({
+      stage: 'board',
+    });
+    // and the question about their days shows its load
+    expect(keepLoad(b).find((d) => d.day === WED)).toMatchObject({ load: 200, count: 4, over: 80 });
+  });
+
+  it('can be relieved by the moves Gremly suggests for it', () => {
+    const b = board();
+    const r = reliefFor(
+      b,
+      {
+        version: 'week-relief-test',
+        basis: 'basis',
+        days: [
+          {
+            day: WED,
+            over: 80,
+            asked: 2,
+            moves: [
+              { id: 'fill3', to: FRI, back_on: null },
+              { id: 'fill2', to: null, back_on: '2026-10-13' },
+            ],
+            still: 0,
+            note: '',
+          },
+        ],
+      },
+      WED,
+    )!;
+    expect(r.moves.map((m) => [m.id, m.to, m.backOn])).toEqual([
+      ['fill3', FRI, null],
+      ['fill2', null, '2026-10-13'],
     ]);
+    expect(r.still).toBe(0);
+  });
+
+  it('leaves no room for what Gremly placed there: his go to the next day with room', () => {
+    const b = board();
+    // the boiler was his on Wednesday. Thursday is full, so it is on Friday, still his
+    expect(b.days.find((d) => d.day === WED)!.todos.map((t) => t.id)).not.toContain('boiler');
+    expect(at(b, 'boiler')).toMatchObject({ day: FRI, gremly: true, theirs: false });
+    expect(gremlyPlaced(b)).toMatchObject({ boiler: FRI });
+    expect(boardDiff(b).place).toEqual(expect.arrayContaining([{ id: 'boiler', day: FRI }]));
+  });
+
+  it('sends his to Later, with a day to come back, when no later day has room', () => {
+    // no free hours at all this week: no day after Wednesday has room for it
+    const b = board({ hours: { normal_day: 0, busy_day: 0, weekend_day: 0 } });
+    expect(at(b, 'boiler')).toMatchObject({ day: null, gremly: true });
+    expect(b.returns).toContain(at(b, 'boiler').backOn);
+    expect(boardDiff(b).later.map((l) => l.id)).toContain('boiler');
+  });
+
+  it('never leaves a day over its room because of something Gremly placed', () => {
+    // Monday has two hours: his reports, and then an hour and three quarters of theirs by hand
+    const b = boardOf(
+      input(
+        { todos: [...TODOS, todo('long', { name: 'A long job', time_estimate_minutes: 105 })] },
+        { board: { placed: { long: MON } } },
+      ),
+    );
+    const mon = b.days.find((d) => d.day === MON)!;
+    // theirs fits beside the swim only just, so the day is not over, and his thirty minutes no longer fit
+    expect(mon).toMatchObject({ habitMinutes: 40, theirMinutes: 105, over: 25 });
+    expect(mon.todos.map((t) => t.id)).toEqual(['long']);
+    expect(at(b, 'reports')).toMatchObject({ day: TUE, gremly: true });
+    for (const d of b.days) {
+      if (d.todos.some((t) => t.gremly)) expect(d.left).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('gives up what matters most to them last, and what he placed last first', () => {
+    // Friday holds two of his, twenty and thirty minutes, then they put 90 minutes on it by hand
+    const spread = {
+      ...SPREAD,
+      place: [
+        { id: 'boiler', day: FRI },
+        { id: 'reports', day: FRI },
+      ],
+    };
+    const todos = [...TODOS, todo('big', { name: 'A big job', time_estimate_minutes: 90 })];
+    const of = (answers: Record<string, unknown>) =>
+      boardOf({
+        ...input({ todos }, answers),
+        row: { ...input({ todos }, answers).row, spread },
+      });
+    // room for one of them: the one placed last leaves
+    const plain = of({ board: { placed: { big: FRI } } });
+    expect(at(plain, 'boiler').day).toBe(FRI);
+    expect(at(plain, 'reports').day).toBe(SAT);
+    // the reports matter most this week: the boiler leaves instead, though it was placed first
+    const picked = of({
+      board: { placed: { big: FRI } },
+      priorities: [{ text: 'The grades', item_ids: ['reports'] }],
+    });
+    expect(at(picked, 'reports').day).toBe(FRI);
+    expect(at(picked, 'boiler').day).toBe(SAT);
+  });
+
+  it('holds one of his with a hard date on these days to a day up to that date', () => {
+    const spread = { ...SPREAD, place: [{ id: 'boiler', day: WED }] };
+    const dated = (by: string) =>
+      boardOf({
+        ...input(
+          {
+            todos: [
+              ...TODOS.map((t) => (t.id === 'boiler' ? { ...t, target_date: by } : t)),
+              ...fill,
+            ],
+          },
+          { keep: 'none', board: { placed: filled } },
+        ),
+        row: {
+          ...input({}, { keep: 'none', board: { placed: filled } }).row,
+          spread,
+        },
+      });
+    // due on Wednesday itself: it has no later day to go to, and stays
+    expect(at(dated(WED), 'boiler').day).toBe(WED);
+    // due by Friday: Thursday is full, Friday has room
+    expect(at(dated(FRI), 'boiler').day).toBe(FRI);
+    // due by Thursday, which is full: the nearest earlier day with room
+    expect(at(dated(THU), 'boiler').day).toBe(TUE);
   });
 });

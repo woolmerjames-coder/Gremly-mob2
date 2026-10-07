@@ -85,9 +85,14 @@ export interface BoardTodo {
   gremly: boolean;
   /**
    * It is on a day they gave it themselves, and it is kept there: Gremly
-   * plans around it and never moves it
+   * plans around it and never moves it. The day is one it was saved on before
+   * the review, or one they put it on by hand on the board.
    */
   theirs: boolean;
+  /** They put it on this day by hand on the board, and nothing of that is saved yet */
+  byHand: boolean;
+  /** Its hard date, when it has one */
+  by: string | null;
   /** It has a time of day: an appointment, which no one's rearranging frees */
   timed: boolean;
   /** A step towards something bigger, set up in the review */
@@ -151,13 +156,13 @@ export interface BoardDay {
   todoMinutes: number;
   /** What is left; below nothing when the day is over */
   left: number;
-  /** What their own kept todos on it take (theirs) */
+  /** What their own todos on it take (theirs): the ones kept there, and the ones they put there by hand */
   theirMinutes: number;
-  /** What everything on it that is not Gremly's takes: theirs, and their moves on the board */
+  /** What everything on it that is not Gremly's takes: theirs, and what waits on its day for a spread */
   ownMinutes: number;
   /**
-   * How far their own kept todos, with the habits, put it over its room; none
-   * when they fit, and none on a day that holds no kept todo of theirs
+   * How far their own todos, with the habits, put it over its room; none
+   * when they fit, and none on a day that holds no todo of theirs
    */
   over: number;
   todos: BoardTodo[];
@@ -398,6 +403,8 @@ export function boardOf(p: BoardInput): Board {
       backOn: null,
       gremly: false,
       theirs: false,
+      byHand: false,
+      by: dayOf(t.target_date),
       timed: placed.timed,
       step: !!t.views?.milestone,
       created: dayOf(t.created_at),
@@ -419,9 +426,14 @@ export function boardOf(p: BoardInput): Board {
       });
     }
     const back = spread.later.get(t.id);
-    // their own moves stand over everything
-    if (ownDay && days.includes(ownDay)) todo.day = ownDay;
-    else if (ownBack && isDay(ownBack) && ownBack > today) todo.backOn = ownBack;
+    // Their own moves stand over everything. A day they gave a todo on the
+    // board is theirs like one they gave it before: it counts against the
+    // day's room, and Gremly plans around it.
+    if (ownDay && days.includes(ownDay)) {
+      todo.day = ownDay;
+      todo.theirs = true;
+      todo.byHand = true;
+    } else if (ownBack && isDay(ownBack) && ownBack > today) todo.backOn = ownBack;
     // then what is saved: a day of its own that is kept, here or elsewhere
     else if (spot.spot === 'fixed' && !free) {
       todo.day = spot.day;
@@ -454,6 +466,77 @@ export function boardOf(p: BoardInput): Board {
     else if (todo.backOn) later.push(todo);
     else unplaced.push(todo);
   }
+  // ── what Gremly placed gives way ──
+  // His spread was made for the board as it stood then. What they have put on
+  // a day since, a todo or a habit, stands over it, so a day may no longer
+  // have room for what he placed there. No day is ever over its room because
+  // of something of his: on such a day his placements give way, by the rule
+  // his spread is checked with (workers/inngest-jobs/week/spread.js
+  // checkSpread). What he placed last leaves first, what matters most to them
+  // after the rest. Each goes to the next day with room for it, and to Later
+  // when there is none. One held to a hard date on these days goes only to a
+  // day up to that date, and stays where it was when none of them has room.
+  const rank = (t: BoardTodo) => spread.order.get(t.id) ?? Number.MAX_SAFE_INTEGER;
+  const roomOn = new Map(
+    days.map((d) => [
+      d,
+      Math.round(hours[dayKind(d, { daysOff: p.daysOff, busyDays: busy }) as DayKind] * 60),
+    ]),
+  );
+  const loadOn = new Map(
+    days.map((d) => [
+      d,
+      habits.filter((h) => h.days.includes(d)).reduce((n, h) => n + h.minutes, 0) +
+        (onDay.get(d) as BoardTodo[]).reduce((n, t) => n + t.minutes, 0),
+    ]),
+  );
+  const room = (d: string) => roomOn.get(d) as number;
+  const load = (d: string) => loadOn.get(d) as number;
+  const dueIn = (t: BoardTodo) => (t.by && days.includes(t.by) ? t.by : null);
+  // one on the day of its hard date, or past it, has no later day to go to
+  const bound = (t: BoardTodo, d: string) => {
+    const by = dueIn(t);
+    return !!by && by <= d;
+  };
+  const gaveWay: { todo: BoardTodo; from: string }[] = [];
+  for (const d of days) {
+    const list = onDay.get(d) as BoardTodo[];
+    while (load(d) > room(d)) {
+      const his = list.filter((t) => t.gremly && !bound(t, d));
+      if (!his.length) break;
+      const undated = his.filter((t) => !dueIn(t));
+      const plain = undated.filter((t) => !priorityIds.has(t.id));
+      const from = plain.length ? plain : undated.length ? undated : his;
+      const out = from.reduce((a, b) => (rank(b) >= rank(a) ? b : a));
+      list.splice(list.indexOf(out), 1);
+      loadOn.set(d, load(d) - out.minutes);
+      gaveWay.push({ todo: out, from: d });
+    }
+  }
+  const fitsOn = (t: BoardTodo, d: string) => load(d) + t.minutes <= room(d);
+  const putOn = (t: BoardTodo, d: string) => {
+    t.day = d;
+    (onDay.get(d) as BoardTodo[]).push(t);
+    loadOn.set(d, load(d) + t.minutes);
+  };
+  // the ones held to a date first: the room up to their dates is theirs before anything else moves into it
+  for (const s of [
+    ...gaveWay.filter((x) => dueIn(x.todo)),
+    ...gaveWay.filter((x) => !dueIn(x.todo)),
+  ]) {
+    const by = dueIn(s.todo);
+    const next = days.find((d) => d > s.from && (!by || d <= by) && fitsOn(s.todo, d));
+    if (next) putOn(s.todo, next);
+    else if (!by) {
+      // to Later, still by his hand: it is given its day to come back with the rest below
+      s.todo.day = null;
+      unplaced.push(s.todo);
+    } else {
+      const before = days.filter((d) => d < s.from && fitsOn(s.todo, d));
+      putOn(s.todo, before.length ? before[before.length - 1] : s.from);
+    }
+  }
+
   // What is on no day and has no day to come back on is given one, spread
   // out; or left loose, on a board that gives no days of its own.
   const loose: BoardTodo[] = [];
@@ -482,7 +565,6 @@ export function boardOf(p: BoardInput): Board {
   );
 
   // ── the days ──
-  const rank = (t: BoardTodo) => spread.order.get(t.id) ?? Number.MAX_SAFE_INTEGER;
   const boardDays: BoardDay[] = days.map((day) => {
     const kind = dayKind(day, { daysOff: p.daysOff, busyDays: busy }) as DayKind;
     const minutes = Math.round(hours[kind] * 60);
@@ -509,7 +591,7 @@ export function boardOf(p: BoardInput): Board {
       left: minutes - habitMinutes - todoMinutes,
       theirMinutes,
       ownMinutes: todos.filter((t) => !t.gremly).reduce((n, t) => n + t.minutes, 0),
-      // only a day that holds kept todos of theirs: habits alone do not make one
+      // only a day that holds todos of theirs: habits alone do not make one
       over: theirMinutes > 0 ? Math.max(0, habitMinutes + theirMinutes - minutes) : 0,
       todos,
       habits: dayHabits,
@@ -782,9 +864,10 @@ export function withoutMoves(
  * The question is asked once, when they have many todos on days of their own
  * (KEEP_ASK_FROM); with fewer they are kept without asking, and so they are
  * when they said Just plan it, which asks nothing more of them. After it,
- * each day their kept todos overfill is taken in turn until every one has
- * been dealt with (answers.relieved). Keeping their days never means keeping
- * an over-full day without a word.
+ * each day their own todos overfill is taken in turn until every one has
+ * been dealt with (answers.relieved): the ones they kept there, and the ones
+ * they put there by hand on the board, whatever they said of their days.
+ * Keeping their days never means keeping an over-full day without a word.
  */
 export type BoardStage =
   | { stage: 'keep' }
@@ -807,7 +890,8 @@ export function boardStage(
 /**
  * Each day's load from their own todos and its habits, against its hours:
  * what the question about their days shows before they answer, and while
- * they pick which to keep.
+ * they pick which to keep. Their own are the ones on a day they are saved on,
+ * and the ones they have put on a day by hand on the board.
  * @param freed the todos they have freed so far, which no longer count
  */
 export function keepLoad(
@@ -816,13 +900,15 @@ export function keepLoad(
 ): { day: string; minutes: number; load: number; count: number; over: number }[] {
   return board.days.map((d) => {
     const mine = board.theirs.filter((t) => t.day === d.day && !freed.includes(t.id));
-    const load = d.habitMinutes + mine.reduce((n, t) => n + t.minutes, 0);
+    const byHand = d.todos.filter((t) => t.byHand);
+    const load = d.habitMinutes + [...mine, ...byHand].reduce((n, t) => n + t.minutes, 0);
+    const count = mine.length + byHand.length;
     return {
       day: d.day,
       minutes: d.minutes,
       load,
-      count: mine.length,
-      over: mine.length ? Math.max(0, load - d.minutes) : 0,
+      count,
+      over: count ? Math.max(0, load - d.minutes) : 0,
     };
   });
 }

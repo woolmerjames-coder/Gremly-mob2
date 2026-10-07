@@ -169,6 +169,18 @@ describe('their over-full days', () => {
       [THU, 40],
     ]);
   });
+
+  it('count a day they filled by hand on the board after saying rearrange it all', () => {
+    const g = gathered();
+    // handed to Gremly, nothing of theirs is on Wednesday but the dentist, which has a time
+    expect(overfullDays(g, spreadFrame(g, review({ keep: 'none' })))).toEqual([]);
+    // then they put three of them back on it themselves: those are theirs again
+    const frame = spreadFrame(g, review({ keep: 'none' }), {
+      placed: [PREP, SHOP, FORMS].map((tid) => ({ id: tid, day: WED })),
+    });
+    expect(frame.room.find((x) => x.day === WED)).toMatchObject({ fixed: 165, left: 0, over: 85 });
+    expect(overfullDays(g, frame)).toEqual([{ day: WED, over: 85, movable: [PREP, SHOP, FORMS] }]);
+  });
 });
 
 describe('what the model is given', () => {

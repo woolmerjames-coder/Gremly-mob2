@@ -402,6 +402,8 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
   const askedBasis = useRef<string | null>(null);
   /** Their moves as they stood when the board was opened to change an over-full day by hand */
   const relieveFrom = useRef<string | null>(null);
+  /** The over-full day, and the board as it stood, that suggestions were last asked for on their own */
+  const unsuggested = useRef<string | null>(null);
 
   // A thread that already holds the review (the app was closed part way, or
   // the thread was opened from history) reads the week's row, so its cards
@@ -1615,6 +1617,40 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     };
   }, [askSpread, atBoard, haveBasis, overfullOpen, wantBasis, relieved, s.asking, s.picking]);
 
+  // An over-full day is up for its card and the suggestions in hand say
+  // nothing of it: they filled it by hand on the board, after the spread was
+  // made. Once they are back from the board, the week is spread again around
+  // what they put there, and the suggestions for that day come with it. It is
+  // asked once for the board as it stands: when nothing comes back for the
+  // day, its card says no moves could be worked out.
+  const spreadIn = row?.spread;
+  useEffect(() => {
+    if (!atBoard || s.boardOpen || s.fitting || s.spreadFailed || !spreadIn) return;
+    const now = session();
+    const b = currentBoard();
+    if (!now.row || !b) return;
+    const at = boardStage(b, now.row.answers, { asking: now.asking, picking: now.picking });
+    if (at.stage !== 'overfull') return;
+    // None in hand for these answers means a spread is already due for them.
+    const relief = currentRelief();
+    if (!relief || (relief.days ?? []).some((d) => d.day === at.day)) return;
+    const asked = `${at.day} ${JSON.stringify(now.moves)}`;
+    if (unsuggested.current === asked) return;
+    unsuggested.current = asked;
+    void askSpread();
+  }, [
+    askSpread,
+    atBoard,
+    relieved,
+    spreadIn,
+    s.asking,
+    s.boardOpen,
+    s.fitting,
+    s.moves,
+    s.picking,
+    s.spreadFailed,
+  ]);
+
   const onBoard = (): boolean => {
     const r = session().row;
     return !!r && r.status === 'started' && stepOf(r) === 'board';
@@ -1773,10 +1809,22 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           // other answers, there is nothing to finish yet: the sheet's Done is
           // off, and a tap that slips through is not taken.
           if (!boardReady()) return;
-          if (movesTimer.current) clearTimeout(movesTimer.current);
-          movesTimer.current = null;
           const b = currentBoard();
           if (!b) throw new Error('There is no board to save.');
+          // Keeping a day never means keeping it over its room without a
+          // word. A day their own todos overfill that has not been looked at,
+          // because they filled it here by hand, is looked at before the week
+          // is finished: the board closes on that day's card, with their
+          // moves kept.
+          const now = session();
+          const at = boardStage(b, now.row?.answers, { asking: now.asking, picking: now.picking });
+          if (at.stage !== 'board') {
+            patchSession({ boardOpen: false, boardDay: null, relieving: null });
+            await keepMoves();
+            return;
+          }
+          if (movesTimer.current) clearTimeout(movesTimer.current);
+          movesTimer.current = null;
           // what the week's row says was planned until now, for the Undo
           const before = session().row?.answers.planned ?? null;
           const open = new Set<string>(
