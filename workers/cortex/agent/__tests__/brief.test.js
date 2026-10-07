@@ -1111,21 +1111,26 @@ describe("the person's week, when the app sends it", () => {
 
     it('takes work Gremly cannot see as the shape of the week, and never copies their calendar', () => {
       const text = weekContext(readWeek(UNDER));
-      // a load is the week's shape, never an item; a specific task is still a todo
-      expect(text).toContain('is not a todo and not a note');
+      // a task they name comes first and is a new todo, put on the card without asking
+      expect(text).toContain('It is a new todo, put on the card with add');
+      expect(text).toContain('without asking whether they want it or which day');
+      // a load is the week's shape, never an item
+      expect(text).toContain('The load itself is never a todo and never a note');
       expect(text).toContain('with week_shape: the days they say it falls on become busy days');
-      expect(text).toContain('A specific task they name, one piece of work with an end, is a todo');
+      expect(text.indexOf('It is a new todo')).toBeLessThan(text.indexOf('The load itself'));
       expect(text).toContain(
         'never put a todo, a note or a set time on the card for a calendar entry',
       );
       // adding it to what matters most is put only to a build that can keep it
       expect(text).not.toContain('with priority');
       const can = weekContext(readWeek({ ...UNDER, priorities: [] }));
-      expect(can).toContain('add it to what matters most this week with priority');
+      expect(can).toContain('add the load to what matters most this week with priority');
+      // the task is never folded into the priority's words
+      expect(can).toContain('the load alone, never a task they named');
       expect(can).not.toMatch(/ — | – | - /);
       // none of it is said once the review is finished
       const finished = readWeek({ ...UNDER, under_way: { ...UNDER.under_way, step: 'done' } });
-      expect(weekContext(finished)).not.toContain('is not a todo and not a note');
+      expect(weekContext(finished)).not.toContain('The load itself is never a todo');
     });
 
     it('says when it plans only the rest of a week', () => {

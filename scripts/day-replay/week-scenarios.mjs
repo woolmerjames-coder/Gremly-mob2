@@ -274,6 +274,54 @@ export const WEEK_SCENARIOS = [
       },
     },
   },
+  // The same in other words, so a wording is not fitted to one message: a
+  // task with nothing said of when, and a task for the load itself.
+  {
+    ...base,
+    id: 'week-unseen-work-and-a-task-undated',
+    title: 'In the review: unseen work, and a task with no day said',
+    look: 'The trade fair makes Thursday and Friday busy. Renewing the stand insurance is the only new todo.',
+    text: 'The trade fair has me out all of Thursday and Friday. Also I need to renew the stand insurance',
+    week: review('shape'),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [
+        { kinds: ['create_todo'], title: 'insurance' },
+        { kinds: ['week_shape'], busy: [THU, FRI] },
+      ],
+      forbid: ['add_block', 'cancel', 'complete'],
+      check: (changes) => {
+        const made = changes.filter((c) => c.kind === 'create_todo');
+        return [
+          { name: 'One new item, for the task they named', ok: made.length === 1, detail: made.map((c) => c.title).join('; ') },
+        ];
+      },
+    },
+  },
+  {
+    ...base,
+    id: 'week-unseen-work-and-a-task-for-it',
+    title: 'In the review: unseen work, and a task that gets them ready for it',
+    look: 'The inspection makes Wednesday and Thursday busy. Printing the seating plans is the only new todo, on a day before it.',
+    text: 'This week is mostly the school inspection on Wednesday and Thursday, and I still have to print the seating plans for it',
+    week: review('priorities'),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [
+        { kinds: ['create_todo'], title: 'seating', dayBy: WED },
+        { kinds: ['week_shape'], busy: [WED, THU] },
+      ],
+      forbid: ['add_block', 'cancel', 'complete'],
+      check: (changes) => {
+        const made = changes.filter((c) => c.kind === 'create_todo');
+        return [
+          { name: 'One new item, for the task they named', ok: made.length === 1, detail: made.map((c) => c.title).join('; ') },
+        ];
+      },
+    },
+  },
   {
     ...base,
     id: 'week-already-on-calendar',

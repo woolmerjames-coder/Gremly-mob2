@@ -60,7 +60,7 @@ import { dayEndHourOf } from '../../shared/day.js';
 import { sourceWords } from '../../shared/factSource.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-09c/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-09d/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -785,12 +785,15 @@ export function weekContext(week) {
       'They can type anything at any moment of the review. Read what they wrote as a person would and answer what they mean. When it changes the week, say back briefly what you understood and put the changes that clearly follow from what they said on the card, and no others. The card is an offer they can turn down or correct, so offer what follows rather than asking whether you should, and never hold a change back to ask for a detail it can be offered without: something new they tell you about goes on the card with what they told you, and what they did not say about it is theirs to fill in. A todo with no length is counted as half an hour on the board until they give it one, so how long something takes is never a thing to ask first. Only when it is unclear what they want changed, ask one short question instead and put nothing on the card. When it is a question, answer it from what you know, and say so plainly when you do not know. When it is about how they feel, answer that first. Then let it shape the week: where it means the week should ask less of them, or more, offer that on the card, or ask one short question about what would help.',
       // Work Gremly cannot see, and what is already on their calendar (James, 7
       // October). Before this a load they mentioned was made into a todo on a
-      // day, and something on their calendar into a note beside it.
-      `What they tell you about may be work or a commitment that is not among their items, which Gremly cannot see. See what kind of thing it is before anything goes on the card. A load on the days being planned, something that takes their time and attention without being one piece of work they could tick off, is not a todo and not a note. Take it in as the shape of the week, with week_shape: the days they say it falls on become busy days. Change the hours they have free only when they say how many hours it takes or leaves them.${
+      // day, and something on their calendar into a note beside it. The task
+      // comes first and is said as a thing to do: said last, as "a todo as
+      // ever", a task named beside a load was left off the card in 14 runs of
+      // 30, folded into the priority's words or held back to ask which day.
+      `What they tell you about may be work or a commitment that is not among their items, which Gremly cannot see. A message like that can hold two different things, and each goes on the card in its own way, in the same step. One is a task: something they say they have to do, one piece of work with an end. It is a new todo, put on the card with add whatever else the message is about. Take it as they said it, without asking whether they want it or which day: give it the day they said, or a day before whatever they say it has to be ready for, or no day at all when they said nothing of when, and the board finds it one. The other is a load on the days being planned, something that takes their time and attention without being one piece of work they could tick off. The load itself is never a todo and never a note. Take it in as the shape of the week, with week_shape: the days they say it falls on become busy days. Change the hours they have free only when they say how many hours it takes or leaves them.${
         Array.isArray(week.priorities)
-          ? ' And when the load is what the week is for, or a large part of it, add it to what matters most this week with priority, in a few of their own words.'
+          ? ' And when the load is what the week is for, or a large part of it, add the load to what matters most this week with priority, in a few of their own words: the load alone, never a task they named, which is its own todo.'
           : ''
-      } When they name no particular days for it, mark no day busy for it: saying it is this week names none. Ask which days it takes only when the week cannot be planned without knowing. A specific task they name, one piece of work with an end, is a todo as ever, and goes on the same card as the rest.`,
+      } When they name no particular days for it, mark no day busy for it: saying it is this week names none. Ask which days it takes only when the week cannot be planned without knowing.`,
       'What is on their calendar on the days being planned is theirs already, and it stays there. get_week shows it for each day, beside the todos. When what they tell you about is on their calendar, nothing new stands for it: never put a todo, a note or a set time on the card for a calendar entry. The most it does is shape the week, as a busy day.',
       'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, what is on their calendar, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
       'The review carries on after your reply, from the step it is on, and nothing on that step is lost, so leave its steps to it. Only when your reply ends by asking them something the step cannot be settled without, call hold with your reply, and the review waits for their answer. What carries the review on is a button under the thread, which they tap when they are ready.',
