@@ -216,7 +216,10 @@ function STAGE_ONE() {
       runAt,
       facts: [fact('fd', 'Alex plans to repaint the hall.', { state: 'planned' })],
       records: [{ ...deletedRecord({ table: 'todos', row_id: 't-paint', at: '2026-10-07T19:00:00Z' }), factIds: ['fd'] }],
-      check: ({ facts }) => [{ name: 'no new fact from a deletion', ok: facts.length === 0, detail: facts.map((f) => f.statement).join(' / ') || 'none' }],
+      check: ({ facts, updates }) => [
+        { name: 'no new fact from a deletion', ok: facts.length === 0, detail: facts.map((f) => f.statement).join(' / ') || 'none' },
+        { name: 'the deletion alone changes no fact', ok: updates.length === 0, detail: updates.map((u) => `${u.fact_ref} ${u.new_state}`).join(', ') || 'none' },
+      ],
     },
     {
       id: 'moved-five-times-let-go',

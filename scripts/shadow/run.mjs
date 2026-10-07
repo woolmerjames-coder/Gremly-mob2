@@ -231,6 +231,8 @@ function ledgerWrites(rec) {
       .map((u) => ({ to: u.state, reason: u.state_reason })),
     sources: sources.length,
     about_items: sources.filter((x) => x.role === 'about').length,
+    // records a fact was already said in, now judged the item it is about
+    about_marked: rows('life_fact_sources', 'PATCH').length,
     questions: rows('gremly_questions', 'POST').map((q) => q.question),
     calendar: rows('synced_calendar_events', 'PATCH').map((x) => (x.cancelled_at ? 'cancelled' : 'on again')),
   };

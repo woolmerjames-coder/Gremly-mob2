@@ -101,6 +101,7 @@ export const READER_SCHEMA = {
             nullable: true,
             enum: ['current', 'planned', 'happened'],
           },
+          replacement_about_item: { type: 'boolean', nullable: true },
         },
         required: ['fact_ref', 'new_state', 'reason', 'source_ref'],
       },
@@ -112,6 +113,7 @@ export const READER_SCHEMA = {
         properties: {
           fact_ref: { type: 'string' },
           source_ref: { type: 'string' },
+          about_item: { type: 'boolean', nullable: true },
         },
         required: ['fact_ref', 'source_ref'],
       },
@@ -168,11 +170,11 @@ EVIDENCE
 
 RECORDS THAT CHANGED OR WENT
 - A record marked as changed was made before and has changed since. It is shown as it stands now, with what changed and the ledger facts already taken from it. Add a fact only for what it now says that the ledger does not hold. When what it now says adds to or alters one of those facts, update that fact instead of adding a second one. When the change adds nothing, return nothing for it.
-- A record marked as deleted cannot be shown; the ledger facts taken from it are listed. Deleting can be tidying, so change one of those facts only when the ledger or the other records show it no longer holds.
+- A record marked as deleted cannot be shown; the ledger facts taken from it are listed. Deleting can be tidying, so the deletion alone changes none of those facts, not even to unconfirmed: change one only when the ledger or the other records show it no longer holds.
 - A record split into parts is one record. Read the parts together.
 
 ITEMS
-- Todos, habits, calendar entries and events are items the person keeps. Mark a new fact as about the item when it states the item itself: what it is, its day, whether it is done. A fact that comes from something said in the record, or that the item only points to, is not about the item.
+- Todos, habits, calendar entries and events are items the person keeps. A fact is about an item when it states the item itself: what it is, its day, whether it is done. Mark it so on a new fact, on a replacement, and on a confirmation from that item's own record. A fact that comes from something said in the record, or that the item only points to, is not about the item.
 - A fact about an item takes its date, and whether it is done, archived or cancelled, from the item, so a move or a done mark needs no update to the fact. An item put away before it was done says nothing certain about the plan: judge from the reason it was put away and the other records whether the plan still holds, update the fact when it does not, and mark it unconfirmed when you cannot tell.
 - The ledger shows which facts are about an item and how that item stands now.
 
@@ -529,6 +531,15 @@ export function validDate(s) {
   return day && !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) ? day : null;
 }
 
+// The records that are items the person keeps, with dates and a state of their
+// own that life_facts_now reads (supabase/migrations/20261007150000_data_fabric_stage1.sql)
+const ITEM_TABLES = new Set([
+  'todos',
+  'habits',
+  'notes',
+  'synced_calendar_events',
+  'space_milestones',
+]);
 const UPDATE_STATES = new Set(['current', 'happened', 'changed', 'superseded', 'unconfirmed']);
 
 const SAID_BY = {
@@ -698,7 +709,8 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     user_id: userId,
     source_table: src.table,
     source_id: src.id,
-    role: about ? 'about' : 'said_in',
+    // only an item can be what a fact is about; a chat or an answer is said in
+    role: about && ITEM_TABLES.has(src.table) ? 'about' : 'said_in',
     quote: quote ? trim(quote, 300) : null,
     seen_at: src.at,
     run_id: runId,
@@ -782,7 +794,8 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
         },
       ]);
       replacementId = rep?.id || null;
-      if (replacementId) sourceRows.push(sourceOf(replacementId, src, null, false));
+      if (replacementId)
+        sourceRows.push(sourceOf(replacementId, src, null, u.replacement_about_item === true));
     }
     // A fact with a replacement is no longer the true version, whatever the
     // model called it: it changed, and points at the fact that replaces it.
@@ -819,7 +832,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       last_confirmed_at: src.at,
       updated_at: nowIso,
     });
-    sourceRows.push(sourceOf(fact.id, src, null, false));
+    sourceRows.push(sourceOf(fact.id, src, null, c.about_item === true));
     counts.confirmed++;
   }
 
@@ -856,6 +869,16 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   if (sourceRows.length) {
     await d.insertIgnore('life_fact_sources', sourceRows, 'fact_id,source_table,source_id');
     counts.sources = sourceRows.length;
+    // A record the fact was already said in, now judged to be the item the fact
+    // is about: the role moves from said in to about, never back
+    for (const r of sourceRows.filter((x) => x.role === 'about')) {
+      const marked = await d.update(
+        `life_fact_sources?fact_id=eq.${r.fact_id}&source_table=eq.${r.source_table}&source_id=eq.${r.source_id}&role=eq.said_in`,
+        { role: 'about', seen_at: r.seen_at },
+      );
+      if (Array.isArray(marked) && marked.length)
+        counts.about_marked = (counts.about_marked || 0) + 1;
+    }
   }
 
   // Calendar entries the reader judged cancelled, or on again: code stamps the entry
