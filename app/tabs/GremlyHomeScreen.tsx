@@ -56,10 +56,13 @@ import { useBriefUnread } from '../../lib/brief/todayThread';
 import { useEveningTeaser } from '../../lib/wrapup/useEveningTeaser';
 import celebrationController from '../features/celebration/CelebrationController';
 import { FedWash } from '../features/celebration/FedWash';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const LINEN = '#F9F6F1';
 const HINT_DELAY_MS = 900;
 const HINT_VISIBLE_MS = 5000;
+/** The box on a fed day: linen into a sage wash */
+const DOCK_FED: [string, string] = ['#F9F6F1', '#E3EEE1'];
 const NUDGE_PX = 56;
 // Talk it through: the keyboard opens once the page has slid over to Chat
 const FOCUS_AFTER_SLIDE_MS = 450;
@@ -89,6 +92,8 @@ export default function GremlyHomeScreen() {
   // layer carries on from its top on day 3, so the controller is told where it is
   const dockRef = useRef<View | null>(null);
   const [dockHeight, setDockHeight] = useState(0);
+  // on a fed day the box keeps a sage tint, from the moment the wash falls until the day ends
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
   const reportDock = useCallback(() => {
     const node = dockRef.current;
     if (!node) return;
@@ -429,6 +434,15 @@ export default function GremlyHomeScreen() {
                 reportDock();
               }}
             >
+              {isFedToday ? (
+                <LinearGradient
+                  colors={DOCK_FED}
+                  locations={[0, 0.36]}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                  testID="gremly-home-dock-fed"
+                />
+              ) : null}
               {dock}
             </View>
           </KeyboardAvoidingView>

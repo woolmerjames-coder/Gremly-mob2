@@ -388,7 +388,7 @@ function Moment({
   return (
     <Animated.View
       style={[StyleSheet.absoluteFill, styles.layer, layerStyle]}
-      pointerEvents={canLeave ? 'auto' : 'none'}
+      pointerEvents={inAgeUp ? 'auto' : 'none'}
     >
       {/* the cover: grows from the box's top when hosted, from the bottom otherwise */}
       <Animated.View

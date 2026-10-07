@@ -8,7 +8,7 @@
 /* eslint-disable react-hooks/immutability */
 // Reanimated shared values are mutated through .value by design
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, {
   Easing,
@@ -32,6 +32,12 @@ interface Props {
 
 export function FedWash({ height, bottom }: Props) {
   const washHeight = useSharedValue(0);
+  const up = useRef(false);
+
+  // the region above the box changes when the keyboard goes; a wash that is up follows it
+  useEffect(() => {
+    if (up.current) washHeight.value = withTiming(height, { duration: 250, easing: OUT });
+  }, [height, washHeight]);
 
   useEffect(() => {
     return celebrationController.subscribe((payload) => {
@@ -41,10 +47,12 @@ export function FedWash({ height, bottom }: Props) {
       const d = (ms: number) => (m.reducedMotion ? 0 : ms);
       switch (m.phase) {
         case 'wash':
+          up.current = true;
           washHeight.value = withTiming(height, { duration: d(900), easing: OUT });
           break;
         case 'fall':
         case 'end':
+          up.current = false;
           washHeight.value = withTiming(0, { duration: d(600), easing: IN });
           break;
         default:
