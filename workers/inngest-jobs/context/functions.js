@@ -29,7 +29,12 @@ import {
   WEEKLY_PROMPT_VERSION,
 } from './weekly';
 import { anthropicJsonResult } from './llm';
-import { storyRequestParams, applyStory, STORY_PROMPT_VERSION } from './story';
+import {
+  storyRequestParams,
+  applyStory,
+  copyStoryIntoLifeMap,
+  STORY_PROMPT_VERSION,
+} from './story';
 import { writeUsageRow } from '../../shared/aiUsage';
 
 /**
@@ -366,8 +371,11 @@ export function createContextFunctions(inngest) {
         runId: run.id,
         today: run.input_stats.today,
       });
+      // A first run and a catch up write the story before this run makes the
+      // Life Map row: the story already written is copied in, with no model call.
+      const story = shadow ? null : await copyStoryIntoLifeMap(env, userId);
       return {
-        applied: r.applied,
+        applied: story ? { ...r.applied, story_copied: story.copied } : r.applied,
         extra: { worlds_summary_resolved: r.worldsSummary, previous: r.previous || null },
       };
     },

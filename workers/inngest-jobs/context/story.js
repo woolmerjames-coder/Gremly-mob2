@@ -442,31 +442,12 @@ export async function applyStory(
     { state: 'superseded', updated_at: nowIso },
   );
 
-  // Compact copy for the Life Map: what chat and the app already read.
+  // Compact copy for the Life Map: what chat and the app already read. With no
+  // Life Map row yet (a first run), the weekly synthesis that makes the row
+  // copies this story in afterwards (copyStoryIntoLifeMap).
   const [lm] = await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`);
   if (lm) {
-    const pick = (kind) =>
-      rows
-        .filter((r) => r.kind === kind)
-        .map((r) => ({
-          title: r.title,
-          body: r.body,
-          from: r.period_start || null,
-          to: r.period_end || null,
-          private: r.private,
-          ...(r.pattern_kind ? { kind: r.pattern_kind } : {}),
-        }));
-    const story = {
-      written_at: nowIso,
-      source: 'monthly_story',
-      story_so_far: trim(output.story_so_far, 4000),
-      story_for_them: trim(output.story_for_them, 3000),
-      milestones: pick('milestone'),
-      shifts: pick('shift'),
-      proud_moments: pick('proud'),
-      patterns: pick('pattern'),
-      people: pick('person'),
-    };
+    const story = compactStory(rows, output, nowIso);
     await d.update(`user_life_map?id=eq.${lm.id}`, {
       life_map: { ...(lm.life_map || {}), story },
       updated_at: nowIso,
@@ -474,6 +455,65 @@ export async function applyStory(
   }
   await invalidateChatCache(env, userId);
   return { applied };
+}
+
+/**
+ * The compact story the Life Map carries, which chat and the Your Story header
+ * read: the two passages the story wrote and its items, sorted by kind. It
+ * copies what the story wrote; it writes no sentence of its own.
+ */
+export function compactStory(items, output, writtenAt) {
+  const pick = (kind) =>
+    (items || [])
+      .filter((r) => r.kind === kind)
+      .map((r) => ({
+        title: r.title,
+        body: r.body,
+        from: r.period_start || null,
+        to: r.period_end || null,
+        private: r.private,
+        ...(r.pattern_kind ? { kind: r.pattern_kind } : {}),
+      }));
+  return {
+    written_at: writtenAt,
+    source: 'monthly_story',
+    story_so_far: trim(output?.story_so_far, 4000),
+    story_for_them: trim(output?.story_for_them, 3000),
+    milestones: pick('milestone'),
+    shifts: pick('shift'),
+    proud_moments: pick('proud'),
+    patterns: pick('pattern'),
+    people: pick('person'),
+  };
+}
+
+/**
+ * A new person's first story runs before their first weekly synthesis makes
+ * the Life Map row, so the story had nowhere to go and their story screen and
+ * chat had none until the next month. Once the row exists, the story already
+ * written is copied in: the two passages from the latest applied story run and
+ * the current items. No model call. Nothing changes when the row already has a
+ * story or there is no story yet.
+ */
+export async function copyStoryIntoLifeMap(env, userId) {
+  const d = db(env);
+  const [lm] = await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`);
+  if (!lm) return { copied: false, reason: 'no life map' };
+  if (lm.life_map?.story) return { copied: false, reason: 'already there' };
+  const [run] =
+    (await d.select(
+      `synthesis_runs?user_id=eq.${userId}&kind=eq.monthly&status=eq.applied&select=id,output,applied_at&order=applied_at.desc&limit=1`,
+    )) || [];
+  const items = await loadStory(env, userId, { limit: 200 });
+  if (!run?.output && !items.length) return { copied: false, reason: 'no story yet' };
+  const nowIso = new Date().toISOString();
+  const story = compactStory(items, run?.output || {}, run?.applied_at || nowIso);
+  await d.update(`user_life_map?id=eq.${lm.id}`, {
+    life_map: { ...(lm.life_map || {}), story },
+    updated_at: nowIso,
+  });
+  await invalidateChatCache(env, userId);
+  return { copied: true, run_id: run?.id || null, items: items.length };
 }
 
 /** Current story items for other prompts. Private items are labelled. */
