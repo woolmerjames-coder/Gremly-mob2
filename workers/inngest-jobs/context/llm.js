@@ -19,6 +19,9 @@ export const MODELS = {
   // the check's one question about each sentence (workers/shared/check/words.js)
   check: { provider: 'openai', model: 'gpt-6-luna' },
   checkFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // filing a drop into a World or Chapter (context/filing.js), in cortex and the backfill
+  filing: { provider: 'openai', model: 'gpt-6-luna' },
+  filingFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },

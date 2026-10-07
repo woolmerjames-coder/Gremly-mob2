@@ -864,6 +864,13 @@ export interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   /** In-memory cache keyed by `${habitId}_${observedForWeek}`. */
   habitInsightCache: Record<string, import('../habits/habitInsight').HabitInsightResult>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DROP FILINGS (data fabric stage 4a)
+  // ═══════════════════════════════════════════════════════════════════
+  /** Where each drop made this session was filed, by its saved id (lib/minddrop/filing.ts). */
+  dropFilings: Record<string, import('../minddrop/filing').DropFiling>;
+  setDropFiling: (dropId: string, filing: import('../minddrop/filing').DropFiling) => void;
   /**
    * Returns a cached insight for the current week, or fetches and caches one.
    * Never throws. On any error returns { show: false, line: null, kind: null }.
@@ -1230,6 +1237,7 @@ const initialState = {
   habitPlans: [] as HabitPlanRow[],
   habitTargetHistory: [] as HabitTargetHistoryRow[],
   habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
+  dropFilings: {} as Record<string, import('../minddrop/filing').DropFiling>,
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   generalChats: [] as SpaceChat[],
@@ -10505,6 +10513,9 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ── HABIT INSIGHT ──────────────────────────────────────────────────
+        setDropFiling: (dropId, filing) =>
+          set((s) => ({ dropFilings: { ...s.dropFilings, [dropId]: filing } })),
+
         getOrFetchHabitInsight: async (habitId: string) => {
           const { buildHabitInsightInput } = await import('../habits/habitInsight');
           const { callHabitInsight } = await import('../cortex/CortexClient');

@@ -24,6 +24,7 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { runPhase1 } from './phase1';
 import { supabase } from '../supabase/client';
 import { nowTimestamp, getDateService } from '../date/DateService';
+import { filingFromReply } from './filing';
 import { eventBus } from '../events/EventBus';
 import { networkStatus } from '../network/NetworkStatus';
 import { maybeAsk } from '../notifications/ask';
@@ -208,13 +209,17 @@ async function assignDropToGraph(drop: QueuedDrop): Promise<void> {
 
     try {
       const data = await res.json();
+      // where it went, kept for the drop card's filing chip (lib/minddrop/filing.ts)
+      const filing = filingFromReply(data, getDateService().now().toISOString());
+      if (filing) useGremlyStore.getState().setDropFiling(drop.supabaseId, filing);
       console.log('[AssignDropToGraph] OK', {
         localId: drop.localId,
-        world_links: data.world_links,
-        chapter_links: data.chapter_links,
-        context_links: data.context_links,
+        by: filing?.by ?? null,
+        world: filing?.world?.name ?? null,
+        chapter: filing?.chapter?.title ?? null,
+        starts_something: filing?.startsSomething ?? false,
         skipped: data.skipped,
-        reason: data.reason,
+        skipped_reason: data.skipped_reason,
       });
     } catch {
       console.log('[AssignDropToGraph] OK (unparsed)', { localId: drop.localId });

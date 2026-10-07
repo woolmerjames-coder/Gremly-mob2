@@ -8,6 +8,7 @@
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
+ *   scripts/shadow/run.sh filing --user <uuid> [--limit n] [--at ISO]
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -40,6 +41,9 @@ import { userTimezone, personIdentity } from '../../workers/shared/db.js';
 // a namespace import, so a tree without people records still bundles
 import * as people from '../../workers/inngest-jobs/context/people.js';
 import { localStartIso } from '../../workers/shared/calendar.js';
+// a namespace import, so a tree without filing (before stage 4a) still bundles
+import * as filing from '../../workers/inngest-jobs/context/filing.js';
+import { db } from '../../workers/shared/db.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -183,6 +187,103 @@ const JOBS = {
         people: out.found,
         proposed_merges: out.proposed_merges,
       }),
+    };
+  },
+
+  // Filing (data fabric stage 4a) over a person's latest real drops, read
+  // only: where each would go by the one set of rules, beside where it is
+  // filed now, for a person to read
+  async filing() {
+    const userId = flag('--user');
+    if (!userId) fail('filing needs --user');
+    const limit = Math.max(1, Number(flag('--limit') || 40));
+    const at = flag('--at') || new Date().toISOString();
+    return {
+      at,
+      userId,
+      run: async () => {
+        if (typeof filing.fileDrop !== 'function') fail('This tree has no filing.');
+        const all = await filing.listDropsToFile(env, userId, { before: at, refile: true });
+        const drops = all.slice(-limit);
+        const graph = await filing.loadGraph(env, userId);
+        const placed = await filing.loadPlaced(env, userId);
+        const today = await filing.personToday(env, userId);
+        // where each is filed now, by anyone
+        const d = db(env);
+        const ids = drops.map((x) => x.id).join(',');
+        const [wl, cl, xl, worlds, chapters] = await Promise.all([
+          d.select(`drop_world_links?drop_id=in.(${ids})&select=drop_id,drop_type,world_id,assigned_by`),
+          d.select(`drop_chapter_links?drop_id=in.(${ids})&select=drop_id,drop_type,chapter_id,assigned_by`),
+          d.select(`drop_context_links?drop_id=in.(${ids})&select=drop_id,drop_type,context_id`),
+          d.select(`worlds?owner_id=eq.${userId}&select=id,name`),
+          d.select(`chapters?owner_id=eq.${userId}&select=id,title`),
+        ]);
+        const wname = new Map((worlds || []).map((w) => [w.id, w.name]));
+        const ctitle = new Map((chapters || []).map((c) => [c.id, c.title]));
+        const nowOf = (x) => ({
+          worlds: (wl || []).filter((l) => l.drop_id === x.id && l.drop_type === x.entity_type).map((l) => `${wname.get(l.world_id) || l.world_id}${l.assigned_by === 'user' ? ' (theirs)' : ''}`),
+          chapters: (cl || []).filter((l) => l.drop_id === x.id && l.drop_type === x.entity_type).map((l) => `${ctitle.get(l.chapter_id) || l.chapter_id}${l.assigned_by === 'user' ? ' (theirs)' : ''}`),
+          contexts: (xl || []).filter((l) => l.drop_id === x.id && l.drop_type === x.entity_type).length,
+        });
+        const results = new Array(drops.length);
+        let next = 0;
+        await Promise.all(
+          Array.from({ length: Math.min(4, drops.length) }, async () => {
+            while (next < drops.length) {
+              const i = next++;
+              results[i] = await filing.fileDrop(env, { userId, drop: drops[i], today, graph, placed });
+            }
+          }),
+        );
+        return {
+          drops: drops.map((x, i) => ({
+            id: x.id,
+            type: x.entity_type,
+            date: x.date,
+            title: x.title,
+            text: String(x.text || '').slice(0, 200),
+            now: nowOf(x),
+            filed: {
+              by: results[i].by,
+              world: results[i].world?.name || null,
+              chapter: results[i].chapter?.title || null,
+              starts_something: results[i].starts_something,
+              confidence: results[i].confidence || null,
+              // what it named, even below the bar
+              choice: results[i].choice || null,
+              contexts: (results[i].contexts || []).map((c) => c.name),
+              skipped: results[i].skipped_reason || null,
+            },
+          })),
+          worlds: graph.worlds.length,
+          chapters: graph.chapters.length,
+          contexts: graph.contexts.length,
+          total_drops: all.length,
+        };
+      },
+      summarise: (out) => {
+        const rows = out?.drops || [];
+        const plain = (n) => String(n || '').replace(/ \(theirs\)$/, '');
+        return {
+          worlds: out?.worlds,
+          chapters: out?.chapters,
+          contexts: out?.contexts,
+          drops: rows.length,
+          of: out?.total_drops,
+          filed_chapter: rows.filter((r) => r.filed.chapter).length,
+          filed_world_only: rows.filter((r) => r.filed.world && !r.filed.chapter).length,
+          filed_nowhere: rows.filter((r) => !r.filed.world && !r.filed.chapter && !r.filed.skipped).length,
+          person_placed: rows.filter((r) => r.filed.by === 'person').length,
+          skipped: rows.filter((r) => r.filed.skipped).length,
+          starts_something: rows.filter((r) => r.filed.starts_something).length,
+          given_a_context: rows.filter((r) => (r.filed.contexts || []).length).length,
+          in_a_context_now: rows.filter((r) => r.now.contexts).length,
+          same_world_as_now: rows.filter((r) => r.filed.world && r.now.worlds.map(plain).includes(r.filed.world)).length,
+          in_a_world_now: rows.filter((r) => r.now.worlds.length).length,
+          worlds_now_per_drop: rows.length ? Math.round((rows.reduce((n, r) => n + r.now.worlds.length, 0) / rows.length) * 100) / 100 : 0,
+          rows,
+        };
+      },
     };
   },
 
