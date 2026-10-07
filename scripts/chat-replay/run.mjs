@@ -25,6 +25,7 @@ import { configureModels } from '../../workers/cortex/models.js';
 import { runTool } from '../../workers/cortex/agent/tools/index.js';
 import { costUsd } from '../../workers/shared/aiUsage.js';
 import { formatWeekAhead, weekFrom } from '../../workers/cortex/context/weekAhead.js';
+import { formatDatedAhead } from '../../workers/cortex/context/datedAhead.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -253,7 +254,13 @@ async function runOne(s, modelKey) {
       messages: [...(s.history || []), { role: 'user', content: s.text }],
       preload: {
         profileText: s.profileText || 'IDENTITY: Alex. Lives in San Francisco with their partner Jo and their dog Bella. Works in client services, and is building an app on the side.',
-        sessionContext: formatWeekAhead(weekOf(s, to)),
+        // the week ahead, and the ledger's dated things ahead when the scenario has them
+        sessionContext: [
+          formatWeekAhead(weekOf(s, to)),
+          formatDatedAhead(s.dated ? { day: s.today || '2026-10-03', rows: s.dated } : null),
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
         week: weekOf(s, to),
         // their day, which after midnight is still the day before until 3am
         ...(s.today ? { today: s.today } : {}),

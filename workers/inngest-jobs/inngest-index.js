@@ -158,54 +158,6 @@ const dcoDispatcher = inngest.createFunction(
       return deleted;
     });
 
-    // Step 1b: Clean up passed temporal anchors
-    await step.run('cleanup-passed-anchors', async () => {
-      const utcDate = (d) =>
-        new Intl.DateTimeFormat('en-CA', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          timeZone: 'UTC',
-        }).format(d);
-      const today = utcDate(new Date());
-      const headers = {
-        apikey: env.SUPABASE_SERVICE_KEY,
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation',
-      };
-      const patchBody = JSON.stringify({ status: 'passed', updated_at: new Date().toISOString() });
-
-      // Exact-confidence anchors: mark passed with 7-day buffer
-      const exactBufferDate = utcDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-      const exactRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${exactBufferDate}`,
-        { method: 'PATCH', headers, body: patchBody },
-      );
-      const exactCount = exactRes.ok ? (await exactRes.json()).length : 0;
-
-      // Approximate-confidence anchors: mark passed with 7-day buffer
-      const approxBufferDate = utcDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-      const approxRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${approxBufferDate}`,
-        { method: 'PATCH', headers, body: patchBody },
-      );
-      const approxCount = approxRes.ok ? (await approxRes.json()).length : 0;
-
-      // Unknown-confidence anchors: mark passed if older than 30 days
-      const staleDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      const unknownRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.unknown&created_at=lt.${staleDate}`,
-        { method: 'PATCH', headers, body: patchBody },
-      );
-      const unknownCount = unknownRes.ok ? (await unknownRes.json()).length : 0;
-
-      console.log(
-        `[DCO Dispatcher] Temporal anchors cleanup: ${exactCount} exact, ${approxCount} approximate, ${unknownCount} unknown marked passed`,
-      );
-      return exactCount + approxCount + unknownCount;
-    });
-
     // Step 2: Everyone active in the last week, with the date of their last real DCO.
     // Anyone else gets theirs made fresh when they next open the app (brief/data.js).
     // Activity covers chats, sweeps and habit check-ins as well as new items.

@@ -116,6 +116,29 @@ export const SCENARIOS = [
     expect: { rows: 0, mentions: /monday|tuesday|wednesday|thursday/i },
   },
   {
+    id: 'dated-ahead',
+    kind: 'Look ahead, from the ledger',
+    text: 'Anything big coming up in the next few weeks?',
+    items: [],
+    dated: [
+      {
+        statement: "Alex is flying to Porto for their sister Ana's birthday.",
+        about_date: '2026-11-01',
+        about_date_end: '2026-11-04',
+        state: 'planned',
+        private: false,
+      },
+      {
+        statement: 'Alex plans to start a half marathon training plan.',
+        about_date: '2026-10-12',
+        about_date_end: null,
+        state: 'planned',
+        private: false,
+      },
+    ],
+    expect: { rows: 0, mentions: /porto/i },
+  },
+  {
     id: 'proud-lately',
     kind: 'Look back',
     text: 'What have i been proud of lately?',

@@ -195,7 +195,7 @@ export async function gatherDay(env, userId, tz, today) {
       `notes?owner_id=eq.${userId}&subtype=eq.journal&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -3)))}&select=id,title,body,mood,created_at&order=created_at.asc&limit=10`,
     ),
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=250`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private,item_table,item_id&order=last_confirmed_at.desc&limit=250`,
     ),
     d.select(
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
@@ -781,6 +781,35 @@ export async function readTodayCalendar(env, g, tz, today) {
 const MUST_PASS = new Set(['headline', 'lead_what']);
 
 /** Generate, check, retry once if needed, assemble. Returns the DCO object and run notes. */
+/**
+ * The day card's dated chips: the upcoming facts the model cited as genuinely
+ * ahead, open ones only, within 30 days, at most eight, and a dated thing once:
+ * two facts about the same item are one chip.
+ */
+export function upcomingAnchorFacts(anchorRefs, refs, facts, today) {
+  const factById = new Map(facts.map((f) => [f.id, f]));
+  return [...new Set(anchorRefs || [])]
+    .map((r) => refs.get(r))
+    .filter((r) => r && r.type === 'fact')
+    .map((r) => factById.get(r.id))
+    .filter(
+      (f) =>
+        f &&
+        !f.private &&
+        f.about_date &&
+        (f.about_date >= today || coversToday(f, today)) &&
+        f.about_date <= addDays(today, 30) &&
+        ['planned', 'current'].includes(f.state),
+    )
+    .sort((a, b) => (a.about_date < b.about_date ? -1 : 1))
+    .filter(
+      (f, i, all) =>
+        !f.item_id ||
+        all.findIndex((x) => x.item_table === f.item_table && x.item_id === f.item_id) === i,
+    )
+    .slice(0, 8);
+}
+
 export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
   const tz = tzIn || (await userTimezone(env, userId));
   // their day: after midnight it is still yesterday until their day ends, the
@@ -868,23 +897,7 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
       ? { days_away: daysAway, note: trim(output.return_note, 200) }
       : null;
 
-  // Date anchors are the upcoming facts the model judged to be genuinely ahead.
-  const factById = new Map(g.facts.map((f) => [f.id, f]));
-  const upcomingFacts = [...new Set(output.anchor_refs || [])]
-    .map((r) => refs.get(r))
-    .filter((r) => r && r.type === 'fact')
-    .map((r) => factById.get(r.id))
-    .filter(
-      (f) =>
-        f &&
-        !f.private &&
-        f.about_date &&
-        (f.about_date >= today || coversToday(f, today)) &&
-        f.about_date <= addDays(today, 30) &&
-        ['planned', 'current'].includes(f.state),
-    )
-    .sort((a, b) => (a.about_date < b.about_date ? -1 : 1))
-    .slice(0, 8);
+  const upcomingFacts = upcomingAnchorFacts(output.anchor_refs, refs, g.facts, today);
 
   // The chip's few words, per anchor fact (gap 1 of the brief's context handoff)
   const shortLabels = new Map();

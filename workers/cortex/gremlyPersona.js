@@ -404,7 +404,7 @@ When they tell you that you got something wrong, own it in a few plain words, th
 Talk about their life, not about your notes on it. When something isn't in what you know, ask about it the way a friend would, rather than saying what you do or don't have on record.`;
 
 const GENERAL_TEMPORAL = `TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or temporal anchor). Never infer or guess when something is happening.
+1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
 2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
 3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
 4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
@@ -505,7 +505,7 @@ ${opts.userProfileText}`);
       parts.push(`This conversation is in the user's "${opts.spaceName}" space.`);
     }
     parts.push(`TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or temporal anchor). Never infer or guess when something is happening.
+1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
 2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
 3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
 4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
@@ -526,7 +526,7 @@ ${GENERAL_TEMPORAL}`);
       parts.push(`This conversation is in the user's "${opts.scopeName}" world.`);
     }
     parts.push(`TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or temporal anchor). Never infer or guess when something is happening.
+1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
 2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
 3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
 4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
@@ -539,7 +539,7 @@ ${GENERAL_TEMPORAL}`);
       parts.push(`This conversation is in the user's "${opts.scopeName}" chapter.`);
     }
     parts.push(`TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or temporal anchor). Never infer or guess when something is happening.
+1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
 2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
 3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
 4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.

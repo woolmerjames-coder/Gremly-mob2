@@ -21,6 +21,7 @@
  */
 import { getLifePack, recallForMessage } from './lifeContext.js';
 import { formatWeekAhead, readWeekAhead } from './weekAhead.js';
+import { fetchDatedAhead, formatDatedAhead } from './datedAhead.js';
 
 /** The person's latest message text from a chat request body. */
 export function lastUserText(body) {
@@ -454,36 +455,19 @@ export async function buildChatContext(userId, lane, opts, env) {
             today: todayRead,
           })
         : Promise.resolve(null);
-    const [
-      lifeMap,
-      dailyFocus,
-      recentDelta,
-      temporalAnchors,
-      chatSummaries,
-      lifePack,
-      recall,
-      week,
-    ] = await Promise.all([
-      getLifeMapForChat(userId, env),
-      focusRead,
-      fetchRecentActivityDelta(userId, env),
-      fetchTemporalAnchors(userId, timezone, env, todayRead),
-      fetchRecentChatSummaries(userId, currentChatId, env),
-      getLifePack(userId, env),
-      opts?.message
-        ? recallForMessage(userId, opts.message, env, { today: todayRead, timezone })
-        : Promise.resolve(''),
-      weekRead,
-    ]);
-
-    const todayStr =
-      (await todayRead) ||
-      new Intl.DateTimeFormat('en-CA', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        timeZone: timezone,
-      }).format(new Date());
+    const [lifeMap, dailyFocus, recentDelta, datedAhead, chatSummaries, lifePack, recall, week] =
+      await Promise.all([
+        getLifeMapForChat(userId, env),
+        focusRead,
+        fetchRecentActivityDelta(userId, env),
+        fetchDatedAhead(userId, env, { today: todayRead, timezone }),
+        fetchRecentChatSummaries(userId, currentChatId, env),
+        getLifePack(userId, env),
+        opts?.message
+          ? recallForMessage(userId, opts.message, env, { today: todayRead, timezone })
+          : Promise.resolve(''),
+        weekRead,
+      ]);
 
     const parts = [];
 
@@ -498,11 +482,10 @@ export async function buildChatContext(userId, lane, opts, env) {
     const weekStr = formatWeekAhead(week);
     if (weekStr) parts.push(weekStr);
 
-    // 2. Temporal anchors (upcoming events/deadlines from conversations)
-    if (temporalAnchors) {
-      const anchorsStr = formatTemporalAnchors(temporalAnchors, todayStr);
-      if (anchorsStr) parts.push(anchorsStr);
-    }
+    // 2. Dated things ahead, from the ledger: plans, events and deadlines
+    // still ahead or under way, each item once (context/datedAhead.js)
+    const datedStr = formatDatedAhead(datedAhead);
+    if (datedStr) parts.push(datedStr);
 
     // 3. Recent chat summaries (cross-chat continuity)
     if (chatSummaries) {
@@ -661,133 +644,6 @@ export function formatSpaceEntities(entities) {
   }
 
   return parts.join('\n');
-}
-
-/**
- * Fetch active temporal anchors for a user. KV cached 5 minutes.
- * Enriches each anchor with daysAway and timeDescription.
- */
-export async function fetchTemporalAnchors(userId, timezone, env, today = null) {
-  if (!userId) return null;
-
-  try {
-    const cacheKey = `temporal-anchors:${userId}`;
-    if (env.CONTEXT_CACHE) {
-      const cached = await env.CONTEXT_CACHE.get(cacheKey);
-      if (cached) {
-        console.log(`[ChatProjection] Temporal anchors cache hit for ${userId.slice(0, 8)}`);
-        return JSON.parse(cached);
-      }
-    }
-
-    const headers = {
-      apikey: env.SUPABASE_SERVICE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-    };
-
-    const response = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${userId}&status=eq.active&order=resolved_date.asc.nullslast&limit=15`,
-      { headers },
-    );
-
-    if (!response.ok) {
-      console.error('[ChatProjection] Temporal anchors fetch failed:', response.statusText);
-      return null;
-    }
-
-    const anchors = await response.json();
-    if (!Array.isArray(anchors) || anchors.length === 0) return null;
-
-    // Their day when the caller knows it (a day or a promise of one: after
-    // midnight it is still yesterday until their day ends), else the calendar's
-    const todayStr =
-      (await Promise.resolve(today).catch(() => null)) ||
-      new Intl.DateTimeFormat('en-CA', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        timeZone: timezone || 'UTC',
-      }).format(new Date());
-
-    const todayMs = new Date(todayStr + 'T00:00:00Z').getTime();
-
-    const enriched = anchors
-      .map((a) => {
-        let daysAway = null;
-        if (a.resolved_date) {
-          const resolvedMs = new Date(a.resolved_date + 'T00:00:00Z').getTime();
-          daysAway = Math.round((resolvedMs - todayMs) / (24 * 60 * 60 * 1000));
-        }
-
-        let timeDescription = 'date unknown';
-        if (daysAway !== null) {
-          if (daysAway === 0) timeDescription = 'today';
-          else if (daysAway === 1) timeDescription = 'tomorrow';
-          else if (daysAway > 1 && daysAway <= 7) timeDescription = `in ${daysAway} days`;
-          else if (daysAway > 7) timeDescription = `in ~${Math.round(daysAway / 7)} weeks`;
-          else if (daysAway === -1) timeDescription = 'yesterday';
-          else timeDescription = `${Math.abs(daysAway)} days ago`;
-        }
-
-        return { ...a, daysAway, timeDescription };
-      })
-      .filter((a) => {
-        if (a.daysAway === null) return true; // unknown — always keep
-        if (a.date_confidence === 'exact') return a.daysAway >= -7;
-        if (a.date_confidence === 'approximate') return a.daysAway >= -7;
-        return true; // unknown confidence — keep
-      });
-
-    if (enriched.length === 0) return null;
-
-    if (env.CONTEXT_CACHE) {
-      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(enriched), { expirationTtl: 300 });
-    }
-
-    console.log(
-      `[ChatProjection] Temporal anchors loaded for ${userId.slice(0, 8)}: ${enriched.length} active`,
-    );
-    return enriched;
-  } catch (error) {
-    console.error('[ChatProjection] Temporal anchors error:', error);
-    return null;
-  }
-}
-
-/**
- * Format temporal anchors into a plain-text context string for LLM injection.
- */
-export function formatTemporalAnchors(anchors, _todayStr) {
-  if (!anchors || anchors.length === 0) return '';
-
-  const lines = [
-    '=== EVENTS & DEADLINES (from conversations) ===',
-    'Note: Dates marked "approximate" are estimates, not confirmed. Dates marked "unknown" have no confirmed date. Never state approximate or unknown dates as fact. Use hedging language for approximate dates (e.g. "around", "roughly"). For unknown dates, consider naturally asking when it is. Past events (negative days) have already happened — refer to them in past tense, not as upcoming.',
-    '',
-  ];
-
-  for (const a of anchors) {
-    let line = '';
-    if (a.date_confidence === 'exact') {
-      line = `• ${a.title} — ${a.resolved_date} (${a.timeDescription})`;
-    } else if (a.date_confidence === 'approximate') {
-      line = `• ${a.title} — approximately ${a.timeDescription}`;
-      if (a.date_text) line += ` ("${a.date_text}")`;
-      if (a.date_range_start && a.date_range_end) {
-        line += ` [range: ${a.date_range_start} to ${a.date_range_end}]`;
-      }
-    } else {
-      line = `• ${a.title} — date unknown`;
-      if (a.date_text) line += ` ("${a.date_text}")`;
-      line += ' [consider asking for the date]';
-    }
-    lines.push(line);
-    if (a.description) {
-      lines.push(`  Context: ${a.description}`);
-    }
-  }
-
-  return lines.join('\n');
 }
 
 /**

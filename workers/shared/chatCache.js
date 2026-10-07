@@ -1,6 +1,6 @@
 /**
  * Chat (the cortex worker) caches each person's profile, Life Map, today's DCO
- * and date anchors for up to two hours, in the CONTEXT_CACHE KV namespace both
+ * and dated things ahead for up to two hours, in the CONTEXT_CACHE KV namespace both
  * workers bind. When either worker changes any of them, those entries are
  * dropped so the very next chat message reads the new version.
  */
@@ -10,7 +10,7 @@ export const CHAT_CACHE_KEYS = [
   (u) => `life-map-domains:${u}`,
   (u) => `daily-focus-chat:${u}`,
   (u) => `dco-context:${u}`,
-  (u) => `temporal-anchors:${u}`,
+  (u) => `dated-ahead:${u}`,
   (u) => `session:${u}`,
   (u) => `life-pack:${u}`,
 ];
