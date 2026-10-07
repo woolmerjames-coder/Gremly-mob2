@@ -26,6 +26,7 @@ import { jsonCall, modelFor } from './llm';
 import { minutesIn } from '../../shared/calendar.js';
 import { personDay, personNow } from '../../shared/day.js';
 import { stateWords } from '../../shared/factTiming.js';
+import { FACT_KINDS, KIND_RULES, validKind } from '../../shared/factKinds.js';
 import {
   answerRecord,
   calendarRecord,
@@ -42,7 +43,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-07';
+export const READER_PROMPT_VERSION = 'reader-2026-10-08';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -58,7 +59,7 @@ export const READER_SCHEMA = {
         properties: {
           statement: { type: 'string' },
           subject: { type: 'string' },
-          kind: { type: 'string' },
+          kind: { type: 'string', enum: FACT_KINDS },
           about_date: { type: 'string', nullable: true },
           about_date_end: { type: 'string', nullable: true },
           date_confidence: { type: 'string', enum: ['exact', 'approximate', 'unknown'] },
@@ -66,12 +67,14 @@ export const READER_SCHEMA = {
           source_ref: { type: 'string' },
           quote: { type: 'string' },
           private: { type: 'boolean' },
+          health: { type: 'boolean' },
           about_item: { type: 'boolean' },
         },
         required: [
           'statement',
           'subject',
           'kind',
+          'health',
           'date_confidence',
           'state',
           'source_ref',
@@ -162,6 +165,8 @@ WHAT BELONGS IN THE LEDGER
 - Write each statement in plain words, about the person, in the third person, as true as of the record's date. Keep it to one sentence.
 - A statement says what the record shows. Whether a later record confirmed it is carried by the state, not written into the statement.
 - Records that say the same thing produce one fact, not one per record.
+
+${KIND_RULES}
 
 EVIDENCE
 - Every new fact cites exactly one record by its ref, and quotes the person's own words from that record (or its title).
@@ -494,7 +499,7 @@ export function chunkRecords(items) {
 }
 
 const FACT_SELECT =
-  'id,statement,subject,about_date,about_date_end,state,observed_at,private,item_table,item_done,item_archived,item_cancelled,item_gone';
+  'id,statement,subject,kind,health,about_date,about_date_end,state,observed_at,private,item_table,item_done,item_archived,item_cancelled,item_gone';
 
 /**
  * The facts worth showing alongside a chunk: still open, or recently
@@ -734,7 +739,8 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       user_id: userId,
       statement: trim(f.statement, 400),
       subject: f.subject ? trim(f.subject, 80) : null,
-      kind: f.kind ? trim(f.kind, 40) : null,
+      kind: validKind(f.kind),
+      health: f.health === true,
       about_date: validDate(f.about_date),
       about_date_end: validDate(f.about_date_end),
       date_confidence: ['exact', 'approximate', 'unknown'].includes(f.date_confidence)
@@ -753,6 +759,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       last_confirmed_at: src.at,
       run_id: runId,
       model,
+      prompt_version: READER_PROMPT_VERSION,
     });
   }
   if (newRows.length) {
@@ -777,6 +784,9 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
           user_id: userId,
           statement: trim(u.replacement_statement, 400),
           subject: fact.subject,
+          // the same sort of statement as the fact it replaces
+          kind: validKind(fact.kind),
+          health: fact.health === true,
           about_date: validDate(u.replacement_about_date),
           about_date_end: validDate(u.replacement_about_date_end),
           date_confidence: validDate(u.replacement_about_date) ? 'exact' : 'unknown',
@@ -791,6 +801,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
           last_confirmed_at: src.at,
           run_id: runId,
           model,
+          prompt_version: READER_PROMPT_VERSION,
         },
       ]);
       replacementId = rep?.id || null;
@@ -861,6 +872,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
         record_id: src?.id || null,
         proposed_change: q.proposed_change ? { text: trim(q.proposed_change, 300) } : null,
         run_id: runId,
+        prompt_version: READER_PROMPT_VERSION,
       },
     ]);
     counts.questions++;

@@ -17,7 +17,7 @@ import { cycleOf } from '../../shared/week.js';
 import { weekSettings } from '../week/settings';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
 import { applyCorrection } from './corrections';
-import { reconcileAnchors } from './anchors';
+import { giveKinds, usersLackingKinds } from './kinds';
 import { reviewQuestions } from './questions';
 import { buildDcoV4, writeDco } from './daily';
 import { refreshDayFrame } from '../brief/frameRefresh';
@@ -133,10 +133,11 @@ export function createContextFunctions(inngest) {
         });
         for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + c[k];
       }
-      // Date anchors chat reads back are checked against what was just read.
       if (totals.records > 0) {
-        totals.anchors = await step.run('anchors', () =>
-          reconcileAnchors(env, userId, plan.tz, { shadow: contextMode(env, userId) !== 'on' }),
+        // Every fact gets a kind and a health flag: the read gives them to its
+        // own facts, and this gives them to any fact still without (context/kinds.js).
+        totals.kinds = await step.run('kinds', () =>
+          giveKinds(env, userId, { shadow: contextMode(env, userId) !== 'on' }),
         );
         // Questions written while reading old records are checked against today.
         totals.question_review = await step.run('questions', () =>
@@ -494,10 +495,40 @@ export function createContextFunctions(inngest) {
     },
   );
 
+  // ── Kinds: the one time pass that gives every fact its kind ─────────────
+  const kinds = inngest.createFunction(
+    {
+      id: 'context-kinds',
+      name: 'Context: give every fact a kind',
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 2 }],
+      retries: 2,
+    },
+    { event: 'app/kinds.give' },
+    async ({ event, step, env }) => {
+      if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
+      const userId = event.data?.user_id;
+      if (userId)
+        return step.run('give', () =>
+          giveKinds(env, userId, {
+            maxCalls: 20,
+            shadow: event.data?.shadow ?? contextMode(env, userId) !== 'on',
+          }),
+        );
+      const ids = await step.run('who', () => usersLackingKinds(env));
+      if (ids.length)
+        await step.sendEvent(
+          'fan-out',
+          ids.map((id) => ({ name: 'app/kinds.give', data: { user_id: id } })),
+        );
+      return { users: ids.length };
+    },
+  );
+
   return {
     functions: [
       ledgerRead,
       correctionApply,
+      kinds,
       dcoV4,
       weekly,
       story,

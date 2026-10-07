@@ -32,6 +32,7 @@ import {
 } from '../../workers/inngest-jobs/context/reader.js';
 import { jsonCall, modelFor } from '../../workers/inngest-jobs/context/llm.js';
 import { localDate } from '../../workers/shared/db.js';
+import { validKind } from '../../workers/shared/factKinds.js';
 import {
   calendarRecord,
   changeRecord,
@@ -348,7 +349,11 @@ async function runOne(s) {
       ...(output.confirmations || []).map((c) => factRef.has(c.fact_ref) && recRef.has(c.source_ref)),
       ...calendar.map((c) => recRef.has(c.ref)),
     ];
-    const structure = [{ name: 'every ref exists', ok: refsOk.every(Boolean), detail: `${refsOk.filter((x) => !x).length} unknown` }];
+    const kindless = (output.new_facts || []).filter((f) => !validKind(f.kind) || typeof f.health !== 'boolean');
+    const structure = [
+      { name: 'every ref exists', ok: refsOk.every(Boolean), detail: `${refsOk.filter((x) => !x).length} unknown` },
+      { name: 'every new fact has a kind from the list and a health flag', ok: !kindless.length, detail: kindless.map((f) => `${f.kind}/${f.health}`).join(', ') || 'all' },
+    ];
     if (s.check) {
       const checks = [...structure, ...s.check({ facts, updates, questions, calendar, recRef, factRef })];
       return { id: s.id, model, ms: Date.now() - started, ok: checks.every((c) => c.ok), checks, facts, updates, calendar, today, user };
