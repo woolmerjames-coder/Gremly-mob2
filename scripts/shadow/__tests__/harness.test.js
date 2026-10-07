@@ -47,11 +47,11 @@ describe('the fetch guard', () => {
   beforeEach(() => {
     sent = [];
     globalThis.fetch = async (url, init = {}) => {
-      sent.push({ url: String(url), method: init.method || 'GET' });
+      sent.push({ url: String(url), method: init.method || 'GET', headers: new Headers(init.headers || {}) });
       return new Response(JSON.stringify([{ id: 'r1' }]), { status: 200 });
     };
     record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
-    restoreFetch = installFetchGuard({ supabaseUrl: DB, atIso: AT, record });
+    restoreFetch = installFetchGuard({ supabaseUrl: DB, atIso: AT, record, apikey: 'public-key' });
   });
   afterEach(() => restoreFetch());
 
@@ -75,6 +75,20 @@ describe('the fetch guard', () => {
       ['POST', 'rpc set_chat_summary'],
     ]);
     expect((await ins.json())[0]).toMatchObject({ statement: 'made up' });
+  });
+
+  it('gives the gateway the public key and keeps the read only token', async () => {
+    await fetch(`${DB}/rest/v1/todos?owner_id=eq.1`, { headers: { apikey: 'reader', Authorization: 'Bearer reader' } });
+    await fetch(`${DB}/rest/v1/rpc/get_active_people`, {
+      method: 'POST',
+      headers: { apikey: 'reader', Authorization: 'Bearer reader' },
+      body: '{}',
+    });
+    for (const s of sent) {
+      expect(s.headers.get('apikey')).toBe('public-key');
+      expect(s.headers.get('authorization')).toBe('Bearer reader');
+    }
+    expect(sent).toHaveLength(2);
   });
 
   it('lets a function that only reads through', async () => {

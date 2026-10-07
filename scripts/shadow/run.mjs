@@ -4,7 +4,7 @@
  *
  *   scripts/shadow/run.sh morning    --user <uuid> --day YYYY-MM-DD [--at HH:MM]
  *   scripts/shadow/run.sh story-copy --user <uuid> [--at ISO]
- *   scripts/shadow/run.sh correction --correction <uuid>
+ *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"]
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -26,7 +26,8 @@ import {
 } from './harness.js';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
 import { buildDcoV4, writeDco } from '../../workers/inngest-jobs/context/daily.js';
-import { copyStoryIntoLifeMap } from '../../workers/inngest-jobs/context/story.js';
+// a namespace import, so a tree without the story copy (main before stage 0) still bundles
+import * as story from '../../workers/inngest-jobs/context/story.js';
 import { applyCorrection } from '../../workers/inngest-jobs/context/corrections.js';
 import { localStartIso } from '../../workers/shared/calendar.js';
 
@@ -40,6 +41,8 @@ const flag = (name) => {
 };
 const SUPABASE_URL = process.env.SHADOW_SUPABASE_URL || 'https://pvfnnpcfmgczlcglvlzl.supabase.co';
 const KEY = process.env.SHADOW_SUPABASE_KEY || '';
+// the project's public key, which the gateway wants as apikey; the app's own anon key
+const APIKEY = process.env.SHADOW_SUPABASE_APIKEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
 function fail(msg) {
   console.error(msg);
@@ -58,6 +61,9 @@ function keyRole(key) {
 if (!KEY) fail('SHADOW_SUPABASE_KEY is not set. See scripts/shadow/README.md.');
 if (keyRole(KEY) !== 'shadow_reader')
   fail(`SHADOW_SUPABASE_KEY is for the role "${keyRole(KEY)}", not shadow_reader. Nothing was run.`);
+if (!APIKEY) fail('The project\'s public anon key is not set (SHADOW_SUPABASE_APIKEY or EXPO_PUBLIC_SUPABASE_ANON_KEY). See scripts/shadow/README.md.');
+if (keyRole(APIKEY) !== 'anon' && !APIKEY.startsWith('sb_publishable_'))
+  fail('The apikey must be the project\'s public anon key, never a secret one. Nothing was run.');
 
 const record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
 const env = {
@@ -73,7 +79,7 @@ const env = {
 /** A real read through the guard, outside any job: what live holds. */
 async function liveRead(path) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
+    headers: { apikey: APIKEY, Authorization: `Bearer ${KEY}` },
   });
   if (!res.ok) fail(`Read failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   return res.json();
@@ -110,7 +116,14 @@ const JOBS = {
       summarise: (built) => ({
         day,
         shadow: pickMorning(built?.dco, built),
-        live: live ? pickMorning(live.dco, { attempts: live.extraction_raw?.attempts }) : null,
+        // live keeps only the count of failed checks, and its row may have been changed since the morning
+        live: live
+          ? pickMorning(live.dco, {
+              attempts: live.extraction_raw?.attempts,
+              inputChars: live.extraction_raw?.input_chars,
+              failed: live.extraction_raw?.review_flags,
+            })
+          : null,
       }),
     };
   },
@@ -121,7 +134,10 @@ const JOBS = {
     return {
       at: flag('--at') || new Date().toISOString(),
       userId,
-      run: () => copyStoryIntoLifeMap(env, userId),
+      run: () => {
+        if (typeof story.copyStoryIntoLifeMap !== 'function') fail('This tree has no story copy.');
+        return story.copyStoryIntoLifeMap(env, userId);
+      },
       summarise: (out) => ({
         result: out,
         life_map_writes: record.writes
@@ -146,14 +162,18 @@ const JOBS = {
     return {
       at,
       userId: c.user_id,
-      // replayed as if it had not been applied yet
+      // replayed as if it had not been applied yet; --said tries other words in its place
       rewrite: ({ table, body }) => {
         if (table !== 'user_corrections') return null;
         const rows = JSON.parse(body);
-        return Array.isArray(rows) ? rows.map((r) => (r.id === id ? { ...r, status: 'pending' } : r)) : null;
+        const said = flag('--said');
+        return Array.isArray(rows)
+          ? rows.map((r) => (r.id === id ? { ...r, status: 'pending', ...(said ? { said } : {}) } : r))
+          : null;
       },
       run: () => applyCorrection(env, id, `shadow-${Date.now()}`),
       summarise: (out) => ({
+        said_replaced: !!flag('--said'),
         result: out,
         world_and_chapter_writes: record.writes
           .filter((w) => w.table === 'worlds' || w.table === 'chapters')
@@ -176,7 +196,9 @@ function pickMorning(dco, built) {
     claims: (dco.brief?.claims || []).length,
     focus: (dco.today_focus || []).filter(Boolean).length,
     attempts: built?.attempts ?? null,
-    problems: (built?.problems || []).map((p) => p.field),
+    input_chars: built?.inputChars ?? null,
+    failed: built?.problems ? built.problems.length : (built?.failed ?? null),
+    problems: built?.problems ? built.problems.map((p) => p.field) : null,
   };
 }
 
@@ -184,7 +206,7 @@ const make = JOBS[job];
 if (!make) fail(`Unknown job "${job}". Jobs: ${Object.keys(JOBS).join(', ')}`);
 const plan = await make();
 installClock(plan.at);
-installFetchGuard({ supabaseUrl: SUPABASE_URL, atIso: plan.at, record, rewrite: plan.rewrite });
+installFetchGuard({ supabaseUrl: SUPABASE_URL, atIso: plan.at, record, rewrite: plan.rewrite, apikey: APIKEY });
 installAiUsageLogging();
 const started = Date.now();
 let out;

@@ -121,11 +121,23 @@ function json(value, status = 200) {
 }
 
 /**
+ * The project's gateway only takes its own public key as the apikey header. The
+ * Authorization header, which decides the database role, stays the read only one.
+ */
+function withGatewayKey(init, apikey) {
+  if (!apikey) return init;
+  const headers = new Headers(init?.headers || {});
+  headers.set('apikey', apikey);
+  return { ...init, headers };
+}
+
+/**
  * Wraps the global fetch. `record` collects every write, side effect, model
  * call and usage row. `rewrite` may change a read's answer, for a replay
- * (a correction read as not yet applied, say).
+ * (a correction read as not yet applied, say). `apikey` is the project's public
+ * key, which the gateway wants beside the read only role's token.
  */
-export function installFetchGuard({ supabaseUrl, atIso, record, rewrite }) {
+export function installFetchGuard({ supabaseUrl, atIso, record, rewrite, apikey }) {
   const realFetch = globalThis.fetch.bind(globalThis);
   let n = 0;
   globalThis.fetch = async function shadowFetch(input, init = {}) {
@@ -139,7 +151,7 @@ export function installFetchGuard({ supabaseUrl, atIso, record, rewrite }) {
       }
       const isRead = method === 'GET' || method === 'HEAD';
       if (isRead && target.table) {
-        const res = await realFetch(cutRead(url, target.table, atIso), init);
+        const res = await realFetch(cutRead(url, target.table, atIso), withGatewayKey(init, apikey));
         record.reads.push({ table: target.table, status: res.status });
         if (!rewrite) return res;
         const body = await res.clone().text();
@@ -147,7 +159,7 @@ export function installFetchGuard({ supabaseUrl, atIso, record, rewrite }) {
         return changed == null ? res : json(changed, res.status);
       }
       if (target.rpc && READ_ONLY_RPCS.has(target.rpc)) {
-        const res = await realFetch(url, init);
+        const res = await realFetch(url, withGatewayKey(init, apikey));
         record.reads.push({ rpc: target.rpc, status: res.status });
         return res;
       }

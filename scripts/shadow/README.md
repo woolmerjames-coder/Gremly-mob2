@@ -11,16 +11,27 @@ fabric is tried on existing data before it is deployed.
 2. James mints its key on his own machine and adds the printed line to
    `.audit-keys.local`:
    `SUPABASE_JWT_SECRET=... node scripts/shadow/mint-key.mjs`
-3. Replays keys (`OPENAI_API_KEY`, `GEMINI_TEST_API_KEY`, and
+3. The model keys (`OPENAI_API_KEY`, `GEMINI_TEST_API_KEY`, and
    `ANTHROPIC_API_KEY` for weekly jobs) come from the same file.
+4. The project's gateway only takes the project's own public key as `apikey`,
+   so the runner also needs the app's anon key, `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+   from `.env.local` (or the same key as `SHADOW_SUPABASE_APIKEY`). It only
+   gets a request through the gateway; the shadow_reader token still decides
+   what the database lets it do.
+5. The machine running it must be allowed to reach the project's host
+   (Claude's network settings, for runs from Claude).
 
-The runner refuses to start with any key that is not the shadow_reader one.
+The runner refuses to start with any key that is not the shadow_reader one,
+or with an apikey that is not the public anon key.
 
 ## Running it
 
     scripts/shadow/run.sh morning    --user <uuid> --day 2026-10-05 [--at 04:30]
     scripts/shadow/run.sh story-copy --user <uuid>
     scripts/shadow/run.sh correction --correction <uuid>
+
+`--said` replays a correction with other words in place of what was said, to
+see what a correction would do to passages a past one has already fixed.
 
 Add `--code <dir>` to run another tree's code, such as main from
 `git archive`, beside this one on the same day.
