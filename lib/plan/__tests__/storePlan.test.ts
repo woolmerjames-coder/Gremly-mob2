@@ -1,4 +1,10 @@
-import { lockPlanItems, placedOn, plannedTimePatch, poolForDay } from '../storePlan';
+import {
+  candidateFromStore,
+  lockPlanItems,
+  placedOn,
+  plannedTimePatch,
+  poolForDay,
+} from '../storePlan';
 import { getDateService } from '../../date/DateService';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../../capacity/capacityTypes';
 import type { PlanItem } from '../../brief/types';
@@ -54,6 +60,31 @@ describe('what a plan gave a time on a day', () => {
     ];
     expect([...placedOn('2026-10-01')].sort()).toEqual(['deck', 'run']);
     expect([...placedOn('2026-10-02')]).toEqual(['tomorrow']);
+  });
+});
+
+describe('an item asked for by id', () => {
+  beforeEach(() => {
+    mockState.todos = [{ id: 'deck', name: 'Finish the deck', time_estimate_minutes: 40 }];
+    mockState.habits = [
+      { id: 'run', name: 'Run', time_estimate_minutes: 30 },
+      { id: 'sugar', name: 'No sugar', subtype: 'break_habit' },
+    ];
+    mockState.timeBlockPreferences = DEFAULT_TIME_BLOCK_PREFERENCES;
+  });
+
+  it('is a candidate for the plan when it is a todo or a habit they are building', () => {
+    expect(candidateFromStore('deck', 'todo')).toMatchObject({
+      id: 'deck',
+      kind: 'todo',
+      minutes: 40,
+    });
+    expect(candidateFromStore('run', 'habit')).toMatchObject({ id: 'run', kind: 'habit' });
+  });
+
+  it('is never one when it is a habit they are breaking, or is not there', () => {
+    expect(candidateFromStore('sugar', 'habit')).toBeNull();
+    expect(candidateFromStore('gone', 'todo')).toBeNull();
   });
 });
 

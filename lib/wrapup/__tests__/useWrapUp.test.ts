@@ -1504,6 +1504,110 @@ describe('the wrap up: the other choices', () => {
     expect(mockFetchQuestions).not.toHaveBeenCalled();
   });
 
+  describe('Just the journal, with a habit they are breaking', () => {
+    const BUILD = { id: 'h1', name: 'Blinkist', start_date: '2026-09-01', cadence: 'daily' };
+    const BREAK = {
+      id: 'b1',
+      name: 'No phone in bed',
+      subtype: 'break_habit',
+      start_date: '2026-09-01',
+      cadence: 'daily',
+    };
+    const habitCards = (t: ReturnType<typeof setup>) =>
+      t.messages.filter((m) => (m.metadata_json as any)?.type === 'sweep-habits');
+
+    /** Not tonight, Just the journal, then the journal written or skipped. */
+    async function journalOnly(skip = false) {
+      const t = setup();
+      await act(() => t.hook.result.current.open());
+      await act(() => t.hook.result.current.handleButton(...t.button('not_tonight')));
+      await act(() => t.hook.result.current.handleButton(...t.button('journal_only')));
+      expect(t.last().content).toBe(WRAP_COPY.journalAskOnly);
+      if (skip) await act(() => t.hook.result.current.handleButton(...t.button('journal_skip')));
+      else
+        await act(async () => {
+          await t.hook.result.current.takeTyped('Long day.');
+        });
+      return t;
+    }
+
+    it('still checks in on it, once, after the journal, and says good night when it is saved', async () => {
+      mockState.habits = [BUILD, BREAK];
+      const t = await journalOnly();
+      // the one they are breaking is asked, and the habit they are building is not
+      const card = t.card('sweep-habits');
+      expect(card.metadata_json).toMatchObject({
+        habits: [{ id: 'b1', title: 'No phone in bed', kind: 'break' }],
+        after_journal: true,
+        status: 'open',
+      });
+      expect(t.said()).toContainEqual([
+        'brief-text',
+        'One habit to check in on. Did it hold today?',
+      ]);
+      // the wrap up itself is over, as on any Not tonight
+      expect(currentWrap()).toMatchObject({
+        step: 'declined',
+        journal_only: false,
+        break_asked: true,
+        journal: 'written',
+      });
+      // good night waits for the card
+      expect(t.messages.map((m) => m.content)).not.toContain('Night, Sam. Sleep well.');
+
+      await act(() => t.hook.result.current.habits.save(card, [], { b1: 'not' }));
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+      expect(currentWrap()?.step).toBe('declined');
+      // one habits card, and the journal is not asked a second time
+      expect(habitCards(t)).toHaveLength(1);
+      expect(t.messages.filter((m) => m.content === WRAP_COPY.journalAskOnly)).toHaveLength(1);
+      expect(mockFetchQuestions).not.toHaveBeenCalled();
+    });
+
+    it('checks in on it after a journal they skipped too', async () => {
+      mockState.habits = [BREAK];
+      const t = await journalOnly(true);
+      const card = t.card('sweep-habits');
+      await act(() => t.hook.result.current.habits.save(card, [], { b1: 'held' }));
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+      expect(currentWrap()?.step).toBe('declined');
+    });
+
+    it('says good night straight away when there is none to check in on', async () => {
+      mockState.habits = [BUILD];
+      const t = await journalOnly();
+      expect(habitCards(t)).toHaveLength(0);
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+    });
+
+    it('leaves the wrap up open to come back to while the card waits, and asks about it once', async () => {
+      mockState.habits = [BUILD, BREAK];
+      const t = await journalOnly();
+      // the card is left unanswered, and they come back to the wrap up
+      await act(() => t.hook.result.current.open());
+      expect(t.last().content).toBe('Sure. Three things to sort, about a minute.');
+      expect(currentWrap()?.step).toBe('offer');
+      // on through to the habits: the one they are building, and not the other again
+      await act(() => t.hook.result.current.handleButton(...t.button('sweep_skip')));
+      const cards = habitCards(t);
+      expect(cards).toHaveLength(2);
+      expect((cards[1].metadata_json as any).habits.map((h: any) => h.id)).toEqual(['h1']);
+      expect((cards[1].metadata_json as any).after_journal).toBeUndefined();
+      // the first card can still be answered, and says good night
+      await act(() => t.hook.result.current.habits.save(cards[0], [], { b1: 'held' }));
+      expect(t.last().content).toBe('Night, Sam. Sleep well.');
+    });
+
+    it('does not ask again after Not today, when they come back with nothing else open', async () => {
+      mockState.habits = [BREAK];
+      const t = await journalOnly();
+      await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), [], { b1: 'not' }));
+      await act(() => t.hook.result.current.open());
+      await act(() => t.hook.result.current.handleButton(...t.button('sweep_skip')));
+      expect(habitCards(t)).toHaveLength(1);
+    });
+  });
+
   it('coming back after Not tonight offers the cards again, with no second journal ask', async () => {
     const t = setup();
     await act(() => t.hook.result.current.open());

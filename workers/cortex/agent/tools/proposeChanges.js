@@ -329,6 +329,8 @@ const HINTS = {
   in_plan: 'it is already in the plan on screen; plan_move changes its time',
   no_block: 'there is no set time today with that id',
   not_today: 'that item is not one of their things for today; change its day first',
+  plan_breaking:
+    'a habit they are breaking has nothing to do at a set time, so the plan never holds it; Today keeps it in sight and the evening wrap up checks in on it',
   needs_title: 'a set time needs a title',
   needs_time: 'it needs a time, on a 12 hour clock with am or pm',
   covered:
@@ -459,6 +461,7 @@ export function readPlanRow(c, cid, day) {
       if (!day.plan) return { reason: 'no_plan' };
       if (inPlan.has(pid)) return { reason: 'in_plan' };
       if (!item) return { reason: 'not_today' };
+      if (item.breaking) return { reason: 'plan_breaking' };
       const minutes =
         Number.isInteger(p.length) && p.length >= 5 && p.length <= 480 ? p.length : null;
       return row(

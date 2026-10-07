@@ -50,6 +50,22 @@ describe('the pick sheet', () => {
     ]);
   });
 
+  it('never lists a habit they are breaking: there is nothing of it to plan', () => {
+    const withBreaking = pickItemsOf(
+      {
+        todosDue: [],
+        habitsToday: [
+          { id: 'run', name: 'Run', time_estimate_minutes: 45 } as any,
+          { id: 'sugar', name: 'No sugar', subtype: 'break_habit' } as any,
+        ],
+        behind: [{ id: 'phone', name: 'No phone in bed', subtype: 'break_habit' } as any],
+        habitWeeks: [],
+      },
+      'Due today',
+    );
+    expect(withBreaking.habits.map((h) => h.id)).toEqual(['run']);
+  });
+
   it('stays open while they pick several, shows the time they take, and adds them all at once', () => {
     const { r, onConfirm, onClose } = sheet();
     fireEvent.press(r.getByTestId('pick-taxes'));

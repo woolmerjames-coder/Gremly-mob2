@@ -310,13 +310,19 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   }
   const ret = brief.return && (brief.return.days_away ?? 0) >= 3 ? brief.return : null;
   const reach = brief.reach || null;
-  const candidates = todosDue.length + habitsForToday.length + (reach ? 1 : 0);
+  // what could go in a plan: a habit they are breaking has nothing to do at a
+  // time, so it is never one (the app leaves it out of the plan too)
+  const breakingIds = new Set(
+    (habits || []).filter((h) => h.subtype === 'break_habit').map((h) => h.id),
+  );
+  const candidates =
+    todosDue.length + habitsForToday.filter((h) => !breakingIds.has(h.id)).length + (reach ? 1 : 0);
   // A plan already locked in for today (Plan tomorrow, the evening before)
   const planned = [
     ...open.map((t) => ({ type: 'todo', id: t.id, title: t.title, iso: t.scheduled_start_iso })),
     // a habit paused today is left alone, whatever time an earlier plan gave it
     ...(habits || [])
-      .filter((h) => !pausedOn(eases, h.id, today))
+      .filter((h) => !pausedOn(eases, h.id, today) && !breakingIds.has(h.id))
       .map((h) => ({
         type: 'habit',
         id: h.id,

@@ -728,8 +728,24 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     if (!w) return;
     setAwaiting(null);
     if (w.journal_only) {
+      const { st, now, firstName } = readNow();
+      // Only the journal was wanted. The evening is still the one place a
+      // habit they are breaking is checked in on, so those are asked after
+      // it, once, and nothing else is. The wrap up itself is over, as on any
+      // Not tonight, so coming back to it works as it always does: the card
+      // is one more thing in the thread, and says good night when it is saved.
+      if (!w.break_asked) {
+        const breaking = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day, {
+          weeklyDay: st.weeklyDay,
+          eases: st.habitAdaptations,
+        }).rows.filter((r) => r.kind === 'break');
+        if (breaking.length) {
+          setStep('declined', { journal_only: false, break_asked: true });
+          await save(habitsMsgs(breaking, [], now.day, now.words.early, true));
+          return;
+        }
+      }
       setStep('declined', { journal_only: false });
-      const { now, firstName } = readNow();
       await save([say(nightLine(firstName, now.words.early))]);
       return;
     }
@@ -754,10 +770,16 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
 
   const toHabits = useCallback(async () => {
     const { st, now } = readNow();
-    const { rows, already } = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day, {
+    const checkIn = habitsToCheckIn(st.habits, st.habitProgress ?? [], now.day, {
       weeklyDay: st.weeklyDay,
       eases: st.habitAdaptations,
     });
+    const { already } = checkIn;
+    // the habits they are breaking are asked once a day: with a card of their
+    // own already in the thread (after the journal, earlier), not again here
+    const rows = currentWrap()?.break_asked
+      ? checkIn.rows.filter((r) => r.kind !== 'break')
+      : checkIn.rows;
     if (!rows.length) return toJournal();
     setStep('habits');
     // A habit they planned for today in their week can move to another day of
@@ -791,13 +813,15 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       meetings: meetingsFromStore(now.day).length,
       plan: lockedPlan(d.messages, now.day),
     });
-    updateWrap(() =>
-      newWrapState(
+    updateWrap((was) => ({
+      ...newWrapState(
         getDateService().nowTimestamp(),
         cards.map((c) => c.candidate.id),
         cards.length ? null : 'clear',
       ),
-    );
+      // asked earlier today, on a card of their own: once a day stands
+      ...(was?.break_asked ? { break_asked: true } : {}),
+    }));
     questionsRef.current = null;
     habitsTonightRef.current = null;
     cardPendingRef.current = false;
@@ -1501,6 +1525,12 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             ),
           ]);
           await pause();
+          // asked by itself after the journal: the wrap up is over, so good night from here
+          if (card.after_journal) {
+            const { now, firstName } = readNow();
+            await save([say(nightLine(firstName, now.words.early))]);
+            return;
+          }
           await toJournal();
         }),
       [run, patch, save, pause, toJournal, withTyping, factsFor],

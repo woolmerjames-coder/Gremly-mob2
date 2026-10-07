@@ -291,6 +291,27 @@ describe('the day turn, when it answers', () => {
       expect(habits.map((x) => x.id)).toEqual(['strength', 'run', 'read']);
     });
 
+    it('says which habit is one they are breaking, and flags it so it is never planned', () => {
+      mockExtra.moreHabits = [
+        { id: 'read', name: 'Read' },
+        { id: 'sugar', name: 'No sugar', subtype: 'break_habit' },
+      ];
+      mockExtra.habitPlans = [{ habit_id: 'sugar', planned_date: '2026-10-02', status: 'planned' }];
+      expect(notes()).toMatchObject({
+        sugar: 'a habit they are breaking',
+        run: 'habit today',
+        read: 'habit',
+      });
+      const habits = buildDayTurnRequest('hi', null, '2026-10-02', [], null).items.filter(
+        (x) => x.kind === 'habit',
+      );
+      expect(habits.map((x) => [x.id, x.breaking ?? false])).toEqual([
+        ['run', false],
+        ['read', false],
+        ['sugar', true],
+      ]);
+    });
+
     it('says a habit is paused for now, whatever was planned for it, and lists it last', () => {
       mockExtra.moreHabits = [
         { id: 'read', name: 'Read' },

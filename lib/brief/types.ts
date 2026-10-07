@@ -350,6 +350,12 @@ export interface SweepHabitsMeta extends BriefMetaBase {
   moved?: Record<string, string>;
   /** Asked before the evening, so the card's words do not say tonight */
   early?: boolean;
+  /**
+   * The check in on the habits they are breaking, asked by itself after the
+   * journal when only the journal was wanted. The wrap up is over by then, so
+   * saving this card is what says good night.
+   */
+  after_journal?: boolean;
 }
 
 /** Tonight's journal entry, or the mood picked instead. */
@@ -483,6 +489,12 @@ export interface WrapUpState {
   journal_fed?: boolean;
   /** After Not tonight: only the journal was wanted */
   journal_only?: boolean;
+  /**
+   * The habits they are breaking were checked in on by a card of their own,
+   * after the journal on that path. They are asked once a day, so the habits
+   * card leaves them out from then on.
+   */
+  break_asked?: boolean;
   /** Gremly's questions asked tonight */
   questions?: string[];
   finished_at?: string | null;

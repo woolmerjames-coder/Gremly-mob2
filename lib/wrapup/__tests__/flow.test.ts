@@ -119,7 +119,9 @@ describe('the wrap up in the thread', () => {
       ['Run'],
       '2026-09-30',
     );
-    expect(msgs[0].content).toBe('Two habits are still open today. Did either happen?');
+    expect(msgs[0].content).toBe(
+      "Two habits are still open today. Did either happen? And the one you're breaking: did it hold?",
+    );
     expect(msgs[1].meta).toMatchObject({ type: 'sweep-habits', status: 'open', already: ['Run'] });
   });
 

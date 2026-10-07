@@ -198,8 +198,24 @@ describe('the day the agent knows', () => {
       kind: 'habit',
       title: 'Pushups',
       minutes: 10,
+      breaking: false,
     });
     expect(day.blocks).toEqual([]);
+  });
+
+  it('knows which of their habits is one they are breaking, when the app says so', () => {
+    const withBreaking = readTurnRequest({
+      ...BODY,
+      items: [
+        ...BODY.items,
+        { id: 'sugar', kind: 'habit', title: 'No sugar', breaking: true },
+        // only a habit can be one: the flag on anything else is not taken
+        { id: 'odd', kind: 'todo', title: 'Odd', breaking: true },
+      ],
+    });
+    const day = dayFrameOf(withBreaking);
+    expect(day.items.get('sugar').breaking).toBe(true);
+    expect(day.items.get('odd').breaking).toBe(false);
   });
 
   it("carries Gremly's care rules, voice and the person, the same from one message to the next", () => {

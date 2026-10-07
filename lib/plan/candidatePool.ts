@@ -108,9 +108,18 @@ function plannableTodo(t: Todo, input: PoolInput): boolean {
   return true;
 }
 
+/**
+ * A habit they are breaking. It has nothing to do at a time, so it is never a
+ * pick or a plan entry: Today keeps it in sight (Stay mindful) and the evening
+ * wrap up checks in on it.
+ */
+export function isBreakHabit(h: { subtype?: unknown } | null | undefined): boolean {
+  return h?.subtype === 'break_habit';
+}
+
 function plannableHabit(h: Habit, input: PoolInput): boolean {
   if (h.archived) return false;
-  if ((h.subtype as string | undefined) === 'break_habit') return false;
+  if (isBreakHabit(h)) return false;
   if (input.doneToday.has(h.id)) return false;
   if (h.start_date && h.start_date > input.today) return false;
   if (h.end_date && h.end_date < input.today) return false;

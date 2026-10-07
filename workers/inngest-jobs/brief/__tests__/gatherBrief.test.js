@@ -113,6 +113,28 @@ describe('their week, for the brief', () => {
     expect(g.candidates).toBe(2);
   });
 
+  it('does not count a habit they are breaking as something to plan, or as planned', async () => {
+    const { g } = await gather(
+      rows({
+        habits: [
+          { id: 'h1', name: 'Read', cadence: 'daily' },
+          {
+            id: 'b1',
+            name: 'No sugar',
+            subtype: 'break_habit',
+            cadence: 'weekly',
+            days_active: [1],
+            scheduled_start_iso: '2026-10-05T09:00:00Z',
+          },
+        ],
+      }),
+    );
+    // it falls on today (a Monday), and is still not a candidate for the plan
+    expect(g.habitsForToday.map((h) => h.id)).toEqual(['h1', 'b1']);
+    expect(g.candidates).toBe(1);
+    expect(g.planned).toEqual([]);
+  });
+
   it('has a habit they planned for today among the habits for today, and checks in on it', async () => {
     const { g, paths } = await gather(
       rows({

@@ -604,6 +604,18 @@ describe("propose_changes in today's thread", () => {
     expect(row({ kind: 'remove_block', id: 'blk_9' }).reason).toBe('no_block');
     expect(row({ kind: 'add_block', time: '12:30' }).reason).toBe('needs_title');
     expect(row({ kind: 'plan_add', id: NOTE }).reason).toBe('not_today');
+    // a habit they are breaking has nothing to do at a time: the plan never holds it
+    const withBreaking = {
+      ...day,
+      items: new Map([
+        ...day.items,
+        ['sugar', { id: 'sugar', kind: 'habit', title: 'No sugar', minutes: null, breaking: true }],
+      ]),
+    };
+    expect(
+      readPlanRow({ op: 'plan', plan: { kind: 'plan_add', id: 'sugar' } }, 'c1', withBreaking)
+        .reason,
+    ).toBe('plan_breaking');
     expect(row({ kind: 'add_block', title: 'x', time: '25:00' }).reason).toBe('bad_plan_time');
     // an offer to plan the day only when there is no plan on screen
     expect(row({ kind: 'plan_day' }).reason).toBe('has_plan');

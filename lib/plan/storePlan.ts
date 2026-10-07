@@ -21,7 +21,7 @@ import { localDateOf, localMinutesToIso } from '../brief/time';
 import type { DayMeeting } from '../brief/dayCard';
 import type { PlanItem } from '../brief/types';
 import type { SequencedItem } from '../types';
-import { buildCandidatePool, windowFor, type Candidate } from './candidatePool';
+import { buildCandidatePool, isBreakHabit, windowFor, type Candidate } from './candidatePool';
 import { habitsOnDay, todosDueOn } from './dayItems';
 import { plannedOn, weekAround } from '../week/habitWeek';
 import { withFeedAnimation } from '../brief/feeding';
@@ -63,12 +63,16 @@ export function poolFromStore(): Candidate[] {
   }).filter((c) => !skipped.has(c.id));
 }
 
-/** A todo or habit picked from Due today that is not in today's pool. */
+/**
+ * A todo or habit picked from Due today that is not in today's pool. None for
+ * a habit they are breaking, which is never planned, however it was asked for.
+ */
 export function candidateFromStore(id: string, kind: 'todo' | 'habit'): Candidate | null {
   const s = useGremlyStore.getState();
   const item =
     kind === 'habit' ? s.habits.find((h) => h.id === id) : s.todos.find((t) => t.id === id);
   if (!item) return null;
+  if (kind === 'habit' && isBreakHabit(item)) return null;
   return {
     id,
     kind,

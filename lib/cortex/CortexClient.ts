@@ -2273,6 +2273,8 @@ export interface DayTurnRequest {
     note: string;
     /** A step of a milestone set up in their weekly review: the goal it is towards */
     towards?: string | null;
+    /** A habit they are breaking: never given a place in the plan */
+    breaking?: boolean;
   }[];
   /** The intention of the week this day is in, in their words */
   intention?: string | null;

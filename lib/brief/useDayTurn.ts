@@ -44,6 +44,7 @@ import {
   changedEventText,
   undoneEventText,
 } from './applyChanges';
+import { isBreakHabit } from '../plan/candidatePool';
 import { dayRecordFromStore, meetingsFromStore } from '../plan/storePlan';
 import type { PlanChange } from '../plan/usePlanFlow';
 import type { BriefChangesMeta, BriefPlanMeta, DailyThreadMeta } from './types';
@@ -151,6 +152,8 @@ export const DAY_NOTES = {
   habitPlanned: 'planned for today in their week',
   habitToday: 'habit today',
   habit: 'habit',
+  // nothing to do at a time: kept in sight on Today, checked in on in the evening
+  habitBreaking: 'a habit they are breaking',
   // left alone for a stretch that holds today: not on today, whatever was planned for it
   habitPaused: 'paused for now',
 } as const;
@@ -171,6 +174,7 @@ const HABIT_NOTE_ORDER: string[] = [
   DAY_NOTES.habitPlanned,
   DAY_NOTES.habitToday,
   DAY_NOTES.habit,
+  DAY_NOTES.habitBreaking,
   DAY_NOTES.habitPaused,
 ];
 
@@ -318,15 +322,19 @@ export function buildDayTurnRequest(
       due_day: null,
       due_time: null,
       minutes: h.time_estimate_minutes ?? null,
+      // a habit they are breaking is never planned: the worker refuses it a place in the plan
+      ...(isBreakHabit(h) ? { breaking: true } : {}),
       note: inPlan.has(h.id)
         ? DAY_NOTES.inPlan
         : pausedOn(eases, h.id, date)
           ? DAY_NOTES.habitPaused
-          : plannedHabits.has(h.id)
-            ? DAY_NOTES.habitPlanned
-            : todayHabits.has(h.id)
-              ? DAY_NOTES.habitToday
-              : DAY_NOTES.habit,
+          : isBreakHabit(h)
+            ? DAY_NOTES.habitBreaking
+            : plannedHabits.has(h.id)
+              ? DAY_NOTES.habitPlanned
+              : todayHabits.has(h.id)
+                ? DAY_NOTES.habitToday
+                : DAY_NOTES.habit,
     }))
     // what is on for today first, so it is never what the limit leaves out
     .sort((a, b) => HABIT_NOTE_ORDER.indexOf(a.note) - HABIT_NOTE_ORDER.indexOf(b.note))

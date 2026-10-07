@@ -6,6 +6,7 @@
 
 import type { Habit, Todo } from '../types';
 import type { HabitWeek } from '../brief/useDayCard';
+import { isBreakHabit } from './candidatePool';
 import { duration } from './planFlow';
 
 export type PickTab = 'todos' | 'habits';
@@ -48,7 +49,10 @@ function lengthOf(m: number | null | undefined): { minutes: number; estimated: b
 const lengthWords = (l: { minutes: number; estimated: boolean }) =>
   l.estimated ? `About ${duration(l.minutes)}` : duration(l.minutes);
 
-/** The day's todos and habits as rows; habits behind for the week first. */
+/**
+ * The day's todos and habits as rows; habits behind for the week first. A
+ * habit they are breaking is never a row: there is nothing of it to plan.
+ */
 export function pickItemsOf(
   data: PickSource,
   /** "Due today", "Due Monday" (lib/plan/dayItems.ts dueWords) */
@@ -71,6 +75,7 @@ export function pickItemsOf(
     ...data.behind.filter((h) => !data.habitsToday.some((x) => x.id === h.id)),
     ...data.habitsToday,
   ]
+    .filter((h) => !isBreakHabit(h))
     .map((h): PickItem => {
       const l = lengthOf(h.time_estimate_minutes);
       const w = weekOf.get(h.id);

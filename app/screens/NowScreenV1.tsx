@@ -1380,7 +1380,8 @@ function TodayFocusList({
     };
 
     for (const item of sortedItems) {
-      // Break habits → awareness card (names only, no rows)
+      // Break habits → awareness card (names only, no rows). One with no time
+      // of day is kept in sight all day, in the All Day section.
       if (item.isBreakHabit) {
         const block = resolveBlock(item);
         if (block === 'morning') breakNames.morning.push(item.name);
@@ -1546,6 +1547,9 @@ function TodayFocusList({
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
               />
             ),
+          )}
+          {breakHabitsByBlock.allday.length > 0 && (
+            <BreakHabitCard names={breakHabitsByBlock.allday} />
           )}
         </TimeBlockSection>
       )}

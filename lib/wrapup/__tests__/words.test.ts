@@ -68,7 +68,14 @@ test('closing the cards part way offers the rest once', () => {
 });
 
 test('the habit lines', () => {
-  expect(habitsLine(2, 1)).toBe('Two habits are still open today. Did either happen?');
+  // the ones they are breaking are named beside the ones still open
+  expect(habitsLine(2, 1)).toBe(
+    "Two habits are still open today. Did either happen? And the one you're breaking: did it hold?",
+  );
+  expect(habitsLine(1, 2)).toBe(
+    "One habit is still open today. Did it happen? And the two you're breaking: did they hold?",
+  );
+  expect(habitsLine(0, 2)).toBe('Two habits to check in on. Did they hold today?');
   expect(habitsLine(1, 0)).toBe('One habit is still open today. Did it happen?');
   expect(habitsLine(3, 0)).toBe('Three habits are still open today. Did any happen?');
   expect(habitsLine(0, 1)).toBe('One habit to check in on. Did it hold today?');

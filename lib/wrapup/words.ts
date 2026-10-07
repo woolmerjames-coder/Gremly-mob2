@@ -237,8 +237,15 @@ export function habitsLine(build: number, breaking: number): string {
       ? 'One habit to check in on. Did it hold today?'
       : `${cap(numberWord(breaking))} habits to check in on. Did they hold today?`;
   }
-  if (build === 1) return 'One habit is still open today. Did it happen?';
-  return `${cap(numberWord(build))} habits are still open today. Did ${build === 2 ? 'either' : 'any'} happen?`;
+  const open =
+    build === 1
+      ? 'One habit is still open today. Did it happen?'
+      : `${cap(numberWord(build))} habits are still open today. Did ${build === 2 ? 'either' : 'any'} happen?`;
+  if (!breaking) return open;
+  // the ones they are breaking are on the card too, and are named so they are not passed over
+  return breaking === 1
+    ? `${open} And the one you're breaking: did it hold?`
+    : `${open} And the ${numberWord(breaking)} you're breaking: did they hold?`;
 }
 
 /** After the habit card is saved. */

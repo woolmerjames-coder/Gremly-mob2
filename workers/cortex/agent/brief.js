@@ -73,7 +73,17 @@ export function dayFrameOf(req) {
       travel: b.travel,
     })),
     items: new Map(
-      req.items.map((x) => [x.id, { id: x.id, kind: x.kind, title: x.title, minutes: x.minutes }]),
+      req.items.map((x) => [
+        x.id,
+        {
+          id: x.id,
+          kind: x.kind,
+          title: x.title,
+          minutes: x.minutes,
+          // a habit they are breaking, which the plan never holds
+          breaking: x.breaking === true,
+        },
+      ]),
     ),
   };
 }

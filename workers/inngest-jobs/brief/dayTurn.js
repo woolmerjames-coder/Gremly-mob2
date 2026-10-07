@@ -83,6 +83,8 @@ export function readTurnRequest(body) {
       note: trim(x.note, 60),
       // a step of a milestone set up in their weekly review: the goal it is towards
       towards: trim(x.towards, 120) || null,
+      // a habit they are breaking: there is nothing of it to plan
+      breaking: x.kind === 'habit' && x.breaking === true,
     });
   }
   const rec = body.record && typeof body.record === 'object' ? body.record : {};
@@ -364,7 +366,8 @@ export function checkChanges(output, req) {
         if (title) c = { kind, title, day: day || today, start, minutes };
         break;
       case 'retime':
-        if (item && start !== null)
+        // a habit they are breaking has no time to do it at
+        if (item && !item.breaking && start !== null)
           c = { kind, id: item.id, item: item.kind, title: item.title, start, day: day || today };
         break;
       case 'move_day':
@@ -396,7 +399,7 @@ export function checkChanges(output, req) {
         if (block) c = { kind, id: block.id, title: block.title };
         break;
       case 'plan_add':
-        if (item && !inPlan.has(item.id))
+        if (item && !item.breaking && !inPlan.has(item.id))
           c = { kind, id: item.id, item: item.kind, title: item.title, start, minutes };
         break;
       case 'plan_remove':

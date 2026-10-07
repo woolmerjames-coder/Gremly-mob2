@@ -211,6 +211,8 @@ export function habitsMsgs(
   already: string[],
   day: string,
   early = false,
+  /** The habits they are breaking, asked by themselves after the journal: saving the card says good night */
+  afterJournal = false,
 ): WrapMsg[] {
   const build = rows.filter((r) => r.kind === 'build').length;
   return [
@@ -222,6 +224,7 @@ export function habitsMsgs(
       already,
       status: 'open',
       ...(early ? { early: true } : {}),
+      ...(afterJournal ? { after_journal: true } : {}),
     }),
   ];
 }

@@ -167,6 +167,32 @@ describe('the day turn: the change set', () => {
     expect(dropped).toEqual(['plan_move']);
   });
 
+  it('gives a habit they are breaking no time and no place in the plan', () => {
+    const withBreaking = readTurnRequest({
+      ...BODY,
+      items: [...BODY.items, { id: 'sugar', kind: 'habit', title: 'No sugar', breaking: true }],
+    });
+    const ref = withBreaking.items.find((x) => x.id === 'sugar').ref;
+    const one = (kind) => ({
+      kind,
+      ref,
+      title: null,
+      day: null,
+      time: '15:00',
+      end_time: null,
+      minutes: null,
+      travel: false,
+    });
+    const { changes, dropped } = checkChanges(
+      { changes: [one('plan_add'), one('retime')] },
+      withBreaking,
+    );
+    expect(changes).toEqual([]);
+    expect(dropped).toEqual(['plan_add', 'retime']);
+    // an app build that does not say which habits are being broken is read as before
+    expect(readTurnRequest(BODY).items.every((x) => x.breaking === false)).toBe(true);
+  });
+
   it('drops what the input does not support', () => {
     const { changes, dropped } = checkChanges(
       {
