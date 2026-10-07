@@ -206,6 +206,8 @@ describe('the week a change is checked against', () => {
       busy_days: [FRI],
       has_review: true,
       intention: null,
+      // what matters most as it stands: nothing chosen yet
+      priorities: [],
       weekly_day: 0,
     });
   });
@@ -503,6 +505,114 @@ describe('the shape of the week', () => {
     expect(await applyChange(c, { source: 'thread' })).toMatchObject({ ok: true });
     expect(changeWeekReview).toHaveBeenCalledWith('r2', expect.any(Function));
     expect(mockDb.row.answers.busy_days).toEqual(['2026-10-14']);
+    // the app's copy stays this week's
+    expect(useThisWeek.getState().review).toBe(mine);
+  });
+});
+
+describe('something added to what matters most', () => {
+  const add = (text: string) => checked({ op: 'priority', priority: text });
+  const chosen = [{ text: 'Finish the grant', item_ids: ['t1'] }];
+  beforeEach(() => {
+    mockDb.row = review({ answers: { ...review().answers, priorities: chosen } });
+    useThisWeek.setState({ review: mockDb.row });
+  });
+
+  it("is kept with the priorities on the week's review, beside the ones they picked", async () => {
+    expect(weekCheckContext().priorities).toEqual(['Finish the grant']);
+    const c = add('The stock audit');
+    expect(c).toMatchObject({
+      op: 'priority',
+      week_start: MON,
+      fields: { text: 'The stock audit' },
+      before: { priorities: ['Finish the grant'] },
+    });
+    expect(rowWords(c, fixed)).toBe('Add to what matters most this week: The stock audit');
+    expect(buttonWords(c)).toBe('Yes, add it');
+    const o = await applyChange(c, { source: 'thread' });
+    expect(o).toMatchObject({
+      ok: true,
+      summary: 'The stock audit is now among what matters most this week.',
+    });
+    const priorities = [...chosen, { text: 'The stock audit', item_ids: [] }];
+    expect(mockDb.row.answers.priorities).toEqual(priorities);
+    expect(useThisWeek.getState().review?.answers.priorities).toEqual(priorities);
+  });
+
+  it('Undo takes out only what it added, keeping what was chosen since', async () => {
+    const o = await applyChange(add('The stock audit'), { source: 'thread' });
+    mockDb.row = {
+      ...mockDb.row,
+      answers: {
+        ...mockDb.row.answers,
+        priorities: [...mockDb.row.answers.priorities, { text: 'The move', item_ids: [] }],
+      },
+    };
+    if (!o.ok) throw new Error('not applied');
+    await o.revert();
+    expect(mockDb.row.answers.priorities.map((p: any) => p.text)).toEqual([
+      'Finish the grant',
+      'The move',
+    ]);
+  });
+
+  it('writes nothing twice when it is there already, and Undo then leaves it', async () => {
+    const c = add('The stock audit');
+    // they picked the same thing on the card since
+    mockDb.row = {
+      ...mockDb.row,
+      answers: {
+        ...mockDb.row.answers,
+        priorities: [...chosen, { text: 'the stock audit', item_ids: ['t2'] }],
+      },
+    };
+    const o = await applyChange(c, { source: 'thread' });
+    expect(o.ok).toBe(true);
+    expect(mockDb.row.answers.priorities).toHaveLength(2);
+    if (!o.ok) throw new Error('not applied');
+    await o.revert();
+    expect(mockDb.row.answers.priorities).toHaveLength(2);
+  });
+
+  it('leaves the week alone when it has filled up since the card was made', async () => {
+    const c = add('The stock audit');
+    mockDb.row = {
+      ...mockDb.row,
+      answers: {
+        ...mockDb.row.answers,
+        priorities: [...chosen, { text: 'Two', item_ids: [] }, { text: 'Three', item_ids: [] }],
+      },
+    };
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({
+      ok: false,
+      reason: 'stale',
+      message: 'What matters most this week changed since, so it was left as it is.',
+    });
+    expect(mockDb.row.answers.priorities).toHaveLength(3);
+  });
+
+  it('is not offered where it is there already, the week is full, or there is no review', () => {
+    const reason = (raw: Record<string, any>) => {
+      const r = checkChange({ cid: 'c1', ...raw }, contextFor(raw));
+      return r.ok ? null : r.reason;
+    };
+    expect(reason({ op: 'priority', priority: 'finish the grant' })).toBe('no_change');
+    useThisWeek.setState({
+      review: review({ answers: { priorities: ['A', 'B', 'C'].map((text) => ({ text })) } }),
+    });
+    expect(reason({ op: 'priority', priority: 'A fourth' })).toBe('priorities_full');
+    useThisWeek.setState({ review: null });
+    expect(reason({ op: 'priority', priority: 'The audit' })).toBe('no_review');
+  });
+
+  it('is kept for the week it names, which is next week when that is the one being planned', async () => {
+    const c = { ...add('The stock audit'), week_start: '2026-10-12' };
+    const next = review({ id: 'r2', week_start: '2026-10-12', status: 'started', answers: {} });
+    const mine = mockDb.row;
+    mockDb.row = next;
+    expect(await applyChange(c, { source: 'thread' })).toMatchObject({ ok: true });
+    expect(changeWeekReview).toHaveBeenCalledWith('r2', expect.any(Function));
+    expect(mockDb.row.answers.priorities).toEqual([{ text: 'The stock audit', item_ids: [] }]);
     // the app's copy stays this week's
     expect(useThisWeek.getState().review).toBe(mine);
   });

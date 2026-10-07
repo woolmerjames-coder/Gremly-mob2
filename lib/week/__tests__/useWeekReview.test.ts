@@ -981,6 +981,80 @@ describe('one of the needs you cards, talked through', () => {
       own: 'Finish early on Friday',
     });
   });
+
+  it('keeps something added to what matters most on Gremly’s card when the priorities card is settled', async () => {
+    // on the priorities card, with two of the read's options picked and nothing settled yet
+    const h = await started({ status: 'started', answers: { step: 'priorities' } });
+    const r = () => h.hook.result.current;
+    const options = rows['row-1'].read.priority_options.length;
+    await h.go(() => {
+      r().priorities.toggle(0);
+      r().priorities.toggle(2);
+    });
+    // the card's change is applied: the week's row has it (lib/changes/week.ts)
+    rows['row-1'] = {
+      ...rows['row-1'],
+      answers: {
+        ...rows['row-1'].answers,
+        priorities: [{ text: 'The stock audit', item_ids: [] }],
+      },
+    };
+    useWeekSession.setState({ row: { ...rows['row-1'] } });
+    await h.go(() =>
+      r().onApplied([
+        {
+          cid: 'c1',
+          op: 'priority',
+          type: null,
+          id: null,
+          title: 'The stock audit',
+          fields: { text: 'The stock audit' },
+        } as any,
+      ]),
+    );
+    // it is a chip of its own after the read's, and picked
+    expect(useWeekSession.getState().draft?.priorities).toEqual([0, 2, options]);
+    // what matters most is part of what the week is spread from
+    expect(rows['row-1'].answers.touched).toBe(1);
+    await h.go(() => r().priorities.done());
+    expect(rows['row-1'].answers.priorities.map((p: any) => p.text)).toEqual([
+      'Get the reports started',
+      'Sort the boiler',
+      'The stock audit',
+    ]);
+  });
+
+  it('gives up the card’s last pick for one added through Gremly when it already holds three', async () => {
+    const h = await started({ status: 'started', answers: { step: 'priorities' } });
+    const r = () => h.hook.result.current;
+    const options = rows['row-1'].read.priority_options.length;
+    await h.go(() => {
+      r().priorities.toggle(0);
+      r().priorities.toggle(1);
+      r().priorities.toggle(2);
+    });
+    rows['row-1'] = {
+      ...rows['row-1'],
+      answers: {
+        ...rows['row-1'].answers,
+        priorities: [{ text: 'The stock audit', item_ids: [] }],
+      },
+    };
+    useWeekSession.setState({ row: { ...rows['row-1'] } });
+    await h.go(() =>
+      r().onApplied([
+        {
+          cid: 'c1',
+          op: 'priority',
+          type: null,
+          id: null,
+          title: 'The stock audit',
+          fields: { text: 'The stock audit' },
+        } as any,
+      ]),
+    );
+    expect(useWeekSession.getState().draft?.priorities).toEqual([0, 1, options]);
+  });
 });
 
 describe('picking a review up later', () => {

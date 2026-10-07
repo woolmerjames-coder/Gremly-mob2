@@ -6,17 +6,20 @@
 import { reviewOn, reviewWith } from '../../model';
 import {
   FALLBACK_HOURS,
+  MAX_PRIORITIES,
   asksAboutDay,
   dateKey,
   daysPlanned,
   draftFor,
   gremlyPicks,
+  guessedPriorities,
   hoursTotal,
   intentionOf,
   isPast,
   isWeekend,
   milestonesShown,
   prioritiesOf,
+  priorityOptions,
   rekeyed,
   settledFor,
   settledText,
@@ -176,6 +179,44 @@ describe('what the cards start from', () => {
     // never more than three, and nothing the read does not have
     expect(prioritiesOf(read, [0, 1, 2, 3, 9])).toHaveLength(3);
     expect(gremlyPicks(read)).toEqual([0, 1]);
+  });
+
+  it('keeps what they added to what matters most themselves beside the read’s options', () => {
+    const read = madeUpRead();
+    const n = read.priority_options.length;
+    // one of the read's, and one in their own words through Gremly
+    const answers = {
+      priorities: [
+        { text: 'Sort the boiler', item_ids: [ID.boiler] },
+        { text: 'The stock audit', item_ids: [] },
+      ],
+    };
+    const options = priorityOptions(read, answers);
+    // the read's options first, as they were, so the card's picks keep their places
+    expect(options.slice(0, n).map((o) => o.text)).toEqual(
+      read.priority_options.map((o) => o.text),
+    );
+    expect(options.slice(0, n).every((o) => !o.own)).toBe(true);
+    expect(options[n]).toEqual({ text: 'The stock audit', item_ids: [], star: false, own: true });
+    expect(options).toHaveLength(n + 1);
+    expect(priorityOptions(read, null)).toHaveLength(n);
+    // the card starts with both picked, and settling it keeps both
+    const d = draftFor(madeUpRow({ answers }), DAYS);
+    expect(d.priorities).toEqual([2, n]);
+    expect(prioritiesOf(read, d.priorities, answers)).toEqual(answers.priorities);
+    // left off the card, theirs is let go like any other
+    expect(prioritiesOf(read, [2], answers)).toEqual([answers.priorities[0]]);
+    // Just plan it takes theirs first, then Gremly's picks, and never more than three
+    expect(guessedPriorities(read, answers).map((p) => p.text)).toEqual([
+      'The stock audit',
+      'Get the reports started',
+      'Clear the marking',
+    ]);
+    expect(guessedPriorities(read, null).map((p) => p.text)).toEqual([
+      'Get the reports started',
+      'Clear the marking',
+    ]);
+    expect(MAX_PRIORITIES).toBe(3);
   });
 
   it('keys a deadline by the item it is, or by its place when it is not one of theirs', () => {
@@ -351,9 +392,17 @@ describe('what Gremly is told about their week', () => {
       hours: null,
       busy_days: [],
       intention: null,
+      // sent even when empty: the list itself says this build can keep a new priority
+      priorities: [],
       eased: [],
     });
     expect(weekTurnContext(base).review).toBeNull();
+    // what matters most as the week's review has it, in its own words
+    const chosen = madeUpRow({
+      status: 'done',
+      answers: { priorities: [{ text: 'The stock audit', item_ids: [] }] },
+    });
+    expect(weekTurnContext({ ...base, thisWeek: chosen }).priorities).toEqual(['The stock audit']);
     // the extra is used once the week's row is the extra's
     const extra = madeUpRow({ kind: 'extra', status: 'done' });
     expect(weekTurnContext({ ...base, today: WED, thisWeek: extra }).extra_used).toBe(true);

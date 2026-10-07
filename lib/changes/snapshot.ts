@@ -51,6 +51,8 @@ export function contextFor(raw: {
   op?: string | null;
   type?: string | null;
   id?: string | null;
+  /** The week one of the week's own changes says it is for, when it says */
+  week_start?: string | null;
 }): CheckContext {
   const s = useGremlyStore.getState() as any;
   const type = raw.type as ItemType | undefined;
@@ -61,7 +63,7 @@ export function contextFor(raw: {
     chapters: (s.chapters ?? []).map((c: any) => c.id),
   };
   if (raw.op && raw.op in WEEK_OPS) {
-    const week = weekCheckContext();
+    const week = weekCheckContext(raw.week_start);
     ctx.week = week;
     if (raw.op === 'habit_days' && ctx.item) {
       ctx.item = { ...ctx.item, planned_days: plannedDays(ctx.item.id, week.first, week.last) };

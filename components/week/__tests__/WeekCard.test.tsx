@@ -638,6 +638,23 @@ describe('what matters most', () => {
     expect(review.edit).toHaveBeenCalledWith('priorities');
   });
 
+  it('shows what they added themselves through Gremly as a chip of its own, after the read’s', () => {
+    underWay('shape', {
+      priorities: [
+        { text: 'Two swims', item_ids: [] },
+        { text: 'The stock audit', item_ids: [] },
+      ],
+    });
+    const { getByTestId, getByLabelText } = render(
+      <WeekCard messageId="m3" meta={meta('priorities')} review={fakeReview()} />,
+    );
+    // the read has four options: theirs is the fifth chip, and it is picked
+    expect(getByLabelText('The stock audit')).toBeTruthy();
+    expect(getByTestId('week-priority-4').props.accessibilityState.selected).toBe(true);
+    expect(getByTestId('week-priority-3').props.accessibilityState.selected).toBe(true);
+    expect(getByTestId('week-priority-0').props.accessibilityState.selected).toBe(false);
+  });
+
   it('says Save while a settled card is open again', () => {
     underWay('shape', { priorities: [{ text: 'Two swims', item_ids: [] }] });
     useWeekSession.setState({ editing: 'priorities' });

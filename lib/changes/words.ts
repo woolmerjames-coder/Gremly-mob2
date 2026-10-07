@@ -280,6 +280,8 @@ function weekRowWords(change: Change, opts: Opts): string | null {
       const { busy, hours } = shapePhrases(change, opts);
       return `This week: ${[busy, hours].filter(Boolean).join(', with ')}`;
     }
+    case 'priority':
+      return `Add to what matters most this week: ${change.fields?.text ?? t}`;
     case 'intention':
       return `Set this week's intention: “${change.fields?.text ?? t}”`;
     case 'milestone':
@@ -398,6 +400,8 @@ export function buttonWords(change: Change): string {
       return 'Yes, plan it';
     case 'week_shape':
       return 'Yes, change my week';
+    case 'priority':
+      return 'Yes, add it';
     case 'intention':
       return 'Yes, set it';
     case 'milestone':
@@ -456,6 +460,8 @@ export function doneWords(change: Change, opts: { names?: NameLookup } = {}): st
       const { busy, hours } = shapePhrases(change, fixed);
       return `Your week now has ${listWords([busy, hours].filter((p): p is string => !!p))}.`;
     }
+    case 'priority':
+      return `${t} is now among what matters most this week.`;
     case 'intention':
       return 'Your intention is set.';
     case 'milestone':

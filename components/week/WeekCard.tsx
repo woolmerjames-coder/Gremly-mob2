@@ -21,6 +21,7 @@ import {
   isPast,
   isWeekend,
   milestonesShown,
+  priorityOptions,
   stepOf,
   type ChatStep,
 } from '../../lib/week/review/state';
@@ -205,7 +206,8 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
       );
       break;
     case 'priorities': {
-      const options = read.priority_options ?? [];
+      // the read's options, then anything they added themselves through Gremly
+      const options = priorityOptions(read, a);
       // settled: what the row keeps; being picked: what the card holds
       const picked = editable
         ? d.priorities
@@ -214,7 +216,7 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
             .filter((i) => i >= 0);
       body = (
         <PriorityChips
-          options={options.map((o) => ({ text: o.text, star: !!o.gremly_pick }))}
+          options={options.map((o) => ({ text: o.text, star: o.star }))}
           picked={picked}
           onToggle={review.priorities.toggle}
           onDone={() => void review.priorities.done()}

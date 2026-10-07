@@ -12,7 +12,7 @@
  */
 import type { WeekTurnContext } from '../../cortex/CortexClient';
 import { easesFrom } from '../habitWeek';
-import type { Milestone } from '../../changes/model';
+import { WEEK_LIMITS, type Milestone } from '../../changes/model';
 import type { WeekAnswers, WeekRead, WeekReviewRow } from '../../repo/weekReviewRepo';
 import {
   DEFAULT_DAYS_OFF,
@@ -59,8 +59,11 @@ const CHAT_STEPS: ChatStep[] = [
 /** Hours a card starts from when neither last week nor Gremly's guess gives any (shared with the board). */
 export { FALLBACK_HOURS };
 
-/** How many priorities they keep, and how many moments the timeline has room for. */
-export const MAX_PRIORITIES = 3;
+/**
+ * How many priorities they keep (the change model's own limit, which the
+ * workers check a new one against), and how many moments the timeline has room for.
+ */
+export const MAX_PRIORITIES = WEEK_LIMITS.priorities;
 export const TIMELINE_MAX = 5;
 
 /** A milestone from the read, as its card shows it today. */
@@ -170,7 +173,7 @@ export function draftFor(
 ): WeekDraft {
   const read = row?.read ?? null;
   const a = row?.answers ?? {};
-  const options = read?.priority_options ?? [];
+  const options = priorityOptions(read, a);
   const drafts = read?.intention_drafts ?? [];
   const kept = typeof a.intention === 'string' ? a.intention.trim() : '';
   const pick = kept ? drafts.findIndex((d) => d.trim() === kept) : -1;
@@ -199,13 +202,67 @@ export function intentionOf(read: WeekRead | null, d: WeekDraft['intention']): s
   return d.pick != null ? (read?.intention_drafts?.[d.pick] ?? '').trim() : '';
 }
 
-/** The priorities picked, as the row keeps them. */
-export function prioritiesOf(read: WeekRead | null, picks: number[]): WeekAnswers['priorities'] {
-  const options = read?.priority_options ?? [];
+/** One thing they can keep as mattering most this week, as its chip on the card. */
+export interface PriorityOption {
+  text: string;
+  item_ids: string[];
+  /** Gremly's own pick among the read's options */
+  star: boolean;
+  /** Theirs: added in their own words through Gremly, and no option of the read's */
+  own: boolean;
+}
+
+/**
+ * What the priorities card offers: the read's options, then anything they
+ * added to what matters most themselves (the change model's priority), which
+ * the read knows nothing of. The card's draft holds indexes into this list,
+ * and the read's options always come first, so those indexes stay as they are
+ * when one of their own is added.
+ */
+export function priorityOptions(
+  read: WeekRead | null,
+  answers: WeekAnswers | null | undefined,
+): PriorityOption[] {
+  const fromRead = (read?.priority_options ?? []).map((o) => ({
+    text: o.text,
+    item_ids: o.item_ids ?? [],
+    star: !!o.gremly_pick,
+    own: false,
+  }));
+  const own = (answers?.priorities ?? [])
+    .filter((p) => !fromRead.some((o) => o.text === p.text))
+    .map((p) => ({ text: p.text, item_ids: p.item_ids ?? [], star: false, own: true }));
+  return [...fromRead, ...own];
+}
+
+/**
+ * The priorities picked, as the row keeps them.
+ * @param answers the review's answers, for the ones they added themselves
+ */
+export function prioritiesOf(
+  read: WeekRead | null,
+  picks: number[],
+  answers: WeekAnswers | null = null,
+): WeekAnswers['priorities'] {
+  const options = priorityOptions(read, answers);
   return picks
     .filter((i) => options[i])
     .slice(0, MAX_PRIORITIES)
-    .map((i) => ({ text: options[i].text, item_ids: options[i].item_ids ?? [] }));
+    .map((i) => ({ text: options[i].text, item_ids: options[i].item_ids }));
+}
+
+/**
+ * What Just plan it takes as mattering most: what they added themselves
+ * first, since they said so in their own words, then Gremly's picks.
+ */
+export function guessedPriorities(
+  read: WeekRead | null,
+  answers: WeekAnswers | null | undefined,
+): NonNullable<WeekAnswers['priorities']> {
+  const own = priorityOptions(read, answers)
+    .filter((o) => o.own)
+    .map((o) => ({ text: o.text, item_ids: o.item_ids }));
+  return [...own, ...(prioritiesOf(read, gremlyPicks(read)) ?? [])].slice(0, MAX_PRIORITIES);
 }
 
 /** Gremly's own picks for what matters most: what Just plan it takes. */
@@ -401,6 +458,8 @@ export function weekTurnContext(p: WeekContextInput): WeekTurnContext {
     hours: shapeOf?.answers.hours ?? null,
     busy_days: shapeOf?.answers.busy_days ?? [],
     intention: p.intention,
+    // what matters most as it stands: sending it says this build can keep a new one
+    priorities: (shapeOf?.answers.priorities ?? []).map((x) => x.text),
     eased: p.eased,
   };
   if (!live || !review || !p.on || !read) return ctx;

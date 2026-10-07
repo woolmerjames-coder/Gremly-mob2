@@ -15,15 +15,16 @@
  * - habit_days: habit_plans rows, through the store's setHabitPlan and
  *   removeHabitPlan
  * - week_shape: the hours and busy days in the answers of the week's review
+ * - priority: one more thing among what matters most, in the same answers
  * - intention: a journal note with journal_subtype intention, dated the first
  *   day of the week, which the brief already reads
  * - milestone: a todo for each step to do, marked with what it is a step
  *   towards, and the check ins on the week's review
  * - weekly_day: with the notification settings, where the summary reads it
  *
- * The shape, the intention and a milestone say which week they are for
- * (week_start on the change), so one made in a review of next week is kept
- * for next week, whatever week today is in.
+ * The shape, a priority, the intention and a milestone say which week they
+ * are for (week_start on the change), so one made in a review of next week is
+ * kept for next week, whatever week today is in.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
@@ -40,7 +41,7 @@ import { useThisWeek, weekStartFor } from '../week/thisWeek';
 import { rowSaved, useWeekSession } from '../week/review/session';
 import { addDays, type WeekHours } from '../week/model';
 import { intentionText } from '../week/intention';
-import type { Change, WeekCheckContext } from './model';
+import { WEEK_LIMITS, type Change, type WeekCheckContext } from './model';
 import { putOffTodo } from './later';
 
 type Item = Record<string, any>;
@@ -102,11 +103,30 @@ export function plannedDays(habitId: string, first: string, last: string): strin
 }
 
 /**
+ * What matters most in the week that starts on a day, as its review has it:
+ * the review under way in today's thread when it is that week's (next week,
+ * brought forward, is not the week they are in), otherwise this week's.
+ */
+function prioritiesIn(weekStart: string): string[] {
+  const underWay = useWeekSession.getState().row;
+  const mine = useThisWeek.getState().review;
+  const row =
+    underWay && underWay.week_start === weekStart
+      ? underWay
+      : mine && mine.week_start === weekStart
+        ? mine
+        : null;
+  return (row?.answers.priorities ?? []).map((p) => p.text);
+}
+
+/**
  * The person's week as the week's changes are checked against it in the app
  * (checkWeekChange): from today to the end of the week they are in, with the
- * shape and the intention as they stand.
+ * shape, the intention and what matters most as they stand.
+ * @param forWeek the week a change says it is for, when it says: what matters
+ *   most is read from that week's review
  */
-export function weekCheckContext(): WeekCheckContext {
+export function weekCheckContext(forWeek?: string | null): WeekCheckContext {
   const w = useThisWeek.getState();
   const today = getDateService().ritualDay();
   const weekStart = weekStartFor(w.weeklyDay);
@@ -120,6 +140,7 @@ export function weekCheckContext(): WeekCheckContext {
     busy_days: review?.answers.busy_days ?? [],
     has_review: !!review && (review.status === 'started' || review.status === 'done'),
     intention: note ? { id: note.id, text: intentionText(note) ?? '' } : null,
+    priorities: prioritiesIn(forWeek ?? weekStart),
     weekly_day: w.weeklyDay,
   };
 }
@@ -269,6 +290,48 @@ async function applyShape(change: Change): Promise<WeekOutcome> {
   };
 }
 
+/**
+ * One more thing among what matters most this week, in their own words. It is
+ * kept with the priorities they picked on the review's card, and that card
+ * shows it from then on. One that is already there is as they wanted, so
+ * nothing is written twice; a week that has filled up since the card was made
+ * is left as it is.
+ */
+async function applyPriority(change: Change): Promise<WeekOutcome> {
+  const text = String(change.fields?.text ?? '').trim();
+  if (!text) return failed('There is nothing to add.');
+  const row = await reviewFor(weekOf(change));
+  if (!row) return failed('That week has no review to keep that on yet.');
+  const isIt = (p: { text: string }) => p.text.trim().toLowerCase() === text.toLowerCase();
+  let added = false;
+  try {
+    await writeReview(row, (now) => {
+      const list = now.answers.priorities ?? [];
+      if (list.some(isIt)) return {};
+      // nothing they chose since is pushed out to make room
+      if (list.length >= WEEK_LIMITS.priorities) throw new ChangedSince();
+      added = true;
+      return { answers: { ...now.answers, priorities: [...list, { text, item_ids: [] }] } };
+    });
+  } catch (err) {
+    if (err instanceof ChangedSince) return stale('What matters most this week');
+    throw err;
+  }
+  return {
+    ok: true,
+    revert: async () => {
+      // only what this change added comes out; anything else chosen since stays
+      if (!added) return;
+      await writeReview(row, (now) => ({
+        answers: {
+          ...now.answers,
+          priorities: (now.answers.priorities ?? []).filter((p) => !isIt(p)),
+        },
+      }));
+    },
+  };
+}
+
 async function applyIntention(change: Change): Promise<WeekOutcome> {
   const text = String(change.fields?.text ?? '').trim();
   if (!text) return failed('There is no intention to save.');
@@ -388,6 +451,8 @@ export async function applyWeekChange(change: Change): Promise<WeekOutcome> {
       return applyHabitDays(change);
     case 'week_shape':
       return applyShape(change);
+    case 'priority':
+      return applyPriority(change);
     case 'intention':
       return applyIntention(change);
     case 'milestone':

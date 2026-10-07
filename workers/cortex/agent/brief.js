@@ -53,7 +53,7 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-08b/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-09a/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -404,8 +404,9 @@ function readHours(raw) {
  * The person's week as the app sends it with a message in today's thread
  * (lib/cortex/CortexClient.ts WeekTurnContext): their weekly day and days off,
  * this week's review as its row has it, whether the one extra review of the
- * week is used, the week's free hours, busy days and intention as they stand,
- * and, while a review is under way, where it is and what has been settled.
+ * week is used, the week's free hours, busy days, intention and what matters
+ * most as they stand, and, while a review is under way, where it is and what
+ * has been settled.
  * Null when the app sent none: an app build that does not know the week. With
  * today, a review whose days have all gone, or are further off than the week
  * after next, is not one under way.
@@ -414,6 +415,11 @@ function readHours(raw) {
  * build that can apply such a change: a list, empty when there are none. An
  * app build that cannot leaves it out, and it is null here, so the change is
  * never offered to it (surfaces.js, the ease variants).
+ *
+ * priorities is what matters most to them this week, each in its own words,
+ * from an app build that can keep a new one: a list, empty when there are
+ * none. A build that cannot leaves it out, and it is null here, so adding one
+ * is never put to it (the change model's priority).
  */
 export function readWeek(raw, today = null) {
   if (!raw || typeof raw !== 'object' || !Number.isInteger(raw.weekly_day)) return null;
@@ -442,9 +448,27 @@ export function readWeek(raw, today = null) {
     hours: readHours(raw.hours),
     busy_days: dayList(raw.busy_days, 14),
     intention,
+    priorities: Array.isArray(raw.priorities)
+      ? raw.priorities
+          .slice(0, 12)
+          .map((p) => str(p, 120))
+          .filter(Boolean)
+          .slice(0, 6)
+      : null,
     under_way: readUnderWay(raw.under_way, str, today),
     eased: readEased(raw.eased, str, today),
   };
+}
+
+/**
+ * What matters most to them this week as it stands, for what Gremly knows
+ * about their week. Nothing from an app build that did not say.
+ */
+export function prioritiesWords(week) {
+  if (!Array.isArray(week?.priorities)) return '';
+  return week.priorities.length
+    ? ` What matters most to them this week, as it stands: ${week.priorities.map((p) => `“${p}”`).join('; ')}.`
+    : ' Nothing is chosen as mattering most this week yet.';
 }
 
 /** The habits paused or on a lighter version, as the app sent them; null when it sent none at all. */
@@ -608,6 +632,8 @@ export function weekFrameOf(week, today) {
     hours: week.hours,
     busy_days: week.busy_days,
     intention: week.intention,
+    // what matters most as it stands; null from an app build that cannot keep a new one
+    priorities: week.priorities ?? null,
     // the week's shape and its check ins are kept on its review
     has_review: started || !!u,
     under_way: u,
@@ -672,7 +698,7 @@ export function weekLine(week, today, { moveOnCard = true } = {}) {
       : moveOnCard
         ? 'The one extra review a week has been used, so no other review can be started today; what Gremly can offer instead is to move their weekly day, on the card.'
         : "The one extra review a week has been used, so no other review can be started today. Their weekly day can be moved from today's thread, and not from here.";
-  return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}${easedWords(week)}`;
+  return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}${prioritiesWords(week)}${easedWords(week)}`;
 }
 
 /** Where the weekly review has got to, in words (workers/shared/week.js WEEK_STEPS). */
@@ -744,7 +770,16 @@ export function weekContext(week) {
   if (!done) {
     L.push(
       'They can type anything at any moment of the review. Read what they wrote as a person would and answer what they mean. When it changes the week, say back briefly what you understood and put the changes that clearly follow from what they said on the card, and no others. The card is an offer they can turn down or correct, so offer what follows rather than asking whether you should, and never hold a change back to ask for a detail it can be offered without: something new they tell you about goes on the card with what they told you, and what they did not say about it is theirs to fill in. A todo with no length is counted as half an hour on the board until they give it one, so how long something takes is never a thing to ask first. Only when it is unclear what they want changed, ask one short question instead and put nothing on the card. When it is a question, answer it from what you know, and say so plainly when you do not know. When it is about how they feel, answer that first. Then let it shape the week: where it means the week should ask less of them, or more, offer that on the card, or ask one short question about what would help.',
-      'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
+      // Work Gremly cannot see, and what is already on their calendar (James, 7
+      // October). Before this a load they mentioned was made into a todo on a
+      // day, and something on their calendar into a note beside it.
+      `What they tell you about may be work or a commitment that is not among their items, which Gremly cannot see. See what kind of thing it is before anything goes on the card. A load on the days being planned, something that takes their time and attention without being one piece of work they could tick off, is not a todo and not a note. Take it in as the shape of the week, with week_shape: the days they say it falls on become busy days. Change the hours they have free only when they say how many hours it takes or leaves them.${
+        Array.isArray(week.priorities)
+          ? ' And when the load is what the week is for, or a large part of it, add it to what matters most this week with priority, in a few of their own words.'
+          : ''
+      } When they name no particular days for it, mark no day busy for it: saying it is this week names none. Ask which days it takes only when the week cannot be planned without knowing. A specific task they name, one piece of work with an end, is a todo as ever, and goes on the same card as the rest.`,
+      'What is on their calendar on the days being planned is theirs already, and it stays there. get_week shows it for each day, beside the todos. When what they tell you about is on their calendar, nothing new stands for it: never put a todo, a note or a set time on the card for a calendar entry. The most it does is shape the week, as a busy day.',
+      'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, what is on their calendar, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
       'The review carries on after your reply, from the step it is on, and nothing on that step is lost, so leave its steps to it. Only when your reply ends by asking them something the step cannot be settled without, call hold with your reply, and the review waits for their answer. What carries the review on is a button under the thread, which they tap when they are ready.',
       'Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at, and never name a condition, treatment or medication in your own words; the titles of their items stay exactly as they wrote them.',
     );

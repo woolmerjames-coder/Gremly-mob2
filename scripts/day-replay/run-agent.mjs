@@ -235,6 +235,19 @@ function dbFor(s, to) {
         return todos.filter((r) => r.due_day && r.due_day < day);
       }
       if (table === 'habits') return habits;
+      // their connected calendar on the days of the week (get_week, get_day): timed entries only
+      if (table === 'synced_calendar_events') {
+        if (query.includes('is_all_day=eq.true')) return [];
+        // the scenarios are in Los Angeles in October, seven hours behind UTC
+        const at = (day, time) => new Date(`${day}T${time}:00-07:00`).toISOString();
+        return (s.calendar || []).map(([day, from, until, title], i) => ({
+          id: `cal-${i + 1}`,
+          title,
+          start_at: at(day, from),
+          end_at: at(day, until),
+          is_all_day: false,
+        }));
+      }
       // the day's picture the brief is written from, when the scenario has one
       if (table === 'user_daily_state') return s.dco ? [{ dco: s.dco }] : [];
       return [];
@@ -280,6 +293,8 @@ export function asDayChange(c, back) {
       return { kind: 'milestone', title: c.title, day: c.milestone?.date, steps: c.milestone?.steps };
     case 'weekly_day':
       return { kind: 'weekly_day', weekday: f.weekday };
+    case 'priority':
+      return { kind: 'priority', title: f.text };
     case 'add':
       return {
         kind: 'create_todo',

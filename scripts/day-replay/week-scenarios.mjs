@@ -10,6 +10,8 @@
  *
  * A scenario is one of scenarios.mjs's, plus:
  *   week            the app's week block, with item ids as the scenario names them
+ *   calendar        what is on their connected calendar on the days of the week:
+ *                   [[day, 'HH:MM', 'HH:MM', title]], read by get_week and get_day
  *   plans           habit days saved: [[habit id, 'YYYY-MM-DD']]
  *   intention       the intention of the week the day is in, as the day request sends it
  *   an item may carry towards, the goal a milestone step is a step towards,
@@ -70,6 +72,8 @@ function review(step, under = {}, over = {}) {
     hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
     busy_days: [],
     intention: null,
+    // what matters most this week as it stands: sent by an app build that can keep a new one
+    priorities: [],
     ...over,
     under_way: {
       step,
@@ -84,6 +88,9 @@ function review(step, under = {}, over = {}) {
     },
   };
 }
+
+// Work that is not among their items, on days they name. Nobody here is real.
+const UNSEEN = "Most of this week is the stock audit at work. It'll swallow Tuesday, Wednesday and Thursday";
 
 const base = {
   today: SUN,
@@ -191,6 +198,102 @@ export const WEEK_SCENARIOS = [
           },
         ];
       },
+    },
+  },
+  // ── work Gremly cannot see ──
+  // What they tell Gremly about work that is not among their items is taken in
+  // as the shape of the week and as something that matters most. A todo is
+  // made only for a specific task they name, and never for something that is
+  // already on their calendar.
+  {
+    ...base,
+    id: 'week-unseen-work',
+    title: 'In the review: work Gremly cannot see takes days out of the week',
+    look: 'The audit becomes the shape of the week (Tuesday to Thursday busy) and one of the things that matter most. No todo is made for it.',
+    text: UNSEEN,
+    week: review('shape'),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [
+        { kinds: ['week_shape'], busy: [TUE, WED, THU] },
+        { kinds: ['priority'], title: 'audit' },
+      ],
+      forbid: ['create_todo', 'add_block', 'cancel', 'complete'],
+    },
+  },
+  {
+    ...base,
+    id: 'week-unseen-work-no-days',
+    title: 'In the review: a heavy week at work, with no days named',
+    look: 'The stocktaking goes on what matters most. No todo is made for it, and no day they did not name is marked busy.',
+    text: "I've also got a lot of stocktaking to get through this week",
+    week: review('needs_you'),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [{ kinds: ['priority'], title: 'stocktaking' }],
+      forbid: ['create_todo', 'add_block', 'cancel', 'complete'],
+      check: (changes) => {
+        const busy = changes.find((c) => c.kind === 'week_shape')?.busy_days || [];
+        return [
+          { level: 'warn', name: 'No day is marked busy that they did not name', ok: !busy.length, detail: busy.join(', ') },
+        ];
+      },
+    },
+  },
+  {
+    ...base,
+    id: 'week-unseen-work-and-a-task',
+    title: 'In the review: unseen work, and one specific task for it',
+    look: 'The audit shapes the week. The one thing they named to do, sending the sample list, is the only new todo, on a day before the audit starts.',
+    text: 'The stock audit takes up Tuesday to Thursday, and I need to send Priya the sample list before it starts',
+    week: review('ahead'),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [
+        { kinds: ['create_todo'], title: 'sample', dayBy: TUE },
+        { kinds: ['week_shape'], busy: [TUE, WED, THU] },
+      ],
+      forbid: ['add_block', 'cancel', 'complete'],
+      check: (changes) => {
+        const made = changes.filter((c) => c.kind === 'create_todo');
+        return [
+          { name: 'One new item, for the task they named', ok: made.length === 1, detail: made.map((c) => c.title).join('; ') },
+        ];
+      },
+    },
+  },
+  {
+    ...base,
+    id: 'week-already-on-calendar',
+    title: 'In the review: what they mention is already on their calendar',
+    look: 'The audit kickoff is on their calendar on Tuesday morning. Nothing new is made to stand for it.',
+    text: "Tuesday morning is the audit kickoff, so I won't get anything else done then",
+    calendar: [
+      [TUE, '10:00', '12:00', 'Stock audit kickoff'],
+      [WED, '14:00', '16:00', 'Stock audit walkthrough'],
+    ],
+    week: review('ahead'),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      forbid: ['create_todo', 'add_block', 'cancel', 'complete'],
+    },
+  },
+  {
+    ...base,
+    id: 'week-unseen-work-old-build',
+    title: 'An app build that cannot keep a new priority is never shown one',
+    look: 'The same message from a build that sends no priorities: the days become busy, no priority is on the card, and no todo is made.',
+    text: UNSEEN,
+    week: review('shape', {}, { priorities: undefined }),
+    expect: {
+      aboutDay: true,
+      structureOnly: true,
+      changes: [{ kinds: ['week_shape'], busy: [TUE, WED, THU] }],
+      forbid: ['priority', 'create_todo', 'add_block', 'cancel', 'complete'],
     },
   },
   {
@@ -580,6 +683,7 @@ export function plainWeek(today) {
     hours: { normal_day: 2, busy_day: 1, weekend_day: 4 },
     busy_days: [],
     intention: null,
+    priorities: [],
   };
 }
 

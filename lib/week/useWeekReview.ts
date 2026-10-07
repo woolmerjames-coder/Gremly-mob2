@@ -120,11 +120,12 @@ import {
   MAX_PRIORITIES,
   asksAboutDay,
   daysPlanned,
-  gremlyPicks,
+  guessedPriorities,
   intentionOf,
   isPast,
   milestonesShown,
   prioritiesOf,
+  priorityOptions,
   rekeyed,
   settledText,
   stepAfter,
@@ -1233,9 +1234,26 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         keepMovesSoon();
       }
       const intention = changes.find((c) => c.op === 'intention');
+      // Something added to what matters most: the priorities card picks it up,
+      // so it is kept when that card is settled or opened again. A card that
+      // already holds as many as a week keeps gives up its last pick for it.
+      const priority = changes.find((c) => c.op === 'priority');
+      if (priority) {
+        const text = String(priority.fields?.text ?? '').trim();
+        patchDraft((d) => {
+          const row = session().row;
+          const at = priorityOptions(row?.read ?? null, row?.answers).findIndex(
+            (o) => o.text === text,
+          );
+          if (at < 0 || d.priorities.includes(at)) return d;
+          const kept = d.priorities.slice(0, MAX_PRIORITIES - 1);
+          return { ...d, priorities: [...kept, at] };
+        });
+      }
       const about = now.talking != null ? r.read?.needs_you?.[now.talking] : null;
-      // One of their items was changed: the spread is made from them, so it is
-      // made again. The week's own answers say so for themselves.
+      // One of their items was changed, or what matters most: the spread is
+      // made from them, so it is made again. The week's own answers that are
+      // part of what a spread is made for say so for themselves.
       const touched = changes.some(
         (c) => c.op !== 'intention' && c.op !== 'week_shape' && c.op !== 'weekly_day',
       );
@@ -1362,7 +1380,11 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         run(async () => {
           const now = session();
           if (!now.draft || !editable('priorities')) return;
-          const picked = prioritiesOf(now.row?.read ?? null, now.draft.priorities);
+          const picked = prioritiesOf(
+            now.row?.read ?? null,
+            now.draft.priorities,
+            now.row?.answers ?? null,
+          );
           await settle('priorities', (a) => ({ ...a, priorities: picked }));
         }),
     }),
@@ -1995,7 +2017,8 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           const a = { ...x.answers };
           // Gremly's picks and guesses stand for what they did not settle themselves
           if (left('challenge')) a.challenge = a.challenge ?? { agreed: true };
-          if (left('priorities')) a.priorities = prioritiesOf(r.read, gremlyPicks(r.read));
+          // what they added to it themselves stays, ahead of Gremly's picks
+          if (left('priorities')) a.priorities = guessedPriorities(r.read, a);
           if (left('shape')) {
             a.hours = d.hours;
             a.busy_days = [

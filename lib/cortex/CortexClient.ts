@@ -2370,6 +2370,12 @@ export interface WeekTurnContext {
   busy_days?: string[];
   /** The week's intention and the note that holds it */
   intention?: { id: string | null; text: string } | null;
+  /**
+   * What matters most this week as it stands, each in its own words. Sending
+   * it says this build can keep a new one (the change model's priority), so
+   * Gremly may offer to add one; a build that leaves it out is never offered it.
+   */
+  priorities?: string[];
   /** The review, while one is under way in the thread */
   under_way?: {
     /** Where it is (workers/shared/week.js WEEK_STEPS) */

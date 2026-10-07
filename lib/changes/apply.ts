@@ -322,6 +322,7 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
     case 'later':
     case 'habit_days':
     case 'week_shape':
+    case 'priority':
     case 'intention':
     case 'milestone':
     case 'weekly_day': {
