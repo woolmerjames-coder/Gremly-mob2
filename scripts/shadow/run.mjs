@@ -7,7 +7,7 @@
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"] [--as-is] [--was-open <fact ids>]
  *   scripts/shadow/run.sh story --user <uuid> --replies <file> [--at ISO]
  *   scripts/shadow/run.sh person-words --user <uuid> [--weekly-replies <file> --week-end YYYY-MM-DD]
- *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--judge-thinking high|medium|low] [--rpc-from <file>]
+ *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--judge-thinking high|medium|low] [--as-of ISO] [--sides sonnet,other] [--rpc-from <file>]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh reread --user <uuid> [--from ISO] [--to ISO] [--max n]
  *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
@@ -168,6 +168,26 @@ const env = {
 };
 
 /** A real read through the guard, outside any job: what live holds. */
+// The ledger as it stood at a moment: the facts written since, and the state
+// each fact had then (from its first change since). `own` adds the facts and
+// changes one correction made, whenever it was applied.
+async function ledgerAsItStood(userId, at, own = null) {
+  const later = new Set();
+  const then = new Map();
+  const since = own ? `or=(created_at.gt.${at},and(source_table.eq.user_corrections,source_id.eq.${own}))` : `created_at=gt.${at}`;
+  for (let from = 0; ; from += 1000) {
+    const page = await liveRead(`life_facts?user_id=eq.${userId}&${since}&select=id&order=id&limit=1000&offset=${from}`);
+    for (const r of page) later.add(r.id);
+    if (page.length < 1000) break;
+  }
+  for (let from = 0; ; from += 1000) {
+    const page = await liveRead(`life_fact_changes?user_id=eq.${userId}&${since}&select=fact_id,from_state&order=created_at.asc,id.asc&limit=1000&offset=${from}`);
+    for (const x of page) if (!then.has(x.fact_id)) then.set(x.fact_id, x.from_state);
+    if (page.length < 1000) break;
+  }
+  return { later, then };
+}
+
 async function liveRead(path) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     headers: { apikey: APIKEY, Authorization: `Bearer ${KEY}` },
@@ -1129,6 +1149,11 @@ const JOBS = {
     const inputPath = flag('--input');
     const other = flag('--other') || 'openai:gpt-6.1-sol';
     const judgeWith = flag('--judge');
+    // --as-of reads the week as the ledger stood at that moment, so a pass
+    // made now is set beside the live one on what it could have known then
+    const asOf = flag('--as-of');
+    const stood = asOf ? await ledgerAsItStood(userId, asOf) : null;
+    const sideNames = (flag('--sides') || 'sonnet,other').split(',');
     // how hard the judge thinks; a reading asked at another level is kept apart
     const judgeThinking = flag('--judge-thinking') || 'high';
     if (!userId || !weekEnd || !repliesPath || !inputPath) fail('weekly-compare needs --user, --week-end, --replies and --input');
@@ -1346,9 +1371,19 @@ Then list every statement in either summary that the records do not hold, each a
     };
 
     return {
-      at: flag('--at') || new Date().toISOString(),
+      at: asOf || flag('--at') || new Date().toISOString(),
       userId,
       ...(rpcFrom ? { rpcAnswer: (fn) => rpcFrom[fn] } : {}),
+      ...(stood
+        ? {
+            rewrite: ({ table, body }) => {
+              if (table !== 'life_facts' && table !== 'life_facts_now') return null;
+              const rows = JSON.parse(body);
+              if (!Array.isArray(rows)) return null;
+              return rows.filter((r) => !stood.later.has(r.id)).map((r) => (stood.then.has(r.id) && 'state' in r ? { ...r, state: stood.then.get(r.id) } : r));
+            },
+          }
+        : {}),
       run: async () => {
         // the week's input, the same for both
         let p;
@@ -1360,7 +1395,7 @@ Then list every statement in either summary that the records do not hold, each a
         }
         await nameRows(p.refsSnapshot);
         const sides = {};
-        for (const side of ['sonnet', 'other']) {
+        for (const side of ['sonnet', 'other'].filter((x) => sideNames.includes(x))) {
           const n = record.usage.length;
           let output = null;
           try {
@@ -1457,7 +1492,7 @@ Then list every statement in either summary that the records do not hold, each a
         return {
           stage: needs.size ? 'waits for Claude' : 'done',
           needs: [...needs.values()],
-          week: { start: weekStart, end: weekEnd, input_chars: p.input_chars, refs: p.refsSnapshot.length },
+          week: { start: weekStart, end: weekEnd, input_chars: p.input_chars, refs: p.refsSnapshot.length, today: p.today, as_of: asOf || null, facts_since: stood?.later.size ?? null, states_then: stood?.then.size ?? null },
           sides,
           before,
           old_summary: oldSummary ? { created_at: oldSummary.created_at, deck: oldDeck } : null,
@@ -1721,14 +1756,9 @@ Then list every statement in either summary that the records do not hold, each a
     const then = new Map();
     if (!asIs) {
       // this correction's own, when it was applied, are among them whenever it was applied
-      const since = `or=(created_at.gt.${at},and(source_table.eq.user_corrections,source_id.eq.${id}))`;
-      for (let from = 0; ; from += 1000) {
-        const page = await liveRead(`life_facts?user_id=eq.${c.user_id}&${since}&select=id&order=id&limit=1000&offset=${from}`);
-        for (const r of page) later.add(r.id);
-        if (page.length < 1000) break;
-      }
-      for (const x of await liveRead(`life_fact_changes?user_id=eq.${c.user_id}&${since}&select=fact_id,from_state&order=created_at.asc&limit=1000`))
-        if (!then.has(x.fact_id)) then.set(x.fact_id, x.from_state);
+      const stood = await ledgerAsItStood(c.user_id, at, id);
+      for (const f of stood.later) later.add(f);
+      for (const [f, st] of stood.then) then.set(f, st);
     }
     const wasOpen = new Set((flag('--was-open') || '').split(',').filter(Boolean));
     // what this run would have written to each fact, kept aside by the guard
