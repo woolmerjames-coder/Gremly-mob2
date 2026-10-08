@@ -246,6 +246,15 @@ export function checkPass(s, output, refsSnapshot) {
   add('no guess at who someone is once it is recorded', !recorded.length, recorded.map((x) => x.thinks).join(' | '));
   const matters = Array.isArray(output?.who_matters) ? output.who_matters : [];
   add('who matters names only people it was given', matters.every((r) => refs.get(r)?.type === 'person'), matters.join(' '));
+  // the people on each Chapter, kept only through facts it cites that can be shown
+  const onChapters = (output?.chapters || []).flatMap((c) => c?.people_refs || []);
+  add('everyone on a Chapter is someone it was given', onChapters.every((r) => refs.get(r)?.type === 'person'), onChapters.join(' '));
+  for (const [key, want] of Object.entries(s.truth.chapterPeople || {})) {
+    const chapterId = s.tables.chapters.find((c) => c.key === key)?.id;
+    const c = (output?.chapters || []).find((x) => refs.get(x.chapter_ref)?.id === chapterId);
+    const got = new Set((c?.people_refs || []).map((r) => refs.get(r)?.id));
+    for (const k of want) add(`${k} is on the ${key} Chapter`, got.has(s.tables.life_people.find((p) => p.key === k)?.id));
+  }
   if (s.truth.unsure) {
     for (const key of s.truth.unsure.who || []) {
       const id = s.tables.life_people.find((p) => p.key === key)?.id;
@@ -309,6 +318,8 @@ async function runPass() {
             checked: applied.output,
             // what Gremly is not sure of, as code would keep it (context/unsure.js)
             unsure_plan: applied.unsure || null,
+            // the people on each Chapter, as code would keep them
+            chapter_people: applied.chapterPeople || null,
             check: {
               counts: applied.check?.counts ?? null,
               left_out: applied.check?.left_out ?? [],
@@ -363,6 +374,10 @@ async function runPass() {
           lines.push(`    not sure (${x.kind}, ${x.about_ref === 'self' ? 'them' : refsMap.get(x.about_ref)?.name || x.about_ref}, ${x.sure}): ${x.thinks}`);
         for (const x of rec.unsure_plan?.dropped || []) lines.push(`    not sure, left out: ${x.why}: ${x.thinks}`);
         lines.push(`    who matters: ${(rec.output.who_matters || []).map((r) => refsMap.get(r)?.name || r).join(', ') || 'none'}`);
+        const nameById = new Map([...refsMap.values()].filter((v) => v.type === 'person').map((v) => [v.id, v.name]));
+        const titleOf = (id) => s.tables.chapters.find((c) => c.id === id)?.title || id;
+        for (const cp of rec.chapter_people || [])
+          lines.push(`    on the ${titleOf(cp.chapter_id)} Chapter: ${cp.people.map((id) => nameById.get(id)).join(', ') || 'no one'}${cp.dropped.length ? ` (left off: ${cp.dropped.map((x) => `${refsMap.get(x.ref)?.name || x.ref}, ${x.why}`).join('; ')})` : ''}`);
       }
     }
   writeFileSync(join(dir, 'report.md'), lines.join('\n'));

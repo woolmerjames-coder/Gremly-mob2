@@ -296,6 +296,8 @@ function full() {
       ],
       chapters: [
         { id: uuid(), owner_id: USER, title: 'Lisbon work trip', title_source: 'user', chapter_type: 'trip', phase: 'upcoming', start_date: '2026-11-17', end_date: '2026-11-20', closed_at: null, card_subtitle: '', card_subtitle_source: null, summary: '', summary_source: null, epigraph: '', epigraph_source: null, key_priorities: [], current_phase_key: null, phase_labels: [] },
+        // a Chapter shared with someone: Eli is part of it, through facts that can be shown
+        { id: uuid(), key: 'hudson', owner_id: USER, title: 'Anniversary weekend in Hudson', title_source: 'user', chapter_type: 'trip', phase: 'closed', start_date: '2026-11-06', end_date: '2026-11-08', closed_at: at('2026-11-08', '20:00'), card_subtitle: '', card_subtitle_source: null, summary: '', summary_source: null, epigraph: '', epigraph_source: null, key_priorities: [], current_phase_key: null, phase_labels: [] },
       ],
       weekly_summaries: [
         {
@@ -332,6 +334,8 @@ function full() {
       unstated: ['sam'],
       // what the last summary showed, which the plan moves on from
       shownBefore: ['swim'],
+      // who is part of each Chapter
+      chapterPeople: { hudson: ['eli'] },
     },
   };
 }

@@ -1738,6 +1738,12 @@ Then list every statement in either summary that the records do not hold, each a
           dropped: plan.dropped,
           who_matters: plan.matters.map((m) => nameOf(m.person_id)),
           weekly_questions: ((applied.output || output).questions || []).map((q) => q.question),
+          // the people on each Chapter, as code would keep them
+          chapter_people: (applied.chapterPeople || []).map((cp) => ({
+            chapter: p.g.chapters.find((c) => c.id === cp.chapter_id)?.title || cp.chapter_id,
+            people: cp.people.map(nameOf),
+            left_off: cp.dropped.map((x) => `${refs.get(x.ref)?.name || x.ref}: ${x.why}`),
+          })),
           set: set.rows
             ? set.rows.map((r) => ({ kind: r.kind, type: r.proposed_change?.type, guess: !!r.proposed_change?.unsure_id, question: r.question, choices: r.choices }))
             : { skipped: set.skipped, why: set.why },

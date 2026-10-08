@@ -62,7 +62,7 @@ import {
   applyUnsure,
 } from './unsure';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18a';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18b';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -180,8 +180,10 @@ const WEEKLY_SCHEMA = {
             },
           },
           card_fact_refs: { type: 'array', items: { type: 'string' } },
+          // the people who are part of the chapter (chapter_people)
+          people_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['chapter_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs'],
+        required: ['chapter_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs', 'people_refs'],
       },
     },
     // what Gremly is not sure of yet, and who matters most (context/unsure.js),
@@ -356,6 +358,7 @@ CHAPTERS
 - An active chapter that has gone quiet says when it was last active and what was happening then; its stage is a neutral label. Nothing on a chapter tells the person what they should do.
 - Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
 - Cite the facts each chapter's notes rest on in card_fact_refs, and write the whole chapter from what the facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has.
+- In people_refs, give the refs from the people list of the people who are part of the chapter as the facts it cites show them: those who share it with them or take part in it. It is empty when those facts show no one.
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
 
 ${NOT_SURE_RULES}
@@ -1410,8 +1413,21 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     applied.unsure = { error: String(err?.message || err).slice(0, 200) };
     console.warn(`[ALERT][Weekly] what Gremly is not sure of could not be planned for ${userId}: ${applied.unsure.error}`);
   }
+  // the people on each Chapter (chapter_people), as the pass names them
+  let chapterPeople = [];
+  try {
+    chapterPeople = chapterPeoplePlan({ output, refs, ties: await citedTies(d, userId, output, refs) });
+    applied.chapter_people = {
+      chapters: chapterPeople.length,
+      people: chapterPeople.reduce((n, c) => n + c.people.length, 0),
+      dropped: chapterPeople.flatMap((c) => c.dropped.map((x) => ({ chapter_id: c.chapter_id, ...x }))),
+    };
+  } catch (err) {
+    applied.chapter_people = { error: String(err?.message || err).slice(0, 200) };
+    console.warn(`[ALERT][Weekly] the people on Chapters could not be planned for ${userId}: ${applied.chapter_people.error}`);
+  }
   if (shadow)
-    return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked, unsure: unsure?.plan || null };
+    return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked, unsure: unsure?.plan || null, chapterPeople };
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
   const [prevProfile] = await d.select(`user_profiles?user_id=eq.${userId}&select=profile_text`);
@@ -1654,6 +1670,14 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   }
   applied.passages = await recordPassages(d, passages);
 
+  if (chapterPeople.length)
+    try {
+      applied.chapter_people = { ...applied.chapter_people, ...(await applyChapterPeople(d, userId, chapterPeople, nowIso)) };
+    } catch (err) {
+      applied.chapter_people = { ...applied.chapter_people, error: String(err?.message || err).slice(0, 200) };
+      console.warn(`[ALERT][Weekly] the people on Chapters could not be kept for ${userId}: ${applied.chapter_people.error}`);
+    }
+
   if (unsure)
     try {
       applied.unsure = {
@@ -1672,6 +1696,95 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
   await invalidateChatCache(env, userId);
   return { applied, worldsSummary, previous, output };
+}
+
+// ── The people on each Chapter ─────────────────────────────────────────────
+// The pass names, for each Chapter, the people who are part of it. Code keeps
+// a person only when one of the facts the Chapter's notes cite, that can be
+// shown, is about them: never someone the facts do not tie to it, and never
+// through something private or about health. It writes chapter_people as
+// Gremly's, and never touches a row the person wrote.
+
+/** Which people the facts the Chapters cite are about. */
+async function citedTies(d, userId, output, refs) {
+  const ids = [
+    ...new Set(
+      (output?.chapters || [])
+        .flatMap((c) => c?.card_fact_refs || [])
+        .map((r) => refs.get(r))
+        .filter((f) => f?.type === 'fact' && f.id)
+        .map((f) => f.id),
+    ),
+  ];
+  const out = [];
+  for (let i = 0; i < ids.length; i += 100)
+    out.push(
+      ...((await d.select(
+        `life_fact_people?user_id=eq.${userId}&fact_id=in.(${ids.slice(i, i + 100).join(',')})&select=fact_id,person_id`,
+      )) || []),
+    );
+  return out;
+}
+
+/**
+ * The people on each Chapter the pass gave people for. Pure.
+ * @param ties [{ fact_id, person_id }] for the facts the Chapters cite
+ * @returns [{ chapter_id, people: [person id], dropped: [{ ref, why }] }]
+ */
+export function chapterPeoplePlan({ output, refs, ties = [] }) {
+  const about = new Map();
+  for (const t of ties) about.set(t.fact_id, [...(about.get(t.fact_id) || []), t.person_id]);
+  const plan = [];
+  for (const c of output?.chapters || []) {
+    const ref = refs.get(c?.chapter_ref);
+    // a reply without the field says nothing about who is on the Chapter
+    if (ref?.type !== 'chapter' || !ref.id || !Array.isArray(c.people_refs)) continue;
+    const shown = (c.card_fact_refs || [])
+      .map((r) => refs.get(r))
+      .filter((f) => f?.type === 'fact' && f.id && !f.private && !f.health);
+    const tied = new Set(shown.flatMap((f) => about.get(f.id) || []));
+    const people = [];
+    const dropped = [];
+    for (const r of c.people_refs) {
+      const p = refs.get(r);
+      if (p?.type !== 'person' || !p.id) dropped.push({ ref: r, why: 'not someone it was given' });
+      else if (!tied.has(p.id)) dropped.push({ ref: r, why: 'in no fact it cites that can be shown' });
+      else if (!people.includes(p.id)) people.push(p.id);
+    }
+    plan.push({ chapter_id: ref.id, people, dropped });
+  }
+  return plan;
+}
+
+/** Keep the plan: Gremly's rows as given, the person's own never touched. */
+export async function applyChapterPeople(d, userId, plan, nowIso) {
+  let added = 0;
+  let removed = 0;
+  for (const cp of plan) {
+    const rows =
+      (await d.select(
+        `chapter_people?user_id=eq.${userId}&chapter_id=eq.${cp.chapter_id}&select=person_id,written_by`,
+      )) || [];
+    const there = new Set(rows.map((r) => r.person_id));
+    const gremlys = rows.filter((r) => r.written_by === 'gremly').map((r) => r.person_id);
+    const add = cp.people.filter((id) => !there.has(id));
+    const gone = gremlys.filter((id) => !cp.people.includes(id));
+    if (add.length) {
+      await d.insertIgnore(
+        'chapter_people',
+        add.map((id) => ({ chapter_id: cp.chapter_id, person_id: id, user_id: userId, written_by: 'gremly', created_at: nowIso })),
+        'chapter_id,person_id',
+      );
+      added += add.length;
+    }
+    if (gone.length) {
+      await d.remove(
+        `chapter_people?user_id=eq.${userId}&chapter_id=eq.${cp.chapter_id}&written_by=eq.gremly&person_id=in.(${gone.join(',')})`,
+      );
+      removed += gone.length;
+    }
+  }
+  return { added, removed };
 }
 
 // ── Batch orchestration helpers ────────────────────────────────────────────

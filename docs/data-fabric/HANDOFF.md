@@ -24,6 +24,7 @@ deploys and merges, and no session drops a table or column.
 | Facts about their life | `life_facts` (read through the view `life_facts_now`) | the reader, `workers/inngest-jobs/context/reader.js`, from everything they record | Each fact has one of seven kinds, a health flag, a private flag and a timing (dated, yearly, standing). `kinds.js` gives a kind to facts that lack one. |
 | How a fact changed | `life_fact_changes` | the reader, corrections, tidy ups | One row per state change, with where it came from. |
 | The people in their life | `life_people`, `life_fact_people`, `life_person_names`, `person_merges` | `context/people.js` | Who someone is comes only from what they said; a merge is proposed, done on a tap. `life_people.matters_rank` is who matters most to them now, as the weekly pass judges it (`context/unsure.js`). |
+| The people on a Chapter | `chapter_people` | the weekly pass (`weekly.js` `chapterPeoplePlan`), and the person | The pass names who is part of each Chapter; code keeps someone only when a fact the Chapter's notes cite, that can be shown, is about them, writes them as `gremly`, and never touches a row the person wrote. A reader joins live people only: a merged or hidden record stays until the next pass. When the app lets someone take a person off a Chapter, it needs a way to keep them off, or the next pass puts them back. |
 | What Gremly is not sure of yet | `life_unsure` | the weekly pass (`context/unsure.js`); the person's answer confirms it or says no | What the records point to but do not state: who someone is to them, or anything else that shapes their life. Kept apart from the facts, never shown, never read by any writer of something shown; the app cannot read the table. Gremly's questions ask about it, a yes becomes a fact in their words, a no closes it, and one the pass stops giving fades after three weeks. |
 | What each stored sentence rests on | `passage_refs` | every writer under the check | One row per table, row and field: the facts, people and items it rests on, the writer and its prompt version. Corrections find sentences here. |
 | What the check did | `check_runs` | every writer under the check | Per run: how many sentences it read, sent back, left out, and which steps found them wrong. Never words. Something to watch, not a gate. |
@@ -106,7 +107,7 @@ Both workers' `wrangler.toml`. Each says what it does beside it.
 | `SUMMARY_FROM_PASS` | beside | "on" after two weekly days read beside the old summary (`scripts/sql/data_fabric_watch.sql`, query 6) |
 | `WEEKLY_CLASSIFIER` | on | "off" once Chapter suggestions come from the Chapter questions; `scripts/worlds-parity` is what the call rests on |
 | `WEEK_READ_FROM_PASS` | off | "on" when the weekly review's build agrees, the week replay runs with it on, and the week note holds no private matter |
-| `PERSON_WORDS` (both workers) | off | "on" after `supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql` |
+| `PERSON_WORDS` (both workers) | on (since 8 Oct) | stays on; it needs `supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql` applied first |
 
 ## Replays and the shadow runner
 
