@@ -144,6 +144,16 @@ describe('the code steps', () => {
     expect(r.sentence.refs).toEqual(['c1']);
   });
 
+  it('say a person listed with a record that does not hold them is listed wrong, so a rewrite can list them right', () => {
+    const r = codeCheck(
+      sentence('Coffee with Sam.', ['p1'], [{ kind: 'person', value: 'Sam', ref: 'p1' }]),
+      records,
+    );
+    expect(r.problems).toEqual([
+      { step: 'value', say: 'it lists person Sam with a record that does not hold them' },
+    ]);
+  });
+
   it('drop a ref the writer was never given, and fail a value that rests on it', () => {
     const r = codeCheck(
       sentence('Lunch at 1pm.', ['c1', 'c9'], [{ kind: 'time', value: '13:00', ref: 'c9' }]),

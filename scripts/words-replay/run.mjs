@@ -4,10 +4,15 @@
  *
  *   scripts/words-replay/run.sh words  [--models luna,flash] [--repeat n]
  *   scripts/words-replay/run.sh memory [--models sonnet,luna,flash] [--repeat n]
+ *   scripts/words-replay/run.sh set    [--models luna,flash] [--repeat n] [--no-others]
  *
  * words: the line under each of Alex's four Worlds and two open Chapters,
  * through the check as the worker runs it. memory: the memory of three closed
- * Chapters, Alex's, Ines's and Maya's.
+ * Chapters, Alex's, Ines's and Maya's. set: the words under Rosa's three
+ * Worlds and one Chapter, with the one habit she keeps filed in all of them,
+ * written one after another as the worker writes them (each given the words
+ * before it, which --no-others takes away); the judge also asks whether each
+ * says something of its own rather than what the others already say.
  *
  * Code counts what the check did: lines that passed at once, were sent back,
  * or were left out. A judge model then reads each line that stands, with the
@@ -32,15 +37,21 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { writeLine, renderWords, WORDS_WRITER_VERSION } from '../../workers/inngest-jobs/context/words.js';
+import {
+  writeLine,
+  renderWords,
+  wordsOthers,
+  wordsBefore,
+  WORDS_WRITER_VERSION,
+} from '../../workers/inngest-jobs/context/words.js';
 import { memoryLine, MEMORY_VERSION } from '../../workers/inngest-jobs/context/memory.js';
 import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
-import { ALEX, MEMORIES, TODAY, alexFiled } from './people.mjs';
+import { ALEX, MEMORIES, ROSA, TODAY, alexFiled } from './people.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
-const mode = args[0] === 'memory' ? 'memory' : 'words';
+const mode = ['memory', 'set'].includes(args[0]) ? args[0] : 'words';
 const flag = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : null;
@@ -110,7 +121,14 @@ const QUESTIONS = {
     grounded: 'Does everything it says come from the records given?',
     own_meaning: 'Does any meaning or feeling it gives come from the person\'s own words in the records, rather than being supplied for them?',
   },
-}[mode];
+}[mode === 'set' ? 'words' : mode];
+if (mode === 'set')
+  Object.assign(QUESTIONS, {
+    distinct:
+      'Does it say something of its own, rather than what the words under their other Worlds and Chapters, given after the records, already say?',
+    cleared:
+      'Does it keep from telling anything the records say was cleared from their list without being marked done as done, or as still to do?',
+  });
 
 const JUDGE_SCHEMA = {
   type: 'object',
@@ -126,7 +144,7 @@ async function judge(what, text, recordsText) {
     // a judge from another family than the models being compared, where it can be
     primary: { provider: 'google', model: 'gemini-pro-latest' },
     fallback: { provider: 'openai', model: 'gpt-6-sol' },
-    system: `You review ${mode === 'words' ? 'the words a companion app wrote under one part of a person\'s life, shown on a screen at a glance' : 'the memory a companion app wrote of something in a person\'s life that has ended'}. Answer each question yes or no, from the words and the records they were written from, and say in one sentence what, if anything, fell short.\n${Object.entries(QUESTIONS)
+    system: `You review ${mode !== 'memory' ? 'the words a companion app wrote under one part of a person\'s life, shown on a screen at a glance' : 'the memory a companion app wrote of something in a person\'s life that has ended'}. Answer each question yes or no, from the words and the records they were written from, and say in one sentence what, if anything, fell short.\n${Object.entries(QUESTIONS)
       .map(([k, q]) => `- ${k}: ${q}`)
       .join('\n')}`,
     user: `FOR: ${what}\n\nTHE WORDS: ${text}\n\nTHE RECORDS THEY WERE WRITTEN FROM:\n${recordsText}`,
@@ -159,6 +177,63 @@ function jobs() {
     run: (env) => memoryLine(env, { person: m.person, chapter: m.chapter, world: m.world, got: m.got(), today: TODAY }),
     records: () => renderWords({ kind: 'chapter', target: m.chapter, world: m.world, ...m.got(), today: TODAY, ended: true }).text,
   }));
+}
+
+// ── the set: Rosa's words one after another, as the worker writes them ──
+
+if (mode === 'set') {
+  const noOthers = args.includes('--no-others');
+  const L = [`# Words set replay (${WORDS_WRITER_VERSION})${noOthers ? ', without the words before' : ''}, ${repeat} runs per model`, ''];
+  L.push(`| Model | Lines written | ${Object.keys(QUESTIONS).join(' | ')} | Cost a set |`, `| --- | --- | ${Object.keys(QUESTIONS).map(() => '---').join(' | ')} | --- |`);
+  const every = [];
+  for (const m of models) {
+    const env = { ...baseEnv, CONTEXT_MODEL_WORDS: MODELS[m] };
+    const sets = await Promise.all(
+      Array.from({ length: repeat }, async (_, i) => {
+        const said = wordsBefore(ROSA.targets, ROSA.targets);
+        const lines = [];
+        let cost = 0;
+        for (const t of ROSA.targets) {
+          try {
+            const { out, cost: c } = await metered(() =>
+              writeLine(env, { userId: 'replay', person: ROSA.person, target: t, today: TODAY, filed: t.filed(), others: noOthers ? [] : wordsOthers(t, ROSA.targets, said) }),
+            );
+            cost += c;
+            said.set(`${t.table}:${t.row.id}`, out.text || null);
+            lines.push({ t, text: out.text, outcome: out.outcome, problems: out.problems || [] });
+          } catch (err) {
+            lines.push({ t, error: String(err.message).slice(0, 200) });
+          }
+        }
+        // each line is judged beside the words the others ended with
+        for (const x of lines) {
+          if (!x.text) continue;
+          const rest = wordsOthers(x.t, ROSA.targets, said);
+          const records = `${renderWords({ kind: x.t.kind, target: x.t.row, world: x.t.world || null, ...x.t.filed(), today: TODAY }).text}\n\nTHE WORDS UNDER THEIR OTHER WORLDS AND CHAPTERS:\n${rest.map((o) => `${o.which} | ${o.words}`).join('\n') || '(none)'}`;
+          x.judged = await judge(`the ${x.t.kind === 'world' ? 'World' : 'Chapter'} ${x.t.name}`, x.text, records).catch((err) => ({ error: err.message }));
+        }
+        return { i, lines, cost };
+      }),
+    );
+    const judged = sets.flatMap((x) => x.lines).filter((x) => x.judged && !x.judged.error);
+    const written = sets.flatMap((x) => x.lines).filter((x) => x.text).length;
+    const held = Object.keys(QUESTIONS).map((k) => judged.filter((x) => x.judged[k]).length);
+    L.push(`| ${m} | ${written}/${sets.length * ROSA.targets.length} | ${held.map((h) => `${h}/${judged.length}`).join(' | ')} | $${(sets.reduce((a, x) => a + x.cost, 0) / sets.length).toFixed(4)} |`);
+    for (const set of sets) {
+      every.push(`- ${m} set ${set.i}:`);
+      for (const x of set.lines) {
+        const short = x.judged && !x.judged.error ? Object.keys(QUESTIONS).filter((k) => !x.judged[k]) : [];
+        every.push(`    ${x.t.name} (${x.error ? `failed, ${x.error}` : x.outcome}): ${x.text ? `"${x.text}"` : '(left blank)'}${short.length ? ` | FELL SHORT on ${short.join(', ')}: ${x.judged.why}` : ''}${x.problems?.length ? ` | check: ${x.problems.join(' / ')}` : ''}`);
+      }
+    }
+    console.log(`${m}: ${written} written, held ${held.join(',')} of ${judged.length}`);
+  }
+  L.push('', '## Every set', '', ...every, '');
+  mkdirSync(join(HERE, 'out'), { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  writeFileSync(join(HERE, 'out', `set-${stamp}${noOthers ? '-no-others' : ''}.md`), L.join('\n'));
+  console.log(`report: out/set-${stamp}${noOthers ? '-no-others' : ''}.md`);
+  process.exit(0);
 }
 
 const runs = [];

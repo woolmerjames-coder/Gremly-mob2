@@ -216,3 +216,120 @@ export const MEMORIES = [
     }),
   },
 ];
+
+// ── one thing filed in many places: the words under each, as a set ─────
+
+/**
+ * Rosa: three Worlds and a Chapter, with the one habit she keeps filed in all
+ * of them, and each holding much else of its own, some of it cleared from her
+ * list in the Sweep without being marked done. The words are written one
+ * after another as the worker writes them (Chapters first, each given the
+ * words before it), and each should say what is particular to it.
+ */
+let r = 0;
+const rid = (p) => `${p}0000000-0000-4000-8000-${hex(++r)}`;
+const ritem = (type, title, body, date, done = null, cleared = false) => ({
+  type,
+  id: rid('a'),
+  title,
+  body,
+  subtype: type === 'note' ? 'journal' : null,
+  date,
+  created_at: `${date}T09:00:00Z`,
+  done,
+  cleared,
+  private: false,
+  health: false,
+});
+const GRAN = { id: rid('e'), name: 'Gran', names: [], relationship: 'her grandmother' };
+const PRITI = { id: rid('e'), name: 'Priti', names: [], relationship: 'a friend' };
+const DEV = { id: rid('e'), name: 'Dev', names: [], relationship: 'a friend' };
+const sundays = ritem('habit', 'Cycle over to see Gran every Sunday', null, '2026-07-01');
+const ROSA_ITEMS = {
+  party: [
+    ritem('todo', 'Book the function room at the Crown for Gran’s 90th', null, '2026-09-20', '2026-09-22'),
+    ritem('todo', 'Order the cake for Gran’s 90th', null, '2026-09-28'),
+    ritem('todo', 'Make a photo board for the party', 'Old photos from the farm for Gran’s party', '2026-10-01'),
+    ritem('todo', 'Call Uncle Joe about the party', null, '2026-10-03', '2026-10-03'),
+  ],
+  family: [
+    ritem('todo', 'Fix Gran’s garden gate', null, '2026-08-10', '2026-08-16'),
+    ritem('note', 'Sunday', 'Gran got the old farm photos out again, I could listen to her for hours', '2026-09-13'),
+    ritem('todo', 'Help Mum clear the loft', null, '2026-09-05', '2026-09-06'),
+    // cleared from her list in the Sweep without being marked done
+    ritem('todo', 'Take Gran to the garden centre', null, '2026-09-09', null, true),
+    ritem('todo', 'Take Gran to the garden centre', null, '2026-09-23', null, true),
+    ritem('todo', 'Sort out Gran’s photo albums', null, '2026-09-26', null, true),
+  ],
+  fitness: [
+    ritem('todo', 'Spin class', 'Tuesday spin class', '2026-09-01', '2026-09-01'),
+    ritem('todo', 'Spin class', 'Tuesday spin class', '2026-09-08', '2026-09-08'),
+    ritem('todo', 'Spin class', 'Tuesday spin class', '2026-09-15', '2026-09-15'),
+    ritem('todo', 'Long ride to the coast', 'Ride out to the coast and back on Saturday', '2026-09-19', '2026-09-19'),
+    ritem('note', 'Hundred', 'First 100k ride, legs gone but so happy', '2026-09-19'),
+    ritem('todo', 'Service the bike', null, '2026-09-24'),
+    ritem('todo', 'Spin class', 'Tuesday spin class', '2026-09-29', '2026-09-29'),
+  ],
+  friends: [
+    ritem('todo', 'Quiz night at the Lamb', 'Quiz at the Lamb with Priti and Dev', '2026-09-03', '2026-09-03'),
+    ritem('note', 'Priti', 'Long walk with Priti, she is nervous about the new job', '2026-09-12'),
+    ritem('todo', 'Quiz night at the Lamb', 'Quiz at the Lamb with Priti and Dev', '2026-09-17', '2026-09-17'),
+    ritem('todo', 'Dev’s birthday drinks', 'Drinks for Dev’s birthday on Friday', '2026-09-25', '2026-09-25'),
+    ritem('todo', 'Quiz night at the Lamb', 'Quiz at the Lamb with Priti and Dev', '2026-10-01', '2026-10-01'),
+    ritem('todo', 'Five a side', 'Five a side with the old school lot', '2026-09-10', null, true),
+    ritem('todo', 'Five a side', 'Five a side with the old school lot', '2026-09-24', null, true),
+  ],
+};
+const rfact = (statement, state, about_date, it, people = []) => ({
+  id: rid('f'),
+  statement,
+  state,
+  about_date,
+  about_date_end: null,
+  private: false,
+  health: false,
+  item_table: { note: 'notes', todo: 'todos', habit: 'habits' }[it.type],
+  item_id: it.id,
+  people,
+});
+const ROSA_FACTS = [
+  rfact('Cycles over to see her Gran every Sunday', 'current', null, sundays, [GRAN]),
+  rfact('Gran turns 90 in November, with a party at the Crown', 'planned', '2026-11-14', ROSA_ITEMS.party[0], [GRAN]),
+  rfact('Rode 100k for the first time', 'happened', '2026-09-19', ROSA_ITEMS.fitness[4]),
+  rfact('Goes to the quiz at the Lamb with Priti and Dev', 'current', null, ROSA_ITEMS.friends[0], [PRITI, DEV]),
+  rfact('Priti is starting a new job', 'planned', null, ROSA_ITEMS.friends[1], [PRITI]),
+];
+const rosaWorld = (name) => ({ id: rid('b'), name, display_name: name, card_subtitle: null, card_subtitle_source: 'words' });
+const FAMILY = rosaWorld('Family');
+const FITNESS = rosaWorld('Fitness');
+const FRIENDS = rosaWorld('Friends');
+const PARTY = {
+  id: rid('b'),
+  title: 'Gran’s 90th',
+  phase: 'upcoming',
+  start_date: '2026-11-14',
+  end_date: '2026-11-14',
+  primary_world_id: FAMILY.id,
+  card_subtitle: null,
+  card_subtitle_source: 'words',
+};
+const rosaFiledOf = (list) => {
+  const ids = new Set(list.map((i) => i.id));
+  const facts = ROSA_FACTS.filter((x) => ids.has(x.item_id));
+  return {
+    items: [...list].sort((a, b) => b.date.localeCompare(a.date)),
+    facts,
+    peopleOf: new Map(facts.filter((x) => x.people.length).map((x) => [x.id, x.people])),
+  };
+};
+
+export const ROSA = {
+  person: { first_name: 'Rosa', pronouns: 'she/her' },
+  // as context/words.js wordsTargets gives them: Chapters first
+  targets: [
+    { table: 'chapters', kind: 'chapter', name: PARTY.title, row: PARTY, world: FAMILY, filed: () => rosaFiledOf([sundays, ...ROSA_ITEMS.party]) },
+    { table: 'worlds', kind: 'world', name: 'Family', row: FAMILY, filed: () => rosaFiledOf([sundays, ...ROSA_ITEMS.family, ...ROSA_ITEMS.party]) },
+    { table: 'worlds', kind: 'world', name: 'Fitness', row: FITNESS, filed: () => rosaFiledOf([sundays, ...ROSA_ITEMS.fitness]) },
+    { table: 'worlds', kind: 'world', name: 'Friends', row: FRIENDS, filed: () => rosaFiledOf([sundays, ...ROSA_ITEMS.friends]) },
+  ],
+};

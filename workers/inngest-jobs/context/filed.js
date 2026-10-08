@@ -23,6 +23,17 @@ import { FORGOTTEN_KIND } from '../../shared/forgotten.js';
 /** The table each kind of filed item lives in. */
 export const ITEM_TABLE = Object.freeze({ note: 'notes', todo: 'todos', habit: 'habits' });
 
+/**
+ * The reasons the app records when it clears an item from their list without
+ * it being marked done: the Sweep and the tidy ups. Anything else archived was
+ * deleted, converted or moved, and is never read as theirs.
+ */
+export const CLEARED_REASONS = Object.freeze({
+  todo: Object.freeze(['swept', 'mini_sweep', 'weekly_cleanup']),
+  note: Object.freeze(['swept']),
+  habit: Object.freeze(['swept']),
+});
+
 /** The fact states a writer is given: what holds now, what is planned, what happened. */
 export const FILED_FACT_STATES = Object.freeze(['current', 'planned', 'unconfirmed', 'happened']);
 
@@ -48,13 +59,15 @@ export function itemOf(type, r) {
     // when it last changed, for whether the reader has read it as it is
     changed_at: r.updated_at || r.created_at || null,
     done: type === 'todo' ? day(r.completed_at) : null,
+    // cleared from their list without being marked done, when such items are read
+    cleared: r.archived === true,
   };
 }
 
 const COLUMNS = {
-  note: 'id,title,body,subtype,date,target_date,created_at,updated_at',
-  todo: 'id,name,title,body,notes,created_at,updated_at,completed_at',
-  habit: 'id,name,title,notes,subtype,created_at,updated_at',
+  note: 'id,title,body,subtype,date,target_date,created_at,updated_at,archived',
+  todo: 'id,name,title,body,notes,created_at,updated_at,completed_at,archived',
+  habit: 'id,name,title,notes,subtype,created_at,updated_at,archived',
 };
 
 /** Rows a page of a select holds at most (the API's own ceiling). */
@@ -70,8 +83,12 @@ async function selectAll(d, path) {
   }
 }
 
-/** The items with these links, read by type and id; archived ones are left out. */
-export async function readItems(d, userId, links) {
+/**
+ * The items with these links, read by type and id. Archived ones are left out,
+ * except, when cleared is asked for, those cleared from their list
+ * (CLEARED_REASONS), each marked cleared.
+ */
+export async function readItems(d, userId, links, { cleared = false } = {}) {
   const byType = new Map();
   for (const l of links || []) {
     if (!ITEM_TABLE[l.drop_type] || !UUID.test(String(l.drop_id))) continue;
@@ -83,7 +100,7 @@ export async function readItems(d, userId, links) {
     const list = [...ids];
     for (let i = 0; i < list.length; i += 100) {
       const rows = await d.select(
-        `${ITEM_TABLE[type]}?owner_id=eq.${userId}&id=in.(${list.slice(i, i + 100).join(',')})&archived=is.false&select=${COLUMNS[type]}`,
+        `${ITEM_TABLE[type]}?owner_id=eq.${userId}&id=in.(${list.slice(i, i + 100).join(',')})&${cleared ? `or=(archived.is.false,archived_reason.in.(${CLEARED_REASONS[type].join(',')}))` : 'archived=is.false'}&select=${COLUMNS[type]}`,
       );
       for (const r of rows || []) out.push(itemOf(type, r));
     }
@@ -265,9 +282,11 @@ export function markItems(items, facts, marks = null) {
 /**
  * Everything filed in one World or Chapter, newest first.
  * @param target { table: 'worlds' | 'chapters', id }
+ * @param opts.cleared also what was cleared from their list without being
+ *   marked done (the words writer, so its line rests on what fills a World)
  * @returns { items, facts, peopleOf }
  */
-export async function loadFiled(env, userId, target, { items: most = 40 } = {}) {
+export async function loadFiled(env, userId, target, { items: most = 40, cleared = false } = {}) {
   const d = db(env);
   const [linkTable, key] =
     target.table === 'worlds'
@@ -276,7 +295,7 @@ export async function loadFiled(env, userId, target, { items: most = 40 } = {}) 
   const links = await d.select(
     `${linkTable}?owner_id=eq.${userId}&${key}=eq.${target.id}&select=drop_id,drop_type,assigned_by,created_at&order=created_at.desc&limit=400`,
   );
-  const read = await readItems(d, userId, links || []);
+  const read = await readItems(d, userId, links || [], { cleared });
   read.sort(
     (a, b) =>
       String(b.date || '').localeCompare(String(a.date || '')) ||

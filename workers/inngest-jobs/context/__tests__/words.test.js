@@ -147,6 +147,16 @@ describe('what the words writer is given', () => {
       'THE CHAPTER THAT HAS ENDED (k1): The half | 2026-09-01 to 2026-11-01',
     );
     expect(ended.text).toContain('AND THEIR JOURNAL FROM ITS DAYS');
+    // still open, though its last day has passed
+    const passed = renderWords({
+      kind: 'chapter',
+      target: { ...target, end_date: '2026-10-01' },
+      items,
+      facts,
+      peopleOf,
+      today: TODAY,
+    });
+    expect(passed.text).toContain('The half | under way, its last day passed | 2026-09-01 to 2026-10-01');
   });
 });
 
@@ -464,6 +474,95 @@ describe('a person’s words', () => {
       dryRun: true,
     });
     expect(named.lines.map((l) => l.id)).toEqual([C]);
+  });
+
+  it('writes the Chapters first, and gives each writer the words written before it', async () => {
+    const W2 = '88888888-8888-4888-8888-888888888888';
+    fakeDb({
+      'worlds?owner_id': [
+        { id: W, name: 'Running', card_subtitle: 'Old words about running', card_subtitle_source: 'words' },
+        // words the person wrote stay theirs, and are given from the start
+        { id: W2, name: 'Home', card_subtitle: 'Their own words', card_subtitle_source: 'user' },
+      ],
+      'chapters?owner_id': [
+        { id: C, title: 'The half', phase: 'active', primary_world_id: W, card_subtitle: 'Old words about the half', card_subtitle_source: 'words' },
+      ],
+      'drop_world_links?owner_id': [{ drop_id: T1, drop_type: 'todo', assigned_by: 'classifier' }],
+      'drop_chapter_links?owner_id': [{ drop_id: T1, drop_type: 'todo', assigned_by: 'classifier' }],
+      'todos?owner_id': [{ id: T1, name: 'Book the long run route', created_at: '2026-10-05T09:00:00Z' }],
+      'ledger_cursor?user_id': [{ read_through: '2026-10-07T00:00:00Z' }],
+    });
+    const asked = [];
+    jsonCall.mockImplementation(async (env, req) => {
+      if (req.schema === WORDS_SCHEMA) return { output: { not_held: false, what: null }, model: 'check' };
+      asked.push(req.user);
+      return { output: { text: ['Words for the half', 'Words for running', 'Words for home'][asked.length - 1], refs: ['i1'], stated: [] }, model: 'words' };
+    });
+    const out = await writeWords({}, 'u-1', { dryRun: true });
+    expect(out.lines.map((l) => l.id)).toEqual([C, W, W2]);
+    // the Chapter is given only the words that will stand: the person's own
+    expect(asked[0]).toContain('THE WORDS UNDER THEIR OTHER WORLDS AND CHAPTERS');
+    expect(asked[0]).toContain('the World Home | Their own words');
+    expect(asked[0]).not.toContain('Old words');
+    // its World is given what was just written under it
+    expect(asked[1]).toContain('the Chapter The half, a Chapter in this World | Words for the half');
+    expect(asked[2]).toContain('the World Running | Words for running');
+    expect(asked).toHaveLength(3);
+  });
+});
+
+describe('the words under their other Worlds and Chapters', () => {
+  const { wordsOthers, wordsBefore } = jest.requireActual('../words.js');
+  const world = { table: 'worlds', kind: 'world', row: { id: W, name: 'Running', card_subtitle: 'Your runs' } };
+  const chapter = { table: 'chapters', kind: 'chapter', row: { id: C, title: 'The half', primary_world_id: W, card_subtitle: 'The half in spring' } };
+
+  it('are those that stand now, except the ones still to be written', () => {
+    expect(wordsBefore([world, chapter], [world])).toEqual(
+      new Map([
+        [`worlds:${W}`, null],
+        [`chapters:${C}`, 'The half in spring'],
+      ]),
+    );
+  });
+
+  it('say which are tied to the one being written, and leave out its own and blank ones', () => {
+    const said = new Map([
+      [`worlds:${W}`, 'Your runs'],
+      [`chapters:${C}`, 'The half in spring'],
+    ]);
+    expect(wordsOthers(world, [world, chapter], said)).toEqual([
+      { which: 'the Chapter The half, a Chapter in this World', words: 'The half in spring' },
+    ]);
+    expect(wordsOthers(chapter, [world, chapter], said)).toEqual([
+      { which: 'the World Running, the World this Chapter is in', words: 'Your runs' },
+    ]);
+    expect(wordsOthers(chapter, [world, chapter], new Map())).toEqual([]);
+  });
+
+  it('a writer is told what was cleared from their list without being marked done', () => {
+    const { text } = renderWords({
+      kind: 'world',
+      target: { id: W, name: 'Running' },
+      items: [{ type: 'todo', id: T1, title: 'Long run', body: null, date: '2026-10-05', done: null, cleared: true }],
+      facts: [],
+      peopleOf: new Map(),
+      today: TODAY,
+    });
+    expect(text).toContain('i1 | a todo of theirs, cleared from their list without being marked done | 2026-10-05 | Long run');
+  });
+
+  it('are shown to the writer apart from the records, never as one it may cite', () => {
+    const { text, refs } = renderWords({
+      kind: 'world',
+      target: { id: W, name: 'Running' },
+      items: [],
+      facts: [],
+      peopleOf: new Map(),
+      today: TODAY,
+      others: [{ which: 'the Chapter The half', words: 'The half in spring' }],
+    });
+    expect(text).toContain('THE WORDS UNDER THEIR OTHER WORLDS AND CHAPTERS (which | their words):\nthe Chapter The half | The half in spring');
+    expect([...refs.keys()]).toEqual(['w1']);
   });
 });
 

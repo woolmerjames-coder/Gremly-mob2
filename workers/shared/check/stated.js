@@ -225,7 +225,11 @@ export function codeCheck(sentence, records, { glanceable = false, listed = true
     if (result === 'differs')
       problems.push({
         step: 'value',
-        say: `it states ${item.kind} ${clean(item.value, 60)}, which its record does not hold`,
+        // a person is often in the records, only listed with the wrong one
+        say:
+          item.kind === 'person'
+            ? `it lists person ${clean(item.value, 60)} with a record that does not hold them`
+            : `it states ${item.kind} ${clean(item.value, 60)}, which its record does not hold`,
       });
     else if (result === 'malformed')
       problems.push({
