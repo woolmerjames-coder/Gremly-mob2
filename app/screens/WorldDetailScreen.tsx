@@ -3,7 +3,7 @@
  * Chapters in motion, its open todos, habits and what is kept in it, and the
  * Chapters it has closed. The box at the foot opens its chat.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -74,8 +74,10 @@ export default function WorldDetailScreen() {
   const [sheet, setSheet] = useState<WorldSheet>(null);
 
   // Merged away or gone: there is nothing to show, so go back.
+  // Set while this page is the one taking the person away, so it goes back once.
+  const leaving = useRef(false);
   useEffect(() => {
-    if (!world && nav.canGoBack()) nav.goBack();
+    if (!world && !leaving.current && nav.canGoBack()) nav.goBack();
   }, [world, nav]);
 
   const mine = useMemo(() => worldChapters(id, chapters, today), [id, chapters, today]);
@@ -320,16 +322,18 @@ export default function WorldDetailScreen() {
             title={`Merge ${name} with`}
             note={`Everything in ${name} moves into the World you pick, and ${name} goes.`}
             worlds={others}
-            onPick={(keep: World) =>
-              act(
-                'The merge',
-                () => mergeWorlds(keep.id, id),
-                (undo) => {
-                  nav.replace('WorldDetail', { worldId: keep.id });
-                  showSnack(`Merged into ${worldName(keep)}.`, undo);
-                },
-              )
-            }
+            onPick={async (keep: World) => {
+              setSheet(null);
+              leaving.current = true;
+              try {
+                const undo = await mergeWorlds(keep.id, id);
+                nav.replace('WorldDetail', { worldId: keep.id });
+                showSnack(`Merged into ${worldName(keep)}.`, undo);
+              } catch (err) {
+                leaving.current = false;
+                showFailed('The merge', err);
+              }
+            }}
           />
         ) : sheet?.kind === 'kept' && keptNote ? (
           <KeptOpen

@@ -1,6 +1,7 @@
 /**
  * The row of Gremlys along the top of Worlds: one for each World, then New.
  */
+import { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Plus } from 'lucide-react-native';
 import type { World } from '../../lib/supabase/types';
@@ -10,15 +11,24 @@ import { GremlyFace } from './GremlyFace';
 
 export function WorldsStrip({
   worlds,
+  revealId,
   onOpen,
   onNew,
 }: {
   worlds: World[];
+  /** A World just made: scroll along to it */
+  revealId?: string | null;
   onOpen: (w: World) => void;
   onNew: () => void;
 }) {
+  const strip = useRef<ScrollView>(null);
+  const has = !!revealId && worlds.some((w) => w.id === revealId);
+  useEffect(() => {
+    if (has) strip.current?.scrollToEnd({ animated: true });
+  }, [has, revealId]);
   return (
     <ScrollView
+      ref={strip}
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}

@@ -178,21 +178,22 @@ export type Countdown =
 
 /**
  * The countdown a Chapter shows, worked out from its dates on the day. A
- * stretch of days counts to its start, then shows which day of it this is.
- * One date counts to that date. Nothing counts once it has passed.
+ * stretch of days counts to its start ("Today, it starts" on the day), then
+ * shows which day of it this is. One date counts to that date. Once the end
+ * has passed it says so ("Over, since 22 Oct"). A Chapter with only a start
+ * that has passed, or no date, has no countdown.
  */
 export function countdown(c: ChapterDates, today: string): Countdown | null {
   const s = dayOf(c.start_date);
   const e = dayOf(c.end_date);
+  if (e && e < today) return { kind: 'word', big: 'Over', label: `since ${dayPlain(e)}` };
   if (s && e && s !== e) {
-    if (today < s) return daysToGo(daysFrom(today, s), 'starts');
-    if (today <= e)
-      return {
-        kind: 'word',
-        big: `Day ${daysFrom(s, today) + 1}`,
-        label: `of ${daysFrom(s, e) + 1}`,
-      };
-    return null;
+    if (today <= s) return daysToGo(daysFrom(today, s), 'starts');
+    return {
+      kind: 'word',
+      big: `Day ${daysFrom(s, today) + 1}`,
+      label: `of ${daysFrom(s, e) + 1}`,
+    };
   }
   const d = e || s;
   if (!d || d < today) return null;

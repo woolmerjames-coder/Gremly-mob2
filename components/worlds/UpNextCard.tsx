@@ -85,6 +85,15 @@ export function UpNextCard({
       style={({ pressed }) => [styles.hero, pressed && { transform: [{ scale: 0.992 }] }]}
       accessibilityRole="button"
       accessibilityLabel={`Up next: ${chapter.title}. Open it`}
+      accessibilityActions={
+        next
+          ? [{ name: 'activate' }, { name: 'tick', label: `Tick off: ${stepTitle(next)}` }]
+          : undefined
+      }
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === 'tick' && next) onTick(next);
+        else onOpen();
+      }}
       testID="up-next"
     >
       <View style={styles.glow} pointerEvents="none" />

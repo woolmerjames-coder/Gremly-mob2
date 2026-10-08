@@ -22,12 +22,18 @@ const mockNav = {
   replace: jest.fn(),
   goBack: jest.fn(),
   canGoBack: () => true,
+  setOptions: jest.fn(),
+  getState: () => ({ index: 1, routes: [{ name: 'Tabs' }, { name: 'ChapterDetail' }] }),
 };
 let mockParams: Record<string, string> = {};
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => mockNav,
   useRoute: () => ({ params: mockParams }),
   useIsFocused: () => true,
+  useFocusEffect: (cb: () => void | (() => void)) => {
+    const { useEffect } = require('react');
+    useEffect(cb, [cb]);
+  },
 }));
 jest.mock('../../../lib/appEvents', () => ({ useAppEventOnFocus: () => undefined }));
 jest.mock('../../../lib/date/useDateService', () => ({ useToday: () => '2026-10-08' }));
@@ -155,7 +161,10 @@ function fresh() {
     makeWorld: jest.fn(() => Promise.resolve({ world: { id: 'w9', name: 'Garden' }, undo })),
     unhideWorld: jest.fn(() => Promise.resolve(undo)),
     hideWorld: jest.fn(() => Promise.resolve(undo)),
-    mergeWorlds: jest.fn(() => Promise.resolve(undo)),
+    mergeWorlds: jest.fn((keep: string, gone: string) => {
+      store.setState({ worlds: store.getState().worlds.filter((w: any) => w.id !== gone) });
+      return Promise.resolve(undo);
+    }),
     renameWorld: jest.fn(() => Promise.resolve(undo)),
     setWorldGremly: jest.fn(() => Promise.resolve(undo)),
     setWorldWords: jest.fn(() => Promise.resolve(undo)),
@@ -179,7 +188,10 @@ function fresh() {
       return Promise.resolve(undo);
     }),
     reopenChapter: jest.fn(() => Promise.resolve(undo)),
-    deleteChapter: jest.fn(() => Promise.resolve(undo)),
+    deleteChapter: jest.fn((id: string) => {
+      store.setState({ chapters: store.getState().chapters.filter((c: any) => c.id !== id) });
+      return Promise.resolve(undo);
+    }),
     askForMemory: jest.fn((id: string) => {
       const memory = 'Three days in Lisbon, and the flights were booked in time.';
       store.setState({
@@ -257,6 +269,19 @@ describe('Worlds home', () => {
     expect(mockNav.navigate).toHaveBeenCalledWith('ChapterDetail', { chapterId: 'c9' });
   });
 
+  it('makes a World and stays on Worlds', async () => {
+    const r = render(<WorldsScreen />);
+    fireEvent.press(r.getByTestId('world-new'));
+    fireEvent.changeText(r.getByTestId('start-world-name'), 'Garden');
+    await act(async () => fireEvent.press(r.getByTestId('start-world-make')));
+    expect(store.getState().makeWorld).toHaveBeenCalledWith({
+      name: 'Garden',
+      gremly: 'gardener_gremly',
+    });
+    expect(mockNav.navigate).not.toHaveBeenCalled();
+    expect(r.getByTestId('worlds-snack')).toHaveTextContent(/World made./);
+  });
+
   it('greets a first day with nothing in it', () => {
     store.setState({ worlds: [], chapters: [] });
     const r = render(<WorldsScreen />);
@@ -323,6 +348,29 @@ describe('A Chapter', () => {
     expect(r.queryByTestId('closing')).toBeNull();
   });
 
+  it('asks before deleting, then goes back once with Undo', async () => {
+    mockParams = { chapterId: 'c1' };
+    const r = render(<ChapterDetailScreen />);
+    fireEvent.press(r.getByTestId('page-menu'));
+    fireEvent.press(r.getByTestId('chapter-delete'));
+    expect(r.getByText('Delete this Chapter?')).toBeTruthy();
+    expect(
+      r.getByText('The Chapter goes. Every todo, note, list and date in it stays, filed in Home.'),
+    ).toBeTruthy();
+    expect(store.getState().deleteChapter).not.toHaveBeenCalled();
+    await act(async () => fireEvent.press(r.getByTestId('chapter-delete-yes')));
+    expect(store.getState().deleteChapter).toHaveBeenCalledWith('c1');
+    expect(mockNav.goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a Chapter is over once its end has passed, and offers to close it', () => {
+    mockParams = { chapterId: 'c3' };
+    const r = render(<ChapterDetailScreen />);
+    expect(r.getByText('Over')).toBeTruthy();
+    expect(r.getByText('since 1 Oct')).toBeTruthy();
+    expect(r.getByText('This looks finished')).toBeTruthy();
+  });
+
   it('shows a closed Chapter as a memory, with what was left behind', async () => {
     mockParams = { chapterId: 'c4' };
     const r = render(<ChapterDetailScreen />);
@@ -360,6 +408,17 @@ describe('A World', () => {
     await act(async () => fireEvent.press(r.getByTestId('world-hide')));
     expect(store.getState().hideWorld).toHaveBeenCalledWith('w1');
     expect(mockNav.goBack).toHaveBeenCalled();
+  });
+
+  it('merges into another World and lands on it, once', async () => {
+    mockParams = { worldId: 'w1' };
+    const r = render(<WorldDetailScreen />);
+    fireEvent.press(r.getByTestId('page-menu'));
+    fireEvent.press(r.getByText('Merge with another World'));
+    await act(async () => fireEvent.press(r.getByTestId('pick-world-w2')));
+    expect(store.getState().mergeWorlds).toHaveBeenCalledWith('w2', 'w1');
+    expect(mockNav.replace).toHaveBeenCalledWith('WorldDetail', { worldId: 'w2' });
+    expect(mockNav.goBack).not.toHaveBeenCalled();
   });
 
   it('opens its chat from the box', () => {

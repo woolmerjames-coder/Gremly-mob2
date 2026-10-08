@@ -21,6 +21,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
 import { F, W } from '../../lib/worlds/look';
+import { UndoSnack } from './UndoSnack';
 
 export function Sheet({
   visible,
@@ -63,6 +64,7 @@ export function Sheet({
             {children}
           </ScrollView>
         </View>
+        <UndoSnack bottom={12 + insets.bottom} />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -154,12 +156,12 @@ export function Btn({
 }: {
   label: string;
   onPress: () => void;
-  kind?: 'pri' | 'sec';
+  kind?: 'pri' | 'sec' | 'warn';
   disabled?: boolean;
   icon?: LucideIcon;
   testID?: string;
 }) {
-  const pri = kind === 'pri';
+  const pri = kind !== 'sec';
   return (
     <Pressable
       onPress={onPress}
@@ -167,6 +169,7 @@ export function Btn({
       style={({ pressed }) => [
         styles.btn,
         pri ? styles.btnPri : styles.btnSec,
+        kind === 'warn' && { backgroundColor: '#A0492F' },
         disabled && { opacity: 0.45 },
         pressed && { opacity: 0.85 },
       ]}

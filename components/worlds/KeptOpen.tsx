@@ -12,7 +12,7 @@ import { SheetNote, SheetTitle } from './Sheet';
 import { noteTitle } from './Kept';
 import { TextLink } from './parts';
 
-type Row = { id: string; text: string; checked: boolean };
+export type Row = { id: string; text: string; checked: boolean };
 
 export function KeptOpen({
   note,
@@ -25,8 +25,8 @@ export function KeptOpen({
   /** Chapter or World, for the words */
   where: 'Chapter' | 'World';
   onRows: (rows: Row[]) => void;
-  /** Only on a Chapter */
-  onMakeStep?: (text: string) => void;
+  /** Only on a Chapter: the item leaves the list and becomes a step */
+  onMakeStep?: (row: Row, rows: Row[]) => void;
   onTakeOut: () => void;
 }) {
   const [text, setText] = useState('');
@@ -91,7 +91,7 @@ export function KeptOpen({
             </Pressable>
             {onMakeStep && !r.checked ? (
               <Pressable
-                onPress={() => onMakeStep(r.text)}
+                onPress={() => onMakeStep(r, rows)}
                 style={styles.ls2}
                 accessibilityRole="button"
                 accessibilityLabel={`Make this a step: ${r.text}`}

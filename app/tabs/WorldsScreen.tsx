@@ -58,6 +58,8 @@ export default function WorldsScreen() {
   const { data: story } = useStory();
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<HomeSheet>(null);
+  // A World just made is scrolled into view along the top.
+  const [madeWorld, setMadeWorld] = useState<string | null>(null);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -113,7 +115,7 @@ export default function WorldsScreen() {
     }
   }
 
-  const firstDay = !shown.length && !chapters.length;
+  const firstDay = !shown.length && !chapters.length && !hidden.length;
   const updated = story.header.writtenAt
     ? getDateService().extractLocalDate(story.header.writtenAt)
     : null;
@@ -164,6 +166,7 @@ export default function WorldsScreen() {
           <>
             <WorldsStrip
               worlds={shown}
+              revealId={madeWorld}
               onOpen={openWorld}
               onNew={() => setSheet({ kind: 'start', asWorld: true })}
             />
@@ -288,8 +291,8 @@ export default function WorldsScreen() {
               setSheet(null);
               try {
                 const { world, undo } = await makeWorld(input);
-                openWorld(world);
-                showSnack(`${worldName(world)} is one of your Worlds now.`, undo);
+                setMadeWorld(world.id);
+                showSnack('World made.', undo);
               } catch (err) {
                 showFailed('Making the World', err);
               }

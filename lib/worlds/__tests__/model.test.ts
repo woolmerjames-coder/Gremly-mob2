@@ -124,6 +124,11 @@ describe('countdown', () => {
       n: 2,
       label: 'days to go',
     });
+    expect(countdown({ start_date: TODAY, end_date: '2026-10-11' }, TODAY)).toEqual({
+      kind: 'word',
+      big: 'Today',
+      label: 'it starts',
+    });
     expect(countdown({ start_date: '2026-10-07', end_date: '2026-10-11' }, TODAY)).toEqual({
       kind: 'word',
       big: 'Day 2',
@@ -131,8 +136,17 @@ describe('countdown', () => {
     });
   });
 
-  it('shows nothing once the date has passed, or with no date', () => {
-    expect(countdown({ start_date: null, end_date: '2026-10-01' }, TODAY)).toBeNull();
+  it('says it is over once the end has passed, and shows nothing with no date ahead', () => {
+    expect(countdown({ start_date: null, end_date: '2026-10-01' }, TODAY)).toEqual({
+      kind: 'word',
+      big: 'Over',
+      label: 'since 1 Oct',
+    });
+    expect(countdown({ start_date: '2026-09-20', end_date: '2026-09-22' }, TODAY)).toEqual({
+      kind: 'word',
+      big: 'Over',
+      label: 'since 22 Sep',
+    });
     expect(countdown({ start_date: '2026-01-01', end_date: null }, TODAY)).toBeNull();
     expect(countdown({ start_date: null, end_date: null }, TODAY)).toBeNull();
   });

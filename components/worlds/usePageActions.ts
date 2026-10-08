@@ -4,6 +4,7 @@
  * a step, and take something out. Each says what happened, with Undo.
  */
 import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { Habit, Note, Todo } from '../../lib/types';
@@ -29,8 +30,10 @@ export function usePageActions() {
   const updateNote = useGremlyStore((s) => s.updateNote);
   const placeItem = useGremlyStore((s) => s.placeItem);
   const takeItemOut = useGremlyStore((s) => s.takeItemOut);
+  const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   // Ticked while the page is open: they stay where they are until it is left.
   const [justTicked, setJustTicked] = useState<Set<string>>(() => new Set());
+  useFocusEffect(useCallback(() => () => setJustTicked((s) => (s.size ? new Set() : s)), []));
 
   const toggleStep = useCallback(
     async (step: Todo) => {
@@ -59,14 +62,18 @@ export function usePageActions() {
           ai_placed: false,
           origin: 'manual',
         });
-        await placeItem({ id: todo.id, type: 'todo' }, where);
-        return todo;
+        const placed = await placeItem({ id: todo.id, type: 'todo' }, where);
+        const undo = async () => {
+          await placed();
+          await deleteTodo(todo.id);
+        };
+        return { todo, undo };
       } catch (err) {
         showFailed('Adding it', err);
         return null;
       }
     },
-    [createTodo, placeItem],
+    [createTodo, placeItem, deleteTodo],
   );
 
   const toggleHabit = useCallback(

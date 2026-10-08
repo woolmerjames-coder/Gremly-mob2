@@ -5,8 +5,8 @@
  * one is a small moment of its own (ClosingMoment). The box at the foot
  * opens its chat.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -57,7 +57,14 @@ import {
 import { DateRows, HabitRows, KeptStrip, PeopleChips } from '../../components/worlds/Kept';
 import { KeptOpen } from '../../components/worlds/KeptOpen';
 import { Diamond, SectionHead, TextLink, plural } from '../../components/worlds/parts';
-import { Btn, MenuRow, Sheet, SheetTitle } from '../../components/worlds/Sheet';
+import {
+  Btn,
+  MenuRow,
+  Sheet,
+  SheetButtons,
+  SheetNote,
+  SheetTitle,
+} from '../../components/worlds/Sheet';
 import { GremlyPick } from '../../components/worlds/GremlyPick';
 import { WorldPick } from '../../components/worlds/WorldPick';
 import { DatesPick } from '../../components/worlds/DatesPick';
@@ -78,6 +85,7 @@ type ChapterSheet =
   | { kind: 'gremly' }
   | { kind: 'move' }
   | { kind: 'kept'; noteId: string }
+  | { kind: 'delete' }
   | null;
 
 export default function ChapterDetailScreen() {
@@ -111,9 +119,25 @@ export default function ChapterDetailScreen() {
   const [asking, setAsking] = useState(false);
 
   // Deleted, or put back by Undo: there is nothing to show, so go back.
+  // Set while this page is the one taking the person away, so it goes back once.
+  const leaving = useRef(false);
   useEffect(() => {
-    if (!chapter && nav.canGoBack()) nav.goBack();
+    if (!chapter && !leaving.current && nav.canGoBack()) nav.goBack();
   }, [chapter, nav]);
+
+  // While the closing moment is up, Android's back keeps the Chapter closed,
+  // the same as Keep, and the swipe back is off.
+  useEffect(() => {
+    nav.setOptions({ gestureEnabled: !closing });
+    if (!closing) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setClosing(null);
+      nav.goBack();
+      showSnack('Kept in your story.', closing.undo);
+      return true;
+    });
+    return () => sub.remove();
+  }, [closing, nav]);
 
   const steps = useMemo(() => chapterSteps(id, todos, filed), [id, todos, filed]);
   const keptAll = useMemo(() => chapterKept(id, notes, filed), [id, notes, filed]);
@@ -154,6 +178,28 @@ export default function ChapterDetailScreen() {
     } catch (err) {
       showFailed(what, err);
     }
+  }
+
+  async function deleteIt() {
+    setSheet(null);
+    leaving.current = true;
+    try {
+      const undo = await store.deleteChapter(id);
+      nav.goBack();
+      showSnack('Chapter deleted. What was in it is kept.', undo);
+    } catch (err) {
+      leaving.current = false;
+      showFailed('Deleting it', err);
+    }
+  }
+
+  /** The World this Chapter is in: back to it when that is where they came from. */
+  function openWorldPage(worldId: string) {
+    const st = nav.getState();
+    const prev = st?.routes?.[st.index - 1];
+    const prevWorld = (prev?.params as { worldId?: string } | undefined)?.worldId;
+    if (prev?.name === 'WorldDetail' && prevWorld === worldId) nav.goBack();
+    else nav.push('WorldDetail', { worldId });
   }
 
   async function startClose() {
@@ -260,7 +306,7 @@ export default function ChapterDetailScreen() {
         dark
         crumb={world ? worldName(world) : 'Chapter'}
         onBack={() => nav.goBack()}
-        onCrumb={world ? () => nav.push('WorldDetail', { worldId: world.id }) : undefined}
+        onCrumb={world ? () => openWorldPage(world.id) : undefined}
         onMenu={() => setSheet({ kind: 'menu' })}
       />
       <ScrollView
@@ -518,18 +564,22 @@ export default function ChapterDetailScreen() {
               title="Delete this Chapter"
               sub="Everything in it is kept"
               warn
-              onPress={() =>
-                act(
-                  'Deleting it',
-                  () => store.deleteChapter(id),
-                  (undo) => {
-                    nav.goBack();
-                    showSnack('Deleted. Everything in it is kept.', undo);
-                  },
-                )
-              }
+              onPress={() => setSheet({ kind: 'delete' })}
               testID="chapter-delete"
             />
+          </View>
+        ) : sheet?.kind === 'delete' ? (
+          <View>
+            <SheetTitle>Delete this Chapter?</SheetTitle>
+            <SheetNote>
+              {world
+                ? `The Chapter goes. Every todo, note, list and date in it stays, filed in ${worldName(world)}.`
+                : 'The Chapter goes. Every todo, note, list and date in it stays.'}
+            </SheetNote>
+            <SheetButtons>
+              <Btn label="Keep it" kind="sec" onPress={() => setSheet(null)} />
+              <Btn label="Delete it" kind="warn" onPress={deleteIt} testID="chapter-delete-yes" />
+            </SheetButtons>
           </View>
         ) : sheet?.kind === 'rename' ? (
           <TextEdit
@@ -626,9 +676,21 @@ export default function ChapterDetailScreen() {
             onMakeStep={
               closed
                 ? undefined
-                : (text) => {
-                    page.addTodo(text, { chapterId: id }).then((t) => {
-                      if (t) showSnack(`Added as a step: ${text}`);
+                : (row, rows) => {
+                    const note = keptNote;
+                    page.setRows(
+                      note,
+                      rows.filter((r) => r.id !== row.id),
+                    );
+                    page.addTodo(row.text, { chapterId: id }).then((made) => {
+                      if (!made) {
+                        page.setRows(note, rows);
+                        return;
+                      }
+                      showSnack('Now a step. It will show in Today.', async () => {
+                        await made.undo();
+                        await page.setRows(note, rows);
+                      });
                     });
                   }
             }

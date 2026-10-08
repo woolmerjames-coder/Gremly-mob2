@@ -81,6 +81,7 @@ export function ClosingMoment({
   return (
     <Animated.View
       style={[StyleSheet.absoluteFill, { opacity: fade, zIndex: 50 }]}
+      accessibilityViewIsModal
       testID="closing"
     >
       <LinearGradient
@@ -93,7 +94,6 @@ export function ClosingMoment({
           styles.in,
           { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 18 },
         ]}
-        accessibilityViewIsModal
       >
         <Animated.View
           style={{

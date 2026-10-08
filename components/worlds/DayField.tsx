@@ -29,6 +29,7 @@ export function DayField({
 }) {
   const [open, setOpen] = useState(false);
   const [staged, setStaged] = useState<Date | null>(null);
+  const shown = parseLocalYMD(value || today);
 
   function onPick(event: DateTimePickerEvent, date?: Date) {
     if (Platform.OS === 'android') {
@@ -40,12 +41,11 @@ export function DayField({
   }
 
   function done() {
-    if (staged) onChange(format(staged, 'yyyy-MM-dd'));
+    // Done takes the day the wheel shows, moved or not.
+    onChange(format(staged || shown, 'yyyy-MM-dd'));
     setStaged(null);
     setOpen(false);
   }
-
-  const shown = parseLocalYMD(value || today);
 
   return (
     <View>
