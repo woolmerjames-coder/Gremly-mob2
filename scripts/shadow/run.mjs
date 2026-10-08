@@ -1141,6 +1141,11 @@ const JOBS = {
     };
     const centsOf = (rows) => Math.round(rows.reduce((t, u) => t + (Number(u?.cost_usd) || 0), 0) * 100000) / 1000;
     const centsSince = (n) => centsOf(record.usage.slice(n));
+    // kept after every answer, so a run cut short keeps what it was given
+    const saveReplies = () => {
+      const now = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : {};
+      writeFileSync(repliesPath, JSON.stringify(Object.fromEntries(['claude', 'check', 'other', 'judge'].map((k) => [k, { ...(now[k] || {}), ...replies[k] }])), null, 2));
+    };
     const fromClaude = (kind, body) => {
       const key = keyOf(kind === 'write' ? { v: stage5Writer.PLAN_WRITER_VERSION, body } : body);
       const r = replies.claude[key];
@@ -1152,11 +1157,10 @@ const JOBS = {
     const fromOther = async (kind, body, call) => {
       const key = keyOf({ other, kind, body });
       if (replies.other[key]) return JSON.parse(JSON.stringify(replies.other[key].output));
-      const n = record.usage.length;
       const t0 = Date.now();
-      const output = await call();
+      const output = await aiContext.run({ env, worker: 'shadow', job: `compare-${kind}`, userId, runId: `other-${key}` }, call);
       await new Promise((r) => setTimeout(r, 300));
-      const mine = record.usage.slice(n);
+      const mine = record.usage.filter((u) => u?.run_id === `other-${key}`);
       replies.other[key] = {
         kind,
         model: spec(other).model,
@@ -1165,6 +1169,7 @@ const JOBS = {
         ms: Date.now() - t0,
         tokens: mine.reduce((t, u) => ({ in: t.in + (Number(u?.input_tokens) || 0), cached: t.cached + (Number(u?.cached_input_tokens) || 0), out: t.out + (Number(u?.output_tokens) || 0), thinking: t.thinking + (Number(u?.thinking_tokens) || 0) }), { in: 0, cached: 0, out: 0, thinking: 0 }),
       };
+      saveReplies();
       return JSON.parse(JSON.stringify(output));
     };
     const headers = { apikey: APIKEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
@@ -1185,6 +1190,7 @@ const JOBS = {
       if (replies.check[key]) return replies.check[key];
       const out = (await jsonCall(env, { primary: modelFor(env, 'check'), fallback: modelFor(env, 'checkFallback'), ...req, maxTokens: 1500, effort: 'low', thinking: 'low' })).output;
       replies.check[key] = out;
+      saveReplies();
       return out;
     };
     const weekStart = new Date(Date.parse(`${weekEnd}T12:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
@@ -1295,29 +1301,32 @@ Then list every statement in either summary that the records do not hold, each a
       if (!judgeWith) return null;
       const parts = kind === 'pass' ? PARTS.filter((pt) => has(x.view[pt]) && has(y.view[pt])) : null;
       const body = (v) => (kind === 'pass' ? JSON.stringify(Object.fromEntries(parts.map((pt) => [pt, v[pt]])), null, 1) : v.join('\n'));
-      const reads = [];
-      for (const [a, b] of [
-        [x, y],
-        [y, x],
-      ]) {
+      const readOnce = async ([a, b]) => {
         const user = `${records}${extra?.length ? `\n\nMORE RECORDS, given to one of the two:\n${extra.join('\n')}` : ''}\n\nA:\n${body(a.view)}\n\nB:\n${body(b.view)}`;
         const key = keyOf({ judgeWith, kind, user });
         if (!replies.judge[key]) {
-          const n = record.usage.length;
-          const out = await jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: 16000, thinking: 'high', effort: 'high' });
-          replies.judge[key] = { output: out.output, cents: centsSince(n) };
+          const out = await aiContext.run({ env, worker: 'shadow', job: 'compare-judge', userId, runId: `judge-${key}` }, () =>
+            jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: 16000, thinking: 'high', effort: 'high' }),
+          );
+          await new Promise((r) => setTimeout(r, 300));
+          replies.judge[key] = { output: out.output, cents: centsOf(record.usage.filter((u) => u?.run_id === `judge-${key}`)) };
+          saveReplies();
         }
         const o = replies.judge[key].output;
         const who = (v) => (v === 'A' ? a.label : v === 'B' ? b.label : 'same');
-        reads.push({
+        return {
           order: [a.label, b.label],
           better: who(o.better),
           why: o.why,
           parts: (o.parts || []).map((pt) => ({ part: pt.part, better: who(pt.better), why: pt.why })),
           not_held: { [a.label]: o.a_not_held, [b.label]: o.b_not_held },
           cents: replies.judge[key].cents,
-        });
-      }
+        };
+      };
+      const reads = await Promise.all([
+        [x, y],
+        [y, x],
+      ].map(readOnce));
       const agree = (u, v) => (u === v ? u : 'split');
       return {
         between: [x.label, y.label],
@@ -1423,13 +1432,16 @@ Then list every statement in either summary that the records do not hold, each a
         const oldDeck = oldSummary?.content ? deckLines(oldSummary.content) : null;
 
         const records = `WHO THEY ARE AND TODAY:\n${typeof p.jsonArgs.system === 'string' ? '' : p.jsonArgs.system?.varying || ''}\n\nRECORDS OF THE WEEK:\n${p.jsonArgs.user}`;
-        const judged = {};
         const S = sides.sonnet?.view;
         const O = sides.other?.view;
-        if (S && O) judged.pass_models = await judgePair('pass', { label: 'sonnet', view: S }, { label: 'other', view: O }, records);
-        if (sides.sonnet?.deck && sides.other?.deck) judged.summary_models = await judgePair('summary', { label: 'sonnet', view: sides.sonnet.deck }, { label: 'other', view: sides.other.deck }, records);
-        if (S && before) judged.pass_before = await judgePair('pass', { label: 'now', view: S }, { label: 'before', view: before.view }, records, before.extra);
-        if (sides.sonnet?.deck && oldDeck) judged.summary_before = await judgePair('summary', { label: 'now', view: sides.sonnet.deck }, { label: 'before', view: oldDeck }, records);
+        const pairs = {
+          pass_models: S && O && (() => judgePair('pass', { label: 'sonnet', view: S }, { label: 'other', view: O }, records)),
+          summary_models: sides.sonnet?.deck && sides.other?.deck && (() => judgePair('summary', { label: 'sonnet', view: sides.sonnet.deck }, { label: 'other', view: sides.other.deck }, records)),
+          pass_before: S && before && (() => judgePair('pass', { label: 'now', view: S }, { label: 'before', view: before.view }, records, before.extra)),
+          summary_before: sides.sonnet?.deck && oldDeck && (() => judgePair('summary', { label: 'now', view: sides.sonnet.deck }, { label: 'before', view: oldDeck }, records)),
+        };
+        const asked = Object.entries(pairs).filter(([, f]) => f);
+        const judged = Object.fromEntries(await Promise.all(asked.map(async ([k, f]) => [k, await f().catch((err) => ({ error: String(err?.message || err).slice(0, 300) }))])));
         return {
           stage: needs.size ? 'waits for Claude' : 'done',
           needs: [...needs.values()],
@@ -1442,11 +1454,7 @@ Then list every statement in either summary that the records do not hold, each a
         };
       },
       summarise: (out) => {
-        const now = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : {};
-        writeFileSync(
-          repliesPath,
-          JSON.stringify(Object.fromEntries(['claude', 'check', 'other', 'judge'].map((k) => [k, { ...(now[k] || {}), ...replies[k] }])), null, 2),
-        );
+        saveReplies();
         if (needs.size) writeFileSync(repliesPath.replace(/(-replies)?\.json$/, '-needs.json'), JSON.stringify([...needs.values()], null, 2));
         const brief = (sd) =>
           sd && {
@@ -1465,7 +1473,7 @@ Then list every statement in either summary that the records do not hold, each a
             deck_cards: sd.summary?.content?.cards?.length ?? null,
             error: sd.error,
           };
-        const verdict = (j) => j && { between: j.between, better: j.better, parts: j.parts, each: j.reads.map((r) => r.better) };
+        const verdict = (j) => j && (j.error ? { error: j.error } : { between: j.between, better: j.better, parts: j.parts, each: j.reads.map((r) => r.better) });
         return {
           stage: out?.stage,
           needs: (out?.needs || []).map((x) => `${x.kind} ${x.key}`),
