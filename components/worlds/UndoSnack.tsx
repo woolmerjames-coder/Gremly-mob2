@@ -5,7 +5,14 @@
 import { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { currentSnack, hideSnack, onSnack, showFailed, type Snack } from '../../lib/worlds/snack';
+import {
+  currentSnack,
+  firstToAnnounce,
+  hideSnack,
+  onSnack,
+  showFailed,
+  type Snack,
+} from '../../lib/worlds/snack';
 import { F, W } from '../../lib/worlds/look';
 
 export function UndoSnack({ bottom }: { bottom: number }) {
@@ -21,7 +28,8 @@ export function UndoSnack({ bottom }: { bottom: number }) {
       duration: 220,
       useNativeDriver: true,
     }).start();
-    if (snack && focused) AccessibilityInfo.announceForAccessibility(snack.text);
+    if (snack && focused && firstToAnnounce(snack.id))
+      AccessibilityInfo.announceForAccessibility(snack.text);
   }, [snack, focused, fade]);
 
   if (!focused || !snack) return null;

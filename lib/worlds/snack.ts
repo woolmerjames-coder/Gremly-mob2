@@ -42,6 +42,14 @@ export function hideSnack(): void {
   emit();
 }
 
+let announced = 0;
+/** True the first time a message asks to be read out, so two hosts never read it twice. */
+export function firstToAnnounce(id: number): boolean {
+  if (id === announced) return false;
+  announced = id;
+  return true;
+}
+
 export function currentSnack(): Snack | null {
   return current;
 }
