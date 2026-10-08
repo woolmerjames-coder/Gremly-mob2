@@ -236,6 +236,8 @@ export interface DeckCheck {
   checked: number;
   /** The record lines each part was checked against, for a card sent back alone. */
   records?: Map<string, string[]>;
+  /** Parts the first reader said did not hold and the second said did (stage 7). */
+  held_by_second?: string[];
 }
 
 function proseOf(value: unknown, skip: Set<string>, out: string[]): void {
@@ -522,12 +524,19 @@ export async function checkDeck(
     today,
     person,
     only,
+    confirm,
   }: {
     ask: AskWords;
     today: string;
     person: { first_name?: string | null } | null;
     /** The cards to ask about in words, when not all: a card that held is not asked again. */
     only?: number[];
+    /**
+     * The same words question on a model of another family, asked only when
+     * the first says a part does not hold: the part is wrong only when both
+     * say so (stage 7). When it cannot be asked, the first answer stands.
+     */
+    confirm?: AskWords;
   },
 ): Promise<DeckCheck> {
   const fc = factCheckDeterministic(raw, brief, facts);
@@ -557,23 +566,35 @@ export async function checkDeck(
       p.sources.some((x) => x.type === 'hard_fact');
     return figures ? [...lines, weekFigures(facts)] : lines;
   };
+  const heldBySecond: string[] = [];
   const answers = await inTurn(asked, 6, async (p) => {
     try {
-      const out = await ask(
-        wordsRequest({
-          sentence: { text: p.text },
-          records: linesOf(p).map((label) => ({ label })),
-          today,
-          moment: 'read on the last day of the week it looks back on',
-          person,
-        }),
-      );
+      const request = wordsRequest({
+        sentence: { text: p.text },
+        records: linesOf(p).map((label) => ({ label })),
+        today,
+        moment: 'read on the last day of the week it looks back on',
+        person,
+      });
+      const out = await ask(request);
       if (typeof out?.not_held !== 'boolean')
         return {
           step: 'unasked',
           say: 'the words question came back without an answer',
         } as PartProblem;
       const w = wordsProblem(out);
+      if (w && confirm) {
+        let second: WordsAnswer | null = null;
+        try {
+          second = await confirm(request);
+        } catch {
+          second = null;
+        }
+        if (second?.not_held === false) {
+          heldBySecond.push(p.key);
+          return null;
+        }
+      }
       return w ? ({ step: 'words', say: w.say } as PartProblem) : null;
     } catch (err) {
       return {
@@ -587,7 +608,13 @@ export async function checkDeck(
     if (a) problems.set(p.key, [...(problems.get(p.key) ?? []), a]);
   });
   const records = new Map(parts.filter((p) => problems.has(p.key)).map((p) => [p.key, linesOf(p)]));
-  return { deck: byPart.deck, parts: problems, checked: asked.length, records };
+  return {
+    deck: byPart.deck,
+    parts: problems,
+    checked: asked.length,
+    records,
+    ...(heldBySecond.length ? { held_by_second: heldBySecond } : {}),
+  };
 }
 
 /** The cards a check found wrong, by their place in the deck. */
@@ -635,6 +662,23 @@ A deck was written from this plan and failed its checks. Write the whole deck ag
 ${lines.join('\n')}
 
 Return only the JSON.`;
+}
+
+/**
+ * The opening card when no try at its words held: the card as written with
+ * its own words taken out, and the week's character from the plan, which the
+ * weekly pass's check has already held to the records, as its chip. What it
+ * keeps is code's: the day strip and the figures, each checked by code.
+ * Code places the plan's words; it writes none (stage 7).
+ */
+export function fallbackHero(card: Card, character: string): Card {
+  const body = { ...((card.body as unknown as Record<string, unknown>) ?? {}) };
+  return {
+    ...card,
+    ...('eyebrow' in card ? { eyebrow: '' } : {}),
+    headline: '',
+    body: { ...body, subtitle: '', classification_chip: character, fallback: true },
+  } as Card;
 }
 
 export interface FinishedDeck {
@@ -716,14 +760,19 @@ export interface PlannedDeckResult {
   writer_model: string;
   left_out: FinishedDeck['left_out'];
   /** Each try's problems, by step and part, for a person reading a run. */
-  tries: Array<{ deck: string[]; parts: Record<string, PartProblem[]>; checked: number }>;
+  tries: Array<{ deck: string[]; parts: Record<string, PartProblem[]>; checked: number; held_by_second?: string[] }>;
   last_raw: unknown;
+  /** The opening card fell back to the plan's character and the week's figures (stage 7). */
+  hero_fell_back?: boolean;
+  /** Parts the first reader said did not hold and the second said did, over every try. */
+  held_by_second?: string[];
 }
 
 const plain = (c: DeckCheck) => ({
   deck: c.deck,
   parts: Object.fromEntries(c.parts),
   checked: c.checked,
+  ...(c.held_by_second?.length ? { held_by_second: c.held_by_second } : {}),
 });
 
 const MIDDLE_SHAPES = new Set(['moment', 'people', 'pattern', 'question', 'stat', 'timeline']);
@@ -740,7 +789,7 @@ export function cardGuidance(card: Card, index: number, check: DeckCheck): strin
   }
   return `ONE CARD TO WRITE AGAIN
 
-The deck you wrote from this plan is checked one card at a time, and this card did not hold. Write this one card again for the same planned card, putting right what was wrong and keeping what held. Keep its shape unless what it may say no longer fits that shape; a card between the opening and the letter may then take another such shape. It may say less than before: leave out whatever its records do not hold.
+The deck you wrote from this plan is checked one card at a time, and this card did not hold. Put it right for the same planned card by changing only the words that do not hold, as little as you can, so that it says only what its records hold; keep every other word as it was. Keep its shape unless what it may say no longer fits that shape; a card between the opening and the letter may then take another such shape. It may say less than before: leave out whatever its records do not hold.
 
 THE CARD AS YOU WROTE IT (card ${index}, ${card.shape}):
 ${JSON.stringify(card)}
@@ -831,11 +880,14 @@ export async function writePlannedDeck(
     today: string;
     person: { first_name?: string | null } | null;
     write?: (user: UserMessage) => Promise<Record<string, unknown>>;
+    /** The second reader (checkDeck), asked only when the first says a part does not hold. */
+    confirm?: AskWords;
   },
 ): Promise<PlannedDeckResult> {
   const write = opts.write ?? ((u: UserMessage) => callPlanWriter(env, u));
   const base = buildPlanWriterPrompt(brief, facts);
   const tries: PlannedDeckResult['tries'] = [];
+  let fellBack = false;
   let raw: Record<string, unknown> | null = null;
   let firstError: string | undefined;
   try {
@@ -866,14 +918,37 @@ export async function writePlannedDeck(
         last_raw: raw,
       };
     // the hero carries the deck, so when it alone still does not hold it is
-    // written once more, alone; still wrong then, there is no deck
+    // written three times more, alone and at once, and the first that holds
+    // is kept (stage 7)
     if (!check.deck.length && check.parts.has('0')) {
-      const hero = await rewriteDeck(raw, heroOnly(check), base, write);
-      if (hero.raw && !hero.failed) {
-        const last = await checkDeck(hero.raw, brief, facts, { ...opts, only: [0] });
-        tries.push(plain(last));
-        raw = hero.raw;
-        check = withHero(check, last);
+      const before = check;
+      const heroes = await Promise.all([0, 1, 2].map(() => rewriteDeck(raw, heroOnly(before), base, write)));
+      let last: { raw: Record<string, unknown>; check: DeckCheck } | null = null;
+      for (const hero of heroes) {
+        if (!hero.raw || hero.failed) continue;
+        const c = await checkDeck(hero.raw, brief, facts, { ...opts, only: [0] });
+        tries.push(plain(c));
+        last = { raw: hero.raw, check: c };
+        if (!c.parts.has('0') && !c.deck.length) break;
+      }
+      if (last) {
+        raw = last.raw;
+        check = withHero(before, last.check);
+      }
+    }
+    // still wrong: the opening falls back to the plan's character and the
+    // week's figures, checked like any card; only if that fails too is there
+    // no deck (stage 7)
+    const character = String(brief.week_shape?.classification ?? '').trim();
+    const heroCard = ((raw?.cards as Card[] | undefined) ?? [])[0];
+    if (raw && !check.deck.length && check.parts.has('0') && character && heroCard?.shape === 'hero') {
+      const fell = { ...raw, cards: [fallbackHero(heroCard, character), ...((raw.cards as Card[]).slice(1))] };
+      const c = await checkDeck(fell, brief, facts, { ...opts, only: [0] });
+      tries.push(plain(c));
+      if (!c.parts.has('0') && !c.deck.length) {
+        raw = fell;
+        check = withHero(check, c);
+        fellBack = true;
       }
     }
   }
@@ -886,5 +961,7 @@ export async function writePlannedDeck(
     left_out: done.left_out,
     tries,
     last_raw: raw,
+    ...(fellBack ? { hero_fell_back: true } : {}),
+    held_by_second: [...new Set(tries.flatMap((t) => t.held_by_second ?? []))],
   };
 }

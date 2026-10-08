@@ -1202,7 +1202,8 @@ function validateBodyStructure(
   switch (shape) {
     case 'hero': {
       const b = body as Partial<HeroBody>;
-      requireString('subtitle', b.subtitle);
+      // an opening that fell back to the plan's character has no words of its own (stage 7)
+      if (!b.fallback) requireString('subtitle', b.subtitle);
       requireString('classification_chip', b.classification_chip);
       requireArray('mood_arc', b.mood_arc);
       requireArray('stat_strip', b.stat_strip);

@@ -293,6 +293,47 @@ describe('the outcome', () => {
     expect(counts).toEqual({ checked: 1, sent_back: 0, left_out: 0 });
   });
 
+  it('asks the second reader only when the first says a sentence does not hold, and keeps it when the second says it holds', async () => {
+    const notHeld = jest.fn(async () => ({ not_held: true, what: 'calls Rowan a cousin' }));
+    const confirm = jest.fn(async () => ({ not_held: false, what: null }));
+    const rewrite = jest.fn();
+    const { results, counts, details } = await runCheck({
+      items: [{ key: 'lead_what', sentence: sentence('Design review with Rowan.', ['c1'], []), listed: false }],
+      records,
+      today: '2026-10-08',
+      ask: notHeld,
+      rewrite,
+      confirm,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(rewrite).not.toHaveBeenCalled();
+    expect(results.get('lead_what').outcome).toBe('pass');
+    expect(counts.held_by_second).toBe(1);
+    expect(details[0]).toMatchObject({ key: 'lead_what', outcome: 'held_by_second' });
+    expect(checkRunRow({ userId: 'u', job: 'j', counts, details }).details[0]).toEqual({
+      field: 'lead_what',
+      outcome: 'held_by_second',
+      first: ['words'],
+    });
+  });
+
+  it('sends a sentence back when both readers say it does not hold, and when the second cannot be asked', async () => {
+    const notHeld = async () => ({ not_held: true, what: 'calls Rowan a cousin' });
+    for (const confirm of [async () => ({ not_held: true, what: 'a cousin' }), async () => { throw new Error('down'); }]) {
+      const rewrite = jest.fn(async () => null);
+      const { results } = await runCheck({
+        items: [{ key: 'lead_what', sentence: sentence('Design review with Rowan.', ['c1'], []), listed: false }],
+        records,
+        today: '2026-10-08',
+        ask: notHeld,
+        rewrite,
+        confirm,
+      });
+      expect(rewrite).toHaveBeenCalledTimes(1);
+      expect(results.get('lead_what').outcome).toBe('left_out');
+    }
+  });
+
   it('sends a failing sentence back once, alone with its own records, and keeps a rewrite that holds', async () => {
     const rewrite = jest.fn(async ({ records: own }) => {
       expect(own.map((r) => r.ref)).toEqual(['c1']);

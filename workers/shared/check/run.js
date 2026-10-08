@@ -16,6 +16,12 @@
  *     no model could be asked);
  *   rewrite({ key, sentence, records, problems }) returns the sentence again,
  *     or null. problems are the words the writer is shown.
+ * and may give a third:
+ *   confirm(request) answers the same words question on a model of another
+ *     family, asked only when the first says a sentence does not hold. The
+ *     sentence is held to be wrong only when both say so, so one reader's
+ *     misreading never costs a sentence (stage 7, after the comparison of
+ *     8 Oct). When the second cannot be asked, the first answer stands.
  */
 
 import { codeCheck } from './stated.js';
@@ -46,7 +52,7 @@ function recordsOf(refs, records) {
 const short = (err) => String(err?.message || err).slice(0, 120);
 
 /** One sentence through every step. Never throws: a step that breaks is a problem. */
-async function checkOne(sentence, records, { glanceable, listed = true, today, moment, person, ask }) {
+async function checkOne(sentence, records, { glanceable, listed = true, today, moment, person, ask, confirm = null }) {
   let code;
   try {
     code = codeCheck(sentence, records, { glanceable, listed });
@@ -60,16 +66,15 @@ async function checkOne(sentence, records, { glanceable, listed = true, today, m
   if (!code.sentence.text) return { ...code, problems: [] };
   if (code.problems.length) return { ...code, final: code.sensitive };
   let output;
+  const request = wordsRequest({
+    sentence: code.sentence,
+    records: recordsOf(code.sentence.refs, records),
+    today,
+    moment,
+    person,
+  });
   try {
-    output = await ask(
-      wordsRequest({
-        sentence: code.sentence,
-        records: recordsOf(code.sentence.refs, records),
-        today,
-        moment,
-        person,
-      }),
-    );
+    output = await ask(request);
   } catch (err) {
     return {
       ...code,
@@ -85,6 +90,15 @@ async function checkOne(sentence, records, { glanceable, listed = true, today, m
       final: true,
     };
   const words = wordsProblem(output);
+  if (words && confirm) {
+    let second = null;
+    try {
+      second = await confirm(request);
+    } catch {
+      second = null;
+    }
+    if (second?.not_held === false) return { ...code, heldBySecond: words };
+  }
   return words ? { ...code, problems: [words] } : code;
 }
 
@@ -111,9 +125,10 @@ export async function runCheck({
   person = null,
   ask,
   rewrite,
+  confirm = null,
 }) {
   const first = await inTurn(items, (it) =>
-    checkOne(it.sentence, records, { glanceable: it.glanceable, listed: it.listed !== false, today, moment, person, ask }),
+    checkOne(it.sentence, records, { glanceable: it.glanceable, listed: it.listed !== false, today, moment, person, ask, confirm }),
   );
   const results = new Map();
   const details = [];
@@ -126,6 +141,9 @@ export async function runCheck({
     }
     if (!r.problems.length) {
       results.set(it.key, { outcome: 'pass', sentence: r.sentence, refs: r.sentence.refs });
+      // one reader said it did not hold and the other said it did: kept, and said
+      if (r.heldBySecond)
+        details.push({ key: it.key, outcome: 'held_by_second', first: [r.heldBySecond], texts: [r.sentence.text], refs: [r.sentence.refs] });
       return;
     }
     if (r.final) {
@@ -160,7 +178,7 @@ export async function runCheck({
     }
     if (!redone || !String(redone.text || '').trim())
       return { problems: [{ step: 'rewrite', say: 'it was written again with nothing in it' }] };
-    return checkOne(redone, own, { glanceable: it.glanceable, today, moment, person, ask });
+    return checkOne(redone, own, { glanceable: it.glanceable, today, moment, person, ask, confirm });
   });
 
   again.forEach(({ it, r }, i) => {
@@ -187,12 +205,15 @@ export async function runCheck({
   const order = new Map(items.map((it, i) => [it.key, i]));
   details.sort((a, b) => order.get(a.key) - order.get(b.key));
   const checked = [...results.values()].filter((x) => x.outcome !== 'empty').length;
+  const heldBySecond = details.filter((x) => x.outcome === 'held_by_second').length;
   return {
     results,
     counts: {
       checked,
       sent_back: again.length,
       left_out: [...results.values()].filter((x) => x.outcome === 'left_out').length,
+      // said only when the second reader kept something the first would not
+      ...(heldBySecond ? { held_by_second: heldBySecond } : {}),
     },
     details,
   };

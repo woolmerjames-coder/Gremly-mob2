@@ -485,7 +485,8 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
           await d.update(`synthesis_runs?id=eq.${run.id}`, {
             status: shadow ? 'shadow' : 'applied',
             applied_at: shadow ? null : new Date().toISOString(),
-            output: { ...run.output, applied: result.applied, ...(result.extra || {}) },
+            // what was applied: a job whose notes went through the check keeps them as checked
+            output: { ...(result.output || run.output), applied: result.applied, ...(result.extra || {}) },
           });
           return { runId: run.id, shadow, ...result.applied };
         });
@@ -519,12 +520,15 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
         shadow,
         runId: run.id,
         today: run.input_stats.today,
+        model: run.model,
       });
       // A first run and a catch up write the story before this run makes the
       // Life Map row: the story already written is copied in, with no model call.
       const story = shadow ? null : await copyStoryIntoLifeMap(env, userId);
       return {
         applied: story ? { ...r.applied, story_copied: story.copied } : r.applied,
+        // the notes as the check left them, which the summary is written from
+        output: r.output,
         extra: { worlds_summary_resolved: r.worldsSummary, previous: r.previous || null },
       };
     },

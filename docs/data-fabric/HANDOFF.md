@@ -31,13 +31,18 @@ deploys and merges, and no session drops a table or column.
 
 ## Writers, what they write, and who reads it
 
-Every writer below that writes a sentence the person sees gives each sentence
-its refs and a list of what it states (times, dates, numbers, people), and
-goes through the shared check in `workers/shared/check`: code holds the list
-to the records (`stated.js`), one words question asks whether the sentence
-says anything about who, when or how many that its records do not hold
-(`words.js`), a sentence that fails goes back once to its writer alone with
-only its own records, and one still wrong is left out (`run.js`).
+Every writer below goes through the shared check in `workers/shared/check`:
+code holds what a sentence states to the records (`stated.js`), one words
+question asks whether the sentence says anything about who, when or how many
+that its records do not hold (`words.js`), a sentence that fails goes back
+once to its writer alone with only its own records, and one still wrong is
+left out (`run.js`). Until 8 Oct the weekly pass was the one writer not under
+it; since stage 7 every note it writes is checked before anything is applied
+(`weekly.js` `checkWeekly`), its stored notes with the words question only,
+and a World's or Chapter's notes that fail keep the notes they had when those
+still hold. The weekly pass and the summary also ask a second reader of
+another family (`checkSecond`, Gemini 3.8 Flash) before anything is sent back
+or left out: a sentence is wrong only when both say so.
 
 | Writer | Writes | Model | Read by |
 | --- | --- | --- | --- |
@@ -48,7 +53,7 @@ only its own records, and one still wrong is left out (`run.js`).
 | The memory, `context/memory.js` | a closed Chapter's memory (`epigraph`) | Luna | the Chapter page, a World's eras |
 | First Worlds, `context/firstWorlds.js` | a new person's first Worlds | Luna | Worlds |
 | The weekly pass, `context/weekly.js` | the Life Map, the profile, Gremly's notes on Worlds and Chapters, questions, the week note, the summary plan, the week's counts, notes on people | Sonnet, Luna when it fails | everything that reads the Life Map; the summary; the line about a person |
-| The weekly summary, `summaryFromPass.ts` and `summaryPlanWriter.ts` | the weekly summary deck, from the pass's plan | Sonnet | the app's weekly summary |
+| The weekly summary, `summaryFromPass.ts` and `summaryPlanWriter.ts` | the weekly summary deck, from the pass's plan. A card that fails is repaired, not rewritten; an opening that fails is tried three times more at once, then falls back to the plan's checked character and the week's figures, so a deck is never lost to one card | Sonnet | the app's weekly summary |
 | The story, `context/story.js` | the monthly story: milestones, shifts, proud moments, patterns, people | Sonnet | Your Story, chat |
 | The line about a person, `context/personWords.js` | `life_people.words` | Luna | the life pack (`workers/shared/lifePack.js`), so chat, today's thread and the brief |
 | Corrections, `context/corrections.js` and `correctionPassages.js` | fact states, new facts, and every sentence resting on what changed, each through its own writer | Gemini 3.8 Flash for step one; each writer's own model after | everything above |

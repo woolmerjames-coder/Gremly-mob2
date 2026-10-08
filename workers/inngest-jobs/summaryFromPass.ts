@@ -325,6 +325,8 @@ export async function generateSummaryFromPass(params: {
   runRpc: RunRpc;
   fetchRows: FetchRows;
   ask: AskWords;
+  /** The second reader, asked only when the first says a part does not hold (stage 7). */
+  confirm?: AskWords;
   statuses?: string[];
   run?: WeeklyPassRun | null;
   write?: (user: UserMessage) => Promise<Record<string, unknown>>;
@@ -353,6 +355,7 @@ export async function generateSummaryFromPass(params: {
     today: weekEnd,
     person: { first_name: facts.user.name },
     write: params.write,
+    confirm: params.confirm,
   });
   if (!result.deck)
     return {
@@ -430,14 +433,19 @@ export function summaryCheckRow(
     checked: first?.checked ?? 0,
     sent_back: r.tries.length > 1 ? keys.size + (first?.deck.length ? 1 : 0) : 0,
     left_out: r.left_out.length + (r.deck ? 0 : 1),
-    details: [...keys].map((k) => ({
-      field: `card_${k}`,
-      outcome: !r.deck || leftOut.has(k) ? 'left_out' : 'rewritten',
-      first: [...new Set((first.parts[k] ?? []).map((p) => p.step))],
-      ...(last && last !== first && last.parts[k]
-        ? { second: [...new Set(last.parts[k].map((p) => p.step))] }
-        : {}),
-    })),
+    details: [
+      ...[...keys].map((k) => ({
+        field: `card_${k}`,
+        // the opening that fell back to the plan's character is said as such (stage 7)
+        outcome: !r.deck || leftOut.has(k) ? 'left_out' : k === '0' && r.hero_fell_back ? 'fell_back' : 'rewritten',
+        first: [...new Set((first.parts[k] ?? []).map((p) => p.step))],
+        ...(last && last !== first && last.parts[k]
+          ? { second: [...new Set(last.parts[k].map((p) => p.step))] }
+          : {}),
+      })),
+      // what the first reader said did not hold and the second said did
+      ...(r.held_by_second ?? []).map((k) => ({ field: `card_${k}`, outcome: 'held_by_second', first: ['words'] })),
+    ],
     words_prompt_version: WORDS_PROMPT_VERSION,
     model: r.writer_model,
   };

@@ -7,7 +7,7 @@
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"] [--as-is] [--was-open <fact ids>]
  *   scripts/shadow/run.sh story --user <uuid> --replies <file> [--at ISO]
  *   scripts/shadow/run.sh person-words --user <uuid> [--weekly-replies <file> --week-end YYYY-MM-DD]
- *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--judge-thinking high|medium|low] [--as-of ISO] [--sides sonnet,other] [--rpc-from <file>]
+ *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--judge-thinking high|medium|low] [--as-of ISO] [--sides sonnet,other] [--sample n] [--rpc-from <file>]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh reread --user <uuid> [--from ISO] [--to ISO] [--max n]
  *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
@@ -85,7 +85,7 @@ import { turnItemSections } from '../../workers/cortex/entityMatch.js';
 import { configureModels, models as cortexModels } from '../../workers/cortex/models.js';
 import { geminiStream, parseGeminiChunk } from '../../workers/cortex/geminiClient.js';
 import { AGENT_LANES, runChatTurn } from '../../workers/cortex/agent/chat.js';
-import { jsonCall, modelFor } from '../../workers/inngest-jobs/context/llm.js';
+import { jsonCall, modelFor, anthropicJsonResult } from '../../workers/inngest-jobs/context/llm.js';
 // a namespace import, so a tree without the summary from the pass (before stage 5) still bundles
 import * as stage5Summary from '../../workers/inngest-jobs/summaryFromPass';
 import * as stage5Writer from '../../workers/inngest-jobs/summaryPlanWriter';
@@ -1067,6 +1067,8 @@ const JOBS = {
         }
         const shape = weekly.weeklyShapeProblems(output);
         const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: 'shadow-weekly', today: p.today });
+        // the summary is written from the notes as the check left them (stage 7)
+        if (applied.output) output = applied.output;
         const run = {
           id: 'shadow-weekly',
           model: replies.claude[keyOf(p.params)]?.model ?? null,
@@ -1173,10 +1175,41 @@ const JOBS = {
       const now = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : {};
       writeFileSync(repliesPath, JSON.stringify(Object.fromEntries(['claude', 'check', 'other', 'judge'].map((k) => [k, { ...(now[k] || {}), ...replies[k] }])), null, 2));
     };
-    const fromClaude = (kind, body) => {
-      const key = keyOf(kind === 'write' ? { v: stage5Writer.PLAN_WRITER_VERSION, body } : body);
+    // Claude's answer: from the replies when it is there; asked here when
+    // Claude can be reached from this machine; otherwise saved as a need
+    // --sample n asks Claude again for the same input, as another sample of the same week
+    const sample = flag('--sample');
+    const fromClaude = async (kind, body) => {
+      const key = keyOf(kind === 'write' ? { v: stage5Writer.PLAN_WRITER_VERSION, body, ...(sample ? { sample } : {}) } : sample ? { sample, body } : body);
       const r = replies.claude[key];
       if (r) return JSON.parse(JSON.stringify(r.output));
+      if (process.env.ANTHROPIC_API_KEY) {
+        const t0 = Date.now();
+        const runId = `claude-${key}`;
+        const output = await aiContext.run({ env, worker: 'shadow', job: `compare-${kind}`, userId, runId }, async () => {
+          if (kind === 'write') return stage5Writer.callPlanWriter(env, body);
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify(body),
+          });
+          const text = await res.text();
+          if (!res.ok) throw new Error(`Anthropic ${res.status}: ${text.slice(0, 300)}`);
+          return anthropicJsonResult(JSON.parse(text));
+        });
+        await new Promise((x) => setTimeout(x, 300));
+        const mine = record.usage.filter((u) => u?.run_id === runId);
+        replies.claude[key] = {
+          kind,
+          model: kind === 'pass' ? body?.model : 'claude-sonnet-5-5',
+          output,
+          cents: centsOf(mine),
+          ms: Date.now() - t0,
+          tokens: mine.reduce((t, u) => ({ in: t.in + (Number(u?.input_tokens) || 0), out: t.out + (Number(u?.output_tokens) || 0) }), { in: 0, out: 0 }),
+        };
+        saveReplies();
+        return JSON.parse(JSON.stringify(output));
+      }
       needs.set(key, { key, kind, body });
       // kept as soon as it is known, for a run cut short
       writeFileSync(repliesPath.replace(/(-replies)?\.json$/, '-needs.json'), JSON.stringify([...needs.values()], null, 2));
@@ -1295,7 +1328,7 @@ const JOBS = {
 
     const PASS_JUDGE = `You compare two sets of notes a companion app wrote about one person from the same week of their life, A and B. You are given what the app knew: who the person is and today's date, and the records it was given for the week. The notes are in parts: the Life Map (the areas of their life and the threads running through each), the Worlds (a headline across them, the ones featured, and a note on each), the Chapters (a note on each), the profile, notes on people, the questions the app will ask them, the week note, and the plan for their weekly summary.
 
-For each part both sets have, decide which one the person would rather have, or that there is nothing between them. What matters, in this order: everything said is held by the records, with nothing invented, overstated, out of date or put on the wrong day or person; it is specific to their life rather than true of anyone; it says what is current and what has moved on; it is warm without flattery and plain to read; and anything private or about their health stays off the Worlds headline, the week note and the summary plan's character and line, which others may glance at. Length is not a merit in itself.
+For each part both sets have, decide which one the person would rather have, or that there is nothing between them. What matters, in this order: everything said is held by the records, with nothing invented, overstated, out of date or put on the wrong day or person; it is specific to their life rather than true of anyone; it says what is current and what has moved on; it is warm without flattery and plain to read; and anything private or about their health stays off the Worlds headline, the week note and the summary plan's character and line, which others may glance at. Length is not a merit in itself. Notes on Worlds and Chapters, the Worlds headline and the week note may speak to the person or be written about them: which one counts for neither set, though a part that mixes the two reads worse.
 
 Then list every statement in either set that the records do not hold, each as the words it uses and what the records hold instead. Answer in JSON only.`;
     const SUMMARY_JUDGE = `You compare two weekly summaries a companion app wrote for one person, for the same week, A and B, each given as its opening and its cards in order. You are given what the app knew: who the person is and today's date, and the records it was given for the week.
@@ -1401,7 +1434,7 @@ Then list every statement in either summary that the records do not hold, each a
           try {
             output =
               side === 'sonnet'
-                ? fromClaude('pass', p.params)
+                ? await fromClaude('pass', p.params)
                 : await fromOther('pass', p.jsonArgs, async () => (await jsonCall(env, { primary: spec(other), fallback: null, ...p.jsonArgs, effort: 'medium' })).output);
           } catch (err) {
             if (err.message === NEEDS) {
@@ -1411,9 +1444,12 @@ Then list every statement in either summary that the records do not hold, each a
             sides[side] = { stage: 'the pass failed', error: String(err?.message || err).slice(0, 400) };
             continue;
           }
-          const passReply = side === 'sonnet' ? replies.claude[keyOf(p.params)] : replies.other[keyOf({ other, kind: 'pass', body: p.jsonArgs })];
+          const passReply = side === 'sonnet' ? replies.claude[keyOf(sample ? { sample, body: p.params } : p.params)] : replies.other[keyOf({ other, kind: 'pass', body: p.jsonArgs })];
           const shape = weekly.weeklyShapeProblems(output);
+          const raw = output;
           const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: `shadow-compare-${side}`, today: p.today });
+          // what would be kept: the notes as the check left them (stage 7)
+          if (applied.output) output = applied.output;
           const run = { id: `shadow-compare-${side}`, model: passReply?.model, prompt_version: weekly.WEEKLY_PROMPT_VERSION, status: 'applied', input_stats: { refs: p.refsSnapshot, counts: p.counts, today: p.today }, output };
           let summary = null;
           const waitingBefore = needs.size;
@@ -1449,7 +1485,9 @@ Then list every statement in either summary that the records do not hold, each a
             shape,
             applied: applied?.applied ?? null,
             skipped: applied?.skipped ?? null,
+            check: applied?.check ? { counts: applied.check.counts, left_out: applied.check.left_out, details: (applied.check.details || []).map((x) => ({ key: x.key, outcome: x.outcome, first: (x.first || []).map((y) => y.say), ...(x.second ? { second: x.second.map((y) => y.say) } : {}), texts: x.texts })) } : null,
             view: passView(output, p.refsSnapshot),
+            raw_view: raw === output ? null : passView(raw, p.refsSnapshot),
             summary,
             deck: summary?.content ? deckLines(summary.content) : null,
           };
@@ -1457,7 +1495,7 @@ Then list every statement in either summary that the records do not hold, each a
 
         // what the week had before: the weekly pass that ran live for it, and
         // the summary the old path sent
-        const [live] = await fetchRows(`synthesis_runs?user_id=eq.${userId}&kind=eq.weekly&period_end=eq.${weekEnd}&status=eq.applied&select=model,prompt_version,created_at,input_stats,output&order=created_at.desc&limit=1`);
+        const [live] = await fetchRows(`synthesis_runs?user_id=eq.${userId}&kind=eq.weekly&period_end=eq.${weekEnd}&status=in.(applied,shadow)&select=model,prompt_version,created_at,status,input_stats,output&order=status.asc,created_at.desc&limit=1`);
         let before = null;
         if (live?.output) {
           const liveRefs = Array.isArray(live.input_stats?.refs) ? live.input_stats.refs : [];
@@ -1467,6 +1505,7 @@ Then list every statement in either summary that the records do not hold, each a
             model: live.model,
             prompt_version: live.prompt_version,
             created_at: live.created_at,
+            status: live.status,
             view: passView(live.output, liveRefs),
             // what it was given that this week's input no longer holds, so a
             // judge does not count it against the earlier pass

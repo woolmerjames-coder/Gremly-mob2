@@ -236,6 +236,8 @@ export interface HeroBody {
   stat_strip: { value: string; label: string; source: SourceRef }[];
   sources: SourceRef[];
   image_hint?: string; // tone-matched scenic/textural keywords for Unsplash banner; resolved to image_url by the worker
+  /** The opening fell back to the plan's character and the week's figures, with no words of its own (stage 7). */
+  fallback?: boolean;
 }
 
 /**

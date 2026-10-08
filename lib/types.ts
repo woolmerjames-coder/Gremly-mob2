@@ -1690,7 +1690,9 @@ export interface V07MoodCell {
 }
 
 export interface V07HeroBody {
+  /** Empty when the opening fell back to the week's character and figures. */
   subtitle: string;
+  fallback?: boolean;
   classification_chip: string;
   mood_arc: V07MoodCell[];
   stat_strip: { value: string; label: string; source: V07SourceRef }[];

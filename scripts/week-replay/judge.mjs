@@ -74,8 +74,11 @@ export async function callJudge(j, system, user) {
     } catch {
       if (status === 429 || status >= 500 || !text) {
         await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt));
+        if (attempt === 3) console.error(`the judge gave no reply (${status})`);
         continue;
       }
+      // a verdict that cannot be read is said, never taken as a verdict
+      console.error(`the judge's reply could not be read (${status}): ${text.slice(0, 200)}`);
       return null;
     }
   }

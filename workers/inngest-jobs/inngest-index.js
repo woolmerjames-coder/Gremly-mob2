@@ -401,6 +401,19 @@ const weeklySummaryV07Worker = inngest.createFunction(
         runRpc,
         fetchRows,
         ask: askWords,
+        // a second reader of another family, asked only when the first says a
+        // card does not hold (data fabric stage 7)
+        confirm: async (req) =>
+          (
+            await jsonCall(env, {
+              primary: modelFor(env, 'checkSecond'),
+              fallback: null,
+              ...req,
+              maxTokens: 1500,
+              effort: 'low',
+              thinking: 'low',
+            })
+          ).output,
         statuses,
       });
     // the check's row is something to watch, never a gate: a row that cannot

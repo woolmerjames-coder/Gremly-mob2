@@ -10,6 +10,7 @@ import {
   buildPlanWriterPrompt,
   checkDeck,
   deckParts,
+  fallbackHero,
   finishDeck,
   recordLines,
   writePlannedDeck,
@@ -477,7 +478,7 @@ test('what they added to their list or did is a record a card rests on, unless i
   ]);
 });
 
-test('a hero that still does not hold is written once more, alone, before there is no deck', async () => {
+test('a hero that still does not hold is written three times more, alone and at once, before it falls back', async () => {
   const { brief, f } = setup();
   const write = jest.fn(async (u) => (u.rest ? deck().cards[0] : deck()));
   let heroAsked = 0;
@@ -487,8 +488,8 @@ test('a hero that still does not hold is written once more, alone, before there 
     return { not_held: hero && heroAsked < 3, what: 'not held' };
   });
   const r = await writePlannedDeck({}, brief, f, { ask, write, today: WEEK[6], person: null });
-  // the deck, the hero alone, and the hero alone once more
-  expect(write).toHaveBeenCalledTimes(3);
+  // the deck, the hero alone, then three heroes alone at once; the first of them holds
+  expect(write).toHaveBeenCalledTimes(5);
   expect(write.mock.calls.slice(1).every((c) => c[0].rest.includes('card 0, hero'))).toBe(true);
   expect(heroAsked).toBe(3);
   expect(r.attempts).toBe(3);
@@ -509,4 +510,73 @@ test('a number code cannot find is laid only on the parts whose own words hold i
     .map(([k]) => k);
   expect(owners).toEqual(['2']);
   expect(c.deck).toEqual([]);
+});
+
+
+// ── stage 7: the summary always reaches the person ─────────────────────────
+
+test('a second reader of another family is asked only when the first says a card does not hold, and its yes keeps the card', async () => {
+  const { brief, f } = setup();
+  const ask = jest.fn(async (req) => ({ not_held: /four evenings/.test(req.user), what: 'not held' }));
+  const confirm = jest.fn(async () => ({ not_held: false, what: null }));
+  const c = await checkDeck(deck(), brief, f, { ask, confirm, today: WEEK[6], person: null });
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect([...c.parts.keys()]).toEqual([]);
+  expect(c.held_by_second).toEqual(['2']);
+  // both say it does not hold: it does not
+  const c2 = await checkDeck(deck(), brief, f, { ask, confirm: async () => ({ not_held: true, what: 'x' }), today: WEEK[6], person: null });
+  expect([...c2.parts.keys()]).toEqual(['2']);
+  // the second cannot be asked: the first answer stands
+  const c3 = await checkDeck(deck(), brief, f, { ask, confirm: async () => { throw new Error('down'); }, today: WEEK[6], person: null });
+  expect([...c3.parts.keys()]).toEqual(['2']);
+});
+
+test('a card sent back alone is told to change only the words that do not hold', async () => {
+  const { brief, f } = setup();
+  const write = jest.fn(async (u) => (!u.rest ? deck() : deck().cards[2]));
+  const ask = async (req) => ({ not_held: /four evenings/.test(req.user), what: 'not held' });
+  await writePlannedDeck({}, brief, f, { ask, write, today: WEEK[6], person: null });
+  expect(write.mock.calls[1][0].rest).toContain('changing only the words that do not hold, as little as you can');
+});
+
+test('a hero that still does not hold is written three times more at once, and the first that holds is kept', async () => {
+  const { brief, f } = setup();
+  let heroTries = 0;
+  const write = jest.fn(async (u) => {
+    if (!u.rest) return deck();
+    heroTries += 1;
+    const hero = deck().cards[0];
+    // the third try holds
+    hero.body.subtitle = heroTries === 3 ? 'Boxes packed.' : 'Boxes every single day.';
+    return hero;
+  });
+  const ask = async (req) => ({ not_held: /every single day|an evening by the river/.test(req.user), what: 'not held' });
+  const r = await writePlannedDeck({}, brief, f, { ask, write, today: WEEK[6], person: null });
+  // the deck, the hero alone, then three heroes at once
+  expect(write).toHaveBeenCalledTimes(5);
+  expect(r.deck.cards[0].body.subtitle).toBe('Boxes packed.');
+  expect(r.hero_fell_back).toBeUndefined();
+});
+
+test("a hero no try can make true falls back to the plan's character and the week's figures, and the deck is sent", async () => {
+  const { brief, f } = setup();
+  const write = jest.fn(async (u) => (!u.rest ? deck() : deck().cards[0]));
+  const ask = async (req) => ({ not_held: /an evening by the river|Getting ready/.test(req.user), what: 'not held' });
+  const r = await writePlannedDeck({}, brief, f, { ask, write, today: WEEK[6], person: null });
+  expect(r.hero_fell_back).toBe(true);
+  expect(r.deck).not.toBeNull();
+  const hero = r.deck.cards[0];
+  expect(hero).toMatchObject({ shape: 'hero', eyebrow: '', headline: '' });
+  expect(hero.body).toMatchObject({ subtitle: '', classification_chip: 'A week of getting ready', fallback: true });
+  expect(hero.body.stat_strip).toEqual(deck().cards[0].body.stat_strip);
+  expect(r.deck.cards.map((c) => c.shape)).toEqual(['hero', 'moment', 'stat', 'letter']);
+  const row = summaryCheckRow('u', WEEK[6], r);
+  expect(row.details.find((d) => d.field === 'card_0').outcome).toBe('fell_back');
+});
+
+test('the fallback hero keeps only what code wrote, beside the character', () => {
+  const hero = fallbackHero(deck().cards[0], 'A week of getting ready');
+  expect(hero.body.mood_arc).toEqual(deck().cards[0].body.mood_arc);
+  expect(hero.body.sources).toEqual(deck().cards[0].body.sources);
+  expect(JSON.stringify(hero)).not.toContain('river');
 });

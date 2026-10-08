@@ -59,6 +59,7 @@ import {
   heroOnly,
   rewriteDeck,
   withHero,
+  writePlannedDeck,
   wrongCards,
 } from '../../workers/inngest-jobs/summaryPlanWriter.ts';
 import { sanitizeDeckProse } from '../../workers/inngest-jobs/summaryWriter.ts';
@@ -263,18 +264,43 @@ async function runPass() {
           } else {
             output = (await jsonCall(env, { primary: m, ...p.jsonArgs, effort: 'medium' })).output;
           }
+          // the pass's own cost, then its notes through the check (stage 7), counted apart
+          const passUsage = usage.length;
           const applied = await applyWeekly(env, USER, output, p.refsSnapshot, {
             shadow: true,
             runId: `replay-${i}`,
             today: p.today,
           });
-          return { input_chars: p.inputChars, refs: p.refsSnapshot, counts: p.g.counts, output, applied: applied.applied };
+          const checkCents = cents(usage.slice(passUsage));
+          return {
+            input_chars: p.inputChars,
+            refs: p.refsSnapshot,
+            counts: p.g.counts,
+            output,
+            // the notes as the check left them, which is what would be kept
+            checked: applied.output,
+            check: {
+              counts: applied.check?.counts ?? null,
+              left_out: applied.check?.left_out ?? [],
+              cents: checkCents,
+              details: (applied.check?.details || []).map((x) => ({
+                key: x.key,
+                outcome: x.outcome,
+                first: (x.first || []).map((y) => y.say),
+                ...(x.second ? { second: x.second.map((y) => y.say) } : {}),
+                texts: x.texts,
+              })),
+            },
+            applied: applied.applied,
+          };
         }, 'replay-weekly');
       } catch (err) {
         rec = { error: String(err?.stack || err).slice(0, 1500) };
       }
       await new Promise((r) => setTimeout(r, 300));
-      const checks = rec.error ? [] : checkPass(s, rec.output, rec.refs);
+      // the code checks read what would be kept; what the model wrote is kept beside it
+      const checks = rec.error ? [] : checkPass(s, rec.checked || rec.output, rec.refs);
+      const rawChecks = rec.error ? [] : checkPass(s, rec.output, rec.refs);
       rec = {
         scenario: s.id,
         i,
@@ -283,14 +309,21 @@ async function runPass() {
         cents: cents(usage),
         tokens: tokens(usage),
         checks,
+        raw_checks: rawChecks,
         ...rec,
       };
       writeFileSync(join(dir, `${s.id}-${i}.json`), JSON.stringify(rec, null, 2));
       const failed = checks.filter((c) => !c.ok);
       lines.push(`- ${rec.error ? 'ERROR' : failed.length ? 'FAIL ' : 'ok   '} ${s.id} ${i} | ${rec.cents} cents | ${rec.tokens.in} in, ${rec.tokens.out} out${rec.error ? ` | ${rec.error.split('\n')[0]}` : ''}`);
       for (const c of failed) lines.push(`    missed: ${c.name}${c.detail ? ` (${c.detail.slice(0, 200)})` : ''}`);
+      if (!rec.error && rec.check) {
+        const c = rec.check;
+        lines.push(`    check: ${c.counts ? `${c.counts.checked} read, ${c.counts.sent_back} sent back, ${c.counts.left_out} left out, ${c.counts.held_by_second ?? 0} held by the second reader` : 'not run'} | ${c.cents} cents`);
+        for (const x of c.details) lines.push(`    ${x.outcome}: ${x.key}: ${[...(x.first || []), ...(x.second || [])].join('; ').slice(0, 220)}`);
+        for (const x of rawChecks.filter((y) => !y.ok)) lines.push(`    the model alone missed: ${x.name}`);
+      }
       if (!rec.error) {
-        const plan = rec.output.summary_plan || {};
+        const plan = (rec.checked || rec.output).summary_plan || {};
         lines.push(`    character: ${plan.character} | line: ${plan.through_line}`);
         for (const c of plan.cards || []) lines.push(`    card: ${c.about}`);
         lines.push(`    applied: ${JSON.stringify({ threads: rec.applied?.threads, worlds: rec.applied?.worlds, chapters: rec.applied?.chapters, questions: rec.applied?.questions })}`);
@@ -330,7 +363,7 @@ async function judgePass() {
     const s = SCENARIOS.find((x) => x.id === rec.scenario);
     const refs = new Map(rec.refs);
     const privateFacts = s.tables.life_facts.filter((x) => x.private || x.health).map((x) => x.statement);
-    const plan = rec.output.summary_plan || {};
+    const plan = (rec.checked || rec.output).summary_plan || {};
     const out = { file: f, notes: [] };
     if (privateFacts.length) {
       out.plan = await callJudge(
@@ -342,10 +375,10 @@ async function judgePass() {
       out.week_note = await callJudge(
         JUDGE,
         PLAN_JUDGE.replace("and the week's character from the plan, which is the first thing the person sees when they open their summary, and which others may see over their shoulder.", "and a note on their week that their weekly review may show them, and which others may see over their shoulder.").replace('whether the character names', 'whether the note names'),
-        `PRIVATE OR ABOUT HEALTH:\n${privateFacts.map((x) => `- ${x}`).join('\n')}\n\nNOTE: ${rec.output.week_note || ''}`,
+        `PRIVATE OR ABOUT HEALTH:\n${privateFacts.map((x) => `- ${x}`).join('\n')}\n\nNOTE: ${(rec.checked || rec.output).week_note || ''}`,
       );
     }
-    for (const note of rec.output.people_notes || []) {
+    for (const note of (rec.checked || rec.output).people_notes || []) {
       const p = refs.get(note.person_ref);
       const labels = [
         `person: ${p?.name}, ${p?.relationship ? `their ${p.relationship}` : 'who they are to them is not recorded'}`,
@@ -383,7 +416,7 @@ async function judgePass() {
 async function summaryInputs(s, rec) {
   current = dbFor(s);
   setClock(at(s.periodEnd, '18:00'));
-  const run = { id: `replay-${rec.scenario}-${rec.i}`, model: rec.model, prompt_version: WEEKLY_PROMPT_VERSION, status: 'applied', input_stats: { refs: rec.refs, counts: rec.counts }, output: rec.output };
+  const run = { id: `replay-${rec.scenario}-${rec.i}`, model: rec.model, prompt_version: WEEKLY_PROMPT_VERSION, status: 'applied', input_stats: { refs: rec.refs, counts: rec.counts }, output: rec.checked || rec.output };
   const fetchRows = async (path) => (await current.mem.select(path.replace(/^life_facts_now\?/, 'life_facts?'))) || [];
   const runRpc = async (fn, params) => (s.rpc[fn] ? s.rpc[fn](params || {}) : null);
   const weekStart = new RealDate(RealDate.parse(`${s.periodEnd}T12:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
@@ -415,6 +448,32 @@ async function runSummary() {
     const st = existsSync(file) ? readJson(file) : { scenario: rec.scenario, i: rec.i, writer: m.model, cents: { write: 0, check: 0 } };
     const { built, facts, base } = await summaryInputs(s, rec);
     st.dropped = built.dropped;
+    // with every model in reach, the deck is written as the worker writes it,
+    // end to end: the second reader, the repairs, three tries at the opening
+    // and its fallback (stage 7)
+    if (!flag('--steps') && reach[m.provider] && reach.openai && reach.google) {
+      const confirm = async (req) =>
+        (await jsonCall(env, { primary: { provider: 'google', model: 'gemini-3.8-flash' }, fallback: null, ...req, maxTokens: 1500, effort: 'low', thinking: 'low' })).output;
+      usage = [];
+      try {
+        const r = await within(
+          () => writePlannedDeck(wenv, built.brief, facts, { ask, confirm, today: s.periodEnd, person: s.identity, write: (u) => callPlanWriter(wenv, u) }),
+          'replay-summary',
+        );
+        await new Promise((x) => setTimeout(x, 300));
+        const by = (p) => cents(usage.filter((u) => u?.provider === p));
+        st.cents = { write: by(m.provider), check: Math.round((cents(usage) - by(m.provider)) * 1000) / 1000 };
+        st.final = { deck: r.deck, left_out: r.left_out, none: r.none || null };
+        st.whole = { attempts: r.attempts, hero_fell_back: !!r.hero_fell_back, held_by_second: r.held_by_second || [], tries: r.tries };
+      } catch (err) {
+        st.error = String(err?.stack || err).slice(0, 1500);
+      }
+      writeFileSync(file, JSON.stringify(st, null, 2));
+      lines.push(`- ${st.error ? 'ERROR' : st.final?.deck ? 'deck ' : 'NONE '} ${rec.scenario} ${rec.i} | ${st.cents.write} cents writing, ${st.cents.check} checking${st.whole ? ` | ${st.whole.attempts} checks, held by the second reader: ${st.whole.held_by_second.join(' ') || 'none'}${st.whole.hero_fell_back ? ', THE OPENING FELL BACK' : ''}` : ''}${st.error ? ` | ${st.error.split('\n')[0]}` : ''}`);
+      if (st.final?.deck) lines.push(`    shapes: ${st.final.deck.cards.map((c) => c.shape).join(', ')}; left out: ${st.final.left_out.map((x) => `${x.shape} ${x.key}: ${x.why.join('; ').slice(0, 160)}`).join(' | ') || 'none'}`);
+      if (st.final && !st.final.deck) lines.push(`    no deck: ${st.final.none}`);
+      continue;
+    }
     const write = async (rest) => {
       usage = [];
       const raw = await within(() => callPlanWriter(wenv, rest ? { cached: base, rest } : { cached: base }), 'replay-summary-write');
