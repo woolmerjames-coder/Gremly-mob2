@@ -41,8 +41,9 @@ WORLDS_OLD_FIELDS = "keep"
 # Gremly's questions about Chapters (workers/shared/questionRules.js,
 # context/chapterQuestions.js): suggesting one, asking whether one past its
 # dates is over, and the welcome back. Built and replayed in data fabric stage
-# 4c and "off" until the Worlds build can act on an answer; "on" switches them on.
-CHAPTER_QUESTIONS = "off"
+# 4c; on since 8 Oct, when their answers came to be acted on
+# (context/chapterAnswers.js). "off" stops new ones being asked.
+CHAPTER_QUESTIONS = "on"
 # The weekly summary from the weekly pass (summaryFromPass.ts, data fabric
 # stage 5): "off" sends the old summary only; "beside" sends the old one and
 # writes the new one beside it in shadow_runs for James to read; "on" sends the

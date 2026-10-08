@@ -26,6 +26,7 @@ import { refreshLifeMapStory } from './story';
 import { invalidateChatCache } from './cache';
 import { peopleAfterCorrection } from './people';
 import { answerPersonQuestion, settleGuess } from './peopleQuestions';
+import { answerChapterQuestion, CHAPTER_QUESTION_KINDS } from './chapterAnswers';
 import { personNow } from '../../shared/day.js';
 import { restingPassages, rewritePassages, glanceable, tidyDay, moveDayRefs } from './correctionPassages';
 
@@ -331,9 +332,11 @@ export async function applyCorrection(env, correctionId, runId) {
   let restsOn = [];
   if (correction.surface === 'question' && /^[0-9a-f-]{36}$/i.test(correction.target_ref?.id || '')) {
     const [asked] = await d.select(
-      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change,rests_on`,
+      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change,rests_on,record_id,created_at`,
     );
     if (asked?.kind === 'person') return applyPersonAnswer(env, { correction, question: asked });
+    // a Chapter started, closed or moved on their answer (context/chapterAnswers.js)
+    if (CHAPTER_QUESTION_KINDS.includes(asked?.kind)) return applyChapterAnswer(env, { correction, question: asked });
     if (asked?.kind === 'tidy') {
       const done = await applyTidyAnswer(env, { correction, question: asked });
       if (done) return done;
@@ -761,6 +764,37 @@ async function applyPersonAnswer(env, { correction, question }) {
       result,
       await answerPersonQuestion(env, { userId, question, said: correction.said }),
     );
+    if (result.answers) {
+      await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, {
+        status: 'answered',
+        answer: trim(correction.said, 1000),
+        answered_at: nowIso,
+      });
+      result.question_answered = question.id;
+    } else {
+      result.question_left_open = question.id;
+    }
+  }
+  await invalidateChatCache(env, userId);
+  await d.update(`user_corrections?id=eq.${correction.id}`, {
+    status: 'applied',
+    applied_at: nowIso,
+    result,
+  });
+  return result;
+}
+
+/**
+ * Apply an answer to a question about a Chapter, and close the question when
+ * the answer answers it; touch no fact.
+ */
+async function applyChapterAnswer(env, { correction, question }) {
+  const d = db(env);
+  const userId = correction.user_id;
+  const nowIso = new Date().toISOString();
+  const result = { chapter_question: question.id };
+  if (question.status !== 'answered') {
+    Object.assign(result, await answerChapterQuestion(env, { userId, question, said: correction.said }));
     if (result.answers) {
       await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, {
         status: 'answered',

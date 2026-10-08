@@ -60,6 +60,15 @@ export const PERSON_QUESTION_MIN_FACTS = 3;
 export const WELCOME_BACK_DAYS = 14;
 
 /**
+ * An open Chapter with no end date is asked whether it is over once nothing
+ * new has come into it for this many days (since 18 Oct: until then only a
+ * Chapter past its end date was ever asked, so one with no end date stayed
+ * open for good). A count; whether it is over is the writer's guess and the
+ * person's answer.
+ */
+export const CHAPTER_QUIET_DAYS = 28;
+
+/**
  * Not seen in the app for more than this many days, they are away: nothing new
  * is asked about a Chapter until they are back.
  */

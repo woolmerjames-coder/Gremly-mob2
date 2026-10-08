@@ -147,6 +147,26 @@ export const CLOSES = [
     },
     right: ['still_going', 'moved'],
   },
+  // no end date, and nothing new filed in it for a while (since 18 Oct)
+  {
+    chapter: { ...chapter('c-10k', 'Training for the city 10K', 'w-running', '2026-03-01', null), quiet_since: '2026-05-18' },
+    records: {
+      items: [
+        item('note', 'Race day', 'Ran the city 10K this morning, legs like jelly but so proud', '2026-05-17'),
+        item('todo', 'Tempo run', 'Tempo run, 6k at race pace', '2026-05-10'),
+      ],
+      facts: [{ statement: 'Planned to run the city 10K on 17 May', about_date: '2026-05-17', state: 'planned', private: false, health: false }],
+    },
+    right: ['over'],
+  },
+  {
+    chapter: { ...chapter('c-guitar', 'Learning the guitar', 'w-home', '2026-02-01', null), quiet_since: '2026-08-20' },
+    records: {
+      items: [item('note', 'Guitar', 'Got through the whole of the first song without stopping', '2026-08-20')],
+      facts: [{ statement: 'Practises the guitar most evenings', about_date: null, state: 'current', private: false, health: false }],
+    },
+    right: ['still_going', 'unsure'],
+  },
   {
     chapter: chapter('c-spanish', 'Spanish evening class', 'w-work', '2026-09-01', '2026-10-01'),
     records: {
@@ -182,3 +202,36 @@ export const WELCOME = {
     },
   ],
 };
+
+/**
+ * Made up answers to the Chapter questions, for the answer reader
+ * (context/chapterAnswers.js). Each gives whether the words answer the
+ * question, the outcomes that are right for them, and the days they give,
+ * when they give any.
+ */
+const RACE_CH = { id: 'ch-race', title: 'Training for the city 10K', phase: 'active', start_date: '2026-06-01', end_date: '2026-09-20', end_date_source: 'synthesis', closed_at: null };
+const GARDEN_CH = { id: 'ch-garden', title: 'Garden redesign', phase: 'active', start_date: '2026-08-01', end_date: '2026-09-30', end_date_source: 'synthesis', closed_at: null };
+const raceQ = { kind: 'close_chapter', question: 'Training for the city 10K had its day on 20 September. Is it behind you now?', proposed_change: { type: 'close', chapter_id: 'ch-race', guess: 'over' } };
+const portoQ = {
+  kind: 'start_chapter',
+  question: 'Your Porto plans are coming together. Would you like to make "Porto trip" a Chapter?',
+  proposed_change: { type: 'start', title: 'Porto trip', world_id: 'w-travel', start_date: '2026-11-10', end_date: '2026-11-14' },
+};
+const gardenQ = { kind: 'while_away', question: 'Welcome back! Did the Garden redesign get finished while you were away?', proposed_change: { type: 'while_away', chapter_id: 'ch-garden', guess: 'over' } };
+
+export const ANSWERS = [
+  { key: 'race-tap-over', question: raceQ, chapter: RACE_CH, said: "It's over", answers: true, right: ['over'] },
+  { key: 'race-ran-it', question: raceQ, chapter: RACE_CH, said: 'Yes, ran it and finished it on the day', answers: true, right: ['over'] },
+  { key: 'race-moved', question: raceQ, chapter: RACE_CH, said: 'No, the race got moved to 15 November so I am still training', answers: true, right: ['moved'], end: '2026-11-15' },
+  { key: 'race-going', question: raceQ, chapter: RACE_CH, said: 'Still going', answers: true, right: ['going'] },
+  { key: 'race-pulled-out', question: raceQ, chapter: RACE_CH, said: 'I pulled out, it is not happening for me this year', answers: true, right: ['not_happening', 'over'] },
+  { key: 'race-not-sure', question: raceQ, chapter: RACE_CH, said: 'Not sure yet', answers: null, right: ['unsure', null] },
+  { key: 'race-what', question: raceQ, chapter: RACE_CH, said: 'What do you mean?', answers: false, right: [null, 'unsure'] },
+  { key: 'race-else', question: raceQ, chapter: RACE_CH, said: 'Can you remind me to buy oat milk tomorrow', answers: false, right: [null, 'unsure'] },
+  { key: 'porto-yes', question: portoQ, said: 'Yes', answers: true, right: ['start'] },
+  { key: 'porto-later', question: portoQ, said: 'Not right now', answers: true, right: ['later'] },
+  { key: 'porto-no', question: portoQ, said: 'No thanks', answers: true, right: ['no'] },
+  { key: 'porto-other-days', question: portoQ, said: 'Yes, but it is actually 12 to 16 November', answers: true, right: ['start'], start: '2026-11-12', end: '2026-11-16' },
+  { key: 'garden-done', question: gardenQ, chapter: GARDEN_CH, said: 'Finished it last week', answers: true, right: ['over'] },
+  { key: 'garden-later', question: gardenQ, chapter: GARDEN_CH, said: 'Nope, still at it, it should be done by the end of October', answers: true, right: ['moved', 'going'], end: '2026-10-31' },
+];
