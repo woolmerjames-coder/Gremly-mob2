@@ -32,6 +32,7 @@ or with an apikey that is not the public anon key.
     scripts/shadow/run.sh story      --user <uuid> --replies <file>
     scripts/shadow/run.sh person-words --user <uuid> [--weekly-replies <file> --week-end YYYY-MM-DD]
     scripts/shadow/run.sh weekly-summary --user <uuid> --at ISO --replies <file> [--rpc-from <file>]
+    scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--rpc-from <file>]
     scripts/shadow/run.sh ledger     --user <uuid> [--from ISO] [--to ISO]
     scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
     scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
@@ -46,7 +47,14 @@ names facts to read as not yet private, which no change row records, and
 `--as-is` reads live as it stands. `--said` replays it with other words in
 place of what was said.
 
-The story, person-words and weekly-summary jobs need Claude. Where Claude
+weekly-compare runs the weekly pass and the summary from it for one real
+week with Sonnet and with another model (`--other`, GPT-6.1 Sol unless named)
+on the same saved input, beside the pass that ran live for that week and the
+summary the old path sent. `--judge` reads each pair blind, once in each
+order, against the week's records, and a verdict stands only when both orders
+agree.
+
+The story, person-words, weekly-summary and weekly-compare jobs need Claude. Where Claude
 cannot be reached they read its answers from a replies file kept beside the
 shadow output, never in the repo, and save what still needs one beside it
 (`<name>-needs.json`) for `scripts/weekly-replay/run.sh answer` to fill.

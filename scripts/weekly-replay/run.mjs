@@ -4,7 +4,7 @@
  * (summaryFromPass.ts), run over made up weeks (scenarios.mjs) with the real
  * models, before any change to their prompts or models is deployed.
  *
- *   scripts/weekly-replay/run.sh pass --model sonnet|luna|sol [--repeat n] [--only a,b] [--label x]
+ *   scripts/weekly-replay/run.sh pass --model sonnet|luna|sol|sol61 [--repeat n] [--only a,b] [--label x]
  *   scripts/weekly-replay/run.sh judge --from <pass dir>
  *       the checks that need a model on another provider: each note on a
  *       person asked the check's words question, and a judge reading the
@@ -74,6 +74,7 @@ const MODELS = {
   sonnet: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
   luna: { provider: 'openai', model: 'gpt-6-luna' },
   sol: { provider: 'openai', model: 'gpt-6-sol' },
+  sol61: { provider: 'openai', model: 'gpt-6.1-sol' },
   flash: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 const CHECK = { provider: 'openai', model: 'gpt-6-luna' };
@@ -599,6 +600,7 @@ async function answerNeeds() {
   const answerOne = async (n) => {
     if (replies.claude[n.key]) return `${n.kind} ${n.key}: answered before`;
     const runId = `answer-${n.key}`;
+    const t0 = Date.now();
     const output = await aiContext.run(
       { env, worker: 'replay', job: `shadow-${n.kind}`, userId: 'shadow', runId },
       async () => {
@@ -627,6 +629,7 @@ async function answerNeeds() {
       output,
       cents: cents(mine),
       tokens: tokens(mine),
+      ms: Date.now() - t0,
     };
     return `${n.kind} ${n.key}: ${cents(mine)} cents`;
   };

@@ -41,6 +41,9 @@ const PRICE_TABLE = [
   ['claude-sonnet-4-5', 3, 0.3, 3.75, 15],
   ['claude-haiku-4-5', 1, 0.1, 1.25, 5],
   ['gpt-6-luna', 0.1, 0.01, 0, 0.5],
+  // Sol, priced 8 Oct 2026 for the weekly pass replay against Sonnet
+  ['gpt-6.1-sol', 2, 0.1, 0, 10],
+  ['gpt-6-sol', 2, 0.2, 0, 10],
   ['gpt-4.1-mini', 0.4, 0.1, 0, 1.6],
   ['gpt-4.1-nano', 0.1, 0.025, 0, 0.4],
   ['gpt-4.1', 2, 0.5, 0, 8],

@@ -7,6 +7,7 @@
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"] [--as-is] [--was-open <fact ids>]
  *   scripts/shadow/run.sh story --user <uuid> --replies <file> [--at ISO]
  *   scripts/shadow/run.sh person-words --user <uuid> [--weekly-replies <file> --week-end YYYY-MM-DD]
+ *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--rpc-from <file>]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh reread --user <uuid> [--from ISO] [--to ISO] [--max n]
  *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
@@ -1103,6 +1104,377 @@ const JOBS = {
           left_out: out?.summary?.deck?.left_out?.map((x) => `${x.shape} ${x.key}`),
           cards: deck?.cards?.map((c) => c.shape),
           old_cards: out?.old?.cards?.map((c) => c.shape) ?? null,
+        };
+      },
+    };
+  },
+
+  // Sonnet and another model side by side on one real week, as James asked
+  // on 8 Oct, and both beside what the week had before: the same input to
+  // each, each pass applied in shadow (the Life Map, Gremly's notes on Worlds
+  // and Chapters, the profile, questions, the week note, notes on people and
+  // the summary plan), the summary written from each plan by the same model,
+  // the weekly pass that ran live for the week, and the summary the old path
+  // sent. The input is saved on the first run (--input) and read back after,
+  // so both models answer exactly the same week however the ledger moves.
+  // Claude's answers come from --replies, as in weekly-summary, and what still
+  // needs one is saved beside it; the other model (--other provider:model) is
+  // asked here, its answers kept in the same file. --judge provider:model
+  // reads each pair blind, once in each order, against the week's records;
+  // a part counts as won only when both orders agree.
+  async 'weekly-compare'() {
+    const userId = flag('--user');
+    const weekEnd = flag('--week-end');
+    const repliesPath = flag('--replies');
+    const inputPath = flag('--input');
+    const other = flag('--other') || 'openai:gpt-6.1-sol';
+    const judgeWith = flag('--judge');
+    if (!userId || !weekEnd || !repliesPath || !inputPath) fail('weekly-compare needs --user, --week-end, --replies and --input');
+    const replies = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : {};
+    for (const k of ['claude', 'check', 'other', 'judge']) replies[k] = replies[k] || {};
+    const keyOf = (x) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 24);
+    const needs = new Map();
+    const NEEDS = 'this needs an answer from Claude, saved beside the replies';
+    const spec = (x) => {
+      const [provider, model] = String(x).split(':');
+      return { provider, model };
+    };
+    const centsOf = (rows) => Math.round(rows.reduce((t, u) => t + (Number(u?.cost_usd) || 0), 0) * 100000) / 1000;
+    const centsSince = (n) => centsOf(record.usage.slice(n));
+    const fromClaude = (kind, body) => {
+      const key = keyOf(kind === 'write' ? { v: stage5Writer.PLAN_WRITER_VERSION, body } : body);
+      const r = replies.claude[key];
+      if (r) return JSON.parse(JSON.stringify(r.output));
+      needs.set(key, { key, kind, body });
+      throw new Error(NEEDS);
+    };
+    // the other model's answer, asked once and kept
+    const fromOther = async (kind, body, call) => {
+      const key = keyOf({ other, kind, body });
+      if (replies.other[key]) return JSON.parse(JSON.stringify(replies.other[key].output));
+      const n = record.usage.length;
+      const t0 = Date.now();
+      const output = await call();
+      await new Promise((r) => setTimeout(r, 300));
+      const mine = record.usage.slice(n);
+      replies.other[key] = {
+        kind,
+        model: spec(other).model,
+        output,
+        cents: centsOf(mine),
+        ms: Date.now() - t0,
+        tokens: mine.reduce((t, u) => ({ in: t.in + (Number(u?.input_tokens) || 0), cached: t.cached + (Number(u?.cached_input_tokens) || 0), out: t.out + (Number(u?.output_tokens) || 0), thinking: t.thinking + (Number(u?.thinking_tokens) || 0) }), { in: 0, cached: 0, out: 0, thinking: 0 }),
+      };
+      return JSON.parse(JSON.stringify(output));
+    };
+    const headers = { apikey: APIKEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers });
+      if (!res.ok) throw new Error(`fetch ${path} failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return res.json();
+    };
+    const rpcFrom = flag('--rpc-from') ? JSON.parse(readFileSync(flag('--rpc-from'), 'utf8')) : null;
+    const runRpc = async (fn, params) => {
+      if (rpcFrom && fn in rpcFrom) return rpcFrom[fn];
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(params) });
+      if (!res.ok) throw new Error(`rpc ${fn} failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return res.json();
+    };
+    const ask = async (req) => {
+      const key = keyOf(req);
+      if (replies.check[key]) return replies.check[key];
+      const out = (await jsonCall(env, { primary: modelFor(env, 'check'), fallback: modelFor(env, 'checkFallback'), ...req, maxTokens: 1500, effort: 'low', thinking: 'low' })).output;
+      replies.check[key] = out;
+      return out;
+    };
+    const weekStart = new Date(Date.parse(`${weekEnd}T12:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
+
+    // names for the Worlds, Chapters and people a pass speaks of, so a reader
+    // sees what each note is about whichever snapshot its refs came from
+    const names = new Map();
+    const nameRows = async (refPairs) => {
+      const ids = (type) => [...new Set(refPairs.filter(([, v]) => v?.type === type && v.id).map(([, v]) => v.id))].filter((id) => !names.has(id));
+      const worldIds = ids('world');
+      const chapterIds = ids('chapter');
+      if (worldIds.length) for (const w of await fetchRows(`worlds?id=in.(${worldIds.join(',')})&select=id,name`)) names.set(w.id, w.name);
+      if (chapterIds.length) for (const c of await fetchRows(`chapters?id=in.(${chapterIds.join(',')})&select=id,title`)) names.set(c.id, c.title);
+    };
+    // what a pass made, as a person reads it beside another
+    const passView = (output, refPairs) => {
+      const refs = new Map(refPairs || []);
+      const nameOf = (ref) => {
+        const r = refs.get(ref);
+        return (r && (r.name || names.get(r.id))) || null;
+      };
+      const plan = output?.summary_plan;
+      return {
+        life_map: (output?.life_map?.domains || []).map((dm) => ({
+          domain: dm?.name ?? null,
+          attention: dm?.attention ?? null,
+          threads: (dm?.threads || []).map((t) => ({
+            name: t?.name ?? null,
+            status: t?.status ?? null,
+            momentum: t?.momentum ?? null,
+            lifecycle: t?.lifecycle ?? null,
+            importance: t?.importance ?? null,
+            summary: t?.summary ?? null,
+            recent_update: t?.recent_update ?? null,
+          })),
+        })),
+        worlds: {
+          headline: output?.worlds_summary?.headline ?? null,
+          featured: (output?.worlds_summary?.featured || []).map((f) => ({ world: nameOf(f.world_ref), reason: f.reason })),
+          each: (output?.worlds || []).map((w) => ({ world: nameOf(w.world_ref), phase: w.phase, summary: w.summary, priorities: (w.key_priorities || []).map((k) => k?.text).filter(Boolean) })),
+        },
+        chapters: (output?.chapters || []).map((c) => ({ chapter: nameOf(c.chapter_ref), stage: c.stage ?? null, summary: c.summary, priorities: (c.key_priorities || []).map((k) => k?.text).filter(Boolean) })),
+        profile: output?.profile_text ?? null,
+        people_notes: (output?.people_notes || []).map((x) => ({ person: nameOf(x.person_ref), note: x.note })),
+        questions: (output?.questions || []).map((q) => q.question),
+        week_note: output?.week_note ?? null,
+        summary_plan: plan ? { character: plan.character ?? null, through_line: plan.through_line ?? null, cards: (plan.cards || []).map((c) => c.about) } : null,
+      };
+    };
+    const PARTS = ['life_map', 'worlds', 'chapters', 'profile', 'people_notes', 'questions', 'week_note', 'summary_plan'];
+    const has = (v) => v != null && v !== '' && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((x) => !has(x)));
+    // a deck as its lines, card by card, whichever path wrote it
+    const SKIP_KEY = /^(id|key|type|kind|icon|color|colour|emoji|layout|style|metadata|classification|content_version|generated_for_week)$|_id$|refs?$|_refs$|version/i;
+    const deckLines = (content) => {
+      const lineOf = (x) => {
+        const out = [];
+        const walk = (v, k) => {
+          if (k && SKIP_KEY.test(k)) return;
+          if (typeof v === 'string') {
+            if (v.trim()) out.push(v.trim());
+          } else if (typeof v === 'number') out.push(`${k}: ${v}`);
+          else if (Array.isArray(v)) v.forEach((y) => walk(y, k));
+          else if (v && typeof v === 'object') for (const [kk, vv] of Object.entries(v)) walk(vv, kk);
+        };
+        walk(x);
+        return out.join(' | ');
+      };
+      return [
+        ...(content?.through_line ? [`Opening: ${lineOf(content.through_line)}`] : []),
+        ...(content?.cards || []).map((c, i) => `Card ${i + 1}: ${lineOf(c)}`),
+      ];
+    };
+
+    const PASS_JUDGE = `You compare two sets of notes a companion app wrote about one person from the same week of their life, A and B. You are given what the app knew: who the person is and today's date, and the records it was given for the week. The notes are in parts: the Life Map (the areas of their life and the threads running through each), the Worlds (a headline across them, the ones featured, and a note on each), the Chapters (a note on each), the profile, notes on people, the questions the app will ask them, the week note, and the plan for their weekly summary.
+
+For each part both sets have, decide which one the person would rather have, or that there is nothing between them. What matters, in this order: everything said is held by the records, with nothing invented, overstated, out of date or put on the wrong day or person; it is specific to their life rather than true of anyone; it says what is current and what has moved on; it is warm without flattery and plain to read; and anything private or about their health stays off the Worlds headline, the week note and the summary plan's character and line, which others may glance at. Length is not a merit in itself.
+
+Then list every statement in either set that the records do not hold, each as the words it uses and what the records hold instead. Answer in JSON only.`;
+    const SUMMARY_JUDGE = `You compare two weekly summaries a companion app wrote for one person, for the same week, A and B, each given as its opening and its cards in order. You are given what the app knew: who the person is and today's date, and the records it was given for the week.
+
+Decide which one the person would rather open, or that there is nothing between them. What matters, in this order: everything said is held by the records, with nothing invented, overstated or put on the wrong day or person; it is about their week in particular rather than any week; it gives the week its due without padding or repeating itself; it is warm without flattery and plain to read; and anything private or about their health stays off its opening. Length is not a merit in itself.
+
+Then list every statement in either summary that the records do not hold, each as the words it uses and what the records hold instead. Answer in JSON only.`;
+    const verdictSchema = (parts) => ({
+      type: 'object',
+      properties: {
+        ...(parts
+          ? {
+              parts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { part: { type: 'string', enum: parts }, better: { type: 'string', enum: ['A', 'B', 'same'] }, why: { type: 'string' } },
+                  required: ['part', 'better', 'why'],
+                },
+              },
+            }
+          : {}),
+        better: { type: 'string', enum: ['A', 'B', 'same'] },
+        why: { type: 'string' },
+        a_not_held: { type: 'array', items: { type: 'string' } },
+        b_not_held: { type: 'array', items: { type: 'string' } },
+      },
+      required: [...(parts ? ['parts'] : []), 'better', 'why', 'a_not_held', 'b_not_held'],
+    });
+    // one pair, blind, read once in each order; a verdict stands when both agree
+    const judgePair = async (kind, x, y, records, extra) => {
+      if (!judgeWith) return null;
+      const parts = kind === 'pass' ? PARTS.filter((pt) => has(x.view[pt]) && has(y.view[pt])) : null;
+      const body = (v) => (kind === 'pass' ? JSON.stringify(Object.fromEntries(parts.map((pt) => [pt, v[pt]])), null, 1) : v.join('\n'));
+      const reads = [];
+      for (const [a, b] of [
+        [x, y],
+        [y, x],
+      ]) {
+        const user = `${records}${extra?.length ? `\n\nMORE RECORDS, given to one of the two:\n${extra.join('\n')}` : ''}\n\nA:\n${body(a.view)}\n\nB:\n${body(b.view)}`;
+        const key = keyOf({ judgeWith, kind, user });
+        if (!replies.judge[key]) {
+          const n = record.usage.length;
+          const out = await jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: 16000, thinking: 'high', effort: 'high' });
+          replies.judge[key] = { output: out.output, cents: centsSince(n) };
+        }
+        const o = replies.judge[key].output;
+        const who = (v) => (v === 'A' ? a.label : v === 'B' ? b.label : 'same');
+        reads.push({
+          order: [a.label, b.label],
+          better: who(o.better),
+          why: o.why,
+          parts: (o.parts || []).map((pt) => ({ part: pt.part, better: who(pt.better), why: pt.why })),
+          not_held: { [a.label]: o.a_not_held, [b.label]: o.b_not_held },
+          cents: replies.judge[key].cents,
+        });
+      }
+      const agree = (u, v) => (u === v ? u : 'split');
+      return {
+        between: [x.label, y.label],
+        better: agree(reads[0].better, reads[1].better),
+        parts: parts && Object.fromEntries(parts.map((pt) => [pt, agree(reads[0].parts.find((q) => q.part === pt)?.better, reads[1].parts.find((q) => q.part === pt)?.better)])),
+        reads,
+      };
+    };
+
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      ...(rpcFrom ? { rpcAnswer: (fn) => rpcFrom[fn] } : {}),
+      run: async () => {
+        // the week's input, the same for both
+        let p;
+        if (existsSync(inputPath)) p = JSON.parse(readFileSync(inputPath, 'utf8'));
+        else {
+          const made = await weekly.weeklyRequestParams(env, userId, weekEnd);
+          p = { params: made.params, jsonArgs: made.jsonArgs, refsSnapshot: made.refsSnapshot, today: made.today, counts: made.stats?.counts ?? null, input_chars: made.inputChars ?? null };
+          writeFileSync(inputPath, JSON.stringify(p));
+        }
+        await nameRows(p.refsSnapshot);
+        const sides = {};
+        for (const side of ['sonnet', 'other']) {
+          const n = record.usage.length;
+          let output = null;
+          try {
+            output =
+              side === 'sonnet'
+                ? fromClaude('pass', p.params)
+                : await fromOther('pass', p.jsonArgs, async () => (await jsonCall(env, { primary: spec(other), fallback: null, ...p.jsonArgs, effort: 'medium' })).output);
+          } catch (err) {
+            if (err.message === NEEDS) {
+              sides[side] = { stage: 'the pass waits for Claude' };
+              continue;
+            }
+            sides[side] = { stage: 'the pass failed', error: String(err?.message || err).slice(0, 400) };
+            continue;
+          }
+          const passReply = side === 'sonnet' ? replies.claude[keyOf(p.params)] : replies.other[keyOf({ other, kind: 'pass', body: p.jsonArgs })];
+          const shape = weekly.weeklyShapeProblems(output);
+          const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: `shadow-compare-${side}`, today: p.today });
+          const run = { id: `shadow-compare-${side}`, model: passReply?.model, prompt_version: weekly.WEEKLY_PROMPT_VERSION, status: 'applied', input_stats: { refs: p.refsSnapshot, counts: p.counts, today: p.today }, output };
+          let summary = null;
+          try {
+            const r = await stage5Summary.generateSummaryFromPass({
+              userId,
+              weekStart,
+              weekEnd,
+              label: `${userId.slice(0, 8)} · ${weekStart} · ${side}`,
+              env,
+              runRpc,
+              fetchRows,
+              ask,
+              run,
+              write:
+                side === 'sonnet'
+                  ? (user) => fromClaude('write', user)
+                  : (user) => fromOther('write', user, () => stage5Writer.callPlanWriter({ ...env, SUMMARY_WRITER_MODEL: other }, user)),
+            });
+            summary = { outcome: r.outcome, why: r.why || null, content: r.content, left_out: r.deck?.left_out ?? null, dropped: r.dropped };
+          } catch (err) {
+            summary = err.message === NEEDS ? { outcome: 'waits for Claude' } : { outcome: 'error', why: String(err?.message || err).slice(0, 400) };
+          }
+          const writes = Object.values(side === 'sonnet' ? replies.claude : replies.other).filter((x) => x.kind === 'write');
+          sides[side] = {
+            stage: 'done',
+            model: passReply?.model ?? null,
+            pass: { cents: passReply?.cents ?? null, ms: passReply?.ms ?? null, tokens: passReply?.tokens ?? null },
+            write: { cents: Math.round(writes.reduce((t, x) => t + (x.cents || 0), 0) * 1000) / 1000, calls: writes.length },
+            check_cents: centsSince(n),
+            shape,
+            applied: applied?.applied ?? null,
+            skipped: applied?.skipped ?? null,
+            view: passView(output, p.refsSnapshot),
+            summary,
+            deck: summary?.content ? deckLines(summary.content) : null,
+          };
+        }
+
+        // what the week had before: the weekly pass that ran live for it, and
+        // the summary the old path sent
+        const [live] = await fetchRows(`synthesis_runs?user_id=eq.${userId}&kind=eq.weekly&period_end=eq.${weekEnd}&status=eq.applied&select=model,prompt_version,created_at,input_stats,output&order=created_at.desc&limit=1`);
+        let before = null;
+        if (live?.output) {
+          const liveRefs = Array.isArray(live.input_stats?.refs) ? live.input_stats.refs : [];
+          await nameRows(liveRefs);
+          const newIds = new Set(p.refsSnapshot.map(([, v]) => v?.id).filter(Boolean));
+          before = {
+            model: live.model,
+            prompt_version: live.prompt_version,
+            created_at: live.created_at,
+            view: passView(live.output, liveRefs),
+            // what it was given that this week's input no longer holds, so a
+            // judge does not count it against the earlier pass
+            extra: liveRefs
+              .filter(([, v]) => v?.id && !newIds.has(v.id) && (v.statement || v.title))
+              .map(([, v]) => `- ${v.statement || v.title}${v.about_date ? ` (${v.about_date})` : ''}${v.private || v.health ? ' [private]' : ''}`),
+          };
+        }
+        const [oldSummary] = await fetchRows(`weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekStart}&select=content,created_at&limit=1`);
+        const oldDeck = oldSummary?.content ? deckLines(oldSummary.content) : null;
+
+        const records = `WHO THEY ARE AND TODAY:\n${typeof p.jsonArgs.system === 'string' ? '' : p.jsonArgs.system?.varying || ''}\n\nRECORDS OF THE WEEK:\n${p.jsonArgs.user}`;
+        const judged = {};
+        const S = sides.sonnet?.view;
+        const O = sides.other?.view;
+        if (S && O) judged.pass_models = await judgePair('pass', { label: 'sonnet', view: S }, { label: 'other', view: O }, records);
+        if (sides.sonnet?.deck && sides.other?.deck) judged.summary_models = await judgePair('summary', { label: 'sonnet', view: sides.sonnet.deck }, { label: 'other', view: sides.other.deck }, records);
+        if (S && before) judged.pass_before = await judgePair('pass', { label: 'now', view: S }, { label: 'before', view: before.view }, records, before.extra);
+        if (sides.sonnet?.deck && oldDeck) judged.summary_before = await judgePair('summary', { label: 'now', view: sides.sonnet.deck }, { label: 'before', view: oldDeck }, records);
+        return {
+          stage: needs.size ? 'waits for Claude' : 'done',
+          needs: [...needs.values()],
+          week: { start: weekStart, end: weekEnd, input_chars: p.input_chars, refs: p.refsSnapshot.length },
+          sides,
+          before,
+          old_summary: oldSummary ? { created_at: oldSummary.created_at, deck: oldDeck } : null,
+          judged,
+          judge_cents: Object.values(judged).reduce((t, j) => t + (j?.reads || []).reduce((u, r) => u + (r.cents || 0), 0), 0),
+        };
+      },
+      summarise: (out) => {
+        const now = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : {};
+        writeFileSync(
+          repliesPath,
+          JSON.stringify(Object.fromEntries(['claude', 'check', 'other', 'judge'].map((k) => [k, { ...(now[k] || {}), ...replies[k] }])), null, 2),
+        );
+        if (needs.size) writeFileSync(repliesPath.replace(/(-replies)?\.json$/, '-needs.json'), JSON.stringify([...needs.values()], null, 2));
+        const brief = (sd) =>
+          sd && {
+            stage: sd.stage,
+            model: sd.model,
+            pass: sd.pass,
+            write: sd.write,
+            check_cents: sd.check_cents,
+            shape: sd.shape,
+            threads: (sd.view?.life_map || []).reduce((t, dm) => t + dm.threads.length, 0),
+            worlds: sd.view?.worlds?.each?.length,
+            chapters: sd.view?.chapters?.length,
+            people_notes: sd.view?.people_notes?.length,
+            questions: sd.view?.questions?.length,
+            summary: sd.summary?.outcome,
+            deck_cards: sd.summary?.content?.cards?.length ?? null,
+            error: sd.error,
+          };
+        const verdict = (j) => j && { between: j.between, better: j.better, parts: j.parts, each: j.reads.map((r) => r.better) };
+        return {
+          stage: out?.stage,
+          needs: (out?.needs || []).map((x) => `${x.kind} ${x.key}`),
+          sonnet: brief(out?.sides?.sonnet),
+          other: brief(out?.sides?.other),
+          before: out?.before && { model: out.before.model, prompt_version: out.before.prompt_version, extra_records: out.before.extra.length },
+          old_summary_cards: out?.old_summary?.deck?.length ?? null,
+          judged: Object.fromEntries(Object.entries(out?.judged || {}).map(([k, j]) => [k, verdict(j)])),
+          judge_cents: out?.judge_cents,
         };
       },
     };
