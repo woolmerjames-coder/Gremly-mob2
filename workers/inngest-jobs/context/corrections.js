@@ -113,7 +113,7 @@ WHAT TO DO
 - When what they said is given as their answer to one of Gremly's questions, first decide whether it answers it, and say so in answers_question. It answers the question when it tells Gremly what the question was asking, in whole or in part, or tells Gremly the question is wrong, no longer applies or is not one they want to be asked. It does not answer the question when it only asks Gremly something back, or speaks of something else and leaves what was asked as unknown as it was. When there is no question, answers_question is true.
 - When it answers the question, apply the answer the same way: confirm, change, correct or add facts as the answer says. When it does not, the question tells you nothing new about their life: apply only what their own words say, which may be nothing.
 - When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. So rewrite only the passages marked glanceable that name it, and leave every other passage as it is; nothing about it was wrong.
-- If they stated what is true, record it as a new fact in their words.
+- If they stated what is true, record it as a new fact in their words, with the day it is about whenever it has one: for something that comes round every year, the date of one of its days. When the ledger already holds what they say, as they say it, add nothing beside it.
 - For each passage of Gremly-written text that repeats or relies on the wrong or outdated claim, write a replacement that removes it and reads naturally, keeping everything else in the passage as it was. If nothing would be left worth saying, return null for that passage so it is cleared. Leave untouched any passage the correction does not concern; do not list it.
 - Retire any date anchor that only exists because of the wrong claim.
 - Never argue with the correction and never keep the old claim in softened form.
@@ -345,12 +345,12 @@ export async function applyCorrection(env, correctionId, runId) {
   }
 
   const facts = correction.fact_ids?.length
-    ? await d.select(`life_facts_now?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,state,private`)
-    : await d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,state,private&order=last_confirmed_at.desc&limit=300`);
+    ? await d.select(`life_facts_now?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,timing,state,private`)
+    : await d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,timing,state,private&order=last_confirmed_at.desc&limit=300`);
   // what the question was about comes first, wherever it stands
   if (restsOn.length) {
     const about = await d.select(
-      `life_facts_now?id=in.(${restsOn.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,state,private`,
+      `life_facts_now?id=in.(${restsOn.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,timing,state,private`,
     );
     const seen = new Set(about.map((f) => f.id));
     facts.splice(0, facts.length, ...about, ...facts.filter((f) => !seen.has(f.id)));
@@ -365,7 +365,12 @@ export async function applyCorrection(env, correctionId, runId) {
   const factLines = facts.map((f, i) => {
     const ref = `f${i + 1}`;
     factRefs.set(ref, f);
-    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${f.about_date || 'no date'} | ${f.statement}`;
+    // a day that comes round every year is shown as that, so its year is never read as the point
+    const when =
+      f.timing === 'yearly' && f.about_date
+        ? `every year on ${String(f.about_date).slice(5, 10)}`
+        : f.about_date || 'no date';
+    return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${f.statement}`;
   });
 
   const { passages, anchorRefs, anchorLines, lifeMap, worlds, dcoRows, storyItems } = await loadPassages(env, userId, today);
@@ -375,7 +380,7 @@ export async function applyCorrection(env, correctionId, runId) {
 "${trim(correction.said, 1500)}"
 ${question ? `\nTHIS IS THEIR ANSWER TO GREMLY'S QUESTION:\n"${trim(question.question, 400)}"\n` : ''}${correction.target_ref?.text ? `\nTHE TEXT THEY MARKED AS NOT RIGHT:\n"${trim(correction.target_ref.text, 800)}"\n` : ''}${choice ? `WHAT THEY CHOSE: ${choice}\n` : ''}
 ${conversation ? `CONVERSATION AROUND IT:\n${conversation}\n` : ''}
-LEDGER FACTS (ref | state | date | statement):
+LEDGER FACTS (ref | state | date, or its day each year | statement):
 ${factLines.join('\n') || '(none)'}
 
 GREMLY-WRITTEN PASSAGES (ref | where | text):
