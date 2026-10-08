@@ -155,6 +155,7 @@ import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChat
 import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
+import { useAskQuestions } from '../../lib/questions/useAskQuestions';
 import { useNowMinutes } from '../../lib/brief/useDayCard';
 import { selectWrapUp } from '../../lib/store/selectors';
 
@@ -269,7 +270,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // null until Gremly's greeting arrives, so the bubble does not change under you
   const [greeting, setGreeting] = useState<string | null>(null);
   // what waits in the app, for the greeting to mention (set further down)
-  const greetingWaitingRef = useRef({ briefUnread: false, toDecide: 0 });
+  const greetingWaitingRef = useRef<{
+    briefUnread: boolean;
+    toDecide: number;
+    questions: { count: number; needs: number } | null;
+  }>({ briefUnread: false, toDecide: 0, questions: null });
+  // Gremly's questions that may be asked today: Answer some Gremly questions
+  // shows while one needs an answer or several wait (data fabric stage 4f).
+  // An item's chat has no home, so it reads none.
+  const askQuestions = useAskQuestions({ enabled: !item, navigation });
+  const questionsChip = askQuestions.waiting.show ? askQuestions.waiting.count : 0;
 
   // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
   // instead of the greeting, and nothing is sent until the user replies
@@ -281,12 +291,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     // the greeting is a model call: skip it while a drop is attached, and in
     // an item's chat, which opens with Gremly's line about the item instead
     if (item || aboutRef.current || params?.talkAbout) return;
+    // it waits for the first read of Gremly's questions, so it knows whether any wait
+    if (!askQuestions.loaded) return;
     if (!activeChat && userId) {
       callGeneralGreeting(userId, greetingWaitingRef.current).then((g) => {
         setGreeting(g || GREETING_FALLBACK);
       });
     }
-  }, [activeChat, userId]);
+  }, [activeChat, userId, askQuestions.loaded]);
   const [historyVisible, setHistoryVisible] = useState(false);
 
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
@@ -1509,10 +1521,21 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // the ways into the wrap up: the pinned card's line and the Wrap up today chip
   const wrapTeaser = useEveningTeaser();
   const homeChips = useMemo(
-    () => homeChipsFor(phase, { wrap: wrapTeaser.start, planned: wrapTeaser.planned }),
-    [phase, wrapTeaser.start, wrapTeaser.planned],
+    () =>
+      homeChipsFor(phase, {
+        wrap: wrapTeaser.start,
+        planned: wrapTeaser.planned,
+        questions: questionsChip,
+      }),
+    [phase, wrapTeaser.start, wrapTeaser.planned, questionsChip],
   );
-  greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
+  greetingWaitingRef.current = {
+    briefUnread: briefUnreadHere,
+    toDecide,
+    questions: askQuestions.waiting.show
+      ? { count: askQuestions.waiting.count, needs: askQuestions.waiting.needs }
+      : null,
+  };
   const freshHome = !activeChat && !item && !aboutItem;
   const openWrapUp = useCallback(() => {
     // today's thread, then the wrap up starts or picks up where it was left
@@ -1559,10 +1582,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         openWrapUp();
         return;
       }
+      if (key === 'questions') {
+        navigation.navigate('GremlyQuestions');
+        return;
+      }
       const prompt = chipPrompt(key);
       if (prompt) void handleSend(prompt);
     },
-    [openTodayThread, openWrapUp, handleSend],
+    [openTodayThread, openWrapUp, handleSend, navigation],
   );
   // put away while typing, for room to read
   const keyboardOpen = useKeyboardOpen();

@@ -3,8 +3,9 @@
 // (type general-greeting). It is written from what the daily context knows
 // (the life moment, the headline, who is in the day), what is still on the
 // calendar today, and what waits in the app (an unread brief, things to decide
-// tonight, sent by app builds that know them), in the voice of a friend at
-// that hour. The rules are semantic, with no examples or word lists.
+// tonight, Gremly's questions while Answer some Gremly questions shows, sent
+// by app builds that know them), in the voice of a friend at that hour. The
+// rules are semantic, with no examples or word lists.
 // ============================================================================
 
 /** The part of the day at an hour, in words for the prompt. */
@@ -21,7 +22,13 @@ export function partOfDay(hour) {
  * known. focus is getDailyFocusForChat's result; laterToday the calendar
  * entries still to come today, in words.
  */
-export function greetingFacts({ focus, laterToday = [], briefUnread = false, toDecide = 0 }) {
+export function greetingFacts({
+  focus,
+  laterToday = [],
+  briefUnread = false,
+  toDecide = 0,
+  questions = null,
+}) {
   const lines = [];
   if (focus?.lifeMoment) lines.push(`Where their life is: ${focus.lifeMoment}`);
   if (focus?.briefHeadline) lines.push(`Today in a line: ${focus.briefHeadline}`);
@@ -37,6 +44,17 @@ export function greetingFacts({ focus, laterToday = [], briefUnread = false, toD
   if (toDecide > 0)
     lines.push(
       `${toDecide} ${toDecide === 1 ? 'thing waits' : 'things wait'} for a decision before the day closes.`,
+    );
+  // only while the way into them shows on Ask Gremly (data fabric stage 4f)
+  const asked = Number(questions?.count) || 0;
+  const needs = Math.min(asked, Number(questions?.needs) || 0);
+  if (asked > 0)
+    lines.push(
+      `Gremly has ${asked} ${asked === 1 ? 'question' : 'questions'} for them about things it is unsure of, waiting in the app${
+        needs
+          ? `; ${needs === 1 ? 'one is' : `${needs} are`} about something Gremly would rather get right`
+          : ''
+      }.`,
     );
   return lines;
 }

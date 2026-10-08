@@ -97,6 +97,13 @@ test('the numbers are the ones every place that asks keeps to (workers/shared/qu
   const wrap = require('../questions');
   expect(wrap.MOST_QUESTIONS).toBe(rules.QUESTION_CAPS.wrap);
   expect(wrap.ASKED_WAIT_DAYS).toBe(rules.ASKED_WAIT_DAYS);
+  expect([...wrap.QUESTIONS_ONLY_KINDS]).toEqual([...rules.QUESTIONS_ONLY_KINDS]);
+});
+
+test('a question that needs an answer comes first, then the oldest (stage 4f)', () => {
+  const open = [q('old'), q('needs', { weight: 'needs' }), q('older')];
+  const order = pickQuestions(open, none).map((x) => x.id);
+  expect(order[0]).toBe('needs');
 });
 
 test("a welcome back's questions are never asked one by one here", async () => {

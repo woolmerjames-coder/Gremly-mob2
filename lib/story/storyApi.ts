@@ -10,7 +10,8 @@
 
 import { supabase } from '../supabase/client';
 import { callNotRight } from '../cortex/CortexClient';
-import { nowTimestamp } from '../date/DateService';
+import { getDateService, nowTimestamp } from '../date/DateService';
+import { askQuestionsFor, fetchAskQuestions } from '../questions/askQuestions';
 
 export type StoryKind = 'milestone' | 'shift' | 'proud' | 'pattern' | 'person';
 export type PatternKind = 'loves' | 'avoids' | 'often' | 'rarely' | 'rhythm';
@@ -92,15 +93,13 @@ export async function fetchUsage(grain: UsageGrain): Promise<UsagePeriod | null>
   return periods?.[0] ?? null;
 }
 
+/**
+ * Gremly's questions that may be asked today, those that need an answer
+ * first: the ones A few questions for you puts to them (data fabric stage 4f,
+ * lib/questions/askQuestions.ts), so every count of them agrees with it.
+ */
 export async function fetchOpenQuestions(): Promise<GremlyQuestion[]> {
-  const { data, error } = await supabase
-    .from('gremly_questions')
-    .select('id,question,created_at')
-    .in('status', ['open', 'asked'])
-    .order('created_at', { ascending: true })
-    .limit(20);
-  if (error) throw error;
-  return (data ?? []) as GremlyQuestion[];
+  return askQuestionsFor(await fetchAskQuestions(), getDateService().today());
 }
 
 /** Skip: the question is dismissed and nothing about their life changes. */
@@ -126,9 +125,17 @@ export async function markQuestionAsked(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** An answer goes through the correction pipeline, which updates the ledger and marks the question answered. */
-export async function answerQuestion(id: string, answer: string): Promise<boolean> {
-  const res = await callNotRight({ surface: 'question', targetId: id, said: answer });
+/**
+ * An answer goes through the correction pipeline, which updates the ledger and
+ * marks the question answered. pick: on a tidy up, Some of them sends its yes
+ * with the facts they ticked, and only those change.
+ */
+export async function answerQuestion(
+  id: string,
+  answer: string,
+  pick?: string[],
+): Promise<boolean> {
+  const res = await callNotRight({ surface: 'question', targetId: id, said: answer, pick });
   return res.ok;
 }
 

@@ -1,7 +1,8 @@
 /**
  * The chat home's chips (lib/chat/homeChips.ts): a row that scrolls sideways,
  * or wraps onto a second line where the room is narrow (beside Gremly) so
- * none is hidden. Tap one to ask Gremly, or to open the day or the wrap up.
+ * none is hidden. Tap one to ask Gremly, or to open the day, the wrap up or
+ * Gremly's questions, drawn in their own colour with how many wait.
  */
 
 import React from 'react';
@@ -14,7 +15,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { CalendarDays, Moon, Sparkles, Sun, Target } from 'lucide-react-native';
+import { CalendarDays, HelpCircle, Moon, Sparkles, Sun, Target } from 'lucide-react-native';
 import type { HomeChip, HomeChipIcon, HomeChipKey } from '../../lib/chat/homeChips';
 
 const ICONS: Record<HomeChipIcon, typeof Sun> = {
@@ -23,6 +24,7 @@ const ICONS: Record<HomeChipIcon, typeof Sun> = {
   sparkles: Sparkles,
   target: Target,
   moon: Moon,
+  question: HelpCircle,
 };
 
 export type HomeChipsProps = {
@@ -37,6 +39,7 @@ export function HomeChips({ chips, onPress, style, wrap = false }: HomeChipsProp
   if (!chips.length) return null;
   const items = chips.map((chip) => {
     const Icon = ICONS[chip.icon];
+    const asks = chip.count != null;
     return (
       <Pressable
         key={chip.key}
@@ -44,14 +47,28 @@ export function HomeChips({ chips, onPress, style, wrap = false }: HomeChipsProp
         style={({ pressed }) => [
           styles.chip,
           chip.evening && styles.chipEvening,
+          asks && styles.chipQuestions,
           pressed && styles.pressed,
         ]}
         accessibilityRole="button"
-        accessibilityLabel={chip.label}
+        accessibilityLabel={asks ? `${chip.label}, ${chip.count} waiting` : chip.label}
         testID={`home-chip-${chip.key}`}
       >
-        <Icon size={16} color={chip.evening ? '#4A5486' : '#3C6150'} strokeWidth={2} />
-        <Text style={[styles.label, chip.evening && styles.labelEvening]}>{chip.label}</Text>
+        <Icon
+          size={16}
+          color={asks ? '#4A4E7A' : chip.evening ? '#4A5486' : '#3C6150'}
+          strokeWidth={2}
+        />
+        <Text
+          style={[styles.label, chip.evening && styles.labelEvening, asks && styles.labelQuestions]}
+        >
+          {chip.label}
+        </Text>
+        {asks ? (
+          <View style={styles.count}>
+            <Text style={styles.countText}>{chip.count}</Text>
+          </View>
+        ) : null}
       </Pressable>
     );
   });
@@ -93,4 +110,16 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.75 },
   label: { fontFamily: 'Inter-Medium', fontSize: 14, color: '#2E4A3A' },
   labelEvening: { color: '#3B4472' },
+  chipQuestions: { borderColor: 'rgba(74,78,122,0.30)', backgroundColor: '#ECEEFA' },
+  labelQuestions: { color: '#2B2F55' },
+  count: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: '#4A4E7A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countText: { fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF' },
 });

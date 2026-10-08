@@ -1,129 +1,420 @@
 /**
- * Things Gremly is unsure about: the open questions the context pipeline wrote
- * when the person's records left something unclear. Most are answered in the
- * brief or in chat; this list is for clearing them on purpose. An answer goes
- * through the same path as a correction, so it updates everything; Skip just
- * dismisses the question.
+ * A few questions for you (data fabric stage 4f, the mockup James approved on
+ * 8 October): Gremly's questions that may be asked today, one at a time,
+ * those that need an answer first. Opened from Answer some Gremly questions
+ * on Ask Gremly, and from Your story.
+ *
+ * Each answer goes through the same path as a correction, so it updates
+ * everything: a tap sends the answer offered, Something else their own words.
+ * A tidy up (inngest-jobs context/review.js) is done only on their tap: its
+ * yes for every fact it lists, its no for none, or Some of them for the ones
+ * they tick. Not now leaves the question for another day (asked_at), and
+ * nothing about their life changes.
  */
 
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Check, ChevronLeft } from 'lucide-react-native';
+import { Check, ChevronLeft, Circle, CircleCheck } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
-import { useOpenQuestions } from '../../lib/story/useStory';
-import { answerQuestion, dismissQuestion, type GremlyQuestion } from '../../lib/story/storyApi';
+import { useAskQuestions } from '../../lib/questions/useAskQuestions';
+import type { AskQuestion } from '../../lib/questions/askQuestions';
+import { answerQuestion, markQuestionAsked } from '../../lib/story/storyApi';
 
 const C = lightTokens.colors;
 
-type CardState = { mode: 'idle' | 'answering' | 'sending' | 'answered' | 'skipped' | 'failed'; text: string };
+const KEPT_ASIDE = 'Gremly just stops treating them as part of your story.';
+const FAILED = 'That didn’t send. Try again in a moment.';
+
+/** What the receipt says once a question is answered. */
+type Receipt = { id: string; title: string; line: string };
+
+/** The receipt's line for their answer: what they chose, and what it did. Pure. */
+export function receiptLine(
+  q: AskQuestion,
+  answer: { said: string; typed?: boolean; picked?: number },
+): string {
+  const t = q.tidy;
+  if (t) {
+    const yes = answer.said === t.yes;
+    const some = yes && answer.picked != null && answer.picked < t.fact_ids.length;
+    if (!yes) return 'Kept as they are.';
+    if (t.type === 'happened') return some ? `${answer.picked} marked as done.` : 'Marked as done.';
+    const done = some ? `${answer.picked} forgotten.` : 'Forgotten.';
+    return t.from_calendar ? `${done} Your calendar still has them.` : done;
+  }
+  const noted = q.kind === 'person' ? 'Noted.' : 'Updated everywhere.';
+  return answer.typed ? `Thanks. ${noted}` : `${answer.said}. ${noted}`;
+}
+
+/** How a question waiting further on is named in Still to come. Pure. */
+export function stillToCome(q: AskQuestion): string {
+  if (q.tidy) return q.topic ? `A tidy up: ${q.topic}` : 'A tidy up';
+  return q.question;
+}
+
+type Mode = 'choose' | 'typing' | 'some';
 
 export default function GremlyQuestionsScreen() {
-  const nav = useNavigation();
-  const { data: questions, loading } = useOpenQuestions();
-  const [cards, setCards] = useState<Record<string, CardState>>({});
+  const nav = useNavigation<any>();
+  const { askable, loaded } = useAskQuestions({ navigation: nav });
+  // the questions as they stood when the screen opened, so an answer never reorders them
+  const [list, setList] = useState<AskQuestion[] | null>(null);
+  const [at, setAt] = useState(0);
+  const [mode, setMode] = useState<Mode>('choose');
+  const [text, setText] = useState('');
+  const [ticked, setTicked] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
 
-  const get = (id: string): CardState => cards[id] ?? { mode: 'idle', text: '' };
-  const set = (id: string, next: Partial<CardState>) =>
-    setCards((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { mode: 'idle', text: '' }), ...next } }));
+  useEffect(() => {
+    if (loaded && list == null) setList(askable);
+  }, [loaded, askable, list]);
 
-  async function send(q: GremlyQuestion) {
-    const text = get(q.id).text.trim();
-    if (!text) return;
-    set(q.id, { mode: 'sending' });
-    const ok = await answerQuestion(q.id, text);
-    set(q.id, { mode: ok ? 'answered' : 'failed' });
+  const total = list?.length ?? 0;
+  const q = list && at < total ? list[at] : null;
+
+  function next() {
+    setAt((i) => i + 1);
+    setMode('choose');
+    setText('');
+    setTicked([]);
+    setFailed(false);
   }
 
-  async function skip(q: GremlyQuestion) {
-    set(q.id, { mode: 'sending' });
-    try {
-      await dismissQuestion(q.id);
-      set(q.id, { mode: 'skipped' });
-    } catch {
-      set(q.id, { mode: 'failed' });
+  async function send(said: string, how: { typed?: boolean; pick?: string[] } = {}) {
+    if (!q || !said.trim() || sending) return;
+    setSending(true);
+    setFailed(false);
+    const ok = await answerQuestion(q.id, said.trim(), how.pick);
+    setSending(false);
+    if (!ok) {
+      setFailed(true);
+      return;
     }
+    setReceipts((r) => [
+      ...r,
+      {
+        id: q.id,
+        title: q.topic || q.question,
+        line: receiptLine(q, { said: said.trim(), typed: how.typed, picked: how.pick?.length }),
+      },
+    ]);
+    next();
   }
 
-  const remaining = questions.filter((q) => !['answered', 'skipped'].includes(get(q.id).mode)).length;
+  async function notNow() {
+    if (!q || sending) return;
+    // it waits a few days before it is asked anywhere again; nothing about their life changes
+    markQuestionAsked(q.id).catch((err) =>
+      console.warn('[Questions] could not leave it for now:', err),
+    );
+    next();
+  }
+
+  const header = (
+    <View style={styles.top}>
+      <Pressable
+        onPress={() => nav.goBack()}
+        style={styles.back}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Back"
+      >
+        <ChevronLeft size={22} color={C.mossGreen} />
+      </Pressable>
+      {q ? (
+        <Text style={styles.count} testID="questions-count">
+          {at + 1} of {total}
+        </Text>
+      ) : null}
+    </View>
+  );
+
+  if (!list) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        {header}
+        <ActivityIndicator color={C.mossGreen} style={{ marginTop: 40 }} />
+      </SafeAreaView>
+    );
+  }
+
+  // every question answered or left for now
+  if (!q) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        {header}
+        <ScrollView contentContainerStyle={styles.doneContent}>
+          <Text style={styles.h1}>A few questions for you</Text>
+          {!total ? (
+            <Text style={styles.sub}>
+              Nothing right now. When your records leave something unclear, it shows up here.
+            </Text>
+          ) : null}
+          <View style={styles.receipts}>
+            {receipts.map((r) => (
+              <View key={r.id} style={styles.receipt} testID={`receipt-${r.id}`}>
+                <Text style={styles.receiptTitle} numberOfLines={2}>
+                  {r.title}
+                </Text>
+                <View style={styles.receiptRow}>
+                  <Check size={14} color={C.mossGreen} strokeWidth={2.4} />
+                  <Text style={styles.receiptText}>{r.line}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+          {total ? (
+            <Text style={styles.doneLine}>
+              {receipts.length
+                ? 'That’s everything for now. Thank you.'
+                : 'That’s everything for now.'}
+            </Text>
+          ) : null}
+        </ScrollView>
+        <View style={styles.doneFoot}>
+          <Pressable
+            onPress={() => nav.goBack()}
+            style={styles.primary}
+            accessibilityRole="button"
+            testID="questions-done"
+          >
+            <Text style={styles.primaryText}>Back to Ask Gremly</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const tidy = q.tidy;
+  const label = tidy ? 'A TIDY UP' : q.weight === 'needs' ? 'NEEDS AN ANSWER' : null;
+  const later = list.slice(at + 1, at + 4);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {header}
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={() => nav.goBack()} style={styles.back} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
-          <ChevronLeft size={22} color={C.mossGreen} />
-        </Pressable>
-        <Text style={styles.h1}>Things I’m unsure about</Text>
-        <Text style={styles.sub}>
-          {questions.length && !remaining
-            ? 'That’s everything for now. Thank you.'
-            : 'Answer any, skip any. I’d rather ask than guess, and each answer updates everything straight away.'}
-        </Text>
+        <View style={styles.titleBlock}>
+          <Text style={styles.h1}>A few questions for you</Text>
+          {at === 0 ? (
+            <Text style={styles.sub}>
+              I’d rather ask than guess. Each answer updates everything straight away.
+            </Text>
+          ) : null}
+        </View>
 
-        {loading && !questions.length ? <ActivityIndicator color={C.mossGreen} style={{ marginTop: 30 }} /> : null}
-        {!loading && !questions.length ? (
-          <Text style={styles.sub}>Nothing right now. When your records leave something unclear, it shows up here.</Text>
-        ) : null}
+        <View style={styles.progress}>
+          {list.map((x, i) => (
+            <View key={x.id} style={[styles.segment, i <= at && styles.segmentOn]} />
+          ))}
+        </View>
 
-        {questions.map((q) => {
-          const s = get(q.id);
-          const closed = s.mode === 'answered' || s.mode === 'skipped';
-          return (
-            <View key={q.id} style={styles.card}>
-              <View style={styles.qRow}>
-                <View style={[styles.dot, closed && { backgroundColor: C.sageMist }]} />
-                <Text style={styles.qText}>{q.question}</Text>
-              </View>
+        <View style={styles.card} testID={`question-${q.id}`}>
+          {label ? <Text style={[styles.label, tidy && styles.labelTidy]}>{label}</Text> : null}
+          <Text style={styles.question}>{q.question}</Text>
+          {!tidy && q.why ? <Text style={styles.why}>{q.why}</Text> : null}
 
-              {closed ? (
-                <View style={styles.result}>
-                  <Check size={14} color={C.mossGreen} strokeWidth={2.4} />
-                  <Text style={styles.resultText}>
-                    {s.mode === 'answered' ? 'Thanks. Updating everything now.' : 'Skipped. No need to answer it.'}
-                  </Text>
-                </View>
-              ) : s.mode === 'answering' || s.mode === 'sending' || s.mode === 'failed' ? (
-                <View style={{ gap: 8, paddingLeft: 18 }}>
-                  <TextInput
-                    value={s.text}
-                    onChangeText={(text) => set(q.id, { text })}
-                    placeholder="Your answer"
-                    placeholderTextColor="rgba(26,58,40,0.45)"
-                    multiline
-                    autoFocus
-                    style={styles.input}
-                    accessibilityLabel={`Answer: ${q.question}`}
-                  />
-                  {s.mode === 'failed' ? <Text style={styles.failed}>That didn’t send. Try again in a moment.</Text> : null}
-                  <View style={styles.actions}>
-                    <Pressable
-                      onPress={() => send(q)}
-                      disabled={!s.text.trim() || s.mode === 'sending'}
-                      style={[styles.primary, (!s.text.trim() || s.mode === 'sending') && { opacity: 0.5 }]}
-                      accessibilityRole="button"
-                    >
-                      {s.mode === 'sending' ? <ActivityIndicator color={C.linenCream} /> : <Text style={styles.primaryText}>Send</Text>}
-                    </Pressable>
-                    <Pressable onPress={() => set(q.id, { mode: 'idle' })} style={styles.ghost} accessibilityRole="button">
-                      <Text style={styles.ghostText}>Cancel</Text>
-                    </Pressable>
+          {tidy && tidy.statements.length ? (
+            <View style={styles.list}>
+              {tidy.statements.map((s, i) => {
+                const id = tidy.fact_ids[i];
+                const on = ticked.includes(id);
+                const row = (
+                  <>
+                    {mode === 'some' ? (
+                      on ? (
+                        <CircleCheck size={18} color={C.mossGreen} />
+                      ) : (
+                        <Circle size={18} color="rgba(46,85,64,0.35)" />
+                      )
+                    ) : null}
+                    <Text style={styles.listText}>{s}</Text>
+                  </>
+                );
+                return mode === 'some' && id ? (
+                  <Pressable
+                    key={`${i}-${s}`}
+                    style={styles.listRow}
+                    onPress={() => setTicked((t) => (on ? t.filter((x) => x !== id) : [...t, id]))}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    testID={`tidy-row-${i}`}
+                  >
+                    {row}
+                  </Pressable>
+                ) : (
+                  <View key={`${i}-${s}`} style={styles.listRow}>
+                    {row}
                   </View>
-                </View>
+                );
+              })}
+            </View>
+          ) : null}
+          {tidy?.type === 'set_aside' ? (
+            <Text style={styles.why}>
+              {tidy.from_calendar
+                ? `Your calendar keeps them. ${KEPT_ASIDE}`
+                : `Nothing is deleted. ${KEPT_ASIDE}`}
+            </Text>
+          ) : null}
+
+          {failed ? <Text style={styles.failed}>{FAILED}</Text> : null}
+
+          {mode === 'typing' ? (
+            <View style={{ gap: 8 }}>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                placeholder="Your answer"
+                placeholderTextColor="rgba(26,58,40,0.45)"
+                multiline
+                autoFocus
+                style={styles.input}
+                accessibilityLabel={`Answer: ${q.question}`}
+              />
+              <View style={styles.row}>
+                <Pressable
+                  onPress={() => send(text, { typed: true })}
+                  disabled={!text.trim() || sending}
+                  style={[styles.send, (!text.trim() || sending) && { opacity: 0.5 }]}
+                  accessibilityRole="button"
+                >
+                  {sending ? (
+                    <ActivityIndicator color={C.linenCream} />
+                  ) : (
+                    <Text style={styles.sendText}>Send</Text>
+                  )}
+                </Pressable>
+                {q.choices.length ? (
+                  <Pressable
+                    onPress={() => setMode('choose')}
+                    style={styles.ghost}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.ghostText}>Cancel</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : tidy ? (
+            <View style={styles.buttons}>
+              {mode === 'some' ? (
+                <>
+                  <Pressable
+                    onPress={() => send(tidy.yes, { pick: ticked })}
+                    disabled={!ticked.length || sending}
+                    style={[styles.tidyButton, (!ticked.length || sending) && { opacity: 0.5 }]}
+                    accessibilityRole="button"
+                    testID="tidy-some-yes"
+                  >
+                    <Text style={styles.tidyText}>{tidy.yes}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setMode('choose');
+                      setTicked([]);
+                    }}
+                    style={styles.other}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.otherText}>Cancel</Text>
+                  </Pressable>
+                </>
               ) : (
-                <View style={[styles.actions, { paddingLeft: 18 }]}>
-                  <Pressable onPress={() => set(q.id, { mode: 'answering' })} style={styles.chip} accessibilityRole="button">
-                    <Text style={styles.chipText}>Answer</Text>
+                <>
+                  <Pressable
+                    onPress={() => send(tidy.yes)}
+                    disabled={sending}
+                    style={styles.tidyButton}
+                    accessibilityRole="button"
+                    testID="tidy-yes"
+                  >
+                    <Text style={styles.tidyText}>{tidy.yes}</Text>
                   </Pressable>
-                  <Pressable onPress={() => skip(q)} style={styles.ghost} accessibilityRole="button">
-                    <Text style={styles.ghostText}>Skip</Text>
+                  <Pressable
+                    onPress={() => send(tidy.no)}
+                    disabled={sending}
+                    style={styles.tidyButton}
+                    accessibilityRole="button"
+                    testID="tidy-no"
+                  >
+                    <Text style={styles.tidyText}>{tidy.no}</Text>
                   </Pressable>
-                </View>
+                  {tidy.statements.length > 1 ? (
+                    <Pressable
+                      onPress={() => setMode('some')}
+                      disabled={sending}
+                      style={styles.other}
+                      accessibilityRole="button"
+                      testID="tidy-some"
+                    >
+                      <Text style={styles.otherText}>Some of them</Text>
+                    </Pressable>
+                  ) : null}
+                </>
               )}
             </View>
-          );
-        })}
+          ) : (
+            <View style={styles.buttons}>
+              {q.choices.map((c) => (
+                <Pressable
+                  key={c}
+                  onPress={() => send(c)}
+                  disabled={sending}
+                  style={styles.choice}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.choiceText}>{c}</Text>
+                </Pressable>
+              ))}
+              <Pressable
+                onPress={() => setMode('typing')}
+                disabled={sending}
+                style={styles.other}
+                accessibilityRole="button"
+                testID="something-else"
+              >
+                <Text style={styles.otherText}>
+                  {q.choices.length ? 'Something else' : 'Answer'}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.notNowRow}>
+          <Pressable
+            onPress={notNow}
+            disabled={sending}
+            style={styles.notNow}
+            accessibilityRole="button"
+            testID="not-now"
+          >
+            <Text style={styles.notNowText}>Not now</Text>
+          </Pressable>
+        </View>
+
+        {later.length ? (
+          <View style={styles.later}>
+            <Text style={styles.laterLabel}>STILL TO COME</Text>
+            {later.map((x) => (
+              <Text key={x.id} style={styles.laterText} numberOfLines={1}>
+                {stillToCome(x)}
+              </Text>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -131,36 +422,88 @@ export default function GremlyQuestionsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.linenCream },
-  content: { paddingHorizontal: 18, paddingBottom: 60, gap: 12 },
-  back: { width: 40, height: 40, justifyContent: 'center', marginTop: 4 },
+  top: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 10,
+    paddingRight: 18,
+    paddingTop: 4,
+  },
+  back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  count: { fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(26,58,40,0.6)' },
+  content: { paddingBottom: 48 },
+  titleBlock: { paddingHorizontal: 20, paddingTop: 8, gap: 8 },
   h1: { fontFamily: 'Fraunces-SemiBold', fontSize: 28, lineHeight: 32, color: C.worldsInk },
-  sub: { fontFamily: 'Inter-Regular', fontSize: 13.5, lineHeight: 20, color: '#4D5A52', marginBottom: 6 },
+  sub: { fontFamily: 'Inter-Regular', fontSize: 14, lineHeight: 20, color: '#4D5A52' },
+  progress: { flexDirection: 'row', gap: 6, paddingHorizontal: 20, paddingTop: 18 },
+  segment: { height: 4, flex: 1, borderRadius: 2, backgroundColor: '#D9DCEA' },
+  segmentOn: { backgroundColor: '#4A4E7A' },
   card: {
+    marginTop: 20,
+    marginHorizontal: 18,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: C.worldsCardBorder,
-    borderRadius: 18,
-    padding: 14,
-    gap: 10,
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    gap: 14,
   },
-  qRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  dot: { width: 8, height: 8, borderRadius: 4, marginTop: 7, backgroundColor: C.periwinkleSmoke },
-  qText: { flex: 1, fontFamily: 'Inter-Regular', fontSize: 15, lineHeight: 22, color: C.worldsInk },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chip: {
-    minHeight: 38,
-    paddingHorizontal: 14,
-    borderRadius: 999,
+  label: { fontFamily: 'Inter-SemiBold', fontSize: 12, letterSpacing: 0.5, color: '#4A4E7A' },
+  labelTidy: { color: '#3C6150' },
+  question: { fontFamily: 'Inter-Regular', fontSize: 18, lineHeight: 26, color: C.worldsInk },
+  why: { fontFamily: 'Inter-Regular', fontSize: 13, lineHeight: 19, color: '#4D5A52' },
+  list: { borderTopWidth: 1, borderTopColor: 'rgba(46,85,64,0.10)' },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(46,85,64,0.10)',
+  },
+  listText: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    lineHeight: 20,
+    color: C.worldsInk,
+  },
+  buttons: { gap: 8 },
+  choice: {
+    minHeight: 46,
+    borderRadius: 23,
     borderWidth: 1,
     borderColor: 'rgba(74,78,122,0.30)',
     backgroundColor: '#ECEEFA',
+    alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
   },
-  chipText: { fontFamily: 'Inter-Medium', fontSize: 13, fontWeight: '600', color: '#2B2F55' },
-  ghost: { minHeight: 38, paddingHorizontal: 10, justifyContent: 'center' },
-  ghostText: { fontFamily: 'Inter-Medium', fontSize: 13, fontWeight: '600', color: '#4D5A52' },
-  primary: { minHeight: 38, paddingHorizontal: 16, borderRadius: 999, backgroundColor: C.mossGreen, justifyContent: 'center' },
-  primaryText: { fontFamily: 'Inter-Medium', fontSize: 13, fontWeight: '700', color: C.linenCream },
+  choiceText: { fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#2B2F55', textAlign: 'center' },
+  tidyButton: {
+    minHeight: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: '#DCE6DB',
+    backgroundColor: '#EEF3ED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  tidyText: { fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#2E4A3A', textAlign: 'center' },
+  other: {
+    minHeight: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: 'rgba(46,85,64,0.18)',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  otherText: { fontFamily: 'Inter-Medium', fontSize: 15, color: '#2E4A3A' },
   input: {
     minHeight: 64,
     borderRadius: 14,
@@ -170,12 +513,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 21,
     color: C.worldsInk,
     textAlignVertical: 'top',
   },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  send: {
+    minHeight: 42,
+    paddingHorizontal: 18,
+    borderRadius: 21,
+    backgroundColor: C.mossGreen,
+    justifyContent: 'center',
+  },
+  sendText: { fontFamily: 'Inter-SemiBold', fontSize: 14, color: C.linenCream },
+  ghost: { minHeight: 42, paddingHorizontal: 10, justifyContent: 'center' },
+  ghostText: { fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#4D5A52' },
   failed: { fontFamily: 'Inter-Regular', fontSize: 13, color: C.danger },
-  result: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 18 },
-  resultText: { fontFamily: 'Inter-Medium', fontSize: 13, fontWeight: '600', color: C.mossGreen },
+  notNowRow: { alignItems: 'center', paddingTop: 12 },
+  notNow: { minHeight: 44, paddingHorizontal: 16, justifyContent: 'center' },
+  notNowText: { fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#4D5A52' },
+  later: { paddingHorizontal: 20, paddingTop: 28, gap: 8 },
+  laterLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    letterSpacing: 0.5,
+    color: 'rgba(26,58,40,0.6)',
+  },
+  laterText: { fontFamily: 'Inter-Regular', fontSize: 14, lineHeight: 20, color: '#4D5A52' },
+  doneContent: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 24 },
+  receipts: { marginTop: 24, gap: 10 },
+  receipt: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: C.worldsCardBorder,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  receiptTitle: { fontFamily: 'Inter-Regular', fontSize: 15, lineHeight: 21, color: C.worldsInk },
+  receiptRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  receiptText: { flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 13, color: C.mossGreen },
+  doneLine: {
+    paddingTop: 24,
+    paddingHorizontal: 2,
+    fontFamily: 'Inter-Regular',
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#4D5A52',
+  },
+  doneFoot: { paddingHorizontal: 18, paddingBottom: 16 },
+  primary: {
+    minHeight: 50,
+    borderRadius: 25,
+    backgroundColor: C.mossGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryText: { fontFamily: 'Inter-SemiBold', fontSize: 15, color: C.linenCream },
 });

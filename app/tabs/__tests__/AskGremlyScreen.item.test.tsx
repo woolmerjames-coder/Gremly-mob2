@@ -8,11 +8,12 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => {
   const React = require('react');
   return {
     NavigationRouteContext: React.createContext(undefined),
-    useNavigation: () => ({ navigate: jest.fn(), setParams: jest.fn() }),
+    useNavigation: () => ({ navigate: mockNavigate, setParams: jest.fn() }),
     // outside a screen, the real hook throws; nothing here may call it
     useRoute: () => {
       throw new Error(
@@ -21,6 +22,13 @@ jest.mock('@react-navigation/native', () => {
     },
   };
 });
+
+// Gremly's questions waiting on Ask Gremly (data fabric stage 4f); none unless a test says
+const mockAskQuestions = jest.fn(async (): Promise<any[]> => []);
+jest.mock('../../../lib/questions/askQuestions', () => ({
+  ...jest.requireActual('../../../lib/questions/askQuestions'),
+  fetchAskQuestions: () => mockAskQuestions(),
+}));
 
 // the app's insets, as the root SafeAreaProvider gives them on a phone with a notch
 jest.mock('react-native-safe-area-context', () => {
@@ -142,6 +150,8 @@ const item = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockChat.messages = [];
+  // the config resets every mock's answers between tests
+  mockAskQuestions.mockResolvedValue([]);
 });
 
 describe('an item chat outside any screen', () => {
@@ -301,6 +311,50 @@ describe("Chat's fresh home in the Gremly home", () => {
     expect(getByTestId('chat-home-foot')).toBeTruthy();
     expect(getByTestId('home-chips')).toBeTruthy();
     // what waits in the app goes with the greeting request
-    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', { briefUnread: false, toDecide: 0 });
+    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', {
+      briefUnread: false,
+      toDecide: 0,
+      questions: null,
+    });
+  });
+
+  it('offers Answer some Gremly questions first while they wait, tells the greeting, and opens them', async () => {
+    const { callGeneralGreeting } = require('../../../lib/cortex/CortexClient');
+    callGeneralGreeting.mockClear();
+    callGeneralGreeting.mockResolvedValueOnce(
+      "Morning. I've got a couple of things I'm not sure about.",
+    );
+    const q = (id: string, weight: string | null) => ({
+      id,
+      kind: 'fact',
+      question: `Question ${id}?`,
+      choices: [],
+      created_at: '2026-09-01T10:00:00Z',
+      asked_at: null,
+      record_table: null,
+      record_id: null,
+      private: false,
+      weight,
+      topic: null,
+      why: null,
+      tidy: null,
+    });
+    mockAskQuestions.mockResolvedValueOnce([q('a', 'needs'), q('b', null)]);
+    // the questions arriving renders the home again, which subscribes to the app's state afresh
+    const { AppState } = require('react-native');
+    jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as any);
+    const { findByText, findByTestId } = render(<AskGremlyScreen embedded />);
+    expect(
+      await findByText("Morning. I've got a couple of things I'm not sure about."),
+    ).toBeTruthy();
+    // one needs an answer, so the way in shows, with how many wait
+    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', {
+      briefUnread: false,
+      toDecide: 0,
+      questions: { count: 2, needs: 1 },
+    });
+    const chip = await findByTestId('home-chip-questions');
+    fireEvent.press(chip);
+    expect(mockNavigate).toHaveBeenCalledWith('GremlyQuestions');
   });
 });

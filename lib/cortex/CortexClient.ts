@@ -1831,7 +1831,12 @@ export function callHabitBuilderStreaming(
  */
 export async function callGeneralGreeting(
   userId: string,
-  waiting: { briefUnread?: boolean; toDecide?: number } = {},
+  waiting: {
+    briefUnread?: boolean;
+    toDecide?: number;
+    /** Gremly's questions, only while Answer some Gremly questions shows */
+    questions?: { count: number; needs: number } | null;
+  } = {},
 ): Promise<string | null> {
   const baseUrl = readCortexUrl();
   if (!baseUrl) return null;
@@ -1850,6 +1855,7 @@ export async function callGeneralGreeting(
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         brief_unread: waiting.briefUnread === true,
         to_decide: waiting.toDecide ?? 0,
+        questions_waiting: waiting.questions ?? undefined,
       }),
     });
     if (!res.ok) {
@@ -2089,6 +2095,8 @@ export async function callNotRight(input: {
   targetKind?: string | null;
   targetId?: string | null;
   kind?: 'wrong' | 'changed' | 'done' | 'private' | null;
+  /** Some of them on a tidy up: the facts they ticked, by id */
+  pick?: string[];
 }): Promise<CortexClientResult<{ ok?: boolean; correction_id?: string }>> {
   const baseUrl = readCortexUrl();
   if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
@@ -2106,6 +2114,7 @@ export async function callNotRight(input: {
         target_kind: input.targetKind || undefined,
         target_id: input.targetId || undefined,
         kind: input.kind || undefined,
+        pick: input.pick?.length ? input.pick : undefined,
       }),
     });
     const data = await res.json().catch(() => ({}));
