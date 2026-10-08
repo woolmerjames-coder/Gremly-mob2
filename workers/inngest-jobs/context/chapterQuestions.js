@@ -2,9 +2,10 @@
  * Gremly's questions about Chapters (data fabric stage 4c): a suggestion to
  * start one, whether one past its dates is over, and the welcome back.
  *
- * Built and replayed here, and left off until the Worlds build can act on an
- * answer (chapterQuestionsOn, CHAPTER_QUESTIONS in wrangler.toml). While off,
- * nothing is written; the shadow runner and the replay run them dry.
+ * Built and replayed here, and on since 8 Oct, when their answers came to be
+ * acted on (context/chapterAnswers.js). While CHAPTER_QUESTIONS is off
+ * (chapterQuestionsOn), nothing is written; the shadow runner and the replay
+ * run them dry.
  *
  * They are asked by the rules every question keeps
  * (workers/shared/questionRules.js): never at the moment of dropping, in the
@@ -12,8 +13,9 @@
  * never asked again, and nothing new while the person is away.
  *
  *   Closing     once a day, code finds the open Chapters whose end date has
- *               passed. A model writes the question for each, with its guess
- *               from the records. The classifier never closes one.
+ *               passed, and those with none and nothing filed in them for
+ *               four weeks. A model writes the question for each, with its
+ *               guess from the records. The classifier never closes one.
  *   Suggesting  once a day, when enough of their recent drops are filed in no
  *               Chapter, a model says whether one is forming, and what it
  *               would hold. Code checks every ref and date, refuses a second

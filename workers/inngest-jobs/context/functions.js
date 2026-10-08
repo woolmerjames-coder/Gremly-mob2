@@ -873,9 +873,9 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
   );
 
   // ── Chapter questions: closing, suggesting, the welcome back (4c) ───────
-  // Once a day, early in the person's morning, while CHAPTER_QUESTIONS is on.
-  // Built and replayed, and left off until the Worlds build can act on an
-  // answer (context/chapterQuestions.js).
+  // Once a day, early in the person's morning, while CHAPTER_QUESTIONS is on
+  // (context/chapterQuestions.js); their answers are acted on through the
+  // correction path (context/chapterAnswers.js).
   const chapterQuestions = inngest.createFunction(
     {
       id: 'context-chapter-questions',

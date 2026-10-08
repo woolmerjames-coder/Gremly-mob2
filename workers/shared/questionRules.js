@@ -77,8 +77,8 @@ export const AWAY_AFTER_DAYS = 1;
 /**
  * Whether Gremly writes questions about Chapters: suggestions to start one,
  * closing one past its dates, and the welcome back. Built and replayed in
- * stage 4c and left off until the Worlds build can act on an answer
- * (CHAPTER_QUESTIONS = "on" in wrangler.toml switches them on).
+ * stage 4c; on since 8 Oct, when their answers came to be acted on
+ * (CHAPTER_QUESTIONS in wrangler.toml).
  */
 export function chapterQuestionsOn(env) {
   return String(env?.CHAPTER_QUESTIONS ?? '').trim() === 'on';
