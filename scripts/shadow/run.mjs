@@ -7,7 +7,7 @@
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"] [--as-is] [--was-open <fact ids>]
  *   scripts/shadow/run.sh story --user <uuid> --replies <file> [--at ISO]
  *   scripts/shadow/run.sh person-words --user <uuid> [--weekly-replies <file> --week-end YYYY-MM-DD]
- *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--rpc-from <file>]
+ *   scripts/shadow/run.sh weekly-compare --user <uuid> --week-end YYYY-MM-DD --replies <file> --input <file> [--other provider:model] [--judge provider:model] [--judge-thinking high|medium|low] [--rpc-from <file>]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh reread --user <uuid> [--from ISO] [--to ISO] [--max n]
  *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
@@ -1129,6 +1129,8 @@ const JOBS = {
     const inputPath = flag('--input');
     const other = flag('--other') || 'openai:gpt-6.1-sol';
     const judgeWith = flag('--judge');
+    // how hard the judge thinks; a reading asked at another level is kept apart
+    const judgeThinking = flag('--judge-thinking') || 'high';
     if (!userId || !weekEnd || !repliesPath || !inputPath) fail('weekly-compare needs --user, --week-end, --replies and --input');
     const replies = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : {};
     for (const k of ['claude', 'check', 'other', 'judge']) replies[k] = replies[k] || {};
@@ -1305,13 +1307,17 @@ Then list every statement in either summary that the records do not hold, each a
       const body = (v) => (kind === 'pass' ? JSON.stringify(Object.fromEntries(parts.map((pt) => [pt, v[pt]])), null, 1) : v.join('\n'));
       const readOnce = async ([a, b]) => {
         const user = `${records}${extra?.length ? `\n\nMORE RECORDS, given to one of the two:\n${extra.join('\n')}` : ''}\n\nA:\n${body(a.view)}\n\nB:\n${body(b.view)}`;
-        const key = keyOf({ judgeWith, kind, user });
+        const highKey = keyOf({ judgeWith, kind, user });
+        const key = judgeThinking === 'high' || replies.judge[highKey] ? highKey : keyOf({ judgeWith, kind, user, judgeThinking });
         if (!replies.judge[key]) {
+          const t0 = Date.now();
+          console.error(`judge ${kind} ${a.label} first: asked`);
           const out = await aiContext.run({ env, worker: 'shadow', job: 'compare-judge', userId, runId: `judge-${key}` }, () =>
-            jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: kind === 'pass' ? 60000 : 30000, thinking: 'high', effort: 'high' }),
+            jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: kind === 'pass' ? 60000 : 30000, thinking: judgeThinking, effort: judgeThinking }),
           );
           await new Promise((r) => setTimeout(r, 300));
-          replies.judge[key] = { output: out.output, cents: centsOf(record.usage.filter((u) => u?.run_id === `judge-${key}`)) };
+          replies.judge[key] = { output: out.output, thinking: judgeThinking, cents: centsOf(record.usage.filter((u) => u?.run_id === `judge-${key}`)) };
+          console.error(`judge ${kind} ${a.label} first: answered in ${Math.round((Date.now() - t0) / 1000)}s`);
           saveReplies();
         }
         const o = replies.judge[key].output;
@@ -1323,6 +1329,7 @@ Then list every statement in either summary that the records do not hold, each a
           parts: (o.parts || []).map((pt) => ({ part: pt.part, better: who(pt.better), why: pt.why })),
           not_held: { [a.label]: o.a_not_held, [b.label]: o.b_not_held },
           cents: replies.judge[key].cents,
+          thinking: replies.judge[key].thinking || 'high',
         };
       };
       const reads = await Promise.all([
@@ -1478,7 +1485,7 @@ Then list every statement in either summary that the records do not hold, each a
             deck_cards: sd.summary?.content?.cards?.length ?? null,
             error: sd.error,
           };
-        const verdict = (j) => j && (j.error ? { error: j.error } : { between: j.between, better: j.better, parts: j.parts, each: j.reads.map((r) => r.better) });
+        const verdict = (j) => j && (j.error ? { error: j.error } : { between: j.between, better: j.better, parts: j.parts, each: j.reads.map((r) => `${r.better}${r.thinking === 'high' ? '' : ` (${r.thinking})`}`) });
         return {
           stage: out?.stage,
           needs: (out?.needs || []).map((x) => `${x.kind} ${x.key}`),
