@@ -19,6 +19,7 @@
  *   scripts/shadow/run.sh people-check --user <uuid> [--limit n]
  *   scripts/shadow/run.sh person-question --user <uuid>
  *   scripts/shadow/run.sh chapter-questions --user <uuid>
+ *   scripts/shadow/run.sh ask --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--sizes compact,full]
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -66,6 +67,16 @@ import * as stage4dReread from '../../workers/inngest-jobs/context/reread.js';
 import * as kindsMod from '../../workers/inngest-jobs/context/kinds.js';
 import { writeDailyBrief } from '../../workers/inngest-jobs/brief/index.js';
 import { buildChatContext } from '../../workers/cortex/context/chatProjection.js';
+// Ask Gremly's own path, for the ask job (data fabric stage 4e)
+import { triageMessage } from '../../workers/cortex/triage.js';
+import { getUserProfile } from '../../workers/cortex/context/userProfile.js';
+import { buildTodayActivity } from '../../workers/cortex/context/todayActivity.js';
+import { buildGeneralChatConfig } from '../../workers/cortex/gremlyPersona.js';
+import { turnItemSections } from '../../workers/cortex/entityMatch.js';
+import { configureModels, models as cortexModels } from '../../workers/cortex/models.js';
+import { geminiStream, parseGeminiChunk } from '../../workers/cortex/geminiClient.js';
+import { AGENT_LANES, runChatTurn } from '../../workers/cortex/agent/chat.js';
+import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -400,6 +411,192 @@ const JOBS = {
             standing: section('How their life runs'),
             people: section('The people who come up most'),
           },
+        };
+      },
+    };
+  },
+
+  // Ask Gremly on a real day (data fabric stage 4e): a handful of first
+  // messages, with nothing in them from the person, each answered by the
+  // live path (triage, then the agent for a lookup or a change and the quick
+  // lane's writer for the rest) once for each size of their life Ask Gremly
+  // reads (CHAT_LIFE), and each pair read blind by two judges, one from each
+  // writer's family, given everything Gremly knows about them
+  async ask() {
+    const userId = flag('--user');
+    const day = flag('--day');
+    if (!userId || !day) fail('ask needs --user and --day');
+    const tz = await timezoneOf(userId);
+    const at = momentOn(day, flag('--at') || '09:00', tz);
+    const sizes = (flag('--sizes') || 'compact,full').split(',');
+    // as cortex's wrangler.toml runs Ask Gremly
+    const chatEnv = { ...workerVars(join(ROOT, 'workers/cortex/wrangler.toml')), ...env, GOOGLE_API_KEY: env.GEMINI_API_KEY };
+    configureModels(chatEnv);
+    const MESSAGES = [
+      'Morning!',
+      'What have I got on today?',
+      "I'm shattered",
+      'Help me think about next week',
+      'What should I do this weekend?',
+      'Anything I should be remembering?',
+      'What should I make for dinner?',
+      'How have I been doing lately?',
+    ];
+    const sseText = async (res) => {
+      let text = '';
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split(/\r?\n/);
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const c = parseGeminiChunk(line.slice(5).trim());
+          if (c.text) text += c.text;
+        }
+      }
+      return text.trim();
+    };
+    const answer = async (m, triage, context, profile, todayAct, keep) => {
+      if (AGENT_LANES.includes(triage.lane)) {
+        const r = await runChatTurn({
+          env: chatEnv,
+          userId,
+          timezone: tz,
+          messages: [{ role: 'user', content: m }],
+          preload: { profileText: profile?.profileText, todayActivity: todayAct, runningSummary: '', anchor: null, sessionContext: context, week: keep.week, today: day, triage },
+        });
+        if (r.ok) return { by: 'agent', text: r.reply, tools: r.tools };
+      }
+      const gen = buildGeneralChatConfig(triage, { runningSummary: '' }, null, context, profile?.profileText, tz, todayAct);
+      gen.systemPrompt += turnItemSections({ match: null, card: null, recent: null, anchor: null, mode: triage.mode, todayIso: day, detailText: '', weeklyDay: null });
+      const ask = cortexModels().ask;
+      const res = await geminiStream(
+        gen.systemPrompt,
+        [{ role: 'system', content: gen.systemPrompt }, { role: 'user', content: m }],
+        { label: 'general_chat', temperature: gen.temperature, maxOutputTokens: gen.maxTokens, thinkingLevel: gen.thinkingLevel, model: ask.model, effort: ask.effort },
+        chatEnv.GOOGLE_API_KEY,
+      );
+      if (!res.ok || !res.body) return { by: 'writer', error: String(res.error || res.status).slice(0, 200) };
+      return { by: 'writer', text: await sseText(res) };
+    };
+    const JUDGES = {
+      sol: { provider: 'openai', model: 'gpt-6-sol', effort: 'low' },
+      'flash-high': { provider: 'google', model: 'gemini-3.8-flash', effort: 'high' },
+    };
+    const judgePair = async (spec, m, known, a, b) =>
+      (
+        await jsonCall(env, {
+          primary: spec,
+          system:
+            'You compare two replies from a companion app to the same message from a person, against everything the app knows about them. Say which reply better shows it knows the person, bringing up what a close friend would given the message, without reciting their life back or telling them as news what they said; or say they are the same. For each reply list anything it states as fact about the person, their people or their plans that is untrue or that is not in what the app knows. Say in one sentence why.',
+          user: `EVERYTHING THE APP KNOWS ABOUT THEM:\n${known}\n\nTHE MESSAGE, the first in a new chat:\n${m}\n\nREPLY A:\n${a}\n\nREPLY B:\n${b}`,
+          schema: {
+            type: 'object',
+            properties: {
+              better: { type: 'string', enum: ['A', 'B', 'same'] },
+              untrue_a: { type: 'array', items: { type: 'string' } },
+              untrue_b: { type: 'array', items: { type: 'string' } },
+              why: { type: 'string' },
+            },
+            required: ['better', 'untrue_a', 'untrue_b', 'why'],
+          },
+          maxTokens: 6000,
+          effort: spec.effort,
+          thinking: spec.effort,
+        })
+      ).output;
+    return {
+      at,
+      userId,
+      run: async () => {
+        // a few at a time: many reads at once are refused by the connection
+        const pool = async (items, n, fn) => {
+          const out = new Array(items.length);
+          let next = 0;
+          await Promise.all(
+            Array.from({ length: n }, async () => {
+              while (next < items.length) {
+                const k = next++;
+                out[k] = await fn(items[k], k);
+              }
+            }),
+          );
+          return out;
+        };
+        const [profile, todayAct] = await Promise.all([
+          getUserProfile(userId, chatEnv),
+          buildTodayActivity(userId, tz, chatEnv, { today: day }).catch(() => null),
+        ]);
+        // each size in turn, so the reads it shares between messages come from the cache
+        const contexts = {};
+        const keeps = {};
+        for (const size of sizes) {
+          contexts[size] = [];
+          keeps[size] = [];
+          for (const m of MESSAGES) {
+            const keep = {};
+            contexts[size].push(await buildChatContext(userId, 'general', { message: m, timezone: tz, today: day, currentChatId: null, keep }, { ...chatEnv, CHAT_LIFE: size }));
+            keeps[size].push(keep);
+          }
+        }
+        const triages = await pool(MESSAGES, 4, (m) =>
+          triageMessage({ userMessage: m, previousExchange: null, runningSummary: '', chatType: 'general', env: chatEnv, domainNames: [], profileSnippet: profile?.profileText?.slice(0, 150) || '', messageCount: 1 }),
+        );
+        const pairs = MESSAGES.flatMap((m, i) => sizes.map((size) => ({ m, i, size })));
+        const answers = await pool(pairs, 4, ({ m, i, size }) =>
+          answer(m, triages[i], contexts[size][i], profile, todayAct, keeps[size][i]).catch((err) => ({ error: String(err?.message || err) })),
+        );
+        const replyOf = (i, size) => answers[pairs.findIndex((x) => x.i === i && x.size === size)];
+        // what the judges are given as known: the fullest context either reply had, with
+        // who they are and today so far, which both writers read too
+        const known = (i) =>
+          [
+            profile?.profileText ? `ABOUT THEM\n${profile.profileText}` : '',
+            todayAct || '',
+            sizes.map((z) => contexts[z][i]).sort((a, b) => b.length - a.length)[0],
+          ]
+            .filter(Boolean)
+            .join('\n\n');
+        return pool(MESSAGES, 3, async (m, i) => {
+          const replies = Object.fromEntries(sizes.map((z) => [z, replyOf(i, z)]));
+          // blind: which size is A changes from message to message
+          const [x, y] = i % 2 ? [sizes[1], sizes[0]] : [sizes[0], sizes[1]];
+          const verdicts = {};
+          if (replies[x]?.text && replies[y]?.text)
+            await Promise.all(
+              Object.entries(JUDGES).map(async ([j, spec]) => {
+                const v = await judgePair(spec, m, known(i), replies[x].text, replies[y].text).catch((err) => ({ error: String(err?.message || err).slice(0, 200) }));
+                verdicts[j] = v?.better ? { ...v, better: v.better === 'same' ? 'same' : v.better === 'A' ? x : y, untrue: { [x]: v.untrue_a, [y]: v.untrue_b } } : v;
+              }),
+            );
+          const t = triages[i];
+          return { message: m, triage: { mode: t.mode, personal: t.personal, depth: t.depth, lane: t.lane }, chars: Object.fromEntries(sizes.map((z) => [z, contexts[z][i].length])), replies, verdicts };
+        });
+      },
+      summarise: (rows) => {
+        const tally = {};
+        for (const r of rows)
+          for (const [j, v] of Object.entries(r.verdicts || {})) {
+            tally[j] = tally[j] || { better: {}, untrue: {} };
+            if (v?.better) tally[j].better[v.better] = (tally[j].better[v.better] || 0) + 1;
+            for (const [z, list] of Object.entries(v?.untrue || {})) tally[j].untrue[z] = (tally[j].untrue[z] || 0) + (list?.length || 0);
+          }
+        return {
+          day,
+          sizes,
+          context_chars: rows[0]?.chars,
+          by_judge: tally,
+          messages: rows.map((r) => ({
+            message: r.message,
+            triage: r.triage,
+            ...Object.fromEntries(sizes.map((z) => [z, r.replies[z]?.text || r.replies[z]?.error || null])),
+            better: Object.fromEntries(Object.entries(r.verdicts || {}).map(([j, v]) => [j, v?.better || v?.error || null])),
+          })),
         };
       },
     };

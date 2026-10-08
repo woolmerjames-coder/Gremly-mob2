@@ -10,6 +10,7 @@
  *   scripts/chat-replay/run.sh --only vet-friday --models gemini,openai --repeat 1
  *   scripts/chat-replay/run.sh --with-week              every scenario sent their week (the weekly review)
  *   scripts/chat-replay/run.sh --with-ease              and the habits eased now, as a build that can pause a habit sends them
+ *   scripts/chat-replay/run.sh --triage                 each message read by triage first, as cortex-index.js does, and the agent told how it reads (data fabric stage 4e)
  *
  * Keys come from the environment (OPENAI_API_KEY, GEMINI_TEST_API_KEY).
  * Output goes to scripts/chat-replay/out/ (gitignored).
@@ -22,6 +23,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { SCENARIOS, WEEK, NOW_ISO, THEIR_WEEK } from './scenarios.mjs';
 import { runChatTurn, CHAT_AGENT_VERSION } from '../../workers/cortex/agent/chat.js';
 import { configureModels } from '../../workers/cortex/models.js';
+import { triageMessage } from '../../workers/cortex/triage.js';
 import { runTool } from '../../workers/cortex/agent/tools/index.js';
 import { costUsd } from '../../workers/shared/aiUsage.js';
 import { formatWeekAhead, weekFrom } from '../../workers/cortex/context/weekAhead.js';
@@ -247,6 +249,19 @@ async function runOne(s, modelKey) {
   const calls = [];
   const started = Date.now();
   try {
+    // --triage: how triage reads the message, as Ask Gremly hands it to the agent
+    const triage = args.includes('--triage')
+      ? await triageMessage({
+          userMessage: s.text,
+          previousExchange: null,
+          runningSummary: '',
+          chatType: 'general',
+          env,
+          domainNames: [],
+          profileSnippet: '',
+          messageCount: (s.history || []).length + 1,
+        })
+      : null;
     const r = await runChatTurn({
       env,
       userId: USER,
@@ -266,6 +281,7 @@ async function runOne(s, modelKey) {
         ...(s.today ? { today: s.today } : {}),
         // --old-clock leaves it out: the clock words as they were before 5 October
         ...(args.includes('--old-clock') ? {} : { dayEndHour: 3 }),
+        ...(triage ? { triage } : {}),
       },
       week: theirWeekFor(s, to),
       deps: {
@@ -283,7 +299,7 @@ async function runOne(s, modelKey) {
     });
     const ms = Date.now() - started;
     if (!r.ok) return { model: modelKey, ms, error: `the agent did not finish: ${r.error}` };
-    return { model: modelKey, ms, out: r, calls, ...check(s, r, back) };
+    return { model: modelKey, ms, out: r, calls, triage: triage ? { mode: triage.mode, personal: triage.personal, lane: triage.lane } : null, ...check(s, r, back) };
   } catch (err) {
     return { model: modelKey, ms: Date.now() - started, error: String(err?.message || err) };
   }
@@ -303,7 +319,16 @@ async function pool(items, n, fn) {
   return out;
 }
 
-configureModels({});
+// triage as cortex's wrangler.toml runs it (used with --triage)
+configureModels({
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  GOOGLE_API_KEY: process.env.GEMINI_TEST_API_KEY,
+  HELPER_MODEL: 'gpt-6-luna',
+  MODEL_TRIAGE: 'gpt-6-luna',
+  MODEL_TRIAGE_MODE: 'gpt-4.1-mini',
+  MODEL_TRIAGE_SIGNALS: 'gpt-4.1-mini',
+  TRIAGE_ONE_CALL: 'on',
+});
 const jobs = scenarios.flatMap((s) => models.flatMap((m) => Array.from({ length: repeat }, () => ({ s, m }))));
 console.log(`Running ${jobs.length} chat turns (${scenarios.length} messages × ${models.join(', ')} × ${repeat})…`);
 const done = await pool(jobs, 4, async ({ s, m }) => {

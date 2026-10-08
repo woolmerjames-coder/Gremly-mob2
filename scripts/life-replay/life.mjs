@@ -28,7 +28,7 @@ export function at(day, hhmm) {
   return new Date(Date.UTC(y, mo - 1, d, h + offsetHours(day), m)).toISOString();
 }
 
-const note = (id, day, time, subtype, title, body, over = {}) => ({
+export const note = (id, day, time, subtype, title, body, over = {}) => ({
   id,
   owner_id: USER,
   subtype,
@@ -49,7 +49,7 @@ const note = (id, day, time, subtype, title, body, over = {}) => ({
   created_at: at(day, time),
   ...over,
 });
-const todo = (id, day, time, title, over = {}) => ({
+export const todo = (id, day, time, title, over = {}) => ({
   id,
   owner_id: USER,
   title,
@@ -72,7 +72,7 @@ const todo = (id, day, time, title, over = {}) => ({
   created_at: at(day, time),
   ...over,
 });
-const cal = (id, made, title, day, from, to, over = {}) => ({
+export const cal = (id, made, title, day, from, to, over = {}) => ({
   id,
   owner_id: USER,
   title,
@@ -85,7 +85,7 @@ const cal = (id, made, title, day, from, to, over = {}) => ({
   created_at: made,
   ...over,
 });
-const chat = (id, day, time, content) => ({ id, content, created_at: at(day, time) });
+export const chat = (id, day, time, content) => ({ id, content, created_at: at(day, time) });
 
 // ── what they wrote, said and planned ─────────────────────────────────────
 

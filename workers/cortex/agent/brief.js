@@ -60,10 +60,15 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { sourceWords } from '../../shared/factSource.js';
 import { upNextWords } from '../../shared/upNext.js';
-import { loadLifePack, lifePackText } from '../../shared/lifePack.js';
+import {
+  JUST_HAPPENED_RULE,
+  chatLifeSize,
+  loadLifePack,
+  lifePackText,
+} from '../../shared/lifePack.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-13b/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-14a/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -188,7 +193,8 @@ export function briefPersona(person) {
     "You are Gremly, a warm, shame-free companion, in the person's thread for today.",
     CARE_RULES,
     `VOICE
-Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
+Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, or to ask after something that has just happened in their life, never to offer more. Never invent an item, a time, a day or a fact.
+${JUST_HAPPENED_RULE}`,
     PRIVATE_RULES,
     CHAT_WRITING_RULES,
     personBlock(person),
@@ -906,10 +912,16 @@ export function dayContext(
   return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${lifeNow ? `\n\n${lifeNow}` : ''}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}${asked ? `\n\n${asked}` : ''}`;
 }
 
-/** Their life right now (shared/lifePack.js) as lines; never stops the turn, and says when it cannot be read. */
+/**
+ * Their life (shared/lifePack.js) as lines, as much of it as Ask Gremly reads
+ * (CHAT_LIFE, shared/lifePack.js chatLifeSize; all of it unless set to compact,
+ * data fabric stage 4e); never stops the turn, and says when it cannot be read.
+ */
 async function readLife(ctx, userId, today, tz) {
   try {
-    return lifePackText(await loadLifePack(ctx.db, userId, { today, tz }));
+    return lifePackText(
+      await loadLifePack(ctx.db, userId, { today, tz, size: chatLifeSize(ctx.env) }),
+    );
   } catch (err) {
     console.warn(
       `[ALERT][BriefTurn] could not read their life for ${userId}: ${err?.message || err}`,

@@ -8,6 +8,7 @@
  */
 import {
   buildChatContext,
+  chatLifeSize,
   contextBudget,
   CONTEXT_BUDGET,
   fitContextBlocks,
@@ -324,5 +325,98 @@ describe('the whole context for Ask Gremly', () => {
     expect(text).toContain('Talked through the grant.');
     expect(text).not.toContain('This chat.');
     expect(text).not.toContain('A chat from spring.');
+  });
+});
+
+describe('how much of their life Ask Gremly reads (data fabric stage 4e)', () => {
+  const run = async (env, cache = null) => {
+    const t = tables();
+    t.life_facts.push(
+      fact('f-old', 'Spent two weeks walking in the hills.', {
+        state: 'happened',
+        about_date: '2026-08-01',
+        observed_at: '2026-08-09T09:00:00Z',
+      }),
+    );
+    global.fetch = fetchFor(t, {
+      dated_ahead: () => [],
+      recall_life_now: () => [],
+      usage_rollup: () => null,
+      absence_snapshot: () => null,
+    });
+    return buildChatContext(
+      U,
+      'general',
+      { timezone: 'America/New_York', currentChatId: 'c-now', today: TODAY, message: '' },
+      { ...ENV, ...env, ...(cache ? { CONTEXT_CACHE: cache } : {}) },
+    );
+  };
+
+  it('is all of it, unless CHAT_LIFE says compact', async () => {
+    expect(chatLifeSize({})).toBe('full');
+    expect(chatLifeSize({ CHAT_LIFE: 'compact' })).toBe('compact');
+    expect(await run({})).toContain(
+      '- 2026-08-01, happened: Spent two weeks walking in the hills.',
+    );
+    expect(await run({ CHAT_LIFE: 'compact' })).not.toContain('walking in the hills');
+  });
+
+  it('never serves one size from the cache for the other', async () => {
+    const kv = new Map();
+    const cache = {
+      get: async (k) => kv.get(k) ?? null,
+      put: async (k, v) => void kv.set(k, v),
+    };
+    expect(await run({ CHAT_LIFE: 'compact' }, cache)).not.toContain('walking in the hills');
+    expect(await run({}, cache)).toContain('walking in the hills');
+    // both sizes kept in the one entry the pipeline drops
+    const entry = JSON.parse(kv.get(`life-now:${U}`));
+    expect(Object.keys(entry.sizes).sort()).toEqual(['compact', 'full']);
+    expect(await run({ CHAT_LIFE: 'compact' }, cache)).not.toContain('walking in the hills');
+  });
+});
+
+describe('a chat about one part of their life (data fabric stage 4e)', () => {
+  it('reads the screen worth, whatever CHAT_LIFE says, as its budget is smaller', async () => {
+    const t = tables();
+    t.life_facts.push(
+      fact('f-old', 'Spent two weeks walking in the hills.', {
+        state: 'happened',
+        about_date: '2026-08-01',
+        observed_at: '2026-08-09T09:00:00Z',
+      }),
+    );
+    global.fetch = fetchFor(t, {
+      dated_ahead: () => [],
+      recall_life_now: () => [],
+      usage_rollup: () => null,
+      absence_snapshot: () => null,
+    });
+    const text = await buildChatContext(
+      U,
+      'space',
+      { timezone: 'America/New_York', today: TODAY, message: '' },
+      ENV,
+    );
+    expect(text).toContain('THEIR LIFE RIGHT NOW');
+    expect(text).not.toContain('walking in the hills');
+  });
+
+  it('lets the rest give way before anything else when Ask Gremly is over its budget', () => {
+    const rest = ['=== WHAT ELSE', ...Array.from({ length: 50 }, (_, i) => `- old ${i}`)].join(
+      '\n',
+    );
+    const { text, cut } = fitContextBlocks(
+      [
+        { key: 'life_now', text: '=== LIFE\n- today', keep: true },
+        { key: 'life_rest', text: rest },
+        { key: 'week', text: '=== WEEK\n- Monday: standup' },
+      ],
+      200,
+    );
+    expect(cut.map((c) => c.key)).toEqual(['life_rest']);
+    expect(text).toContain('- Monday: standup');
+    expect(text).toContain('- old 0');
+    expect(text).not.toContain('- old 49');
   });
 });

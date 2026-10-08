@@ -5,7 +5,7 @@
  * code gathers, dates and counts what a friend would know on a day; which of
  * it matters is always the writer's. Every name and record here is made up.
  */
-import { loadLifePack, lifePackText } from '../lifePack.js';
+import { JUST_HAPPENED_RULE, loadLifePack, lifePackText } from '../lifePack.js';
 import { memoryDb } from '../../inngest-jobs/context/__tests__/memoryDb.js';
 
 const U = 'u-1';
@@ -262,5 +262,78 @@ describe('their life right now', () => {
     expect(text).toContain('- Mira, sister');
     expect(text).toContain('- their mum (no name given yet)');
     expect(lifePackText(null)).toBe('');
+  });
+});
+
+describe('all of it, for the surfaces they talk with (data fabric stage 4e)', () => {
+  it('compact is a screen worth, with nothing more', async () => {
+    const pack = await loadLifePack(client(tables()), U, { today: TODAY, tz: 'America/New_York' });
+    expect(pack.rest).toEqual([]);
+    expect(lifePackText(pack)).not.toContain('Everything else');
+  });
+
+  it('full holds everything else they have said, newest first, saying where each stands', async () => {
+    const pack = await loadLifePack(client(tables()), U, {
+      today: TODAY,
+      tz: 'America/New_York',
+      size: 'full',
+    });
+    expect(pack.rest.map((f) => f.id)).toEqual(expect.arrayContaining(['f-old', 'f-far']));
+    // each fact in one place, here too
+    const all = [
+      ...pack.yesterday.facts,
+      ...pack.today_facts,
+      ...pack.ahead,
+      ...pack.lately,
+      ...pack.standing,
+      ...pack.rest,
+    ].map((f) => f.id);
+    expect(new Set(all).size).toBe(all.length);
+    const text = lifePackText(pack);
+    expect(text).toContain('Everything else they have told Gremly, newest first:');
+    expect(text).toContain('- 2027-04-10, planned: A wedding in the spring.');
+    expect(text).toContain('- Something said long ago.');
+    // last, so a surface short of room loses the oldest first
+    expect(text.trim().split('\n').at(-1)).toMatch(/^- /);
+    expect(text.indexOf('Everything else')).toBeGreaterThan(
+      text.indexOf('The people who come up most'),
+    );
+    expect(lifePackText(pack, { leave: ['rest'] })).not.toContain('Everything else');
+  });
+
+  it('says a plan whose day has passed was never confirmed, rather than that it is ahead', async () => {
+    const t = tables();
+    t.life_facts.push(
+      fact('f-passed', 'A drinks night with work.', {
+        about_date: '2026-10-02',
+        state: 'planned',
+        observed_at: '2026-09-20T09:00:00Z',
+      }),
+    );
+    const text = lifePackText(
+      await loadLifePack(client(t), U, { today: TODAY, tz: 'America/New_York', size: 'full' }),
+    );
+    expect(text).toContain('- 2026-10-02, was planned, never confirmed: A drinks night with work.');
+  });
+
+  it('holds far more standing facts than a screen', async () => {
+    const t = tables();
+    for (let i = 0; i < 30; i++)
+      t.life_facts.push(
+        fact(`f-s${i}`, `A standing thing ${i}.`, { kind: 'preference', timing: 'standing' }),
+      );
+    const compact = await loadLifePack(client(t), U, { today: TODAY, tz: 'America/New_York' });
+    const full = await loadLifePack(client(t), U, {
+      today: TODAY,
+      tz: 'America/New_York',
+      size: 'full',
+    });
+    expect(compact.standing).toHaveLength(12);
+    expect(full.standing).toHaveLength(31);
+  });
+
+  it('gives a writer the same rule for what has just happened, with no dashes', () => {
+    expect(JUST_HAPPENED_RULE).toMatch(/asks after it/);
+    expect(JUST_HAPPENED_RULE).not.toMatch(/\s[-–—]\s|—/);
   });
 });

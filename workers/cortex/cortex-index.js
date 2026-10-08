@@ -12526,6 +12526,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   sessionContext: sessionContextStr,
                   week: contextKeep.week,
                   found: agentFound,
+                  // its mode and how personal it is, as the quick lane's writer is told them
+                  triage: triageFromClassifier,
                   today: await theirDayRead,
                   dayEndHour: (await theirNowRead)?.dayEndHour,
                 },

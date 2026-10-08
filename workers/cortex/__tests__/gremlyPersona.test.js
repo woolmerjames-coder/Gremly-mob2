@@ -10,7 +10,9 @@ import {
   assembleGenerationConfig,
   buildGeneralChatConfig,
   chatAgentPersona,
+  chatTurnGuidance,
 } from '../gremlyPersona.js';
+import { JUST_HAPPENED_RULE } from '../../shared/lifePack.js';
 import { SOURCE_RULES, SOURCE_RULES_AGENT } from '../../inngest-jobs/careRules.js';
 
 const triage = { mode: 'capture', depth: 'brief', personal: 'none', search: 'none' };
@@ -70,4 +72,32 @@ test('the rule names no source for Gremly to fall back on, and never another per
     expect(rules).toContain('name no day, place or words of theirs');
     expect(rules).toContain('never say or suggest that it came from anyone else');
   }
+});
+
+// data fabric stage 4e: asking after what has just happened, and what the agent is told of triage
+
+test('both lanes of Ask Gremly ask after what has just happened, by the shared rule', () => {
+  const general = buildGeneralChatConfig(
+    { mode: 'chit_chat', depth: 'brief', personal: 'none', search: 'none' },
+    { runningSummary: '' },
+    null,
+    '',
+    '',
+    'UTC',
+  );
+  expect(general.systemPrompt).toContain(JUST_HAPPENED_RULE);
+  expect(general.systemPrompt).toMatch(
+    /something that has just happened that they haven't told you about yet/,
+  );
+  expect(chatAgentPersona()).toContain(JUST_HAPPENED_RULE);
+});
+
+test('what the agent is told of triage has no dashes, and nothing for a message about getting something done', () => {
+  for (const mode of ['emotional', 'venting', 'accountability', 'celebration']) {
+    const g = chatTurnGuidance({ mode, personal: 'light' });
+    expect(g.startsWith('HOW THIS MESSAGE READS\n')).toBe(true);
+    expect(g).not.toMatch(/\s[-–—]\s|—/);
+  }
+  expect(chatTurnGuidance({ mode: 'action_ready', personal: 'none' })).toBe('');
+  expect(chatTurnGuidance(null)).toBe('');
 });

@@ -23,7 +23,7 @@ import { getLifePack, recallForMessage } from './lifeContext.js';
 import { formatWeekAhead, readWeekAhead } from './weekAhead.js';
 import { fetchDatedAhead, formatDatedAhead } from './datedAhead.js';
 import { db } from '../../shared/db.js';
-import { loadLifePack, lifePackText } from '../../shared/lifePack.js';
+import { loadLifePack, lifePackText, chatLifeSize } from '../../shared/lifePack.js';
 
 /** The person's latest message text from a chat request body. */
 export function lastUserText(body) {
@@ -488,43 +488,62 @@ export function fitContextBlocks(blocks, budget) {
 
 const LIFE_NOW_TTL_SECONDS = 600;
 
+// how much of their life Ask Gremly reads (CHAT_LIFE), shared with today's thread
+export { chatLifeSize };
+
 /**
  * Their life right now (shared/lifePack.js), as every surface that talks to
  * them reads it: yesterday, what falls today, what they have said lately,
- * how their life runs and the people who come up most. What is ahead comes
- * from the dated things block. KV cached for ten minutes, and dropped with
- * the rest of chat's cache when the pipeline changes what it holds; never
- * stops the turn, and says when it cannot be read.
+ * how their life runs and the people who come up most (life), and, in a full
+ * pack, everything else they have told Gremly (rest), kept apart so it is the
+ * first to give way when the context is over its budget. What is ahead comes
+ * from the dated things block. KV cached for ten minutes, each size beside
+ * the other in one entry, and dropped with the rest of chat's cache when the
+ * pipeline changes what it holds; never stops the turn, and says when it
+ * cannot be read.
+ * @param p.size compact or full (shared/lifePack.js PACK_SIZES)
+ * @returns {{ life: string, rest: string }}
  */
-export async function readLifeNowForChat(userId, env, { today, timezone }) {
+export async function readLifeNowForChat(userId, env, { today, timezone, size = 'compact' }) {
   // one entry per person, holding its day, so the pipeline can drop it (shared/chatCache.js)
   const cacheKey = `life-now:${userId}`;
   try {
+    let entry = null;
     if (env.CONTEXT_CACHE) {
       const cached = await env.CONTEXT_CACHE.get(cacheKey);
       if (cached) {
         const hit = JSON.parse(cached);
-        if (hit?.day === today && typeof hit.text === 'string') return hit.text;
+        if (hit?.day === today && hit.sizes && typeof hit.sizes === 'object') {
+          const got = hit.sizes[size];
+          if (got && typeof got.life === 'string' && typeof got.rest === 'string') return got;
+          entry = hit;
+        }
       }
     }
-    const text = lifePackText(await loadLifePack(db(env), userId, { today, tz: timezone }), {
-      leave: ['ahead'],
-    });
+    const pack = await loadLifePack(db(env), userId, { today, tz: timezone, size });
+    const read = {
+      life: lifePackText(pack, { leave: ['ahead', 'rest'] }),
+      rest: lifePackText(pack, {
+        leave: ['yesterday', 'today', 'ahead', 'lately', 'standing', 'people'],
+      }),
+    };
     if (env.CONTEXT_CACHE)
-      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify({ day: today, text }), {
-        expirationTtl: LIFE_NOW_TTL_SECONDS,
-      }).catch((err) =>
+      await env.CONTEXT_CACHE.put(
+        cacheKey,
+        JSON.stringify({ day: today, sizes: { ...(entry?.sizes || {}), [size]: read } }),
+        { expirationTtl: LIFE_NOW_TTL_SECONDS },
+      ).catch((err) =>
         // the next message reads it again: slower, never wrong
         console.warn(
           `[ChatProjection] could not keep their life in the cache: ${err?.message || err}`,
         ),
       );
-    return text;
+    return read;
   } catch (err) {
     console.warn(
       `[ALERT][ChatProjection] could not read their life for ${String(userId).slice(0, 8)}: ${err?.message || err}`,
     );
-    return '';
+    return { life: '', rest: '' };
   }
 }
 
@@ -532,6 +551,12 @@ export async function readLifeNowForChat(userId, env, { today, timezone }) {
 export function formatLifeNow(text) {
   if (!text) return '';
   return `=== THEIR LIFE RIGHT NOW (what a friend would know today; draw on it the way a friend would when it fits what they said, never list it, and never tell them as news what they told you; an item marked private is used only when it bears on what they are talking about, in their own words, and is never opened with) ===\n${text}`;
+}
+
+/** Everything else they have told Gremly, as a context block of its own (a full pack only). */
+export function formatLifeRest(text) {
+  if (!text) return '';
+  return `=== WHAT ELSE THEY HAVE TOLD GREMLY (the same rules as their life right now; older, and there to draw on when what they say touches it) ===\n${text}`;
 }
 
 /**
@@ -598,7 +623,15 @@ export async function buildChatContext(userId, lane, opts, env) {
         : Promise.resolve(''),
       weekRead,
       dayRead,
-      dayRead.then((today) => readLifeNowForChat(userId, env, { today, timezone })),
+      // all of it in Ask Gremly, which is about the whole of their life; a
+      // screen's worth in a chat about one part of it, whose budget is smaller
+      dayRead.then((today) =>
+        readLifeNowForChat(userId, env, {
+          today,
+          timezone,
+          size: lane === 'general' ? chatLifeSize(env) : 'compact',
+        }),
+      ),
     ]);
 
     // The week itself is kept for the caller that asked (Ask Gremly's agent
@@ -609,7 +642,10 @@ export async function buildChatContext(userId, lane, opts, env) {
       // today's picture: what leads, the headline, focus, also matters, how to sound
       { key: 'today', text: formatDailyFocusForChat(dailyFocus, day), keep: true },
       // their life right now: yesterday, today, lately, how it runs, their people
-      { key: 'life_now', text: formatLifeNow(lifeNow), keep: true },
+      { key: 'life_now', text: formatLifeNow(lifeNow.life), keep: true },
+      // everything else they have told Gremly, newest first: the longest block,
+      // so the first to give way, its oldest lines first
+      { key: 'life_rest', text: formatLifeRest(lifeNow.rest) },
       // who they are: story, Chapters, app use, the brief, open questions, corrections
       { key: 'story', text: lifePack, keep: true },
       // the week ahead, day by day: their calendar and planned todos

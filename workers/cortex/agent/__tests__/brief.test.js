@@ -31,6 +31,7 @@ import {
   weekVariant,
   wrapContext,
 } from '../brief.js';
+import { JUST_HAPPENED_RULE } from '../../../shared/lifePack.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
 import { CHAT_WRITING_RULES, SOURCE_RULES_AGENT } from '../../../inngest-jobs/careRules.js';
 import { configureModels } from '../../models.js';
@@ -236,6 +237,11 @@ describe('the day the agent knows', () => {
     expect(p).not.toContain('WHAT YOU KNOW ABOUT TODAY');
     expect(p).not.toMatch(/ — | – /);
     expect(dayContext(req)).toBe(`WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`);
+    // a friend asks after what has just happened (data fabric stage 4e)
+    expect(p).toContain(JUST_HAPPENED_RULE);
+    expect(p).toContain(
+      'or to ask after something that has just happened in their life, never to offer more',
+    );
   });
 
   it("knows what today is about, from Gremly's picture of their day", () => {

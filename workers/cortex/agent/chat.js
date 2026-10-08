@@ -12,7 +12,7 @@
 // finish, the quick lane's writer answers instead (cortex-index.js).
 // ============================================================================
 
-import { chatAgentPersona } from '../gremlyPersona.js';
+import { chatAgentPersona, chatTurnGuidance } from '../gremlyPersona.js';
 import { formatWeekAhead } from '../context/weekAhead.js';
 import { localDateOf, minutesIn } from '../../shared/calendar.js';
 import { runAgent } from './run.js';
@@ -20,7 +20,7 @@ import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 import { readWeek, weekFrameOf, weekLine, weekVariant } from './brief.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-06a/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-14a/${AGENT_PROMPT_VERSION}`;
 
 /** How many of their items the search before the first step offers. */
 const FOUND_LIMIT = 8;
@@ -100,6 +100,8 @@ function weekWithIds(sessionContext, week) {
  * carrying their ids, and their items that share words with the message. When
  * the app sent their week (the weekly review), one line about it too: their
  * weekly day, where this week's review stands, and whether the extra is free.
+ * First, how triage read the message (its mode and how personal it is), as the
+ * quick lane's writer is told it (gremlyPersona.js chatTurnGuidance).
  */
 export function chatContext({
   profileText,
@@ -110,8 +112,11 @@ export function chatContext({
   week,
   found,
   theirWeek,
+  triage,
 }) {
   return [
+    // first, as the quick lane's writer reads it before what it knows of them
+    chatTurnGuidance(triage),
     profileText ? `ABOUT THIS USER\n${profileText}` : '',
     todayActivity || '',
     runningSummary ? `THIS CONVERSATION EARLIER, IN SHORT\n${runningSummary}` : '',
@@ -144,7 +149,7 @@ export function chatCacheKey(userId) {
  * @param {string} p.timezone
  * @param {{role: string, content: string}[]} p.messages the conversation, ending with their message
  * @param {object[]} [p.tasks] the task list kept on the chat
- * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
+ * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; triage is how triage read the message; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
  * @param {object} [p.week] the person's week as the app sent it (lib/cortex/CortexClient.ts WeekTurnContext); with it Gremly knows where their weekly review stands and can put the button to it under a reply
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays

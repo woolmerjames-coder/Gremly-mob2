@@ -348,3 +348,32 @@ describe('one turn', () => {
     );
   });
 });
+
+describe('how triage read the message (data fabric stage 4e)', () => {
+  it('is told to the agent first, before what it knows of them, as the quick lane is told it', () => {
+    const text = chatContext({
+      profileText: 'IDENTITY: Noor.',
+      found: 'THEIR ITEMS THAT SHARE WORDS WITH THIS MESSAGE: none.',
+      triage: { mode: 'emotional', personal: 'deep', lane: 'agent' },
+    });
+    expect(text.startsWith('HOW THIS MESSAGE READS\n')).toBe(true);
+    const guide = text.slice(0, text.indexOf('ABOUT THIS USER'));
+    expect(guide).toMatch(/make them feel heard/);
+    // it speaks of their life as below it, and it is
+    expect(guide).toMatch(/This question is personal to the user/);
+  });
+
+  it('leaves a message about getting something done to the agent own rules', () => {
+    const text = chatContext({ triage: { mode: 'action_ready', personal: 'none', lane: 'agent' } });
+    expect(text).not.toContain('HOW THIS MESSAGE READS');
+    expect(chatContext({ triage: { mode: 'update', personal: 'light' } })).toMatch(
+      /^HOW THIS MESSAGE READS\nIf you can naturally connect/,
+    );
+  });
+
+  it('says nothing when there is no triage, as before', () => {
+    expect(chatContext({ profileText: 'IDENTITY: Noor.' })).toBe(
+      'ABOUT THIS USER\nIDENTITY: Noor.',
+    );
+  });
+});

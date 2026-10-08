@@ -36,6 +36,8 @@ MINDDROP_RELATE_ENABLED = "true"
 #   CHAT_MODEL_ASK            Ask Gremly's writer on its own (default CHAT_MODEL); an OpenAI
 #                             model goes through openaiChat.js
 #   CHAT_EFFORT_ASK           how much an OpenAI writer thinks before it writes (default none)
+#   CHAT_LIFE                 compact: Ask Gremly and today's thread read the screen's worth of
+#                             their life the brief reads, not all of it (default all of it)
 #   HELPER_MODEL              the small model behind triage, loading message, summaries,
 #                             extraction, habit pre parse and so on (default gpt-4.1-mini)
 #   MODEL_<JOB>               one helper job on its own, for example MODEL_TRIAGE_MODE or
@@ -86,6 +88,23 @@ CHAT_MODEL = "gemini-3-flash-preview"
 # like Luna at eight times the cost. A writer that fails to start is tried once
 # on CHAT_MODEL. To go back: remove this line.
 CHAT_MODEL_ASK = "gpt-6-luna"
+# The writer thinks a little before it writes (data fabric stage 4e, the Ask
+# Gremly replay, scripts/ask-replay: twelve first messages to a made up person,
+# four runs, a judge from each model family). At low thinking it said fewer
+# untrue things (9 against 13 in 96 readings), never read their life back to
+# them (with no thinking it did 5 times), asked after what had just happened
+# more often, and brought up what a friend would as often, for about a
+# hundredth of a cent and a second more a reply. Gemini 3.8 Flash brought up a
+# little more but said untrue things three to four times as often, at twenty
+# times the cost. To go back: remove this line.
+CHAT_EFFORT_ASK = "low"
+# How much of their life Ask Gremly and today's thread read
+# (shared/lifePack.js chatLifeSize): all of it when unset. In shadow on two
+# real days the busier account's context came to about 66,000 characters
+# against 30,000 for the brief's screen's worth; judged blind in pairs, all of
+# it was picked as often (17 of 32) and said fewer untrue things (14 against
+# 19). "compact" goes back to the screen's worth.
+# CHAT_LIFE = "compact"
 HELPER_MODEL = "gpt-6-luna"
 HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
 MODEL_TRIAGE = "gpt-6-luna"
