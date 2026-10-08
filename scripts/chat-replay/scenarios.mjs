@@ -605,3 +605,64 @@ SCENARIOS.push(
     expect: { rows: 0 },
   },
 );
+
+// A World's or a Chapter's own chat (Worlds rebuild, stage 2): the chat is on
+// the page, so "this" is the page, and what is on it comes with every turn
+// (cortex context/pageDetail.js). page names it; links say which items are in
+// which World or Chapter.
+SCENARIOS.push(
+  {
+    id: 'page-chapter-done',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cFence', title: 'Garden fence' },
+    text: 'This is done!',
+    items: [],
+    ...P,
+    expect: { rows: 1, row: (c) => c.op === 'close' && c.type === 'chapter' && c.id === 'cFence' },
+  },
+  {
+    id: 'page-chapter-dates',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: "The dates changed, it's now the 27th to the 29th",
+    items: [],
+    ...P,
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && c.fields?.start_day === '2026-11-27' && c.fields?.end_day === '2026-11-29',
+    },
+  },
+  {
+    id: 'page-chapter-step',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'Add a step to book the airport taxi',
+    items: [{ id: 'flights', kind: 'todo', title: 'Book flights', due_day: '2026-10-09' }],
+    links: [{ item: 'flights', chapter: 'cLisbon', world: 'wTravel' }],
+    ...P,
+    // a step added on a Chapter's page belongs to that Chapter
+    expect: { askOrRows: true, rows: 1, row: (c) => c.op === 'add' && c.type === 'todo' && (c.fields?.chapters?.add || []).includes('cLisbon') },
+  },
+  {
+    id: 'page-chapter-tick',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'I booked the flights',
+    items: [{ id: 'flights', kind: 'todo', title: 'Book flights', due_day: '2026-10-09' }],
+    links: [{ item: 'flights', chapter: 'cLisbon', world: 'wTravel' }],
+    ...P,
+    expect: { rows: 1, row: (c) => c.op === 'done' && c.id === 'flights' },
+  },
+  {
+    id: 'page-world-start',
+    kind: 'A page of its own',
+    page: { type: 'world', id: 'wHome', title: 'Home' },
+    text: 'Start a chapter here for repainting the hallway, I want it done before Christmas',
+    items: [],
+    ...P,
+    expect: {
+      askOrRows: true,
+      some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHome',
+    },
+  },
+);

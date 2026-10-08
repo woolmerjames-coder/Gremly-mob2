@@ -43,6 +43,16 @@ jest.mock('../../../lib/story/useStory', () => ({
   }),
 }));
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: () => null }));
+// a page's own chat is Ask Gremly tied to the page (components/worlds/PageChat.tsx)
+jest.mock('../../../app/tabs/AskGremlyScreen', () => {
+  const { Text } = require('react-native');
+  return {
+    __esModule: true,
+    default: ({ item }: any) => (
+      <Text testID="page-chat">{`${item.label}|${item.anchor?.type ?? 'none'}|${item.anchor?.id ?? item.title}|${item.anchor?.title ?? item.opener}|${item.starters.map((x: any) => x.label).join(',')}`}</Text>
+    ),
+  };
+});
 
 const store = useGremlyStore as unknown as {
   setState: (s: object, replace?: boolean) => void;
@@ -282,6 +292,14 @@ describe('Worlds home', () => {
     expect(r.getByTestId('worlds-snack')).toHaveTextContent(/World made./);
   });
 
+  it('opens a fresh chat about their Worlds from the box', () => {
+    const r = render(<WorldsScreen />);
+    fireEvent.press(r.getByTestId('gremly-box'));
+    expect(r.getByTestId('page-chat')).toHaveTextContent(
+      /^Worlds\|none\|Ask Gremly\|What would you like to do\?.*\|What is coming up,Start something new,Tidy my Worlds$/,
+    );
+  });
+
   it('greets a first day with nothing in it', () => {
     store.setState({ worlds: [], chapters: [] });
     const r = render(<WorldsScreen />);
@@ -371,6 +389,38 @@ describe('A Chapter', () => {
     expect(r.getByText('This looks finished')).toBeTruthy();
   });
 
+  it('steps its chat aside for the closing moment when a card in it closes the Chapter', async () => {
+    mockParams = { chapterId: 'c1' };
+    const r = render(<ChapterDetailScreen />);
+    fireEvent.press(r.getByTestId('gremly-box'));
+    expect(r.getByTestId('page-chat')).toHaveTextContent(
+      /^Chapter\|chapter\|c1\|Trip to Lisbon\|Help me plan this/,
+    );
+    // the card in the chat closed it, and asked for its memory
+    await act(async () => {
+      store.setState({
+        chapters: store
+          .getState()
+          .chapters.map((c: any) =>
+            c.id === 'c1' ? { ...c, phase: 'closed', closed_at: '2026-10-08T09:00:00Z' } : c,
+          ),
+      });
+    });
+    expect(r.queryByTestId('page-chat')).toBeNull();
+    expect(r.getByTestId('closing')).toBeTruthy();
+    expect(r.getByText('Gremly is writing it now')).toBeTruthy();
+    await act(async () => {
+      store.setState({
+        chapters: store
+          .getState()
+          .chapters.map((c: any) => (c.id === 'c1' ? { ...c, epigraph: 'Lisbon, done well.' } : c)),
+      });
+    });
+    expect(r.getByTestId('closing-memory')).toHaveTextContent(/Lisbon, done well./);
+    await act(async () => fireEvent.press(r.getByTestId('closing-not-yet')));
+    expect(store.getState().reopenChapter).toHaveBeenCalledWith('c1');
+  });
+
   it('shows a closed Chapter as a memory, with what was left behind', async () => {
     mockParams = { chapterId: 'c4' };
     const r = render(<ChapterDetailScreen />);
@@ -421,14 +471,14 @@ describe('A World', () => {
     expect(mockNav.goBack).not.toHaveBeenCalled();
   });
 
-  it('opens its chat from the box', () => {
+  it('opens its own chat over the page from the box', () => {
     mockParams = { worldId: 'w1' };
     const r = render(<WorldDetailScreen />);
+    expect(r.queryByTestId('page-chat')).toBeNull();
     fireEvent.press(r.getByTestId('gremly-box'));
-    expect(mockNav.navigate).toHaveBeenCalledWith('ScopedChat', {
-      scopeType: 'world',
-      scopeId: 'w1',
-      scopeName: 'Home',
-    });
+    expect(r.getByTestId('page-chat')).toHaveTextContent(
+      'World|world|w1|Home|Start a Chapter here,Rename it,Merge it with another',
+    );
+    expect(mockNav.navigate).not.toHaveBeenCalled();
   });
 });

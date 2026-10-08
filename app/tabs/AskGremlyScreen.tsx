@@ -171,12 +171,21 @@ function agentTasksOf(chat: SpaceChat): AgentTask[] {
   return Array.isArray(tasks) ? (tasks as AgentTask[]) : [];
 }
 
-/** An item's own chat (components/chat/ItemChatScreen.tsx) */
+/**
+ * An item's own chat (components/chat/ItemChatScreen.tsx), a World's or a
+ * Chapter's (components/worlds/PageChat.tsx), or the box on the Worlds home,
+ * which has no anchor: it opens fresh each time with Gremly's own line, and
+ * keeps no thread of its own (its chats are in Ask Gremly's list).
+ */
 export type ItemChatOptions = {
-  /** The item: every turn is sent with it, and its chat is found by it */
-  anchor: ChatAnchor;
-  /** What the header calls it: Todo, Habit, Event... */
+  /** The item or page: every turn is sent with it, and its chat is found by it; none on the Worlds home */
+  anchor: ChatAnchor | null;
+  /** What the header calls it: Todo, Habit, Event, World, Chapter... */
   label: string;
+  /** The header's title when there is no anchor */
+  title?: string;
+  /** Gremly's first line when there is no anchor */
+  opener?: string;
   /** Sent straight away when the item has no chat yet (a screen asked for it) */
   initialPrompt?: string | null;
   /** The starters for its kind, shown under Gremly's opener */
@@ -284,7 +293,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
   // instead of the greeting, and nothing is sent until the user replies
   const [aboutItem, setAboutItem] = useState<TalkAboutItem | null>(null);
-  const [aboutOpener, setAboutOpener] = useState<string | null>(null);
+  // with no anchor (the box on the Worlds home), Gremly's own line opens it
+  const [aboutOpener, setAboutOpener] = useState<string | null>(
+    item && !item.anchor ? (item.opener ?? null) : null,
+  );
   const aboutRef = useRef<{ item: TalkAboutItem; opener: string } | null>(null);
 
   useEffect(() => {
@@ -978,8 +990,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // with a message. Looked up once, when the screen opens.
   const itemRef = useRef(item);
   itemRef.current = item;
-  const itemId = item?.anchor.id ?? null;
-  const [itemReady, setItemReady] = useState(!item);
+  const itemId = item?.anchor?.id ?? null;
+  // with no anchor there is nothing to look up: it opens fresh
+  const [itemReady, setItemReady] = useState(!item || !item.anchor);
   // starters drawn from the item: undefined until asked, null while waiting
   const [itemStarters, setItemStarters] = useState<ItemStarter[] | null | undefined>(undefined);
   const itemLookedUpRef = useRef(false);
@@ -992,7 +1005,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   useEffect(() => {
     const opened = itemRef.current;
-    if (!opened || !itemId || !userId || itemLookedUpRef.current) return;
+    if (!opened?.anchor || !itemId || !userId || itemLookedUpRef.current) return;
+    const anchor = opened.anchor;
     itemLookedUpRef.current = true;
     (async () => {
       const found = await findItemChat(userId, itemId).catch(() => null);
@@ -1003,8 +1017,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         setItemReady(true);
         return;
       }
-      const talk: TalkAboutItem = { ...opened.anchor, label: opened.label };
-      const opener = talkAboutOpener(opened.anchor.title);
+      const talk: TalkAboutItem = { ...anchor, label: opened.label };
+      const opener = talkAboutOpener(anchor.title);
       aboutRef.current = { item: talk, opener };
       setAboutItem(talk);
       setAboutOpener(opener);
@@ -1739,7 +1753,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     (target: ChangeRowItem) => {
       if (item) {
         item.onClose();
-        if (item.anchor.id === target.id) return;
+        if (item.anchor?.id === target.id) return;
       }
       openEntity(
         { id: target.id, type: target.type, title: target.title },
@@ -2027,7 +2041,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             <View style={styles.chatHeaderCenter}>
               <Text style={styles.itemHeaderLabel}>{item.label}</Text>
               <Text style={styles.itemHeaderTitle} numberOfLines={1}>
-                {item.anchor.title}
+                {item.anchor?.title ?? item.title ?? ''}
               </Text>
             </View>
             {inConversation ? (
@@ -2280,7 +2294,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             </>
           ) : item && !itemReady ? (
             <View style={styles.flex} testID="item-chat-loading" />
-          ) : aboutItem && aboutOpener ? (
+          ) : (aboutItem || (item && !item.anchor)) && aboutOpener ? (
             <View style={styles.aboutOpener} testID="chat-about-opener">
               <ChatBubble
                 message={

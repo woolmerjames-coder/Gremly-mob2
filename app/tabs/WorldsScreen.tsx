@@ -40,6 +40,8 @@ import { Btn, Sheet } from '../../components/worlds/Sheet';
 import { StartSomething } from '../../components/worlds/StartSomething';
 import { WorldPick } from '../../components/worlds/WorldPick';
 import { UndoSnack } from '../../components/worlds/UndoSnack';
+import { BOX_SPACE, GremlyBox } from '../../components/worlds/GremlyBox';
+import { PageChat } from '../../components/worlds/PageChat';
 import { lightTap } from '../../components/worlds/usePageActions';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -58,6 +60,9 @@ export default function WorldsScreen() {
   const { data: story } = useStory();
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<HomeSheet>(null);
+  // the box's chat, over Worlds: fresh each time it opens
+  const [chatOpen, setChatOpen] = useState(false);
+  const closeChat = useCallback(() => setChatOpen(false), []);
   // A World just made is scrolled into view along the top.
   const [madeWorld, setMadeWorld] = useState<string | null>(null);
 
@@ -308,14 +313,17 @@ export default function WorldsScreen() {
         ) : null}
       </Sheet>
 
-      <UndoSnack bottom={72 + 12} />
+      <GremlyBox slug="gremly-mascot" onPress={() => setChatOpen(true)} above={72} />
+      <PageChat visible={chatOpen} kind="home" onClose={closeChat} />
+
+      <UndoSnack bottom={72 + BOX_SPACE + 12} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: W.linen },
-  body: { paddingHorizontal: 20, paddingTop: 2, paddingBottom: TAB_BAR_SPACE + 40 },
+  body: { paddingHorizontal: 20, paddingTop: 2, paddingBottom: TAB_BAR_SPACE + BOX_SPACE + 24 },
   top: {
     flexDirection: 'row',
     alignItems: 'center',

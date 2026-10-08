@@ -754,7 +754,8 @@ export interface RecentEntity extends EntityCardEntity {
  */
 export interface ChatAnchor {
   id: string;
-  type: 'todo' | 'habit' | 'note';
+  /** An item, or the World or Chapter page a page's own chat is on (Worlds rebuild, stage 2) */
+  type: 'todo' | 'habit' | 'note' | 'world' | 'chapter';
   title: string;
 }
 /** Where a chat turn's time went; shown under the reply in dev builds only. */

@@ -1,7 +1,7 @@
 /**
- * The box at the foot of a World or a Chapter, with Gremly sitting on it.
- * Until the box opens in place (stage 2), it opens the chat for this World
- * or Chapter.
+ * The box at the foot of the Worlds home, a World and a Chapter, with Gremly
+ * sitting on it. It opens the page's own chat over the page
+ * (components/worlds/PageChat.tsx); on the Worlds home, a fresh one.
  */
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,10 +11,23 @@ import { F, W } from '../../lib/worlds/look';
 
 export const BOX_SPACE = 92;
 
-export function GremlyBox({ slug, onPress }: { slug: string; onPress: () => void }) {
+export function GremlyBox({
+  slug,
+  onPress,
+  above,
+}: {
+  slug: string;
+  onPress: () => void;
+  /** Sits this far up, over a tab bar that already keeps clear of the screen's edge */
+  above?: number;
+}) {
   const insets = useSafeAreaInsets();
+  const edge = above === undefined ? insets.bottom : 0;
   return (
-    <View style={[styles.dock, { paddingBottom: 10 + insets.bottom }]} pointerEvents="box-none">
+    <View
+      style={[styles.dock, { bottom: above ?? 0, paddingBottom: 10 + edge }]}
+      pointerEvents="box-none"
+    >
       <LinearGradient
         colors={['rgba(249,246,241,0)', W.linen]}
         style={styles.fade}
@@ -22,7 +35,7 @@ export function GremlyBox({ slug, onPress }: { slug: string; onPress: () => void
       />
       <Image
         source={resolveMascotAsset(slug)}
-        style={[styles.g, { bottom: 46 + insets.bottom }]}
+        style={[styles.g, { bottom: 46 + edge }]}
         resizeMode="contain"
         accessible={false}
       />

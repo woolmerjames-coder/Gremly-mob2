@@ -5,7 +5,7 @@
  * one is a small moment of its own (ClosingMoment). The box at the foot
  * opens its chat.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -71,6 +71,7 @@ import { DatesPick } from '../../components/worlds/DatesPick';
 import { TextEdit } from '../../components/worlds/TextEdit';
 import { ClosingMoment, type MemoryState } from '../../components/worlds/ClosingMoment';
 import { GremlyBox, BOX_SPACE } from '../../components/worlds/GremlyBox';
+import { PageChat } from '../../components/worlds/PageChat';
 import { UndoSnack } from '../../components/worlds/UndoSnack';
 import { usePageActions } from '../../components/worlds/usePageActions';
 
@@ -117,6 +118,42 @@ export default function ChapterDetailScreen() {
   const [showDone, setShowDone] = useState(false);
   const [closing, setClosing] = useState<{ undo: Undo; memory: MemoryState } | null>(null);
   const [asking, setAsking] = useState(false);
+  // the Chapter's own chat, over the page
+  const [chatOpen, setChatOpen] = useState(false);
+  const closeChat = useCallback(() => setChatOpen(false), []);
+
+  // Closed from a card in its own chat: the chat steps aside for the closing
+  // moment, as when it is closed from the page (James, 8 Oct). The card has
+  // already asked for the memory; it shows when it comes.
+  const isClosed = !!chapter && (!!chapter.closed_at || chapter.phase === 'closed');
+  const wasClosed = useRef(isClosed);
+  useEffect(() => {
+    if (isClosed && !wasClosed.current && chatOpen && !closing) {
+      setChatOpen(false);
+      setClosing({
+        undo: async () => {
+          await store.reopenChapter(id);
+        },
+        memory: chapter?.epigraph ? 'ready' : 'writing',
+      });
+    }
+    wasClosed.current = isClosed;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClosed]);
+  // the memory being written lands on the Chapter; when it does not come, say so
+  const memoryCame = !!chapter?.epigraph;
+  useEffect(() => {
+    if (closing?.memory !== 'writing') return;
+    if (memoryCame) {
+      setClosing((c) => (c ? { ...c, memory: 'ready' } : c));
+      return;
+    }
+    const t = setTimeout(
+      () => setClosing((c) => (c && c.memory === 'writing' ? { ...c, memory: 'missing' } : c)),
+      30000,
+    );
+    return () => clearTimeout(t);
+  }, [closing?.memory, memoryCame]);
 
   // Deleted, or put back by Undo: there is nothing to show, so go back.
   // Set while this page is the one taking the person away, so it goes back once.
@@ -490,18 +527,14 @@ export default function ChapterDetailScreen() {
         </View>
       </ScrollView>
 
-      {!closed && !closing ? (
-        <GremlyBox
-          slug={slug}
-          onPress={() =>
-            nav.navigate('ScopedChat', {
-              scopeType: 'chapter',
-              scopeId: id,
-              scopeName: chapter.title,
-            })
-          }
-        />
-      ) : null}
+      {!closed && !closing ? <GremlyBox slug={slug} onPress={() => setChatOpen(true)} /> : null}
+      <PageChat
+        visible={chatOpen}
+        kind="chapter"
+        id={id}
+        title={chapter.title}
+        onClose={closeChat}
+      />
 
       <Sheet visible={!!sheet} onClose={() => setSheet(null)} label={chapter.title}>
         {sheet?.kind === 'menu' ? (

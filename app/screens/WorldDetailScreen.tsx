@@ -3,7 +3,7 @@
  * Chapters in motion, its open todos, habits and what is kept in it, and the
  * Chapters it has closed. The box at the foot opens its chat.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -43,6 +43,7 @@ import { GremlyPick } from '../../components/worlds/GremlyPick';
 import { WorldPick } from '../../components/worlds/WorldPick';
 import { TextEdit } from '../../components/worlds/TextEdit';
 import { GremlyBox, BOX_SPACE } from '../../components/worlds/GremlyBox';
+import { PageChat } from '../../components/worlds/PageChat';
 import { UndoSnack } from '../../components/worlds/UndoSnack';
 import { usePageActions } from '../../components/worlds/usePageActions';
 
@@ -72,6 +73,9 @@ export default function WorldDetailScreen() {
   const mergeWorlds = useGremlyStore((s) => s.mergeWorlds);
   const page = usePageActions();
   const [sheet, setSheet] = useState<WorldSheet>(null);
+  // the World's own chat, over the page
+  const [chatOpen, setChatOpen] = useState(false);
+  const closeChat = useCallback(() => setChatOpen(false), []);
 
   // Merged away or gone: there is nothing to show, so go back.
   // Set while this page is the one taking the person away, so it goes back once.
@@ -232,12 +236,8 @@ export default function WorldDetailScreen() {
         ) : null}
       </ScrollView>
 
-      <GremlyBox
-        slug={slug}
-        onPress={() =>
-          nav.navigate('ScopedChat', { scopeType: 'world', scopeId: id, scopeName: name })
-        }
-      />
+      <GremlyBox slug={slug} onPress={() => setChatOpen(true)} />
+      <PageChat visible={chatOpen} kind="world" id={id} title={name} onClose={closeChat} />
 
       <Sheet visible={!!sheet} onClose={() => setSheet(null)} label={name}>
         {sheet?.kind === 'menu' ? (

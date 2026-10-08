@@ -29,6 +29,7 @@ import { runTool } from '../../workers/cortex/agent/tools/index.js';
 import { costUsd } from '../../workers/shared/aiUsage.js';
 import { formatWeekAhead, weekFrom } from '../../workers/cortex/context/weekAhead.js';
 import { formatDatedAhead } from '../../workers/cortex/context/datedAhead.js';
+import { fetchPageDetail } from '../../workers/cortex/context/pageDetail.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -147,8 +148,23 @@ function dbFor(s, to) {
   return {
     select: async (path) => {
       const [table, query = ''] = path.split('?');
-      if (table === 'worlds') return places.worlds;
-      if (table === 'chapters') return places.chapters;
+      // a page's own chat reads its World or Chapter, and what is linked to it
+      const eqOf = (col) => new RegExp(`(?:^|&)${col}=eq\\.([^&]+)`).exec(query)?.[1];
+      if (table === 'worlds') return eqOf('id') ? places.worlds.filter((w) => w.id === eqOf('id')) : places.worlds;
+      if (table === 'chapters') {
+        if (eqOf('id')) return places.chapters.filter((c) => c.id === eqOf('id'));
+        if (eqOf('primary_world_id')) return places.chapters.filter((c) => c.primary_world_id === eqOf('primary_world_id'));
+        return places.chapters;
+      }
+      if (table === 'drop_chapter_links' || table === 'drop_world_links') {
+        const key = table === 'drop_chapter_links' ? 'chapter' : 'world';
+        const col = `${key}_id`;
+        const kindOf = (itemId) => (s.items || []).find((x) => x.id === itemId)?.kind;
+        const all = (s.links || [])
+          .filter((l) => l[key])
+          .map((l) => ({ drop_id: to.get(l.item), drop_type: kindOf(l.item), [col]: to.get(l[key]) }));
+        return eqOf(col) ? all.filter((l) => l[col] === eqOf(col)) : all;
+      }
       if (table === 'gremly_questions') return query.includes('kind=eq.start_chapter') ? places.gremly_questions : [];
       const idEq = /(?:^|&)id=eq\.([^&]+)/.exec(query)?.[1];
       if (rows[table] && idEq) return rows[table].filter((r) => r.id === idEq);
@@ -234,8 +250,14 @@ function check(s, r, back) {
   const rows = (r.card || []).map((c) => {
     const row = { ...c, id: short(c.id) };
     if (c.into) row.into = short(c.into);
-    if (c.fields && (c.fields.world || c.fields.items))
-      row.fields = { ...c.fields, ...(c.fields.world ? { world: short(c.fields.world) } : {}), ...(c.fields.items ? { items: c.fields.items.map((x) => ({ ...x, id: short(x.id) })) } : {}) };
+    if (c.fields && (c.fields.world || c.fields.items || c.fields.chapters || c.fields.worlds))
+      row.fields = {
+        ...c.fields,
+        ...(c.fields.world ? { world: short(c.fields.world) } : {}),
+        ...(c.fields.items ? { items: c.fields.items.map((x) => ({ ...x, id: short(x.id) })) } : {}),
+        ...(c.fields.chapters ? { chapters: { add: (c.fields.chapters.add || []).map(short), remove: (c.fields.chapters.remove || []).map(short) } } : {}),
+        ...(c.fields.worlds ? { worlds: { add: (c.fields.worlds.add || []).map(short), remove: (c.fields.worlds.remove || []).map(short) } } : {}),
+      };
     return row;
   });
   const reply = r.reply || '';
@@ -289,6 +311,11 @@ async function runOne(s, modelKey) {
           messageCount: (s.history || []).length + 1,
         })
       : null;
+    // a World's or a Chapter's own chat: what is on its page, as cortex reads it
+    const db = dbFor(s, to);
+    const page = s.page
+      ? await fetchPageDetail(env, USER, { id: to.get(s.page.id), type: s.page.type, title: s.page.title || 'page' }, s.today || '2026-10-03', { db })
+      : '';
     const r = await runChatTurn({
       env,
       userId: USER,
@@ -304,6 +331,7 @@ async function runOne(s, modelKey) {
           .filter(Boolean)
           .join('\n\n'),
         week: weekOf(s, to),
+        page,
         // their day, which after midnight is still the day before until 3am
         ...(s.today ? { today: s.today } : {}),
         // --old-clock leaves it out: the clock words as they were before 5 October
@@ -315,7 +343,7 @@ async function runOne(s, modelKey) {
       worlds: placesOn(s),
       deps: {
         now: () => Date.parse(s.nowIso || NOW_ISO),
-        ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db: dbFor(s, to) },
+        ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db },
         models: { model: MODELS[modelKey], fallback: MODELS[modelKey], thinking: thinking || undefined },
         agent: {
           runTool: async (ctx, name, input) => {

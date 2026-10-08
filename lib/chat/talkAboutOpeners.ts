@@ -10,7 +10,8 @@
 
 export type TalkAboutItem = {
   id: string;
-  type: 'note' | 'todo' | 'habit';
+  /** An item, or a World or Chapter page (its own chat) */
+  type: 'note' | 'todo' | 'habit' | 'world' | 'chapter';
   title: string;
   /** What the card calls it: Todo, Event, Journal... */
   label: string;

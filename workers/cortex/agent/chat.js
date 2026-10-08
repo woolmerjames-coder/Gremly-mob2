@@ -117,6 +117,7 @@ export function chatContext({
   theirWeek,
   triage,
   places,
+  page,
 }) {
   return [
     // first, as the quick lane's writer reads it before what it knows of them
@@ -127,6 +128,8 @@ export function chatContext({
     anchor && !anchor.gone && anchor.id
       ? `THIS CHAT IS ABOUT ONE OF THEIR ITEMS: the ${anchor.type} "${anchor.title}" (id ${anchor.id})`
       : '',
+    // a World's or a Chapter's own chat: what is on its page (context/pageDetail.js)
+    typeof page === 'string' ? page : '',
     weekWithIds(sessionContext, week),
     typeof places === 'string' ? places : '',
     typeof theirWeek === 'string' ? theirWeek : '',
@@ -192,11 +195,12 @@ export async function runChatTurn({
   const ctx = deps.ctx
     ? { ...deps.ctx, today, week: weekFrame }
     : toolContext(env, { userId, today, timezone: tz, week: weekFrame });
-  const [found, places] = await Promise.all([
+  const [found, places, page] = await Promise.all([
     preload.found !== undefined
       ? Promise.resolve(preload.found).catch(() => '')
       : foundForMessage({ ...ctx, surface: 'chat' }, last.content).catch(() => ''),
     worlds ? readPlaces(ctx).catch(() => null) : Promise.resolve(null),
+    Promise.resolve(preload.page).catch(() => ''),
   ]);
   const r = await runAgent({
     surface: 'chat',
@@ -206,6 +210,7 @@ export async function runChatTurn({
     context: chatContext({
       ...preload,
       found,
+      page: page || '',
       places: places ? placesContext(places, today) : '',
       // the weekly day is moved on the card in today's thread, not here
       theirWeek: theirWeek ? weekLine(theirWeek, today, { moveOnCard: false }) : '',

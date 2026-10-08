@@ -165,6 +165,7 @@ import {
   lastUserText,
 } from './context/chatProjection.js';
 import { checkTurn } from './context/corrections.js';
+import { fetchPageDetail, pageAnchorFrom } from './context/pageDetail.js';
 import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
@@ -2284,6 +2285,12 @@ function truncateAtSentence(text, maxChars) {
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** The World or Chapter a chat is on, as checkTurn takes it, or null. */
+function pageScopeOf(body) {
+  const page = pageAnchorFrom(body?.anchorEntity);
+  return page ? { kind: page.type, id: page.id } : null;
+}
+
 /**
  * One Ask Gremly message answered by the agent (agent/chat.js): status lines
  * while it works, then its reply and its card on the chat's stream, then what
@@ -2416,6 +2423,8 @@ async function answerWithAgent({
     chatId: body.chatId,
     userId,
     surface: 'chat',
+    // a correction said in a World's or Chapter's own chat reaches that page's words
+    scope: pageScopeOf(body),
     tag: 'GeneralChat:Agent',
   });
   return true;
@@ -12445,6 +12454,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const previousExchange = extractPreviousExchange(messages);
             // the item this chat was opened about ("Talk it through"), sent with every turn
             const anchorEntity = anchorFrom(body.anchorEntity);
+            // or the World or Chapter page it was opened from, and what is on it (Worlds rebuild, stage 2)
+            const pageAnchor = pageAnchorFrom(body.anchorEntity);
+            const pageDetailPromise =
+              authenticatedUserId && pageAnchor
+                ? fetchPageDetail(env, authenticatedUserId, pageAnchor, todayIsoIn(userTimezone))
+                : Promise.resolve('');
             // and what that item holds, read alongside triage and the matcher
             const anchorDetailPromise =
               authenticatedUserId && anchorEntity
@@ -12537,6 +12552,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   sessionContext: sessionContextStr,
                   week: contextKeep.week,
                   found: agentFound,
+                  // the World or Chapter page this chat is on, with what is on it
+                  page: pageDetailPromise,
                   // its mode and how personal it is, as the quick lane's writer is told them
                   triage: triageFromClassifier,
                   today: await theirDayRead,
@@ -12604,6 +12621,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               // a habit's count this week is made in it
               weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
+            // a World's or a Chapter's own chat: what is on its page
+            if (pageAnchor) {
+              const pageText = await pageDetailPromise;
+              if (pageText) genConfig.systemPrompt += `\n\n${pageText}`;
+            }
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
             if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
@@ -12964,6 +12986,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 chatId: body.chatId,
                 userId: authenticatedUserId,
                 surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
+                // a correction said in a World's or Chapter's own chat reaches that page's words
+                scope: pageScopeOf(body),
                 tag: 'GeneralChat',
               });
 
