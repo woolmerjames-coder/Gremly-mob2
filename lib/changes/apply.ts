@@ -27,6 +27,7 @@ import { applyLinks, copyLinks, hasLinks } from './links';
 import { doneWords, type NameLookup } from './words';
 import { applyWeekChange } from './week';
 import { applyEase } from './ease';
+import { applyPlace, isPlaceChange, placeDoneWords } from './places';
 
 export interface ApplyOptions {
   source: ChangeSource;
@@ -254,6 +255,19 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
     ...(createdId ? { createdId } : {}),
     ...(createdParts && Object.keys(createdParts).length ? { createdParts } : {}),
   });
+
+  // a World or a Chapter itself, made with the Worlds screens' own actions
+  if (isPlaceChange(change)) {
+    const r = await applyPlace(change);
+    if (!r.ok) return { cid: change.cid, ok: false, reason: r.reason, message: r.message };
+    return {
+      cid: change.cid,
+      ok: true,
+      summary: placeDoneWords(change),
+      revert: r.revert,
+      ...(r.createdId ? { createdId: r.createdId } : {}),
+    };
+  }
 
   switch (change.op) {
     case 'add': {

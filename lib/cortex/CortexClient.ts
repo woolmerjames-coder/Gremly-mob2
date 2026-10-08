@@ -5,6 +5,7 @@ import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { weeklyDayNow } from '../week/weeklyDayNow';
+import { worldsOn } from '../worlds/worldsOn';
 import { eventBus } from '../events/EventBus';
 import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type { HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
@@ -592,6 +593,8 @@ export function callGeneralChatStreaming(
       briefQuestion: opts.briefQuestion ?? null,
       // this build draws the agent's card, so lookups and changes can go to it
       agentCard: true,
+      // and changes to Worlds and Chapters, for someone who has the Worlds tab
+      worldsCard: worldsOn(),
       agentTasks: opts.agentTasks ?? [],
       ...(opts.week ? { week: opts.week } : {}),
       userId: opts.userId,

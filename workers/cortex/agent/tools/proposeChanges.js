@@ -14,10 +14,15 @@ import {
   OPS,
   TYPES as FIELD_TYPES,
   GROUPS,
+  PLACE_OPS,
+  PLACE_OP_WORDS,
+  PLACE_TYPES,
   PLAN_KINDS,
   STEP_KINDS,
   WEEK_OPS,
 } from '../../../shared/changes/fields.js';
+import { GREMLY_SLUGS } from '../../../shared/gremlys.js';
+import { checkPlaces, itemKeysFor, readPlaces } from '../places.js';
 import { checkCard, normTime } from '../../../shared/changes/check.js';
 import { DAY_KINDS } from '../../../shared/week.js';
 import { EASE_MODES, rowOfEase } from '../../../shared/habitWeek.js';
@@ -36,6 +41,10 @@ const WEEK_OP_NAMES = Object.keys(WEEK_OPS);
 // app build that can apply it, which says so by sending what is eased now
 // (proposeEaseChanges, proposeWeekEaseChanges)
 const EASE_OP_NAMES = Object.keys(EASE_OPS);
+// Worlds and Chapters themselves: only for an app build that can apply those
+// changes, which says so with its request (proposePlaceChanges)
+const PLACE_OP_NAMES = Object.keys(PLACE_OPS);
+const PLACE_TYPE_NAMES = Object.keys(PLACE_TYPES);
 
 /** The field list in words, for the tool's description, from fields.js. */
 export function fieldListWords() {
@@ -48,6 +57,23 @@ export function fieldListWords() {
     })
     .join('\n');
 }
+
+/** Worlds and Chapters, their fields and operations in words, from fields.js. */
+export function placeFieldListWords() {
+  const opWords = { ...PLACE_OPS, ...PLACE_OP_WORDS };
+  return Object.entries(PLACE_TYPES)
+    .map(([type, spec]) => {
+      const fields = Object.entries(spec.fields)
+        .map(([name, def]) => `${name}${def.group === 'asked' ? '*' : ''} (${def.about})`)
+        .join(', ');
+      const ops = spec.ops.map((op) => (opWords[op] ? `${op} (${opWords[op]})` : op)).join(', ');
+      return `${type}: ${fields}. Operations: ${ops}.`;
+    })
+    .join('\n');
+}
+
+const PLACES_DESCRIPTION = `Their Worlds and Chapters change on the card too, as the kinds world and chapter, named by the ids in what you know. Nothing here deletes a World or a Chapter. A new Chapter goes in one of their Worlds, and can gather items of theirs that belong in it. merge names the World it goes into as into.
+${placeFieldListWords()}`;
 
 const DESCRIPTION = `Put changes to the person's items on a card for them to accept with a tap. Nothing changes until they do. Each call puts a new card in place of the last one, so include every change you want on it. Each change is checked against the item as it is now; the result says which changes are on the card and why any were dropped, so you can fix one and propose it again, or tell the person. Only say Gremly is offering a change that is on the card.
 Rules:
@@ -72,7 +98,23 @@ const WORDS = obj({
   remove: arr(str('a word'), 'to take away'),
 });
 
-const FIELDS = obj({
+const PLACE_FIELDS = {
+  world: str('for a Chapter, the id of the World it belongs in'),
+  items: arr(
+    obj(
+      {
+        type: strEnum(['todo', 'habit', 'note'], 'the kind of item'),
+        id: str('its id'),
+      },
+      ['type', 'id'],
+    ),
+    'for a new Chapter, the items of theirs that belong in it',
+  ),
+  words: str('for a World or a Chapter, a line in their own words about it'),
+  gremly: strEnum(GREMLY_SLUGS, 'for a World or a Chapter, the Gremly outfit it wears'),
+};
+
+const FIELDS_SPEC = {
   name: str('the new name or title'),
   text: str('new text that replaces what the item says'),
   text_add: str('text to add to what the item says'),
@@ -134,6 +176,14 @@ const FIELDS = obj({
   tags: WORDS,
   pinned: bool('pinned to the top'),
   favourite: bool('a favourite'),
+};
+const FIELDS = obj(FIELDS_SPEC);
+// with Worlds and Chapters: a Chapter's name, dates, World, items, words and outfit too
+const FIELDS_WITH_PLACES = obj({
+  ...FIELDS_SPEC,
+  start_day: day('the day a habit starts, or the first day of a Chapter'),
+  end_day: day('the day a habit or an event ends, or the date of a Chapter or its last day'),
+  ...PLACE_FIELDS,
 });
 
 const PLAN = obj(
@@ -243,17 +293,18 @@ function easeField(week) {
   );
 }
 
-function changeSchema({ plan, week, ease }) {
+function changeSchema({ plan, week, ease, places }) {
   const ops = [
     ...AGENT_OPS,
     ...(plan ? ['plan'] : []),
     ...(week ? WEEK_OP_NAMES : []),
     ...(ease ? EASE_OP_NAMES : []),
+    ...(places ? PLACE_OP_NAMES : []),
   ];
   const props = {
     op: strEnum(ops, 'what the change does'),
     type: strEnum(
-      ['todo', 'habit', 'note'],
+      ['todo', 'habit', 'note', ...(places ? PLACE_TYPE_NAMES : [])],
       week
         ? "the kind of item; left out for plan and for the week's shape, priority, intention, milestone and weekly day"
         : plan
@@ -268,9 +319,10 @@ function changeSchema({ plan, week, ease }) {
         ? 'for log and unlog; for habit_days, every day the habit is planned on in the week'
         : 'for log and unlog',
     ),
-    fields: FIELDS,
+    fields: places ? FIELDS_WITH_PLACES : FIELDS,
     clear: arr(str('a field name'), 'fields to empty'),
   };
+  if (places) props.into = str('for merge, the id of the World it goes into');
   if (plan) props.plan = PLAN;
   if (week) {
     props.back_on = day('for later, the day the todo comes back to them');
@@ -369,6 +421,16 @@ const HINTS = {
   ease_too_far: 'a pause or a lighter version ends within four weeks of today',
   ease_breaking: 'a habit they are breaking is not paused or made lighter',
   days_breaking: 'a habit they are breaking is never planned on days',
+  needs_world: 'a new Chapter goes in one of their Worlds; give its world by id',
+  unknown_world: 'that World is not one of theirs; their Worlds and their ids are in what you know',
+  hidden_world: 'that World is hidden; it can be brought back first if they want it',
+  world_exists: 'they already have a World with that name',
+  end_before_start: "a Chapter's last day comes on or after its first day",
+  bad_merge: 'merge needs into, the id of another of their Worlds',
+  no_place:
+    'no World or Chapter of theirs has that id; their Worlds and Chapters and their ids are in what you know',
+  not_open: 'only a Chapter that is open can be closed',
+  unknown_item: 'one of those items is not one of theirs; look it up with find_items',
 };
 
 // what a week change's own value has to be, when it could not be read
@@ -403,6 +465,8 @@ function hint(reason) {
       return 'one of the list item ids is not on that list; read it with get_item';
     case 'unknown_reminder':
       return 'one of the reminder ids is not on that item; read it with get_item';
+    case 'add_only':
+      return `${field} is set only when a Chapter starts; to put an item into a Chapter that exists, change the item's chapters`;
     default:
       return reason;
   }
@@ -537,6 +601,7 @@ export function toModelChange(c, i) {
   const out = { cid: `c${i + 1}`, op: c?.op, type: c?.type };
   if (c?.id) out.id = c.id;
   if (c?.to) out.to = c.to;
+  if (c?.into) out.into = c.into;
   if (Array.isArray(c?.days)) out.days = c.days;
   const given = c?.fields && typeof c.fields === 'object' ? { ...c.fields } : {};
   const fields = {};
@@ -729,14 +794,33 @@ async function plannedDays(ctx, raws) {
  * propose_changes, with the plan on screen and today's set times when plan is
  * true, and the week's own changes when week is true.
  */
-function makeProposeChanges({ plan, week = false, ease = false }) {
-  const about = week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION;
+/** A World or Chapter change as the model reads it back. */
+function placeChangeWords(c, ctx, names) {
+  const f = c.fields || {};
+  const what = [];
+  if (c.op !== 'add' && 'name' in f) what.push(`named “${trim(f.name, 60)}”`);
+  if ('world' in f) what.push(`in ${names.get(f.world) || 'that World'}`);
+  if ('start_day' in f)
+    what.push(f.start_day ? `first day ${dayWords(f.start_day, ctx.today)}` : 'first day cleared');
+  if ('end_day' in f)
+    what.push(f.end_day ? `date ${dayWords(f.end_day, ctx.today)}` : 'date cleared');
+  if (Array.isArray(f.items) && f.items.length)
+    what.push(`gathering ${f.items.length} of their items`);
+  if ('words' in f) what.push(f.words ? `words “${trim(f.words, 80)}”` : 'words cleared');
+  if ('gremly' in f) what.push(f.gremly ? `outfit ${f.gremly}` : "wearing its World's outfit");
+  if (c.op === 'merge') what.push(`into ${c.into_title || names.get(c.into) || 'that World'}`);
+  return `${c.op} ${c.type} “${trim(c.title, 60)}”${what.length ? `: ${what.join('; ')}` : ''}`;
+}
+
+function makeProposeChanges({ plan, week = false, ease = false, places = false }) {
+  const base = week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION;
+  const about = places ? `${base}\n${PLACES_DESCRIPTION}` : base;
   return {
     name: 'propose_changes',
     description: about,
     parameters: obj(
       {
-        changes: arr(changeSchema({ plan, week, ease }), 'the changes, one per item'),
+        changes: arr(changeSchema({ plan, week, ease, places }), 'the changes, one per item'),
         ...WITH_CARD,
       },
       ['changes'],
@@ -766,7 +850,22 @@ function makeProposeChanges({ plan, week = false, ease = false }) {
         return r.raw;
       });
       const kept = raws.filter(Boolean);
-      const lw = await worldsAndChapters(ctx);
+      const isPlace = (r) => PLACE_TYPE_NAMES.includes(r?.type);
+      // Worlds and Chapters, and the items a new Chapter gathers, when this build can take them
+      const [lw, pl, itemKeys] = await Promise.all([
+        worldsAndChapters(ctx),
+        places ? readPlaces(ctx) : Promise.resolve(null),
+        places
+          ? itemKeysFor(
+              ctx,
+              kept.flatMap((r) =>
+                isPlace(r) && Array.isArray(r.fields?.items) ? r.fields.items : [],
+              ),
+            )
+          : Promise.resolve(new Set()),
+      ]);
+      const placeRows = new Map(pl ? [...pl.worlds, ...pl.chapters].map((r) => [r.id, r]) : []);
+      const placeCheck = pl ? checkPlaces(pl) : null;
       // each item named once, read fresh
       const wanted = new Map();
       for (const r of kept) {
@@ -790,14 +889,24 @@ function makeProposeChanges({ plan, week = false, ease = false }) {
       }
       const weekCheck = week ? weekCheckOf(ctx.week) : null;
       const easeCheck = ease ? easeCheckOf(ctx.week) : null;
-      const { changes, dropped } = checkCard(kept, (raw) => ({
-        today: ctx.today,
-        item: raw.id && raw.op !== 'plan' ? (loaded.get(`${raw.type}:${raw.id}`) ?? null) : null,
-        worlds: lw.worlds.map((w) => w.id),
-        chapters: lw.chapters.map((c) => c.id),
-        week: weekCheck,
-        ease: easeCheck,
-      }));
+      const { changes, dropped } = checkCard(kept, (raw) =>
+        isPlace(raw)
+          ? {
+              today: ctx.today,
+              places: placeCheck,
+              place: raw.id ? (placeRows.get(raw.id) ?? null) : null,
+              itemKeys,
+            }
+          : {
+              today: ctx.today,
+              item:
+                raw.id && raw.op !== 'plan' ? (loaded.get(`${raw.type}:${raw.id}`) ?? null) : null,
+              worlds: lw.worlds.map((w) => w.id),
+              chapters: lw.chapters.map((c) => c.id),
+              week: weekCheck,
+              ease: easeCheck,
+            },
+      );
       // one row per item: a change that already moves an item in or out of
       // today's plan (a new time or day, done, skipped, stopped, paused) covers it
       const covering = new Set(changes.filter((c) => coversPlan(c, ctx.today)).map((c) => c.id));
@@ -832,6 +941,10 @@ function makeProposeChanges({ plan, week = false, ease = false }) {
           }
           if (EASE_OP_NAMES.includes(c.op)) {
             lines.push(`- ${c.cid} ${easeChangeWords(c, ctx)}`);
+            continue;
+          }
+          if (PLACE_TYPE_NAMES.includes(c.type)) {
+            lines.push(`- ${c.cid} ${placeChangeWords(c, ctx, byId)}`);
             continue;
           }
           const what = [
@@ -873,3 +986,13 @@ export const proposeEaseChanges = makeProposeChanges({ plan: false, ease: true }
 
 /** Today's thread with their week, for such a build: the week's changes and a habit's ease. */
 export const proposeWeekEaseChanges = makeProposeChanges({ plan: true, week: true, ease: true });
+
+/** Chat, for an app build that can apply changes to Worlds and Chapters (Worlds rebuild, stage 2). */
+export const proposePlaceChanges = makeProposeChanges({ plan: false, places: true });
+
+/** Chat, for a build that can apply those and a habit's ease. */
+export const proposeEasePlaceChanges = makeProposeChanges({
+  plan: false,
+  ease: true,
+  places: true,
+});

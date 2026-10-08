@@ -33,6 +33,11 @@
  *   here and never by the model, so the card can show "from" and the app can
  *   spot an edit made since
  *
+ * Worlds and Chapters themselves (PLACE_TYPES in fields.js) are checked by
+ * checkPlaceChange, only when the context carries the person's Worlds and
+ * Chapters (ctx.places): with none, as for an app build that cannot apply
+ * them, they are dropped.
+ *
  * The item snapshot uses the app store's names (fields.js column). Links and
  * logs that live outside the item come in on the snapshot too: world_ids,
  * chapter_ids and, for a habit, logged_days.
@@ -49,8 +54,11 @@ import {
   STEP_KINDS,
   WEEK_LIMITS,
   NAME_LIMIT,
+  PLACE_TYPES,
   fieldDef,
+  placeFieldDef,
 } from './fields.js';
+import { GREMLY_SLUGS } from '../gremlys.js';
 import { DAY_KINDS, LATER_MAX_DAYS, addDays, daysBetween, normHours } from '../week.js';
 import {
   EASE_MAX_DAYS,
@@ -396,6 +404,7 @@ export function checkChange(raw, ctx = {}) {
   if (!raw || typeof raw !== 'object') return { ok: false, reason: 'unknown_op' };
   if (WEEK_OP_NAMES.includes(raw.op)) return checkWeekChange(raw, ctx);
   if (raw.op in EASE_OPS) return checkEase(raw, ctx);
+  if (raw.type in PLACE_TYPES) return checkPlaceChange(raw, ctx);
   if (!(raw.op in OPS)) return { ok: false, reason: 'unknown_op' };
   const base = { cid: raw.cid || null, op: raw.op };
 
@@ -468,6 +477,196 @@ export function checkChange(raw, ctx = {}) {
     }
     default:
       return { ok: false, reason: 'unknown_op' };
+  }
+}
+
+// ── Worlds and Chapters ─────────────────────────────────────────────────────
+
+/** A World's or a Chapter's name as the person sees it. */
+export function placeTitle(type, row) {
+  if (!row) return '';
+  const t = type === 'world' ? row.display_name || row.name : row.title;
+  return String(t || '').trim();
+}
+
+/** A World or Chapter field's value now, the way a change states it. */
+export function placeBefore(type, row, field) {
+  const def = placeFieldDef(type, field);
+  if (!def || !row || !def.column) return null;
+  if (type === 'world' && field === 'name') return placeTitle('world', row) || null;
+  const raw = row[def.column];
+  if (def.kind === 'day') return normDay(raw) ?? null;
+  return raw == null || raw === '' ? null : raw;
+}
+
+const sameName = (a, b) =>
+  String(a || '')
+    .trim()
+    .toLowerCase() ===
+  String(b || '')
+    .trim()
+    .toLowerCase();
+
+const isClosedChapter = (row) => !!row?.closed_at || row?.phase === 'closed';
+const isOpenChapter = (row) => !isClosedChapter(row) && ['upcoming', 'active'].includes(row?.phase);
+
+function readPlaceField(type, field, raw, before, ctx, forAdd) {
+  const def = placeFieldDef(type, field);
+  if (!def) return { error: `unknown_field:${field}` };
+  if (def.add_only && !forAdd) return { error: `add_only:${field}` };
+  if (raw === null) {
+    if (forAdd) return { noop: true };
+    if (!def.clear) return { error: `cannot_clear:${field}` };
+    return before == null ? { noop: true } : { value: null };
+  }
+  const same = (v) => !forAdd && v === before;
+  switch (def.kind) {
+    case 'text': {
+      const v = normText(raw, def.max);
+      if (!v) return { error: `bad_value:${field}` };
+      return same(v) ? { noop: true } : { value: v };
+    }
+    case 'day': {
+      const v = normDay(raw);
+      if (!v) return { error: `bad_value:${field}` };
+      return same(v) ? { noop: true } : { value: v };
+    }
+    case 'world': {
+      const w = ctx.worldsById.get(raw);
+      if (!w) return { error: 'unknown_world' };
+      if (w.hidden) return { error: 'hidden_world' };
+      return same(raw) ? { noop: true } : { value: raw };
+    }
+    case 'gremly':
+      if (!GREMLY_SLUGS.includes(raw)) return { error: `bad_value:${field}` };
+      return same(raw) ? { noop: true } : { value: raw };
+    case 'items': {
+      if (!Array.isArray(raw)) return { error: `bad_value:${field}` };
+      const known = ctx.itemKeys instanceof Set ? ctx.itemKeys : new Set(ctx.itemKeys || []);
+      const out = [];
+      const seen = new Set();
+      for (const r of raw) {
+        const key = `${r?.type}:${r?.id}`;
+        if (!['todo', 'habit', 'note'].includes(r?.type) || !known.has(key))
+          return { error: 'unknown_item' };
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push({ type: r.type, id: r.id });
+        }
+      }
+      return out.length ? { value: out } : { noop: true };
+    }
+    default:
+      return { error: `unknown_kind:${field}` };
+  }
+}
+
+function readPlaceFields(type, rawFields, row, ctx, forAdd) {
+  if (!rawFields || typeof rawFields !== 'object' || Array.isArray(rawFields)) {
+    return { error: 'no_fields' };
+  }
+  const fields = {};
+  const before = {};
+  for (const [field, raw] of Object.entries(rawFields)) {
+    const b = forAdd ? null : placeBefore(type, row, field);
+    const r = readPlaceField(type, field, raw, b, ctx, forAdd);
+    if (r.error) return { error: r.error };
+    if (r.noop) continue;
+    fields[field] = r.value;
+    if (!forAdd) before[field] = b;
+  }
+  if (type === 'chapter') {
+    // the dates as they will stand once the change is made
+    const start = 'start_day' in fields ? fields.start_day : placeBefore(type, row, 'start_day');
+    const end = 'end_day' in fields ? fields.end_day : placeBefore(type, row, 'end_day');
+    if (start && end && end < start) return { error: 'end_before_start' };
+  }
+  return { fields, before };
+}
+
+/**
+ * One change to a World or a Chapter, read against the person's Worlds and
+ * Chapters (ctx.places: worlds as {id, name, hidden}, chapters as {id, title})
+ * and, for anything but add, the World or Chapter itself (ctx.place, its row).
+ * A new Chapter's items are checked against ctx.itemKeys ("todo:<id>" and so
+ * on, the items of theirs that were found). Merge names the World it goes
+ * into as into. Archive hides a World and restore brings it back; neither
+ * deletes anything.
+ */
+export function checkPlaceChange(raw, ctx = {}) {
+  const type = raw?.type;
+  const spec = PLACE_TYPES[type];
+  if (!spec || !ctx.places) return { ok: false, reason: 'unknown_type' };
+  if (!spec.ops.includes(raw.op)) return { ok: false, reason: 'op_not_for_type' };
+  const worlds = Array.isArray(ctx.places.worlds) ? ctx.places.worlds : [];
+  const c = { ...ctx, worldsById: new Map(worlds.map((w) => [w.id, w])) };
+  const base = { cid: raw.cid || null, op: raw.op, type };
+
+  if (raw.op === 'add') {
+    const r = readPlaceFields(type, raw.fields, null, c, true);
+    if (r.error) return { ok: false, reason: r.error };
+    if (typeof r.fields.name !== 'string') return { ok: false, reason: 'add_needs_name' };
+    if (type === 'world' && worlds.some((w) => sameName(w.name, r.fields.name)))
+      return { ok: false, reason: 'world_exists' };
+    if (type === 'chapter' && !r.fields.world && worlds.some((w) => !w.hidden))
+      return { ok: false, reason: 'needs_world' };
+    return {
+      ok: true,
+      change: { ...base, id: null, title: r.fields.name, fields: r.fields, before: {} },
+    };
+  }
+
+  const row = ctx.place;
+  if (!row || (raw.id && row.id && row.id !== raw.id)) return { ok: false, reason: 'no_place' };
+  const done = { ...base, id: row.id || raw.id, title: placeTitle(type, row) };
+  const change = () => {
+    const r = readPlaceFields(type, raw.fields, row, c, false);
+    if (r.error) return { ok: false, reason: r.error };
+    if (!Object.keys(r.fields).length) return { ok: false, reason: 'no_change' };
+    if (
+      type === 'world' &&
+      r.fields.name &&
+      worlds.some((w) => w.id !== done.id && sameName(w.name, r.fields.name))
+    )
+      return { ok: false, reason: 'world_exists' };
+    return { ok: true, change: { ...done, fields: r.fields, before: r.before } };
+  };
+
+  if (type === 'chapter') {
+    switch (raw.op) {
+      case 'change':
+        return change();
+      case 'close':
+        if (isClosedChapter(row)) return { ok: false, reason: 'no_change' };
+        return isOpenChapter(row) ? { ok: true, change: done } : { ok: false, reason: 'not_open' };
+      case 'reopen':
+        return isClosedChapter(row)
+          ? { ok: true, change: done }
+          : { ok: false, reason: 'no_change' };
+      default:
+        return { ok: false, reason: 'op_not_for_type' };
+    }
+  }
+
+  const hidden = row.phase === 'archived';
+  switch (raw.op) {
+    case 'change':
+      return hidden ? { ok: false, reason: 'archived' } : change();
+    case 'merge': {
+      if (hidden) return { ok: false, reason: 'archived' };
+      const into = typeof raw.into === 'string' ? raw.into : null;
+      if (!into || into === done.id) return { ok: false, reason: 'bad_merge' };
+      const target = c.worldsById.get(into);
+      if (!target) return { ok: false, reason: 'unknown_world' };
+      if (target.hidden) return { ok: false, reason: 'hidden_world' };
+      return { ok: true, change: { ...done, into, into_title: String(target.name || '') } };
+    }
+    case 'archive':
+      return hidden ? { ok: false, reason: 'no_change' } : { ok: true, change: done };
+    case 'restore':
+      return hidden ? { ok: true, change: done } : { ok: false, reason: 'no_change' };
+    default:
+      return { ok: false, reason: 'op_not_for_type' };
   }
 }
 

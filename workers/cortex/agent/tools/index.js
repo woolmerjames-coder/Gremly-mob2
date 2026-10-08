@@ -29,6 +29,8 @@ import {
   proposeChanges,
   proposeDayChanges,
   proposeEaseChanges,
+  proposeEasePlaceChanges,
+  proposePlaceChanges,
   proposeWeekChanges,
   proposeWeekEaseChanges,
 } from './proposeChanges.js';
@@ -53,6 +55,9 @@ const FOR_SURFACE = {
   brief_week: { propose_changes: proposeWeekChanges },
   brief_week_ease: { propose_changes: proposeWeekEaseChanges },
   chat_ease: { propose_changes: proposeEaseChanges },
+  // an app build that can apply changes to Worlds and Chapters (Worlds rebuild, stage 2)
+  chat_places: { propose_changes: proposePlaceChanges },
+  chat_ease_places: { propose_changes: proposeEasePlaceChanges },
 };
 
 function toolNamed(name, surface) {

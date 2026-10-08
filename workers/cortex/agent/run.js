@@ -49,6 +49,7 @@ function numbered(changes) {
  * @param {object} p
  * @param {string} p.surface 'brief' | 'chat' (surfaces.js)
  * @param {string} [p.variant] a variant of the surface, with more to its job and more tools ('week' on the brief)
+ * @param {boolean} [p.places] the app build can apply changes to Worlds and Chapters (surfaces.js)
  * @param {string} p.persona the surface's persona and care rules, the same from one message to the next
  * @param {string} [p.context] what the surface knows that changes between messages, placed last
  * @param {string} [p.cacheKey] groups one person's turns on this surface for the provider's prompt cache
@@ -68,7 +69,7 @@ export async function runAgent(p) {
   const callModel = deps.callModel || defaultCallModel;
   const runTool = deps.runTool || defaultRunTool;
   const now = deps.now || (() => Date.now());
-  const surface = surfaceOf(p.surface, p.variant);
+  const surface = surfaceOf(p.surface, p.variant, { places: p.places === true });
   if (!surface)
     return {
       ok: false,

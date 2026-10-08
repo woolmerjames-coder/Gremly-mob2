@@ -11,6 +11,7 @@
  *   scripts/chat-replay/run.sh --with-week              every scenario sent their week (the weekly review)
  *   scripts/chat-replay/run.sh --with-ease              and the habits eased now, as a build that can pause a habit sends them
  *   scripts/chat-replay/run.sh --triage                 each message read by triage first, as cortex-index.js does, and the agent told how it reads (data fabric stage 4e)
+ *   scripts/chat-replay/run.sh --places                 every scenario from an app build that can change Worlds and Chapters, with Alex's usual ones (Worlds rebuild, stage 2); a scenario with worlds of its own always is
  *
  * Keys come from the environment (OPENAI_API_KEY, GEMINI_TEST_API_KEY).
  * Output goes to scripts/chat-replay/out/ (gitignored).
@@ -20,7 +21,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { SCENARIOS, WEEK, NOW_ISO, THEIR_WEEK } from './scenarios.mjs';
+import { SCENARIOS, WEEK, NOW_ISO, THEIR_WEEK, PLACES } from './scenarios.mjs';
 import { runChatTurn, CHAT_AGENT_VERSION } from '../../workers/cortex/agent/chat.js';
 import { configureModels } from '../../workers/cortex/models.js';
 import { triageMessage } from '../../workers/cortex/triage.js';
@@ -104,10 +105,17 @@ globalThis.fetch = async (url, init) => {
   return res;
 };
 
-/** Each scenario's short ids as the uuids real items have, and back. */
+/** Whether a scenario comes from an app build that can change Worlds and Chapters, and its Worlds and Chapters. */
+const placesOn = (s) => !!s.worlds || args.includes('--places');
+const placesOf = (s) => (placesOn(s) ? { worlds: s.worlds || PLACES.worlds, chapters: s.chapters || PLACES.chapters, declined: s.declined || [] } : null);
+
+/** Each scenario's short ids as the uuids real items, Worlds and Chapters have, and back. */
 function idsFor(s) {
   const to = new Map();
   (s.items || []).forEach((x, i) => to.set(x.id, `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`));
+  const p = placesOf(s);
+  (p?.worlds || []).forEach((w, i) => to.set(w.id, `00000000-0000-4000-9000-${String(i + 1).padStart(12, '0')}`));
+  (p?.chapters || []).forEach((c, i) => to.set(c.id, `00000000-0000-4000-a000-${String(i + 1).padStart(12, '0')}`));
   return { to, back: new Map([...to].map(([a, b]) => [b, a])) };
 }
 
@@ -129,11 +137,23 @@ function dbFor(s, to) {
       rows.notes.push({ id, title: x.title, body: x.body || '', subtype: 'idea', target_date: null, archived: false, reminders_json: [], views: {} });
   }
   const typeOf = { todos: 'todo', habits: 'habit', notes: 'note' };
+  // their Worlds and Chapters, as the tables have them
+  const p = placesOf(s);
+  const places = {
+    worlds: (p?.worlds || []).map((w, i) => ({ id: to.get(w.id), name: w.name, display_name: w.name, phase: w.hidden ? 'archived' : 'active', card_subtitle: null, mascot_slug: null, created_at: `2026-0${(i % 8) + 1}-01T00:00:00Z` })),
+    chapters: (p?.chapters || []).map((c, i) => ({ id: to.get(c.id), title: c.title, phase: c.closed ? 'closed' : c.start && c.start > (s.today || '2026-10-03') ? 'upcoming' : 'active', start_date: c.start || null, end_date: c.end || null, primary_world_id: to.get(c.world) || null, closed_at: c.closed ? `${c.end || '2026-09-01'}T12:00:00Z` : null, card_subtitle: null, mascot_slug: null, created_at: `2026-0${(i % 8) + 1}-02T00:00:00Z` })),
+    gremly_questions: (p?.declined || []).map((t) => ({ proposed_change: { type: 'start', title: t }, topic: t, answered_at: '2026-09-20T12:00:00Z' })),
+  };
   return {
     select: async (path) => {
       const [table, query = ''] = path.split('?');
+      if (table === 'worlds') return places.worlds;
+      if (table === 'chapters') return places.chapters;
+      if (table === 'gremly_questions') return query.includes('kind=eq.start_chapter') ? places.gremly_questions : [];
       const idEq = /(?:^|&)id=eq\.([^&]+)/.exec(query)?.[1];
       if (rows[table] && idEq) return rows[table].filter((r) => r.id === idEq);
+      const idIn = /(?:^|&)id=in\.\(([^)]*)\)/.exec(query)?.[1];
+      if (rows[table] && idIn) return rows[table].filter((r) => idIn.split(',').includes(r.id));
       if (table === 'todos' && query.includes('due_day=eq.')) {
         const day = /due_day=eq\.([0-9-]+)/.exec(query)[1];
         return rows.todos.filter((r) => r.due_day === day);
@@ -210,7 +230,14 @@ const CLAIMS = [
 ];
 
 function check(s, r, back) {
-  const rows = (r.card || []).map((c) => ({ ...c, id: c.id ? back.get(c.id) || c.id : c.id }));
+  const short = (id) => (id ? back.get(id) || id : id);
+  const rows = (r.card || []).map((c) => {
+    const row = { ...c, id: short(c.id) };
+    if (c.into) row.into = short(c.into);
+    if (c.fields && (c.fields.world || c.fields.items))
+      row.fields = { ...c.fields, ...(c.fields.world ? { world: short(c.fields.world) } : {}), ...(c.fields.items ? { items: c.fields.items.map((x) => ({ ...x, id: short(x.id) })) } : {}) };
+    return row;
+  });
   const reply = r.reply || '';
   const e = s.expect;
   const out = [];
@@ -284,6 +311,8 @@ async function runOne(s, modelKey) {
         ...(triage ? { triage } : {}),
       },
       week: theirWeekFor(s, to),
+      // an app build that can change Worlds and Chapters
+      worlds: placesOn(s),
       deps: {
         now: () => Date.parse(s.nowIso || NOW_ISO),
         ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db: dbFor(s, to) },
@@ -350,7 +379,7 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
   );
   if (r.out) {
     console.log(`      reply: ${r.out.reply}`);
-    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields, ...(c.ease ? { ease: c.ease } : {}) })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}`);
+    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields, ...(c.ease ? { ease: c.ease } : {}), ...(c.into ? { into: c.into } : {}) })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}`);
   }
   return { id: s.id, kind: s.kind, ...r };
 });
@@ -370,5 +399,5 @@ for (const m of models) {
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const outDir = join(HERE, 'out');
 mkdirSync(outDir, { recursive: true });
-writeFileSync(join(outDir, `chat-${stamp}.json`), JSON.stringify({ meta: { stamp, version: CHAT_AGENT_VERSION, models: models.map((m) => MODELS[m]), repeat }, results: done }, null, 2));
+writeFileSync(join(outDir, `chat-${stamp}.json`), JSON.stringify({ meta: { stamp, version: CHAT_AGENT_VERSION, models: models.map((m) => MODELS[m]), repeat, places: args.includes('--places') }, results: done }, null, 2));
 console.log(`Results: scripts/chat-replay/out/chat-${stamp}.json`);

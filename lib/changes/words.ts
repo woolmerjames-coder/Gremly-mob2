@@ -8,6 +8,7 @@
 import { formatDay, formatDays, formatTime } from '../chat/dayWords';
 import { getDateService } from '../date/DateService';
 import type { Change, Schedule } from './model';
+import { isPlaceChange, placeButtonWords, placeDoneWords, placeRowWords } from './places';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAY_NAMES = [
@@ -314,6 +315,7 @@ function weekRowWords(change: Change, opts: Opts): string | null {
 
 /** One line for the change's row on a card. */
 export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {}): string {
+  if (isPlaceChange(change)) return placeRowWords(change);
   const t = change.title;
   const names = opts.names ?? noNames;
   switch (change.op) {
@@ -322,7 +324,7 @@ export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {
         Object.entries(change.fields ?? {}).filter(([k]) => k !== 'name'),
       );
       const phrases = fieldPhrases({ ...change, fields: rest }, names, opts);
-      return [`Add ${KIND[change.type!]} “${t}”`, ...phrases].join(', ');
+      return [`Add ${KIND[change.type as keyof typeof KIND]} “${t}”`, ...phrases].join(', ');
     }
     case 'change': {
       const f = change.fields ?? {};
@@ -393,6 +395,7 @@ function planWords(change: Change): string {
 
 /** The button on a card with one change. */
 export function buttonWords(change: Change): string {
+  if (isPlaceChange(change)) return placeButtonWords(change);
   switch (change.op) {
     case 'add':
       return 'Yes, add it';
@@ -440,6 +443,7 @@ export function buttonWords(change: Change): string {
 
 /** The closing line once a change is done. Names the date, never Today. */
 export function doneWords(change: Change, opts: { names?: NameLookup } = {}): string {
+  if (isPlaceChange(change)) return placeDoneWords(change);
   const fixed = { relative: false };
   const t = change.title;
   switch (change.op) {

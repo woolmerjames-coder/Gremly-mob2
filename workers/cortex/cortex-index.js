@@ -2313,6 +2313,8 @@ async function answerWithAgent({
     preload,
     // their week, from an app build that can show the weekly review's button
     week: body.week && typeof body.week === 'object' ? body.week : null,
+    // their Worlds and Chapters, for an app build that can apply changes to them (Worlds rebuild, stage 2)
+    worlds: body.worldsCard === true,
     onStatus: (line) => {
       send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
     },

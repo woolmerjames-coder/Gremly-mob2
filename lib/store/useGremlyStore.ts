@@ -66,6 +66,7 @@ import { getDateService } from '../date';
 import { DEFAULT_DAY_END_HOUR, nowTimestamp } from '../date/DateService';
 import { DEFAULT_WEEKLY_DAY, weeklyDayOf } from '../../workers/shared/week';
 import { setWeeklyDayNow } from '../week/weeklyDayNow';
+import { setWorldsOn } from '../worlds/worldsOn';
 import { easePlan, type EaseMode } from '../../workers/shared/habitWeek';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import { fedDayFor } from '../speech/momentWords';
@@ -10889,6 +10890,15 @@ function followWeeklyDay() {
   });
 }
 followWeeklyDay();
+
+// Whether they have the Worlds tab, for chat's calls to the worker (lib/worlds/worldsOn.ts)
+function followWorldsOn() {
+  setWorldsOn(useGremlyStore.getState().isTester);
+  useGremlyStore.subscribe((state, prev) => {
+    if (state.isTester !== prev.isTester) setWorldsOn(state.isTester);
+  });
+}
+followWorldsOn();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SELECTORS
