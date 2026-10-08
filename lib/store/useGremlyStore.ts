@@ -8,6 +8,7 @@
  * from `lib/store/lifecycleSelectors.ts`.
  */
 
+import { createWorldsActions, type WorldsActions } from '../worlds/actions';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { persist, createJSONStorage } from 'zustand/middleware';
@@ -540,7 +541,7 @@ export type PendingDrop = Record<string, any>;
 // STORE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export interface GremlyState {
+export interface GremlyState extends WorldsActions {
   // ═══════════════════════════════════════════════════════════════════
   // RAW DATA (populated on app start)
   // ═══════════════════════════════════════════════════════════════════
@@ -1390,6 +1391,10 @@ export const useGremlyStore = create<GremlyState>()(
     persist(
       (set, get) => ({
         ...initialState,
+
+        // Everything a person can do to their Worlds and Chapters by hand
+        // (lib/worlds/actions.ts)
+        ...createWorldsActions(set, get),
 
         // ═══════════════════════════════════════════════════════════════════
         // INITIALIZATION
