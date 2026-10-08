@@ -1308,7 +1308,7 @@ Then list every statement in either summary that the records do not hold, each a
         const key = keyOf({ judgeWith, kind, user });
         if (!replies.judge[key]) {
           const out = await aiContext.run({ env, worker: 'shadow', job: 'compare-judge', userId, runId: `judge-${key}` }, () =>
-            jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: 16000, thinking: 'high', effort: 'high' }),
+            jsonCall(env, { primary: spec(judgeWith), fallback: null, system: kind === 'pass' ? PASS_JUDGE : SUMMARY_JUDGE, user, schema: verdictSchema(parts), maxTokens: kind === 'pass' ? 60000 : 30000, thinking: 'high', effort: 'high' }),
           );
           await new Promise((r) => setTimeout(r, 300));
           replies.judge[key] = { output: out.output, cents: centsOf(record.usage.filter((u) => u?.run_id === `judge-${key}`)) };
