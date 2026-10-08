@@ -1471,21 +1471,27 @@ Then list every statement in either summary that the records do not hold, each a
             // what it was given that this week's input no longer holds, so a
             // judge does not count it against the earlier pass
             extra: liveRefs
-              .filter(([, v]) => v?.id && !newIds.has(v.id) && (v.statement || v.title))
-              .map(([, v]) => `- ${v.statement || v.title}${v.about_date ? ` (${v.about_date})` : ''}${v.private || v.health ? ' [private]' : ''}`),
+              .filter(([, v]) => v?.id && !newIds.has(v.id) && (v.statement || v.title || ((v.type === 'world' || v.type === 'chapter') && names.has(v.id))))
+              .map(([, v]) =>
+                v.type === 'world' || v.type === 'chapter'
+                  ? `- ${v.type === 'world' ? 'A World' : 'A Chapter'} of theirs: ${names.get(v.id)}`
+                  : `- ${v.statement || v.title}${v.about_date ? ` (${v.about_date})` : ''}${v.private || v.health ? ' [private]' : ''}`,
+              ),
           };
         }
         const [oldSummary] = await fetchRows(`weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekStart}&select=content,created_at&limit=1`);
         const oldDeck = oldSummary?.content ? deckLines(oldSummary.content) : null;
 
         const records = `WHO THEY ARE AND TODAY:\n${typeof p.jsonArgs.system === 'string' ? '' : p.jsonArgs.system?.varying || ''}\n\nRECORDS OF THE WEEK:\n${p.jsonArgs.user}`;
+        // the week's figures the summaries were given beside the records
+        const summaryRecords = rpcFrom ? `${records}\n\nTHE WEEK'S FIGURES, AS THE SUMMARIES WERE GIVEN THEM:\n${JSON.stringify(rpcFrom).slice(0, 20000)}` : records;
         const S = sides.sonnet?.view;
         const O = sides.other?.view;
         const pairs = {
           pass_models: S && O && (() => judgePair('pass', { label: 'sonnet', view: S }, { label: 'other', view: O }, records)),
-          summary_models: sides.sonnet?.deck && sides.other?.deck && (() => judgePair('summary', { label: 'sonnet', view: sides.sonnet.deck }, { label: 'other', view: sides.other.deck }, records)),
+          summary_models: sides.sonnet?.deck && sides.other?.deck && (() => judgePair('summary', { label: 'sonnet', view: sides.sonnet.deck }, { label: 'other', view: sides.other.deck }, summaryRecords)),
           pass_before: S && before && (() => judgePair('pass', { label: 'now', view: S }, { label: 'before', view: before.view }, records, before.extra)),
-          summary_before: sides.sonnet?.deck && oldDeck && (() => judgePair('summary', { label: 'now', view: sides.sonnet.deck }, { label: 'before', view: oldDeck }, records)),
+          summary_before: sides.sonnet?.deck && oldDeck && (() => judgePair('summary', { label: 'now', view: sides.sonnet.deck }, { label: 'before', view: oldDeck }, summaryRecords)),
         };
         const asked = Object.entries(pairs).filter(([, f]) => f);
         const judged = Object.fromEntries(await Promise.all(asked.map(async ([k, f]) => [k, await f().catch((err) => ({ error: String(err?.message || err).slice(0, 300) }))])));
