@@ -1,10 +1,14 @@
 /**
- * Corrections in chat. After each turn (Ask Gremly, and today's thread) a small
- * helper call reads the message the person just sent, with the end of the
- * conversation for background, and decides whether they said that something
- * Gremly holds about their life is wrong. If they did, their words go to the
- * context pipeline (inngest-jobs /api/correction), which marks the facts
- * corrected and rewrites every place that repeated them, straight away.
+ * Corrections in chat. After every message the person sends in a chat (Ask
+ * Gremly, whichever writer answers and whatever the reply's mode, today's
+ * thread, and a World's or Chapter's chat), a small helper call reads that
+ * message, with the end of the conversation for background, and decides
+ * whether they said that something Gremly holds about their life is wrong. If
+ * they did, their words go to the context pipeline (inngest-jobs
+ * /api/correction), which marks the facts corrected and rewrites every place
+ * that repeated them, straight away. The check runs on its own, after the
+ * reply has gone: whether anything is extracted from the message has no
+ * bearing on it (data fabric stage 6).
  *
  * Each message is checked once, on its own turn: an earlier message was
  * checked when it was sent, so it is never sent as a correction again.
@@ -47,6 +51,7 @@ export async function checkForCorrection({
   userId,
   env,
   surface = 'chat',
+  scope = null,
 }) {
   const own = String(latest || '').trim();
   if (!userId || !own || !conversationText || !env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
@@ -83,11 +88,60 @@ export async function checkForCorrection({
         // the day's brief thread sends 'brief' (Daily brief in Chat)
         surface: surface === 'brief' ? 'brief' : 'chat',
         chat_id: chatId || null,
-        target_kind: 'chat',
+        // in a World's or Chapter's chat, what they said reaches its lines too
+        target_kind: scopeOf(scope)?.kind || 'chat',
+        ...(scopeOf(scope) ? { target_id: scope.id } : {}),
         target_text: String(c?.about || '').slice(0, 300),
       }),
     }).catch(() => null);
     if (r?.ok) sent++;
   }
   return { sent };
+}
+
+/** A World's or Chapter's chat, by its kind and id; null for any other chat. */
+function scopeOf(scope) {
+  return scope && ['world', 'chapter'].includes(scope.kind) && /^[0-9a-f-]{36}$/i.test(String(scope.id || ''))
+    ? scope
+    : null;
+}
+
+/**
+ * Check the message the person has just sent, after the reply to it has gone.
+ * Held open by ctx.waitUntil, so it never holds up the reply, and it never
+ * throws: a check that fails is logged.
+ * @param {object} p
+ * @param {Array<{role: string, content: string}>} p.messages the conversation as sent, their newest message last
+ * @param {string} [p.reply] Gremly's reply to it, for background
+ * @param {{kind: 'world'|'chapter', id: string}} [p.scope] the World or Chapter a scoped chat is in
+ * @returns {Promise<{sent: number}>}
+ */
+export function checkTurn({ env, ctx, messages, reply, chatId, userId, surface = 'chat', scope = null, tag = 'Chat', deps = {} }) {
+  const said = (messages || []).filter((m) => m && m.role !== 'system');
+  const latest = said.filter((m) => m.role === 'user').at(-1)?.content;
+  if (!userId || typeof latest !== 'string' || !latest.trim()) return Promise.resolve({ sent: 0 });
+  const recent = [...said, ...(reply ? [{ role: 'assistant', content: reply }] : [])].slice(-20);
+  const check = deps.checkForCorrection || checkForCorrection;
+  const p = Promise.resolve()
+    .then(() =>
+      check({
+        conversationText: recent.map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`).join('\n\n'),
+        latest,
+        chatId,
+        userId,
+        env,
+        surface,
+        scope,
+      }),
+    )
+    .then((r) => {
+      if (r?.sent) console.log(`[${tag}] Correction sent to the context pipeline`, r);
+      return r || { sent: 0 };
+    })
+    .catch((e) => {
+      console.warn(`[${tag}] Correction check failed:`, e?.message);
+      return { sent: 0 };
+    });
+  ctx?.waitUntil?.(p);
+  return p;
 }

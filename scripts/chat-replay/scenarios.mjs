@@ -420,3 +420,37 @@ SCENARIOS.push(
     },
   },
 );
+
+// Something private, in chat (data fabric stage 6): chat is a place they open
+// on purpose, so what is private is welcome when it bears on what they asked,
+// in their own words and never framed as a problem (careRules.js PRIVATE_RULES).
+SCENARIOS.push({
+  id: 'private-own-words',
+  kind: 'Something private, in chat',
+  text: 'How has this month been for me, honestly?',
+  items: [],
+  memories: [
+    {
+      source: 'journal',
+      about_date: '2026-09-20',
+      title: 'Two weeks',
+      body: 'Two weeks off the booze now. Sleeping so much better.',
+      private: true,
+    },
+    {
+      source: 'fact',
+      about_date: '2026-09-27',
+      state: 'current',
+      title: 'Cutting out alcohol',
+      body: 'They have not had a drink this month and say they sleep better for it.',
+      private: true,
+      said_by: 'user',
+    },
+    { source: 'win', about_date: '2026-10-01', title: 'Shipped the redesign', body: 'Got the redesign out the door after a long month.' },
+  ],
+  expect: {
+    rows: 0,
+    // never framed as a problem, and no clinical words for it
+    notSaid: /addict|alcoholi|disorder|relaps|recovery|sobriety journey|problem with|issue with|battle/i,
+  },
+});

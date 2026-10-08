@@ -1,5 +1,5 @@
 import { models } from './models.js';
-import { SOURCE_RULES, SOURCE_RULES_AGENT } from '../inngest-jobs/careRules.js';
+import { SOURCE_RULES, SOURCE_RULES_AGENT, PRIVATE_RULES } from '../inngest-jobs/careRules.js';
 import { JUST_HAPPENED_RULE } from '../shared/lifePack.js';
 
 /**
@@ -460,6 +460,9 @@ export function chatAgentPersona() {
     GENERAL_TEMPORAL,
     // the agent can look a record up (recall)
     SOURCE_RULES_AGENT,
+    // what is private, and where Gremly writes about it: the rules every
+    // writer about their life is given (data fabric stage 6)
+    PRIVATE_RULES,
   ].join('\n\n');
 }
 
@@ -586,6 +589,10 @@ ${GENERAL_TEMPORAL}`);
   // something came from, it says so from the record. This writer answers from
   // what it is given, so it gets the wording for that (careRules.js)
   parts.push(SOURCE_RULES);
+
+  // 12. What is private, and where Gremly writes about it: the rules every
+  // writer about their life is given (careRules.js, data fabric stage 6)
+  parts.push(PRIVATE_RULES);
 
   return parts.join('\n\n');
 }

@@ -164,7 +164,7 @@ import {
   getLifeMapForChat,
   lastUserText,
 } from './context/chatProjection.js';
-import { checkForCorrection } from './context/corrections.js';
+import { checkTurn } from './context/corrections.js';
 import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
@@ -2403,22 +2403,19 @@ async function answerWithAgent({
         ),
       );
     }
-    // when they say Gremly has something about their life wrong, the context
-    // pipeline applies it straight away; only this message is checked
-    const recent = [...said, { role: 'assistant', content: reply }].slice(-20);
-    ctx.waitUntil(
-      checkForCorrection({
-        conversationText: recent
-          .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
-          .join('\n\n'),
-        latest: said.filter((m) => m.role === 'user').at(-1)?.content,
-        chatId: body.chatId,
-        userId,
-        env,
-        surface: 'chat',
-      }).catch((e) => console.warn('[GeneralChat:Agent] Correction check failed:', e?.message)),
-    );
   }
+  // when they say Gremly has something about their life wrong, the context
+  // pipeline applies it straight away; every message is checked, once
+  checkTurn({
+    env,
+    ctx,
+    messages,
+    reply,
+    chatId: body.chatId,
+    userId,
+    surface: 'chat',
+    tag: 'GeneralChat:Agent',
+  });
   return true;
 }
 
@@ -12953,6 +12950,21 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 content_length: fullContent.length,
               });
 
+              // Corrections: when they say Gremly has something about their
+              // life wrong, the context pipeline applies it straight away.
+              // Every message is checked once, on its own turn, whatever the
+              // reply's mode and whether or not anything is extracted from it.
+              checkTurn({
+                env,
+                ctx,
+                messages,
+                reply: fullContent,
+                chatId: body.chatId,
+                userId: authenticatedUserId,
+                surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
+                tag: 'GeneralChat',
+              });
+
               // Running summary (fire-and-forget)
               if (body.chatId && authenticatedUserId && fullContent) {
                 const summaryPromise = (async () => {
@@ -13103,21 +13115,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     const conversationText = recentMsgs
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
-
-                    // Corrections: when they say Gremly has something about their
-                    // life wrong, the context pipeline applies it straight away.
-                    // Only this turn's message is checked (each one once).
-                    const correctionCheck = checkForCorrection({
-                      conversationText,
-                      latest: recentMsgs.filter((m) => m.role === 'user').at(-1)?.content,
-                      chatId: body.chatId,
-                      userId: authenticatedUserId,
-                      env,
-                      surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
-                    }).catch((e) => {
-                      console.warn('[GeneralChat] Correction check failed:', e?.message);
-                      return { sent: 0 };
-                    });
 
                     const todayStr = new Intl.DateTimeFormat('en-US', {
                       weekday: 'long',
@@ -13298,13 +13295,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         items: (extractResult.extractions || []).length,
                         title: extractResult.chat_summary?.title,
                       });
-                    }
-                    const corrected = await correctionCheck;
-                    if (corrected?.sent) {
-                      console.log(
-                        '[GeneralChat] Correction sent to the context pipeline',
-                        corrected,
-                      );
                     }
                   } catch (err) {
                     console.warn('[GeneralChat] Extraction failed:', err.message);
@@ -14954,6 +14944,20 @@ function runScopedChatStream(
           latency_ms: latency,
           content_length: fullContent.length,
           used_search: !!searchQuery,
+        });
+
+        // Corrections, as in Ask Gremly: every message is checked once, and
+        // what they say about this World or Chapter reaches its lines too
+        checkTurn({
+          env,
+          ctx,
+          messages,
+          reply: fullContent,
+          chatId: body.chatId,
+          userId: authenticatedUserId,
+          surface: 'chat',
+          scope: { kind: scopeType, id: body.scopeId },
+          tag,
         });
 
         // Running summary (non-blocking)

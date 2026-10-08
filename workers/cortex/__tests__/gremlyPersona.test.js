@@ -13,7 +13,7 @@ import {
   chatTurnGuidance,
 } from '../gremlyPersona.js';
 import { JUST_HAPPENED_RULE } from '../../shared/lifePack.js';
-import { SOURCE_RULES, SOURCE_RULES_AGENT } from '../../inngest-jobs/careRules.js';
+import { SOURCE_RULES, SOURCE_RULES_AGENT, PRIVATE_RULES } from '../../inngest-jobs/careRules.js';
 
 const triage = { mode: 'capture', depth: 'brief', personal: 'none', search: 'none' };
 
@@ -64,6 +64,16 @@ test('every chat is told how to say where something Gremly knows came from', () 
   // the agent can look a record up, and is told to look only when the source is not in front of it
   expect(chatAgentPersona()).toContain(SOURCE_RULES_AGENT);
   expect(chatAgentPersona()).not.toContain(SOURCE_RULES);
+});
+
+test('every chat, and the agent, is given the private rules every writer about their life is given', () => {
+  const general = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', '', 'UTC');
+  expect(general.systemPrompt).toContain(PRIVATE_RULES);
+  for (const chatType of ['entity', 'space', 'world', 'chapter']) {
+    const { systemPrompt } = assembleGenerationConfig({ triage, chatType, currentDate: 'Wednesday' });
+    expect(systemPrompt).toContain(PRIVATE_RULES);
+  }
+  expect(chatAgentPersona()).toContain(PRIVATE_RULES);
 });
 
 test('the rule names no source for Gremly to fall back on, and never another person', () => {

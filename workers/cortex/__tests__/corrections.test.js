@@ -3,9 +3,10 @@
  *
  * Corrections in chat (context/corrections.js): only the message the person has
  * just sent is checked, so a correction said earlier in the conversation is
- * filed once, on its own turn, and never again on the turns after it.
+ * filed once, on its own turn, and never again on the turns after it. Every
+ * message of every chat is checked, after its reply (checkTurn).
  */
-import { checkForCorrection } from '../context/corrections.js';
+import { checkForCorrection, checkTurn } from '../context/corrections.js';
 import { configureModels } from '../models.js';
 
 const USER = '0b7c6f0e-1d2a-4c3b-9e8f-112233445566';
@@ -102,4 +103,68 @@ test('with no message to check, nothing is asked or filed', async () => {
   });
   expect(r).toEqual({ sent: 0 });
   expect(calls.model).toHaveLength(0);
+});
+
+test('every turn checks the newest message, with the reply as background, held open after the reply', async () => {
+  const seen = [];
+  const held = [];
+  const r = await checkTurn({
+    env: ENV,
+    ctx: { waitUntil: (p) => held.push(p) },
+    messages: [
+      { role: 'system', content: 'rules' },
+      { role: 'assistant', content: 'Your call with your parents is on Sunday.' },
+      { role: 'user', content: 'ugh no, it is Saturday' },
+    ],
+    reply: 'Saturday it is.',
+    chatId: CHAT,
+    userId: USER,
+    deps: { checkForCorrection: async (a) => (seen.push(a), { sent: 1 }) },
+  });
+  expect(r).toEqual({ sent: 1 });
+  expect(held).toHaveLength(1);
+  expect(seen[0].latest).toBe('ugh no, it is Saturday');
+  expect(seen[0].conversationText).toBe(
+    'Gremly: Your call with your parents is on Sunday.\n\nUser: ugh no, it is Saturday\n\nGremly: Saturday it is.',
+  );
+  expect(seen[0].surface).toBe('chat');
+});
+
+test("a correction in a World's or Chapter's chat is filed against it", async () => {
+  const calls = stub([{ said: 'it ended in May', about: 'when it ended' }]);
+  const chapter = '7d2b9e4a-1c3f-4a5b-8d6e-0f1a2b3c4d5e';
+  await checkTurn({
+    env: ENV,
+    messages: [{ role: 'user', content: 'No, it ended in May' }],
+    reply: 'Thanks.',
+    chatId: CHAT,
+    userId: USER,
+    scope: { kind: 'chapter', id: chapter },
+  });
+  expect(calls.filed[0].body).toMatchObject({ target_kind: 'chapter', target_id: chapter, surface: 'chat' });
+  // any other chat is filed as a chat, with no id
+  const again = stub([{ said: 'it ended in May', about: 'when it ended' }]);
+  await checkTurn({ env: ENV, messages: [{ role: 'user', content: 'No, it ended in May' }], userId: USER, scope: { kind: 'space', id: chapter } });
+  expect(again.filed[0].body.target_kind).toBe('chat');
+  expect(again.filed[0].body.target_id).toBeUndefined();
+});
+
+test('a check that fails is logged and never thrown into the reply', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const r = await checkTurn({
+    env: ENV,
+    messages: [{ role: 'user', content: 'that is wrong' }],
+    userId: USER,
+    deps: {
+      checkForCorrection: async () => {
+        throw new Error('down');
+      },
+    },
+  });
+  expect(r).toEqual({ sent: 0 });
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
+  // no message of theirs, or no one signed in: nothing is asked
+  const none = await checkTurn({ env: ENV, messages: [{ role: 'assistant', content: 'hi' }], userId: USER, deps: { checkForCorrection: async () => { throw new Error('asked'); } } });
+  expect(none).toEqual({ sent: 0 });
 });
