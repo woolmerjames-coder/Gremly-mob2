@@ -4,7 +4,9 @@
  *
  *   scripts/shadow/run.sh morning    --user <uuid> --day YYYY-MM-DD [--at HH:MM]
  *   scripts/shadow/run.sh story-copy --user <uuid> [--at ISO]
- *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"]
+ *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"] [--as-is] [--was-open <fact ids>]
+ *   scripts/shadow/run.sh story --user <uuid> --replies <file> [--at ISO]
+ *   scripts/shadow/run.sh person-words --user <uuid> [--weekly-replies <file> --week-end YYYY-MM-DD]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
  *   scripts/shadow/run.sh reread --user <uuid> [--from ISO] [--to ISO] [--max n]
  *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
@@ -86,6 +88,7 @@ import { jsonCall, modelFor } from '../../workers/inngest-jobs/context/llm.js';
 // a namespace import, so a tree without the summary from the pass (before stage 5) still bundles
 import * as stage5Summary from '../../workers/inngest-jobs/summaryFromPass';
 import * as stage5Writer from '../../workers/inngest-jobs/summaryPlanWriter';
+import * as stage6People from '../../workers/inngest-jobs/context/personWords.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -126,7 +129,7 @@ if (keyRole(APIKEY) !== 'anon' && !APIKEY.startsWith('sb_publishable_'))
 
 /**
  * What this tree's SQL adds that live may not have yet (supabase/migrations,
- * stages 4c and 4d). Each is looked for before a run; what live lacks is
+ * stages 4c, 4d and 6). Each is looked for before a run; what live lacks is
  * answered as the SQL would leave existing rows (harness.js pendingRead), and
  * the summary names it, so a run on SQL James has not applied says so.
  */
@@ -134,7 +137,7 @@ const THIS_TREE_ADDS = {
   columns: {
     life_facts: ['timing'],
     life_facts_now: ['timing'],
-    life_people: ['who_checked_at'],
+    life_people: ['who_checked_at', 'words', 'words_updated_at'],
     gremly_questions: ['weight'],
   },
   tables: ['ledger_reads'],
@@ -1105,6 +1108,130 @@ const JOBS = {
     };
   },
 
+  // The monthly story (data fabric stage 6) for one person, its items through
+  // the check where the tree has it. Claude's answer is read from --replies,
+  // and what still needs one is saved as needs.json for
+  // scripts/weekly-replay/run.sh answer to fill, as in weekly-summary. The
+  // check's questions are asked here and kept in the same file, so a run
+  // picked up again gets the same answers. The file holds real words: it lives
+  // beside the shadow output, never in the repo.
+  async story() {
+    const userId = flag('--user');
+    const repliesPath = flag('--replies');
+    if (!userId || !repliesPath) fail('story needs --user and --replies');
+    const replies = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : { claude: {}, check: {} };
+    const keyOf = (x) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 24);
+    const needs = [];
+    const kept = (key, ask) => async (req) => {
+      const k = keyOf({ key, req });
+      if (replies.check[k]) return replies.check[k];
+      const out = await ask(req);
+      replies.check[k] = out;
+      return out;
+    };
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        const p = await story.storyRequestParams(env, userId);
+        const key = keyOf(p.params);
+        const answer = replies.claude[key];
+        if (!answer) {
+          needs.push({ key, kind: 'pass', body: p.params });
+          return { stage: 'the story waits for Claude', needs };
+        }
+        const output = JSON.parse(JSON.stringify(answer.output));
+        const opts = { shadow: true, runId: 'shadow-story', model: answer.model, today: p.today };
+        const unchecked = story.storyRows(userId, output, p.refsSnapshot, opts);
+        if (typeof story.checkStory !== 'function')
+          return { stage: 'done', claude_cents: answer.cents, prompt: story.STORY_PROMPT_VERSION, items: unchecked.rows.length, dropped: unchecked.dropped, rows: unchecked.rows };
+        const person = await personIdentity(env, userId);
+        const calls = story.storyCheckCalls(env, person, p.today);
+        const r = await story.applyStory(env, userId, output, p.refsSnapshot, {
+          ...opts,
+          calls: { ask: kept('ask', calls.ask), rewrite: kept('rewrite', calls.rewrite) },
+        });
+        return {
+          stage: 'done',
+          claude_cents: answer.cents,
+          prompt: story.STORY_PROMPT_VERSION,
+          items_unchecked: unchecked.rows.length,
+          items: r.rows.length,
+          applied: r.applied,
+          stated: Object.fromEntries(
+            ['milestones', 'shifts', 'proud_moments', 'patterns', 'people'].map((l) => [l, (output[l] || []).filter((x) => (x.stated || []).length).length + ' of ' + (output[l] || []).length]),
+          ),
+          // what the check did to each item that did not pass at once, with the words of each try
+          details: r.check.details,
+          rows: r.rows,
+        };
+      },
+      summarise: (out) => {
+        const now = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : { claude: {}, check: {} };
+        writeFileSync(repliesPath, JSON.stringify({ claude: { ...now.claude, ...replies.claude }, check: { ...now.check, ...replies.check } }, null, 2));
+        // what still needs Claude, beside its replies file: <name>-replies.json, <name>-needs.json
+        if (needs.length) writeFileSync(repliesPath.replace(/(-replies)?\.json$/, '-needs.json'), JSON.stringify(needs, null, 2));
+        return {
+          stage: out?.stage,
+          needs: needs.map((n) => `${n.kind} ${n.key}`),
+          claude_cents: out?.claude_cents,
+          prompt: out?.prompt,
+          items_unchecked: out?.items_unchecked ?? null,
+          items: out?.items,
+          by_kind: out?.applied?.by_kind ?? null,
+          check: out?.applied?.check ?? null,
+          stated: out?.stated ?? null,
+          dropped: out?.applied?.dropped ?? out?.dropped ?? null,
+        };
+      },
+    };
+  },
+
+  // The line about each person the latest weekly pass noted (data fabric
+  // stage 6), as PERSON_WORDS on would write it, nothing kept. With
+  // --weekly-replies (a weekly-summary job's replies file) and --week-end, the
+  // notes come from the pass Claude gave there for that week, before live has
+  // a pass that notes people; what still needs Claude is saved beside it.
+  async 'person-words'() {
+    const userId = flag('--user');
+    if (!userId) fail('person-words needs --user');
+    const repliesPath = flag('--weekly-replies');
+    const keyOf = (x) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 24);
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof stage6People.writePersonWords !== 'function') fail('This tree has no line about a person.');
+        let run = null;
+        if (repliesPath) {
+          const weekEnd = flag('--week-end');
+          if (!weekEnd) fail('--weekly-replies needs --week-end');
+          const p = await weekly.weeklyRequestParams(env, userId, weekEnd);
+          const key = keyOf(p.params);
+          const replies = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : { claude: {} };
+          const answer = replies.claude?.[key];
+          if (!answer) {
+            writeFileSync(repliesPath.replace(/(-replies)?\.json$/, '-needs.json'), JSON.stringify([{ key, kind: 'pass', body: p.params }], null, 2));
+            return { stage: 'the weekly pass waits for Claude', needs: [key] };
+          }
+          run = { id: `shadow-weekly-${weekEnd}`, people_notes: answer.output?.people_notes || [], refs: p.refsSnapshot };
+        }
+        return stage6People.writePersonWords({ ...env, PERSON_WORDS: 'on' }, userId, { dryRun: true, run });
+      },
+      summarise: (out) => ({
+        stage: out?.stage || 'done',
+        needs: out?.needs || [],
+        run: out?.run,
+        noted: out?.noted,
+        written: out?.written,
+        left_out: out?.left_out,
+        empty: out?.empty,
+        failed: out?.failed,
+        lines: out?.lines,
+      }),
+    };
+  },
+
   async 'story-copy'() {
     const userId = flag('--user');
     if (!userId) fail('story-copy needs --user');
@@ -1186,22 +1313,80 @@ const JOBS = {
     const [c] = await liveRead(`user_corrections?id=eq.${id}&select=id,user_id,created_at,status`);
     if (!c) fail('No such correction');
     const at = new Date(Date.parse(c.created_at) + 60000).toISOString();
+    // Replayed on the ledger as it stood when they said it, not as this
+    // correction and everything since left it (--as-is reads it as it stands):
+    // facts written since are not read, each fact reads with the state it had
+    // then, and the facts named in --was-open read as they were before they
+    // were kept private, which no change row records. What this run would
+    // have written to a fact is read back over it, as live would read it after
+    // the write, so step two sees what step one decided. What Gremly wrote
+    // since (the day's lines, the words) is read as it stands: no record keeps
+    // what it said before. A fact this correction moved live into a state
+    // step one does not read (changed, corrected) is not read back: the
+    // database filters it out before this can give it its old state.
+    const asIs = process.argv.includes('--as-is');
+    const later = new Set();
+    const then = new Map();
+    if (!asIs) {
+      // this correction's own, when it was applied, are among them whenever it was applied
+      const since = `or=(created_at.gt.${at},and(source_table.eq.user_corrections,source_id.eq.${id}))`;
+      for (let from = 0; ; from += 1000) {
+        const page = await liveRead(`life_facts?user_id=eq.${c.user_id}&${since}&select=id&order=id&limit=1000&offset=${from}`);
+        for (const r of page) later.add(r.id);
+        if (page.length < 1000) break;
+      }
+      for (const x of await liveRead(`life_fact_changes?user_id=eq.${c.user_id}&${since}&select=fact_id,from_state&order=created_at.asc&limit=1000`))
+        if (!then.has(x.fact_id)) then.set(x.fact_id, x.from_state);
+    }
+    const wasOpen = new Set((flag('--was-open') || '').split(',').filter(Boolean));
+    // what this run would have written to each fact, kept aside by the guard
+    const written = () => {
+      const m = new Map();
+      for (const w of record.writes)
+        if (w.table === 'life_facts' && w.method === 'PATCH') {
+          const fid = /id=eq\.([0-9a-f-]{36})/i.exec(w.path || '')?.[1];
+          if (fid) m.set(fid, { ...(m.get(fid) || {}), ...(w.body || {}) });
+        }
+      return m;
+    };
+    const asThen = (rows) => {
+      const mine = written();
+      return rows
+        .filter((r) => !later.has(r.id))
+        .map((r) => {
+          const was = {
+            ...r,
+            ...(then.has(r.id) && 'state' in r ? { state: then.get(r.id) } : {}),
+            ...(wasOpen.has(r.id) && 'private' in r ? { private: false } : {}),
+          };
+          const w = mine.get(r.id);
+          return w ? { ...was, ...Object.fromEntries(Object.entries(w).filter(([k]) => k in r)) } : was;
+        });
+    };
     return {
       at,
       userId: c.user_id,
       // replayed as if it had not been applied yet; --said tries other words in its place
       rewrite: ({ table, body }) => {
-        if (table !== 'user_corrections') return null;
         const rows = JSON.parse(body);
+        if (!Array.isArray(rows)) return null;
+        if (table === 'life_facts' || table === 'life_facts_now') return asIs && !wasOpen.size ? null : asThen(rows);
+        if (table !== 'user_corrections') return null;
         const said = flag('--said');
-        return Array.isArray(rows)
-          ? rows.map((r) => (r.id === id ? { ...r, status: 'pending', ...(said ? { said } : {}) } : r))
-          : null;
+        return rows.map((r) => (r.id === id ? { ...r, status: 'pending', ...(said ? { said } : {}) } : r));
       },
       run: () => applyCorrection(env, id, `shadow-${Date.now()}`),
       summarise: (out) => ({
         said_replaced: !!flag('--said'),
+        as_it_stood: asIs ? false : { facts_since: later.size, states_then: then.size, was_open: wasOpen.size },
         result: out,
+        // what it would change in the ledger and where, never sent
+        facts: record.writes
+          .filter((w) => w.table === 'life_facts' && w.method !== 'DELETE')
+          .flatMap((w) => (Array.isArray(w.body) ? w.body : [w.body]).map((b) => ({ method: w.method, path: w.path.replace(/^\/rest\/v1\//, '').slice(0, 80), state: b?.state ?? null, private: b?.private ?? null, statement: b?.statement ?? null }))),
+        written: record.writes
+          .filter((w) => ['user_daily_state', 'story_items', 'user_life_map', 'chapters', 'worlds', 'user_profiles'].includes(w.table))
+          .map((w) => ({ table: w.table, path: w.path.replace(/^\/rest\/v1\//, '').slice(0, 90), fields: Object.keys(w.body || {}) })),
         world_and_chapter_writes: record.writes
           .filter((w) => w.table === 'worlds' || w.table === 'chapters')
           .map((w) => ({

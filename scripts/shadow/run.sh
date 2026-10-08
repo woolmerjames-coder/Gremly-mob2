@@ -16,6 +16,9 @@ if [ "$TREE" != "$(cd "$HERE/../.." && pwd)" ]; then
   export SHADOW_CODE_LABEL="$TREE"
 fi
 cd "$TREE"
+# a bundle of its own, so runs side by side in one tree never read each other's
+BUNDLE="$TREE/scripts/shadow/.bundle-$$.mjs"
+trap 'rm -f "$BUNDLE"' EXIT
 ${ESBUILD:-npx esbuild} "$TREE/scripts/shadow/run.mjs" --bundle --platform=node --format=esm --packages=external \
-  --log-level=warning --outfile="$TREE/scripts/shadow/.bundle.mjs"
-node "$TREE/scripts/shadow/.bundle.mjs" "${ARGS[@]}"
+  --log-level=warning --outfile="$BUNDLE"
+node "$BUNDLE" "${ARGS[@]}"

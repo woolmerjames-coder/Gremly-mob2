@@ -1,2 +1,2 @@
 # built by run.sh
-.bundle.mjs
+.bundle*.mjs
