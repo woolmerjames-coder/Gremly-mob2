@@ -10,6 +10,7 @@
  *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
  *   scripts/shadow/run.sh life-morning --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--timings kinds/summary.json] [--add-facts reread/record.json]
  *   scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
+ *   scripts/shadow/run.sh weekly-summary --user <uuid> --at ISO --replies <file> [--week-end YYYY-MM-DD] [--rpc-from <file>]
  *   scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh filing --user <uuid> [--limit n] [--at ISO]
  *   scripts/shadow/run.sh words --user <uuid>
@@ -32,7 +33,8 @@
  * change it), which git ignores: real data never goes into the repo.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -80,7 +82,10 @@ import { turnItemSections } from '../../workers/cortex/entityMatch.js';
 import { configureModels, models as cortexModels } from '../../workers/cortex/models.js';
 import { geminiStream, parseGeminiChunk } from '../../workers/cortex/geminiClient.js';
 import { AGENT_LANES, runChatTurn } from '../../workers/cortex/agent/chat.js';
-import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
+import { jsonCall, modelFor } from '../../workers/inngest-jobs/context/llm.js';
+// a namespace import, so a tree without the summary from the pass (before stage 5) still bundles
+import * as stage5Summary from '../../workers/inngest-jobs/summaryFromPass';
+import * as stage5Writer from '../../workers/inngest-jobs/summaryPlanWriter';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -958,6 +963,148 @@ const JOBS = {
     };
   },
 
+  // The weekly pass and the summary written from its plan (data fabric stage
+  // 5), for one person's week, beside the summary the old path sent them.
+  // Claude cannot be reached from every machine this runs on, so each answer
+  // Claude gives is read from --replies, and what still needs one is saved in
+  // the run's folder as needs.json for scripts/weekly-replay/run.sh answer to
+  // fill. The words check's answers are kept in the same file, so a run picked
+  // up again asks the check the same things and gets the same answers. The
+  // replies file holds real words: it lives beside the shadow output, never in
+  // the repo.
+  async 'weekly-summary'() {
+    const userId = flag('--user');
+    const at = flag('--at');
+    const repliesPath = flag('--replies');
+    if (!userId || !at || !repliesPath) fail('weekly-summary needs --user, --at and --replies');
+    const replies = existsSync(repliesPath)
+      ? JSON.parse(readFileSync(repliesPath, 'utf8'))
+      : { claude: {}, check: {} };
+    const needs = new Map();
+    const keyOf = (x) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 24);
+    const NEEDS = 'this needs an answer from Claude, saved in needs.json';
+    const fromClaude = (kind, body) => {
+      // a write's message does not carry the writer's own rules, so its key
+      // names their version: an answer written under other rules is not reused
+      const key = keyOf(kind === 'write' ? { v: stage5Writer.PLAN_WRITER_VERSION, body } : body);
+      const r = replies.claude[key];
+      if (r) return JSON.parse(JSON.stringify(r.output));
+      needs.set(key, { key, kind, body });
+      throw new Error(NEEDS);
+    };
+    const headers = { apikey: APIKEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+    const fetchRows = async (path) => {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers });
+      if (!res.ok) throw new Error(`fetch ${path} failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return res.json();
+    };
+    const runRpc = async (fn, params) => {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(params) });
+      if (!res.ok) throw new Error(`rpc ${fn} failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return res.json();
+    };
+    // the check as the weekly worker asks it
+    const ask = async (req) => {
+      const key = keyOf(req);
+      if (replies.check[key]) return replies.check[key];
+      const out = (
+        await jsonCall(env, {
+          primary: modelFor(env, 'check'),
+          fallback: modelFor(env, 'checkFallback'),
+          ...req,
+          maxTokens: 1500,
+          effort: 'low',
+          thinking: 'low',
+        })
+      ).output;
+      replies.check[key] = out;
+      return out;
+    };
+    // what the summary's read functions answer for this week, read by hand
+    // where the shadow role may not run them yet: { "<function>": answer }
+    const rpcFrom = flag('--rpc-from') ? JSON.parse(readFileSync(flag('--rpc-from'), 'utf8')) : null;
+    const weekEnd = flag('--week-end') || at.slice(0, 10);
+    const weekStart = new Date(Date.parse(`${weekEnd}T12:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
+    return {
+      at,
+      userId,
+      ...(rpcFrom ? { rpcAnswer: (fn) => rpcFrom[fn] } : {}),
+      run: async () => {
+        if (typeof stage5Summary.generateSummaryFromPass !== 'function') fail('This tree has no summary from the weekly pass.');
+        const p = await weekly.weeklyRequestParams(env, userId, weekEnd);
+        const claudeCents = () =>
+          Object.values(replies.claude).reduce((n, r) => n + (r.cents || 0), 0);
+        let output;
+        try {
+          output = fromClaude('pass', p.params);
+        } catch (err) {
+          if (err.message !== NEEDS) throw err;
+          return { stage: 'the pass waits for Claude', needs: [...needs.values()] };
+        }
+        const shape = weekly.weeklyShapeProblems(output);
+        const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: 'shadow-weekly', today: p.today });
+        const run = {
+          id: 'shadow-weekly',
+          model: replies.claude[keyOf(p.params)]?.model ?? null,
+          prompt_version: weekly.WEEKLY_PROMPT_VERSION,
+          status: 'applied',
+          input_stats: { refs: p.refsSnapshot, counts: p.stats?.counts ?? null, today: p.today },
+          output,
+        };
+        const r = await stage5Summary.generateSummaryFromPass({
+          userId,
+          weekStart,
+          weekEnd,
+          label: `${userId.slice(0, 8)} · ${weekStart} · from the weekly pass`,
+          env,
+          runRpc,
+          fetchRows,
+          ask,
+          run,
+          write: (user) => fromClaude('write', user),
+        });
+        // the summary the old path sent for the same week, to read beside it
+        const [old] = await fetchRows(`weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekStart}&select=content,created_at&limit=1`);
+        return {
+          stage: needs.size ? 'the summary waits for Claude' : 'done',
+          needs: [...needs.values()],
+          pass: { shape, applied: applied?.applied ?? null, plan: output?.summary_plan ?? null, people_notes: output?.people_notes ?? null, week_note: output?.week_note ?? null },
+          claude_cents: Math.round(claudeCents() * 1000) / 1000,
+          summary: needs.size ? null : { ...r, html: undefined },
+          old: old?.content ?? null,
+        };
+      },
+      summarise: (out) => {
+        // the check's answers go back to the replies file, joined with whatever
+        // reached it while this ran, so no answer kept there is lost
+        const now = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : { claude: {}, check: {} };
+        writeFileSync(
+          repliesPath,
+          JSON.stringify(
+            { claude: { ...now.claude, ...replies.claude }, check: { ...now.check, ...replies.check } },
+            null,
+            2,
+          ),
+        );
+        const deck = out?.summary?.content;
+        return {
+          stage: out?.stage,
+          needs: (out?.needs || []).map((n) => `${n.kind} ${n.key}`),
+          claude_cents: out?.claude_cents,
+          pass_shape: out?.pass?.shape,
+          applied: out?.pass?.applied,
+          planned: (out?.pass?.plan?.cards || []).length,
+          dropped: out?.summary?.dropped,
+          outcome: out?.summary?.outcome,
+          why: out?.summary?.why,
+          left_out: out?.summary?.deck?.left_out?.map((x) => `${x.shape} ${x.key}`),
+          cards: deck?.cards?.map((c) => c.shape),
+          old_cards: out?.old?.cards?.map((c) => c.shape) ?? null,
+        };
+      },
+    };
+  },
+
   async 'story-copy'() {
     const userId = flag('--user');
     if (!userId) fail('story-copy needs --user');
@@ -1152,5 +1299,7 @@ const dir = join(process.env.SHADOW_OUT || join(ROOT, 'Claude outputs', 'shadow'
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, 'summary.json'), JSON.stringify(summary, null, 2));
 writeFileSync(join(dir, 'record.json'), JSON.stringify({ ...record, output: out ?? null }, null, 2));
+// what a run still needs Claude to answer (the weekly-summary job)
+if (out?.needs?.length) writeFileSync(join(dir, 'needs.json'), JSON.stringify(out.needs, null, 2));
 console.log(JSON.stringify(summary, null, 2));
 console.log(`Saved to ${dir}`);
