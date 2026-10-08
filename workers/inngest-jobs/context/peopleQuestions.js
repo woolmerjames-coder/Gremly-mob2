@@ -46,7 +46,7 @@ import {
   ASKED_WAIT_DAYS,
 } from '../../shared/questionRules.js';
 
-export const PERSON_QUESTIONS_VERSION = 'question-set-2026-10-18b';
+export const PERSON_QUESTIONS_VERSION = 'question-set-2026-10-18d';
 export const PERSON_ANSWER_VERSION = 'person-answer-2026-10-18b';
 
 /** Candidates shown to the writer at most, and facts shown for each. */
@@ -96,17 +96,20 @@ export function askCandidates({
   const live = new Map((people || []).filter((p) => !p.hidden_at).map((p) => [p.id, shown(p)]));
   const known = (p) => !!(p.name || p.relationship);
   const open = (id) => (factsOf.get(id) || []).filter((f) => !f.private && !f.health);
-  // what an entry rests on, while all of it stands and none of it is private
+  // what an entry rests on that still stands: none of it private or about
+  // health, and at least one fact of it not put right since
   const restsOf = (g) => {
     const refs = (Array.isArray(g.rests_on) ? g.rests_on : []).filter((r) => r?.table === 'life_facts');
-    const facts = refs.map((r) => restFacts.get(r.id));
-    if (!facts.length || facts.some((f) => !f || f.private || f.health)) return null;
+    const facts = refs.map((r) => restFacts.get(r.id)).filter(Boolean);
+    if (!facts.length || facts.some((f) => f.private || f.health)) return null;
     return facts;
   };
+  // a guess Gremly is not fairly sure of is never offered to them as an answer
+  const offered = (g) => g?.sure === 'medium' || g?.sure === 'high';
   const rankOf = (p) => (p && p.matters_rank != null ? Number(p.matters_rank) : null);
   const whoGuess = new Map();
   for (const g of guesses || [])
-    if (g.kind === 'who' && g.person_id && restsOf(g)) whoGuess.set(g.person_id, g);
+    if (g.kind === 'who' && g.person_id && offered(g) && restsOf(g)) whoGuess.set(g.person_id, g);
   const out = [];
   for (const m of merges) {
     if (m.status !== 'proposed') continue;
@@ -137,7 +140,7 @@ export function askCandidates({
     out.push(c);
   }
   for (const g of guesses || []) {
-    if (g.kind !== 'life') continue;
+    if (g.kind !== 'life' || !offered(g)) continue;
     const about = g.person_id ? live.get(g.person_id) : null;
     if (g.person_id && !about) continue;
     const facts = restsOf(g);
@@ -148,12 +151,24 @@ export function askCandidates({
   }
   // the people who matter most first, then what Gremly is surest of, then who comes up most
   const sure = (c) => SURE_ORDER[c.guess?.sure || c.entry?.sure] ?? 3;
-  return out
-    .sort(
-      (a, b) =>
-        (a.rank ?? 99) - (b.rank ?? 99) || sure(a) - sure(b) || b.weight - a.weight,
-    )
-    .slice(0, MOST_CANDIDATES);
+  const sorted = out.sort(
+    (a, b) => (a.rank ?? 99) - (b.rank ?? 99) || sure(a) - sure(b) || b.weight - a.weight,
+  );
+  // someone two records may be is asked about through that, never alone as
+  // well, and through one pair a set: its answer settles who they are
+  const merging = new Set(sorted.filter((c) => c.type === 'same').flatMap((c) => [c.kept.id, c.merged.id]));
+  const asked = new Set();
+  const kept = [];
+  for (const c of sorted) {
+    if ((c.type === 'who' || c.type === 'name') && merging.has(c.person.id)) continue;
+    if (c.type === 'same') {
+      if (asked.has(c.kept.id) || asked.has(c.merged.id)) continue;
+      asked.add(c.kept.id);
+      asked.add(c.merged.id);
+    }
+    kept.push(c);
+  }
+  return kept.slice(0, MOST_CANDIDATES);
 }
 
 const name = (p) => (p?.name ? p.name : '(no name known)');
@@ -170,7 +185,7 @@ const thinksLine = (g) =>
 const ASK_RULES = `QUESTIONS ABOUT THEIR LIFE, ASKED AS ONE SET
 - Gremly keeps a record of each person in the person's life, which fills in over time, and apart from its facts it keeps what it thinks about their life but no record states. You are given what could be asked about: records not yet complete, where Gremly does not know who someone is to them, or the name of someone it knows only by who they are, or thinks two records may be one person; and what Gremly thinks but is not sure of, each with what it rests on and how sure Gremly is.
 - Choose up to five, those whose answers would most help Gremly understand their life, starting with the people who matter most to them, and give them in the order they are best asked. Choose fewer when fewer are worth their time, and none when none is. Never two that ask the same thing.
-- For each, write one short, warm question to them, as you, that they can answer on its own. Ask it plainly, without saying why Gremly is unsure or how its records work.
+- For each, write one short, warm question to them, as you, that they can answer on its own. Ask it plainly, without saying why Gremly is unsure or how its records work. Where two records may be one person, ask it the way the person would think of it, naming them once: when one record says who they are to the person, whether the one the other record names is that, so that a yes makes them one. Never mention records, or that there may be two of them.
 - What Gremly thinks is never said as known. Ask so they can say whether it is so, without presuming it. When Gremly thinks it knows who someone is, ask who they are, and offer what it thinks as the first answer.
 - Name the people as the records do. Never mention or hint at anything private or about health, and never someone who is not part of their life.
 - Give up to four answers they could tap, each a few words as a person would tap it, never a sentence, and each a whole answer to the question, covering what they would most likely say. Where Gremly thinks something, the first says it is so, in the words they would use. When the question could take as given something the records do not state, one of them says it is not so, in words that answer the question. When only their own words can answer it, give none.
@@ -401,16 +416,28 @@ export async function loadAskCandidates(
         `life_fact_people?user_id=eq.${userId}&person_id=in.(${ids.slice(i, i + 100).join(',')})&select=fact_id,person_id`,
       )) || []),
     );
-  const restIds = (guessRows || []).flatMap((g) =>
-    (g.rests_on || []).filter((r) => r?.table === 'life_facts').map((r) => r.id),
-  );
-  const factIds = [...new Set([...ties.map((t) => t.fact_id), ...restIds])];
+  const restIds = [
+    ...new Set(
+      (guessRows || []).flatMap((g) =>
+        (g.rests_on || []).filter((r) => r?.table === 'life_facts').map((r) => r.id),
+      ),
+    ),
+  ];
+  const factIds = [...new Set(ties.map((t) => t.fact_id))];
   const facts = new Map();
   for (let i = 0; i < factIds.length; i += 100)
     for (const f of (await d.select(
       `life_facts_now?user_id=eq.${userId}&id=in.(${factIds.slice(i, i + 100).join(',')})&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,state,private,health,last_confirmed_at`,
     )) || [])
       facts.set(f.id, f);
+  // what a guess rests on, in any state but put right: a plan that changed
+  // since is still what pointed to it
+  const restFacts = new Map();
+  for (let i = 0; i < restIds.length; i += 100)
+    for (const f of (await d.select(
+      `life_facts_now?user_id=eq.${userId}&id=in.(${restIds.slice(i, i + 100).join(',')})&state=neq.corrected&select=id,statement,about_date,state,private,health,last_confirmed_at`,
+    )) || [])
+      restFacts.set(f.id, f);
   const factsOf = new Map();
   for (const t of ties) {
     const f = facts.get(t.fact_id);
@@ -443,7 +470,7 @@ export async function loadAskCandidates(
         ...open.skipped.map((q) => q.no_key).filter(Boolean),
       ]),
       guesses: guessRows || [],
-      restFacts: facts,
+      restFacts,
     }),
   };
 }

@@ -94,11 +94,25 @@ describe('what may be asked about', () => {
 
   it('is a merge proposed, someone with no who, someone with no name, and never someone complete', () => {
     const c = askCandidates({ people: [ROWAN, SPOUSE, AUNT, KIM], factsOf, merges: [merge] });
+    // Rowan is asked about through the merge, never alone as well
     expect(c.map((x) => [x.type, x.person?.id || x.merge_id])).toEqual([
       ['same', 'm-1'],
-      ['who', 'p-rowan'],
       ['name', 'p-aunt'],
     ]);
+    expect(askCandidates({ people: [ROWAN, AUNT, KIM], factsOf }).map((x) => x.type)).toEqual(['who', 'name']);
+  });
+
+  it('asks about someone through one pair of records a set, even with a guess at who they are', () => {
+    const ROWAN2 = { id: 'p-rowan2', name: 'Rowan', relationship: null };
+    const merges = [merge, { id: 'm-2', kept_id: 'p-rowan', merged_id: 'p-rowan2', status: 'proposed' }];
+    const c = askCandidates({
+      people: [{ ...ROWAN, matters_rank: 1 }, SPOUSE, ROWAN2],
+      factsOf: new Map([...factsOf, ['p-rowan2', three('Rowan again')]]),
+      merges,
+      guesses: [{ id: 'u-9', person_id: 'p-rowan', kind: 'who', thinks: 'Rowan may be their husband', sure: 'high', rests_on: [{ table: 'life_facts', id: 'f-a' }] }],
+      restFacts: new Map([['f-a', { id: 'f-a', statement: 'x', private: false, health: false }]]),
+    });
+    expect(c.map((x) => x.merge_id || x.person?.id)).toEqual(['m-2']);
   });
 
   it('is never someone who comes up fewer times than the rule, counting nothing private or about health', () => {
@@ -132,6 +146,23 @@ describe('what may be asked about', () => {
     });
     expect(who.type).toBe('who');
     expect(who.guess).toBeUndefined();
+  });
+
+  it('never offers a guess Gremly is not fairly sure of, and still asks about the person', () => {
+    const [c] = askCandidates({ people: [{ ...ODA, matters_rank: 1 }], factsOf, guesses: [{ ...odaGuess, sure: 'low' }], restFacts });
+    expect(c).toMatchObject({ type: 'who' });
+    expect(c.guess).toBeUndefined();
+    expect(askCandidates({ people: [], factsOf, guesses: [{ ...runGuess, sure: 'low' }], restFacts })).toEqual([]);
+  });
+
+  it('keeps a guess when a fact it rests on has gone, as long as one still stands', () => {
+    const [c] = askCandidates({
+      people: [ODA],
+      factsOf,
+      guesses: [{ ...odaGuess, rests_on: [...odaGuess.rests_on, { table: 'life_facts', id: 'f-gone' }] }],
+      restFacts,
+    });
+    expect(c.guess).toMatchObject({ id: 'u-1' });
   });
 
   it('puts the people who matter most first, then what Gremly is surest of', () => {
@@ -247,7 +278,7 @@ describe('the questions', () => {
           person_id: 'p-rowan',
           kind: 'who',
           thinks: 'Rowan may be their brother',
-          sure: 'low',
+          sure: 'medium',
           rests_on: [{ table: 'life_facts', id: 'f-1' }],
         },
       ],
@@ -260,7 +291,7 @@ describe('the questions', () => {
     });
     expect(user).toContain('c1 | who this person is to them');
     expect(user).toContain('Rowan | who they are not known | one of the people who matter most to them');
-    expect(user).toContain('Gremly thinks, but is not sure: Rowan may be their brother (how sure: low)');
+    expect(user).toContain('Gremly thinks, but is not sure: Rowan may be their brother (how sure: medium)');
     expect(user).not.toContain('secret');
     expect(refs.get('c1').person.id).toBe('p-rowan');
   });
@@ -583,7 +614,8 @@ describe('writing a set', () => {
   });
 
   it('writes nothing in a dry run and returns the set, from what Gremly is not sure of as given', async () => {
-    const mem = memoryDb(peopleTables());
+    // no merge is proposed, so Rowan is asked about alone
+    const mem = memoryDb(peopleTables({ person_merges: [] }));
     db.mockReturnValue(mem);
     jsonCall.mockResolvedValue(
       setOf([{ candidate_ref: 'c1', question: 'Who is Rowan to you?', choices: ['My brother', 'A friend'] }]),
@@ -603,7 +635,6 @@ describe('writing a set', () => {
       dry_run: true,
       rows: [expect.objectContaining({ kind: 'person', proposed_change: { type: 'who', person_id: 'p-rowan', unsure_id: 'shadow-u1' } })],
     });
-    // who matters most comes first, ahead of the merge
     expect(jsonCall.mock.calls[0][1].user).toMatch(/c1 \| who this person is to them/);
     expect(mem.tables.gremly_questions).toEqual([]);
   });
