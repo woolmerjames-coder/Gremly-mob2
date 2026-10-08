@@ -1151,6 +1151,8 @@ const JOBS = {
       const r = replies.claude[key];
       if (r) return JSON.parse(JSON.stringify(r.output));
       needs.set(key, { key, kind, body });
+      // kept as soon as it is known, for a run cut short
+      writeFileSync(repliesPath.replace(/(-replies)?\.json$/, '-needs.json'), JSON.stringify([...needs.values()], null, 2));
       throw new Error(NEEDS);
     };
     // the other model's answer, asked once and kept
