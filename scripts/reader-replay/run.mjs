@@ -169,6 +169,33 @@ function STAGE_FOUR_F() {
       ],
     },
     {
+      id: 'calendar-work-meetings',
+      look: 'Calendar entries that only run their work: the calendar keeps them, and no fact is made.',
+      runAt: '2026-10-20T03:00:00Z',
+      records: [
+        calendarRecord({ id: 'e-sync', title: 'Weekly project sync', start_at: '2026-10-21T16:00:00Z', end_at: '2026-10-21T16:30:00Z', is_all_day: false, created_at: '2026-10-19T22:00:00Z' }, TZ),
+        calendarRecord({ id: 'e-status', title: 'Client status call', start_at: '2026-10-21T18:00:00Z', end_at: '2026-10-21T19:00:00Z', is_all_day: false, created_at: '2026-10-19T22:00:00Z' }, TZ),
+        calendarRecord({ id: 'e-huddle', title: 'Internal team huddle', start_at: '2026-10-22T15:30:00Z', end_at: '2026-10-22T16:00:00Z', is_all_day: false, created_at: '2026-10-19T22:00:00Z' }, TZ),
+      ],
+      check: ({ facts }) => [{ name: 'no fact from a work meeting', ok: facts.length === 0, detail: said(facts) }],
+    },
+    {
+      id: 'calendar-life-event',
+      look: 'Calendar entries about their life beyond the entry: a trip and a family occasion are kept.',
+      runAt: '2026-10-20T03:00:00Z',
+      records: [
+        calendarRecord({ id: 'e-flight', title: 'Flight to Lisbon', start_at: '2026-11-06T15:00:00Z', end_at: '2026-11-06T23:00:00Z', is_all_day: false, created_at: '2026-10-19T22:00:00Z' }, TZ),
+        calendarRecord({ id: 'e-mum', title: "Dinner for Mum's 70th", start_at: '2026-11-20T00:00:00Z', end_at: '2026-11-20T03:00:00Z', is_all_day: false, created_at: '2026-10-19T22:00:00Z' }, TZ),
+      ],
+      check: ({ facts, recRef }) => {
+        const from = (id) => facts.some((f) => recRef.get(f.source_ref)?.id === id);
+        return [
+          { name: 'the trip is kept', ok: from('e-flight'), detail: said(facts) },
+          { name: "the family occasion is kept", ok: from('e-mum'), detail: said(facts) },
+        ];
+      },
+    },
+    {
       id: 'set-aside-left',
       look: 'A note they changed gave a fact they set aside as not part of their life: it stays as it is and is not added again.',
       runAt: '2026-11-12T17:00:00Z',
@@ -520,6 +547,8 @@ async function runOne(s) {
     const kindless = (output.new_facts || []).filter((f) => !validKind(f.kind) || typeof f.health !== 'boolean');
     const structure = [
       { name: 'every ref exists', ok: refsOk.every(Boolean), detail: `${refsOk.filter((x) => !x).length} unknown` },
+      // a question is put to them: it never speaks of how Gremly keeps things (stage 4f)
+      { name: 'no question names the ledger', ok: !questions.some((q) => /ledger/i.test(q.question || '')), detail: questions.map((q) => q.question).join(' / ') || 'none' },
       { name: 'every new fact has a kind from the list and a health flag', ok: !kindless.length, detail: kindless.map((f) => `${f.kind}/${f.health}`).join(', ') || 'all' },
     ];
     if (s.check) {

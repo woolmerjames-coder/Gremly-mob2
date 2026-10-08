@@ -60,7 +60,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-14a';
+export const READER_PROMPT_VERSION = 'reader-2026-10-14b';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -232,13 +232,14 @@ ITEMS
 - The ledger shows which facts are about an item and how that item stands now.
 
 CALENDAR
+- An entry on their calendar is kept, with its day and time, by their calendar, which Gremly reads directly. Make a fact from one only for what it tells you about their life beyond being on the calendar. The ordinary running of their work tells a friend nothing to remember, so it never becomes a fact.
 - For each calendar entry among the records, judge whether it has been cancelled and will not happen, from the entry and what the other records show. List in calendar each entry you judge cancelled, and each entry marked cancelled earlier that the records now show is going ahead. Leave every other entry out.
 
 KEEPING THE LEDGER TRUE
 - A plan is planned until a later record shows what happened. When a record shows a planned thing happened, moved, changed or fell through, update that fact and cite the record. If the details changed, give the replacement.
 - When a record restates an existing fact, confirm it instead of adding a duplicate.
 - When a record shows the same trip, event, milestone or plan as a fact the ledger holds, but at a different date or with a different outcome, the fact is no longer reliable as written. If the record makes clear it is the same thing, update the fact (changed, with the replacement). If it might be a separate occurrence, mark the fact unconfirmed and ask the person.
-- When records disagree and you cannot tell which is right, ask the person one short, friendly question instead of choosing. Ask only when the answer bears on their life now or on something still ahead, measured against today's date. Differences about things long past are recorded as they are, without a question.
+- When records disagree and you cannot tell which is right, ask the person one short, friendly question instead of choosing. A question speaks to them about their life, in words they would use, never about the ledger, its records or how the app works. Ask only when the answer bears on their life now or on something still ahead, measured against today's date. Differences about things long past are recorded as they are, without a question.
 - With each question, give two to four short answers the person could tap, each a few words, covering what they would most likely say. They can always answer in their own words instead.
 - Say how much each answer matters. needs: until it is answered the ledger holds two versions of something still ahead, or Gremly would soon say something wrong. helps: the answer would let Gremly know them better, and nothing is wrong without it.
 - QUESTIONS ALREADY WAITING are put to the person already. Never ask one of them again, in any words.
