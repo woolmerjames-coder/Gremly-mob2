@@ -337,3 +337,20 @@ describe('all of it, for the surfaces they talk with (data fabric stage 4e)', ()
     expect(JUST_HAPPENED_RULE).not.toMatch(/\s[-–—]\s|—/);
   });
 });
+
+describe('a read that comes back full', () => {
+  it('is said loudly for a full pack, which promises all of it, and not for a compact one', async () => {
+    const t = tables();
+    for (let i = 0; i < 1000; i++) t.life_facts.push(fact(`f-n${i}`, `Thing ${i}.`));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await loadLifePack(client(t), U, { today: TODAY, tz: 'America/New_York' });
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('[ALERT][LifePack] read'))).toBe(
+      false,
+    );
+    await loadLifePack(client(t), U, { today: TODAY, tz: 'America/New_York', size: 'full' });
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('[ALERT][LifePack] read 1000'))).toBe(
+      true,
+    );
+    warn.mockRestore();
+  });
+});

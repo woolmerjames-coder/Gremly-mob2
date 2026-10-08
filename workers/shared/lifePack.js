@@ -112,8 +112,10 @@ export async function loadLifePack(d, userId, { today, tz, size = 'compact' }) {
       .select(`life_fact_people?user_id=eq.${userId}&select=person_id&limit=5000`)
       .catch(said('ties')),
   ]);
-  // a read that comes back full may have left facts out: say so, never quietly
-  if ((factsRead || []).length >= CAP.read)
+  // a full pack promises all of it, so a read that comes back full may have
+  // left facts out: say so, never quietly (a compact pack only ever shows a
+  // screen's worth of the latest)
+  if (CAP.rest && (factsRead || []).length >= CAP.read)
     console.warn(
       `[ALERT][LifePack] read ${CAP.read} facts for ${userId}, the most one read gives: the least lately confirmed are left out`,
     );
