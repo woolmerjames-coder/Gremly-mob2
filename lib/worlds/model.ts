@@ -11,7 +11,7 @@
  *
  * Pure: the screens pass in the store's rows and today's day.
  */
-import { format, parseISO } from 'date-fns';
+import { addDays, format, parseISO } from 'date-fns';
 import { nextDateOf, upNext, OPEN_CHAPTER_PHASES } from '../../workers/shared/upNext';
 import { DEFAULT_MASCOT_SLUG } from '../store/mascotRegistry';
 import type { Chapter, DropChapterLink, DropWorldLink, World } from '../supabase/types';
@@ -215,6 +215,15 @@ export function whenLine(c: ChapterDates, today: string): string {
   return 'No date yet';
 }
 
+/** The days a countdown is about, in words: Fri 20 to Sun 22 Nov, or Sat 12 Dec. */
+export function dateWords(c: ChapterDates): string {
+  const s = dayOf(c.start_date);
+  const e = dayOf(c.end_date);
+  if (s && e && s !== e) return dayRange(s, e);
+  const d = e || s;
+  return d ? dayShort(d) : '';
+}
+
 /** Fri 20 to Sun 22 Nov, or Mon 30 Nov to Tue 1 Dec across months. */
 export function dayRange(a: string, b: string): string {
   if (a.slice(0, 7) === b.slice(0, 7)) return `${fmt(a, 'EEE d')} to ${dayShort(b)}`;
@@ -334,13 +343,23 @@ export function worldLoose(
   worldId: string,
   data: { todos: Todo[]; notes: Note[]; habits: Habit[] },
   filed: Filed,
+  justTicked?: Set<string>,
 ): { todos: Todo[]; kept: Note[]; habits: Habit[] } {
   const ids = filed.inWorld.get(worldId);
   if (!ids) return { todos: [], kept: [], habits: [] };
   const free = (type: 'todo' | 'note' | 'habit', id: string) =>
     ids[type].has(id) && !filed.anyChapter[type].has(id);
+  // A todo ticked while the page is open stays in place until the page is left.
+  const shown = (t: Todo) => !isDone(t) || !!justTicked?.has(t.id);
   return {
-    todos: data.todos.filter((t) => free('todo', t.id) && liveItem(t) && !isDone(t)).sort(byStep),
+    todos: data.todos
+      .filter((t) => free('todo', t.id) && liveItem(t) && shown(t))
+      .sort((a, b) =>
+        byStep(
+          justTicked?.has(a.id) ? { ...a, completed_at: null } : a,
+          justTicked?.has(b.id) ? { ...b, completed_at: null } : b,
+        ),
+      ),
     kept: data.notes.filter((n) => free('note', n.id) && liveItem(n)).sort(byKept),
     habits: data.habits.filter((h) => free('habit', h.id) && liveItem(h as { archived?: boolean })),
   };
@@ -378,4 +397,41 @@ export function dueWords(t: Pick<Todo, 'due_day'>, today: string): string {
   if (n === 0) return 'Due today';
   if (n === 1) return 'Due tomorrow';
   return `Due ${dayShort(d)}`;
+}
+
+/** A note that holds a date, which a Chapter lists under Dates. */
+export const isDateNote = (n: Pick<Note, 'target_date'>) => !!dayOf(n.target_date);
+
+export interface HabitDay {
+  day: string;
+  letter: string;
+  done: boolean;
+  isToday: boolean;
+  isFuture: boolean;
+}
+
+const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+/** This week for one habit, Monday to Sunday, from its logged days. */
+export function habitWeek(
+  habit: Pick<Habit, 'id' | 'last_completed_at'>,
+  logged: { habit_id: string; occurred_day: string }[],
+  today: string,
+  localDayOf: (stamp: string) => string | null,
+): HabitDay[] {
+  const days = new Set(logged.filter((r) => r.habit_id === habit.id).map((r) => r.occurred_day));
+  const last = habit.last_completed_at ? localDayOf(habit.last_completed_at) : null;
+  if (last) days.add(last);
+  const weekday = (parseISO(today).getDay() + 6) % 7; // Monday is 0
+  return LETTERS.map((letter, n) => {
+    const day = format(addDays(parseISO(today), n - weekday), 'yyyy-MM-dd');
+    return { day, letter, done: days.has(day), isToday: day === today, isFuture: day > today };
+  });
+}
+
+/** How a habit is going this week, in words. */
+export function habitLine(week: HabitDay[]): string {
+  const n = week.filter((d) => d.done).length;
+  if (!n) return 'Not yet this week';
+  return n === 1 ? 'Once this week' : n === 2 ? 'Twice this week' : `${n} times this week`;
 }

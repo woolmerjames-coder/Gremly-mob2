@@ -4,10 +4,14 @@ import {
   chapterSteps,
   closedChapters,
   countdown,
+  dateWords,
   dayRange,
   dueWords,
   filedIndex,
+  habitLine,
+  habitWeek,
   hasEnded,
+  isDateNote,
   leadChapter,
   liveChapters,
   nextStep,
@@ -255,6 +259,16 @@ describe('what belongs where', () => {
     expect(loose.kept.map((n) => n.id)).toEqual(['n-loose']);
   });
 
+  it('keeps a todo ticked on the page in place until the page is left', () => {
+    const loose = worldLoose(
+      'w',
+      { todos, notes, habits: [] as Habit[] },
+      filed,
+      new Set(['loose-done']),
+    );
+    expect(loose.todos.map((t) => t.id).sort()).toEqual(['loose', 'loose-done']);
+  });
+
   it('takes the steps of a closed Chapter out of Today', () => {
     const closed = [chapter({ id: 'c', phase: 'closed', closed_at: '2026-10-01T00:00:00Z' })];
     expect([...stepsOnClosedChapters(closed, filed)].sort()).toEqual([
@@ -273,5 +287,57 @@ describe('what belongs where', () => {
     expect(dueWords({ due_day: '2026-10-12' }, TODAY)).toBe('Due Mon 12 Oct');
     expect(dueWords({ due_day: '2026-10-01' }, TODAY)).toBe('Was due Thu 1 Oct');
     expect(dueWords({ due_day: null }, TODAY)).toBe('');
+  });
+});
+
+describe('the pieces the screens added', () => {
+  it('names the days a countdown is about', () => {
+    expect(dateWords({ start_date: '2026-11-20', end_date: '2026-11-22' })).toBe(
+      'Fri 20 to Sun 22 Nov',
+    );
+    expect(dateWords({ start_date: null, end_date: '2026-12-12' })).toBe('Sat 12 Dec');
+    expect(dateWords({ start_date: '2026-10-20', end_date: null })).toBe('Tue 20 Oct');
+    expect(dateWords({ start_date: null, end_date: null })).toBe('');
+  });
+
+  it('lays out this week for a habit, Monday first', () => {
+    const week = habitWeek(
+      { id: 'h', last_completed_at: null },
+      [
+        { habit_id: 'h', occurred_day: '2026-10-05' },
+        { habit_id: 'h', occurred_day: '2026-10-08' },
+        { habit_id: 'other', occurred_day: '2026-10-06' },
+        { habit_id: 'h', occurred_day: '2026-09-30' },
+      ],
+      TODAY,
+      (s) => s.slice(0, 10),
+    );
+    expect(week.map((d) => d.day)).toEqual([
+      '2026-10-05',
+      '2026-10-06',
+      '2026-10-07',
+      '2026-10-08',
+      '2026-10-09',
+      '2026-10-10',
+      '2026-10-11',
+    ]);
+    expect(week.map((d) => d.letter).join('')).toBe('MTWTFSS');
+    expect(week.filter((d) => d.done).map((d) => d.day)).toEqual(['2026-10-05', '2026-10-08']);
+    expect(week.find((d) => d.isToday)?.day).toBe(TODAY);
+    expect(week.filter((d) => d.isFuture)).toHaveLength(3);
+    expect(habitLine(week)).toBe('Twice this week');
+    expect(habitLine(week.map((d) => ({ ...d, done: false })))).toBe('Not yet this week');
+  });
+
+  it('counts a check in from the habit itself when the log has not caught up', () => {
+    const week = habitWeek({ id: 'h', last_completed_at: '2026-10-08T07:00:00Z' }, [], TODAY, (s) =>
+      s.slice(0, 10),
+    );
+    expect(week.find((d) => d.isToday)?.done).toBe(true);
+  });
+
+  it('knows a note that holds a date', () => {
+    expect(isDateNote({ target_date: '2026-10-20' })).toBe(true);
+    expect(isDateNote({ target_date: null })).toBe(false);
   });
 });

@@ -1,715 +1,746 @@
-// app/screens/ChapterDetailScreen.tsx
-//
-// Phase B.4 — World vs Chapter v4 redesign.
-//
-// Sections (in order):
-//   1. Nav bar: back ‹ · breadcrumb "in [World] ⊕" · ···
-//   2. Chapter title (22px)
-//   3. Date banner — tight single-row: date range + countdown + ACTIVE/CLOSED tag
-//   4. ChapterDispatcher — section composition depends on arc shape
-
+/**
+ * A Chapter, in look A: the dark header with its name, when it is, the
+ * countdown and its Gremly; its words; its next steps; what is kept on it.
+ * A closed Chapter shows its memory, what was done and what was left. Closing
+ * one is a small moment of its own (ClosingMoment). The box at the foot
+ * opens its chat.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScrollView, StyleSheet, View, Pressable } from 'react-native';
-import { useState } from 'react';
-import { useRoute, useNavigation } from '@react-navigation/native';
-import type { RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft, MoreHorizontal } from 'lucide-react-native';
-import { SheetManager } from 'react-native-actions-sheet';
-import { format, differenceInCalendarDays } from 'date-fns';
-import { getDateService } from '../../lib/date/DateService';
-import { useAppEventOnFocus } from '../../lib/appEvents';
-import { NotRightLink, NotRightSheet } from '../../components/story/NotRightSheet';
-import { lightTokens } from '../../design/tokens';
-import { Text } from '../../ui';
-import {
-  useChapterById,
-  useWorldById,
-  useWorldPalette,
-  useChapterDrops,
-  useActiveHabitsForWorld,
-  useHabitWeekGrid,
-} from '../../lib/store/worldsSelectors';
-import { resolveChapterPhases } from '../../lib/worlds/chapterDisplay';
-import type { RootStackParamList } from '../../navigation/RootNavigator';
-import type { Chapter } from '../../lib/supabase/types';
-import type { Habit } from '../../lib/types';
-import { EditableChapterBanner } from '../../components/chapters/EditableChapterBanner';
-import { ChapterHeldStripBanner } from '../../components/chapters/sections/ChapterHeldStripBanner';
-import { ChapterDateEditSheet } from '../../components/chapters/ChapterDateEditSheet';
-import { ChapterTitleEditSheet } from '../../components/chapters/ChapterTitleEditSheet';
-import { ChapterDispatcher } from '../../components/chapters/layouts/ChapterDispatcher';
+import { Calendar, CircleCheck, FolderInput, Pencil, RotateCcw, Trash2 } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { WorldActionButtons } from '../../components/worlds/WorldActionButtons';
+import { useAppEventOnFocus } from '../../lib/appEvents';
+import { getDateService } from '../../lib/date/DateService';
+import { resolveMascotAsset } from '../../lib/store/mascotRegistry';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+import type { Note } from '../../lib/types';
+import type { World } from '../../lib/supabase/types';
+import type { Undo } from '../../lib/worlds/actions';
+import { useWorldsData } from '../../lib/worlds/useWorldsData';
+import { showFailed, showSnack } from '../../lib/worlds/snack';
+import { F, W } from '../../lib/worlds/look';
+import {
+  chapterGremly,
+  chapterHabits,
+  chapterKept,
+  chapterSteps,
+  countdown,
+  dateWords,
+  dayOf,
+  hasEnded,
+  habitWeek,
+  isClosedChapter,
+  isDateNote,
+  isDone,
+  isShownWorld,
+  progress,
+  stepsLine,
+  whenLine,
+  worldGremly,
+  worldName,
+  worldTint,
+} from '../../lib/worlds/model';
+import { GremlyImage } from '../../components/worlds/GremlyFace';
+import { PageTop } from '../../components/worlds/PageTop';
+import { CountdownBlock } from '../../components/worlds/UpNextCard';
+import { WordsBlock } from '../../components/worlds/WordsBlock';
+import {
+  AddStepRow,
+  DoneStepRow,
+  LeftStepRow,
+  ShowDoneToggle,
+  StepRow,
+} from '../../components/worlds/Steps';
+import { DateRows, HabitRows, KeptStrip, PeopleChips } from '../../components/worlds/Kept';
+import { KeptOpen } from '../../components/worlds/KeptOpen';
+import { Diamond, SectionHead, TextLink, plural } from '../../components/worlds/parts';
+import { Btn, MenuRow, Sheet, SheetTitle } from '../../components/worlds/Sheet';
+import { GremlyPick } from '../../components/worlds/GremlyPick';
+import { WorldPick } from '../../components/worlds/WorldPick';
+import { DatesPick } from '../../components/worlds/DatesPick';
+import { TextEdit } from '../../components/worlds/TextEdit';
+import { ClosingMoment, type MemoryState } from '../../components/worlds/ClosingMoment';
+import { GremlyBox, BOX_SPACE } from '../../components/worlds/GremlyBox';
+import { UndoSnack } from '../../components/worlds/UndoSnack';
+import { usePageActions } from '../../components/worlds/usePageActions';
 
 type RouteT = RouteProp<RootStackParamList, 'ChapterDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'ChapterDetail'>;
-
-const WEEKS_BACK = 13;
+type ChapterSheet =
+  | { kind: 'menu' }
+  | { kind: 'rename' }
+  | { kind: 'words' }
+  | { kind: 'memory' }
+  | { kind: 'dates' }
+  | { kind: 'gremly' }
+  | { kind: 'move' }
+  | { kind: 'kept'; noteId: string }
+  | null;
 
 export default function ChapterDetailScreen() {
   const route = useRoute<RouteT>();
   const nav = useNavigation<NavT>();
-  const chapter = useChapterById(route.params.chapterId);
-  useAppEventOnFocus('chapter_view', { type: 'chapter', id: route.params.chapterId });
-  const [notRightOpen, setNotRightOpen] = useState(false);
-  const parentWorld = useWorldById(chapter?.primary_world_id ?? '');
-  const worldName = parentWorld?.display_name || parentWorld?.name || 'World';
+  const id = route.params.chapterId;
+  useAppEventOnFocus('chapter_view', { type: 'chapter', id });
+  const { worlds, chapters, todos, notes, habits, habitProgress, filed, today } = useWorldsData();
+  const chapter = chapters.find((c) => c.id === id) || null;
+  const world = chapter?.primary_world_id
+    ? worlds.find((w) => w.id === chapter.primary_world_id) || null
+    : null;
+  const store = {
+    renameChapter: useGremlyStore((s) => s.renameChapter),
+    setChapterDates: useGremlyStore((s) => s.setChapterDates),
+    moveChapter: useGremlyStore((s) => s.moveChapter),
+    setChapterGremly: useGremlyStore((s) => s.setChapterGremly),
+    setChapterWords: useGremlyStore((s) => s.setChapterWords),
+    takeOfferedChapterWords: useGremlyStore((s) => s.takeOfferedChapterWords),
+    setChapterMemory: useGremlyStore((s) => s.setChapterMemory),
+    takeOfferedMemory: useGremlyStore((s) => s.takeOfferedMemory),
+    closeChapter: useGremlyStore((s) => s.closeChapter),
+    reopenChapter: useGremlyStore((s) => s.reopenChapter),
+    deleteChapter: useGremlyStore((s) => s.deleteChapter),
+    askForMemory: useGremlyStore((s) => s.askForMemory),
+  };
+  const page = usePageActions();
+  const [sheet, setSheet] = useState<ChapterSheet>(null);
+  const [showDone, setShowDone] = useState(false);
+  const [closing, setClosing] = useState<{ undo: Undo; memory: MemoryState } | null>(null);
+  const [asking, setAsking] = useState(false);
 
-  if (!chapter) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.hdr}>
-          <Pressable onPress={() => nav.goBack()} style={styles.iconBtn}>
-            <ChevronLeft size={22} color={lightTokens.colors.worldsInk} />
-          </Pressable>
-        </View>
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>Chapter not found</Text>
-        </View>
-      </SafeAreaView>
-    );
+  // Deleted, or put back by Undo: there is nothing to show, so go back.
+  useEffect(() => {
+    if (!chapter && nav.canGoBack()) nav.goBack();
+  }, [chapter, nav]);
+
+  const steps = useMemo(() => chapterSteps(id, todos, filed), [id, todos, filed]);
+  const keptAll = useMemo(() => chapterKept(id, notes, filed), [id, notes, filed]);
+  const chHabits = useMemo(() => chapterHabits(id, habits, filed), [id, habits, filed]);
+  const otherWorlds = useMemo(
+    () => worlds.filter((w) => isShownWorld(w) && w.id !== chapter?.primary_world_id),
+    [worlds, chapter?.primary_world_id],
+  );
+
+  if (!chapter) return <SafeAreaView style={styles.screen} edges={['top']} />;
+
+  const closed = isClosedChapter(chapter);
+  const ended = hasEnded(chapter, today);
+  const slug = chapterGremly(chapter, world);
+  const tint = worldTint(world);
+  const cd = closed ? null : countdown(chapter, today);
+  const sl = stepsLine(steps);
+  const p = progress(steps);
+  const kept = keptAll.filter((n) => !isDateNote(n));
+  const dates = keptAll
+    .filter(isDateNote)
+    .sort((a, b) => String(dayOf(a.target_date)).localeCompare(String(dayOf(b.target_date))));
+  const openSteps = steps.filter((t) => !isDone(t) || page.justTicked.has(t.id));
+  const doneSteps = steps.filter((t) => isDone(t) && !page.justTicked.has(t.id));
+  const left = steps.filter((t) => !isDone(t)).length;
+  const people = (chapter.with_you || []).map((x) => x.name).filter(Boolean);
+  const keptNote = sheet?.kind === 'kept' ? notes.find((n) => n.id === sheet.noteId) : null;
+  const localDay = (stamp: string) => getDateService().extractLocalDate(stamp);
+  const year = (dayOf(chapter.end_date) || dayOf(chapter.start_date) || '').slice(0, 4);
+  const closedWhenWords = dateWords(chapter) ? `${dateWords(chapter)} ${year}` : 'No date';
+  const memoryYours = chapter.epigraph_source === 'user';
+
+  async function act<T>(what: string, run: () => Promise<T>, done?: (r: T) => void) {
+    setSheet(null);
+    try {
+      const r = await run();
+      done?.(r);
+    } catch (err) {
+      showFailed(what, err);
+    }
   }
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top']} testID={`chapter-detail-${chapter.id}`}>
-      {/* ── Nav bar ── */}
-      <View style={styles.hdr}>
-        <Pressable onPress={() => nav.goBack()} style={styles.iconBtn} testID="chapter-detail-back">
-          <ChevronLeft size={22} color={lightTokens.colors.worldsInk} />
-        </Pressable>
+  async function startClose() {
+    setSheet(null);
+    let undo: Undo;
+    try {
+      undo = await store.closeChapter(id);
+    } catch (err) {
+      showFailed('Closing it', err);
+      return;
+    }
+    setClosing({ undo, memory: chapter?.epigraph ? 'ready' : 'writing' });
+    if (chapter?.epigraph) return;
+    let memory: string | null = null;
+    try {
+      memory = await store.askForMemory(id);
+    } catch (err) {
+      console.warn('[Worlds] the memory could not be written:', err);
+    }
+    setClosing((c) => (c ? { ...c, memory: memory ? 'ready' : 'missing' } : c));
+  }
 
+  async function askNow() {
+    setAsking(true);
+    try {
+      const memory = await store.askForMemory(id);
+      if (!memory) showSnack('Gremly could not write the memory just now. Try again later.');
+    } catch (err) {
+      showFailed('Asking Gremly', err);
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  const header = (
+    <View style={styles.chead}>
+      <View style={styles.glow} pointerEvents="none" />
+      <Pressable
+        onPress={closed ? undefined : () => setSheet({ kind: 'rename' })}
+        disabled={closed}
+        accessibilityRole={closed ? 'header' : 'button'}
+        accessibilityLabel={closed ? chapter.title : `${chapter.title}. Rename it`}
+      >
+        <Text style={styles.title}>{chapter.title}</Text>
+      </Pressable>
+      {closed ? (
+        <View style={styles.when}>
+          <Calendar size={16} color={W.sage} />
+          <Text style={styles.whenText}>{closedWhenWords}</Text>
+        </View>
+      ) : (
         <Pressable
-          style={styles.breadcrumb}
-          onPress={() =>
-            parentWorld ? nav.navigate('WorldDetail', { worldId: parentWorld.id }) : nav.goBack()
-          }
+          onPress={() => setSheet({ kind: 'dates' })}
+          style={({ pressed }) => [
+            styles.when,
+            pressed && { backgroundColor: 'rgba(249,246,241,0.1)' },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`${whenLine(chapter, today)}. Change the dates`}
+          testID="chapter-when"
         >
-          <Text style={styles.breadcrumbText}>in {worldName} ⊕</Text>
+          <Calendar size={16} color={W.sage} />
+          <Text style={styles.whenText}>{whenLine(chapter, today)}</Text>
+          <Pencil size={13} color="rgba(191,216,192,0.6)" />
         </Pressable>
-
+      )}
+      <View style={styles.countWrap}>
+        {closed ? (
+          <View style={{ gap: 5, marginTop: 4 }}>
+            <Text style={styles.wordBig}>In your story</Text>
+            <Text style={styles.countLabel}>{sl ? `Closed, ${sl}` : 'Closed'}</Text>
+          </View>
+        ) : cd ? (
+          <CountdownBlock cd={cd} sub={sl} big={64} wordBig={30} />
+        ) : steps.length ? (
+          <CountdownBlock
+            cd={{ kind: 'days', n: p.done, label: `of ${p.total}` }}
+            sub="steps done"
+            big={64}
+          />
+        ) : null}
+      </View>
+      {closed ? (
+        <View style={styles.cg}>
+          <GremlyImage slug={slug} size={112} />
+        </View>
+      ) : (
         <Pressable
+          onPress={() => setSheet({ kind: 'gremly' })}
+          style={({ pressed }) => [styles.cg, pressed && { transform: [{ scale: 0.95 }] }]}
+          accessibilityRole="button"
+          accessibilityLabel="Change its Gremly"
+          testID="chapter-gremly"
+        >
+          <GremlyImage slug={slug} size={112} />
+        </Pressable>
+      )}
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.screen} edges={['top']} testID={`chapter-detail-${id}`}>
+      <PageTop
+        dark
+        crumb={world ? worldName(world) : 'Chapter'}
+        onBack={() => nav.goBack()}
+        onCrumb={world ? () => nav.push('WorldDetail', { worldId: world.id }) : undefined}
+        onMenu={() => setSheet({ kind: 'menu' })}
+      />
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          backgroundColor: W.linen,
+          paddingBottom: (closed ? 0 : BOX_SPACE) + 60,
+        }}
+      >
+        {header}
+        <View style={styles.body}>
+          {closed ? (
+            <>
+              <WordsBlock
+                text={chapter.epigraph}
+                yours={memoryYours}
+                byLabel="The memory, by Gremly"
+                emptyText="No memory written yet. Tap to write one."
+                offered={chapter.epigraph_offered}
+                onRewrite={() => setSheet({ kind: 'memory' })}
+                onUseOffered={() =>
+                  act(
+                    'Using his memory',
+                    () => store.takeOfferedMemory(id),
+                    (undo) => showSnack('Using Gremly’s memory.', undo),
+                  )
+                }
+                onKeepMine={() =>
+                  act('Keeping yours', () => store.setChapterMemory(id, chapter.epigraph || ''))
+                }
+                testID="chapter-memory"
+              />
+              {!chapter.epigraph?.trim() ? (
+                <TextLink
+                  label={asking ? 'Gremly is writing it' : 'Ask Gremly to write it'}
+                  onPress={() => (asking ? undefined : askNow())}
+                  style={{ marginTop: 10, marginLeft: 20 }}
+                  testID="chapter-ask-memory"
+                />
+              ) : null}
+              {doneSteps.length ? (
+                <>
+                  <SectionHead title="What you did" count={doneSteps.length} />
+                  {doneSteps.map((t) => (
+                    <DoneStepRow key={t.id} step={t} />
+                  ))}
+                </>
+              ) : null}
+              {left ? (
+                <>
+                  <SectionHead title="Left with this Chapter" count={left} />
+                  <Text style={styles.hint}>
+                    These stayed here when it closed, so they are out of Today. Bring one back if it
+                    still needs doing.
+                  </Text>
+                  {steps
+                    .filter((t) => !isDone(t))
+                    .map((t) => (
+                      <LeftStepRow
+                        key={t.id}
+                        step={t}
+                        onBring={(s) =>
+                          act(
+                            'Bringing it back',
+                            () =>
+                              useGremlyStore
+                                .getState()
+                                .takeItemOut({ id: s.id, type: 'todo' }, { chapterId: id }),
+                            (undo) => showSnack('Back in Today.', undo),
+                          )
+                        }
+                      />
+                    ))}
+                </>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {ended ? (
+                <View style={styles.fin} testID="chapter-finished">
+                  <View style={styles.gmark}>
+                    <Diamond />
+                    <Text style={styles.gmarkText}>Gremly</Text>
+                  </View>
+                  <Text style={styles.finT}>This looks finished</Text>
+                  <Text style={styles.finP}>
+                    Close it and I{'’'}ll write the memory for your story. Nothing in it is lost.
+                  </Text>
+                  <View style={{ marginTop: 12 }}>
+                    <Btn label="Close it" onPress={startClose} testID="chapter-close-now" />
+                  </View>
+                </View>
+              ) : null}
+              <View style={{ marginTop: ended ? 16 : 0 }}>
+                <WordsBlock
+                  text={chapter.card_subtitle}
+                  yours={chapter.card_subtitle_source === 'user'}
+                  byLabel="Gremly"
+                  emptyText="Nothing written about it yet. Tap to write a line."
+                  offered={chapter.card_subtitle_offered}
+                  onRewrite={() => setSheet({ kind: 'words' })}
+                  onUseOffered={() =>
+                    act(
+                      'Using his words',
+                      () => store.takeOfferedChapterWords(id),
+                      (undo) => showSnack('Using Gremly’s words.', undo),
+                    )
+                  }
+                  onKeepMine={() =>
+                    act('Keeping yours', () =>
+                      store.setChapterWords(id, chapter.card_subtitle || ''),
+                    )
+                  }
+                  testID="chapter-words"
+                />
+              </View>
+
+              <SectionHead
+                title="Next steps"
+                count={left ? `${left} left` : steps.length ? 'All ticked' : ''}
+              />
+              {openSteps.map((t) => (
+                <StepRow key={t.id} step={t} today={today} onToggle={page.toggleStep} />
+              ))}
+              <AddStepRow
+                label="Add a step"
+                onAdd={async (text) => void (await page.addTodo(text, { chapterId: id }))}
+              />
+              {doneSteps.length ? (
+                <ShowDoneToggle
+                  count={doneSteps.length}
+                  open={showDone}
+                  onPress={() => setShowDone((v) => !v)}
+                />
+              ) : null}
+              {showDone
+                ? doneSteps.map((t) => (
+                    <StepRow key={t.id} step={t} today={today} onToggle={page.toggleStep} />
+                  ))
+                : null}
+            </>
+          )}
+
+          {kept.length ? (
+            <>
+              <SectionHead title="Kept here" count={plural(kept.length, 'thing', 'things')} />
+              <KeptStrip
+                items={kept}
+                onOpen={(n: Note) => setSheet({ kind: 'kept', noteId: n.id })}
+              />
+            </>
+          ) : null}
+
+          {chHabits.length && !closed ? (
+            <>
+              <SectionHead title="Habits" />
+              <HabitRows
+                habits={chHabits}
+                weekOf={(h) => habitWeek(h, habitProgress, today, localDay)}
+                onToggle={page.toggleHabit}
+              />
+            </>
+          ) : null}
+
+          {dates.length && !closed ? (
+            <>
+              <SectionHead title="Dates" />
+              <DateRows
+                items={dates}
+                onOpen={(n: Note) => setSheet({ kind: 'kept', noteId: n.id })}
+              />
+            </>
+          ) : null}
+
+          {people.length ? (
+            <>
+              <SectionHead title="People" />
+              <PeopleChips names={people} tint={tint} />
+            </>
+          ) : null}
+        </View>
+      </ScrollView>
+
+      {!closed && !closing ? (
+        <GremlyBox
+          slug={slug}
           onPress={() =>
-            (SheetManager.show as (...args: any[]) => void)('chapter-menu', {
-              payload: { chapterId: chapter.id },
+            nav.navigate('ScopedChat', {
+              scopeType: 'chapter',
+              scopeId: id,
+              scopeName: chapter.title,
             })
           }
-          style={styles.iconBtn}
-          testID="chapter-detail-menu"
-        >
-          <MoreHorizontal size={20} color={lightTokens.colors.worldsInk} />
-        </Pressable>
-      </View>
-
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-        <ChapterBody
-          chapter={chapter}
-          worldId={chapter.primary_world_id ?? ''}
-          worldName={worldName}
-          onNavigateWorld={() =>
-            parentWorld ? nav.navigate('WorldDetail', { worldId: parentWorld.id }) : undefined
-          }
         />
-        <NotRightLink onPress={() => setNotRightOpen(true)} />
-      </ScrollView>
-      <WorldActionButtons
-        worldName={chapter.title}
-        onAddPress={() => console.log('[ChapterDetail] add to chapter', chapter.id)}
-        onChatPress={() =>
-          nav.navigate('ScopedChat', {
-            scopeType: 'chapter',
-            scopeId: chapter.id,
-            scopeName: chapter.title,
-          })
-        }
-      />
-      <NotRightSheet
-        visible={notRightOpen}
-        target={notRightOpen ? { text: '', kind: 'chapter', id: chapter.id } : null}
-        onClose={() => setNotRightOpen(false)}
-      />
+      ) : null}
+
+      <Sheet visible={!!sheet} onClose={() => setSheet(null)} label={chapter.title}>
+        {sheet?.kind === 'menu' ? (
+          <View>
+            <SheetTitle>{chapter.title}</SheetTitle>
+            <View style={{ height: 6 }} />
+            {closed ? (
+              <MenuRow
+                icon={RotateCcw}
+                title="Open it again"
+                sub="It goes back to In motion"
+                onPress={() =>
+                  act(
+                    'Opening it again',
+                    () => store.reopenChapter(id),
+                    (undo) => showSnack('Open again. It is back in motion.', undo),
+                  )
+                }
+                testID="chapter-reopen"
+              />
+            ) : (
+              <>
+                <MenuRow
+                  icon={Pencil}
+                  title="Rename it"
+                  onPress={() => setSheet({ kind: 'rename' })}
+                />
+                <MenuRow
+                  icon={Calendar}
+                  title="Change the dates"
+                  onPress={() => setSheet({ kind: 'dates' })}
+                />
+                <MenuRow
+                  image={resolveMascotAsset(slug)}
+                  title="Change its Gremly"
+                  onPress={() => setSheet({ kind: 'gremly' })}
+                />
+              </>
+            )}
+            {otherWorlds.length ? (
+              <MenuRow
+                icon={FolderInput}
+                title="Move to another World"
+                sub={world ? `It is in ${worldName(world)}` : null}
+                onPress={() => setSheet({ kind: 'move' })}
+                testID="chapter-move"
+              />
+            ) : null}
+            {!closed ? (
+              <MenuRow
+                icon={CircleCheck}
+                title="Close this Chapter"
+                sub="It becomes a memory in your story"
+                onPress={startClose}
+                testID="chapter-close"
+              />
+            ) : null}
+            <MenuRow
+              icon={Trash2}
+              title="Delete this Chapter"
+              sub="Everything in it is kept"
+              warn
+              onPress={() =>
+                act(
+                  'Deleting it',
+                  () => store.deleteChapter(id),
+                  (undo) => {
+                    nav.goBack();
+                    showSnack('Deleted. Everything in it is kept.', undo);
+                  },
+                )
+              }
+              testID="chapter-delete"
+            />
+          </View>
+        ) : sheet?.kind === 'rename' ? (
+          <TextEdit
+            title="Rename it"
+            initial={chapter.title}
+            onCancel={() => setSheet(null)}
+            onSave={(text) =>
+              act(
+                'The new name',
+                () => store.renameChapter(id, text),
+                (undo) => showSnack('Renamed.', undo),
+              )
+            }
+          />
+        ) : sheet?.kind === 'words' ? (
+          <TextEdit
+            title="In your words"
+            note="A line or two about what this is. Gremly will not write over it."
+            initial={chapter.card_subtitle || ''}
+            multiline
+            onCancel={() => setSheet(null)}
+            onSave={(text) =>
+              act(
+                'Your words',
+                () => store.setChapterWords(id, text),
+                (undo) => showSnack('Saved.', undo),
+              )
+            }
+          />
+        ) : sheet?.kind === 'memory' ? (
+          <TextEdit
+            title="The memory"
+            note="How you want to remember it. Gremly will not write over it."
+            initial={chapter.epigraph || ''}
+            multiline
+            onCancel={() => setSheet(null)}
+            onSave={(text) =>
+              act(
+                'The memory',
+                () => store.setChapterMemory(id, text),
+                (undo) => {
+                  if (closing) setClosing((c) => (c ? { ...c, memory: 'ready' } : c));
+                  else showSnack('Saved.', undo);
+                },
+              )
+            }
+          />
+        ) : sheet?.kind === 'dates' ? (
+          <DatesPick
+            startDate={chapter.start_date}
+            endDate={chapter.end_date}
+            today={today}
+            onSave={(d) =>
+              act(
+                'The dates',
+                () => store.setChapterDates(id, d.startDate, d.endDate),
+                (undo) => showSnack('Dates changed.', undo),
+              )
+            }
+          />
+        ) : sheet?.kind === 'gremly' ? (
+          <GremlyPick
+            forChapter
+            current={slug}
+            worldSlug={worldGremly(world)}
+            ownSet={!!chapter.mascot_slug}
+            onPick={(s) =>
+              act(
+                'Its Gremly',
+                () => store.setChapterGremly(id, s),
+                (undo) =>
+                  showSnack(s ? 'New Gremly on.' : 'It wears its World’s Gremly again.', undo),
+              )
+            }
+          />
+        ) : sheet?.kind === 'move' ? (
+          <WorldPick
+            title="Move it to"
+            note="Everything in it moves too."
+            worlds={otherWorlds}
+            onPick={(to: World) =>
+              act(
+                'The move',
+                () => store.moveChapter(id, to.id),
+                (undo) => showSnack(`Moved to ${worldName(to)}.`, undo),
+              )
+            }
+          />
+        ) : sheet?.kind === 'kept' && keptNote ? (
+          <KeptOpen
+            note={keptNote}
+            where="Chapter"
+            onRows={(rows) => page.setRows(keptNote, rows)}
+            onMakeStep={
+              closed
+                ? undefined
+                : (text) => {
+                    page.addTodo(text, { chapterId: id }).then((t) => {
+                      if (t) showSnack(`Added as a step: ${text}`);
+                    });
+                  }
+            }
+            onTakeOut={() => {
+              setSheet(null);
+              page.takeOut({ id: keptNote.id, type: 'note' }, { chapterId: id }, 'Chapter');
+            }}
+          />
+        ) : null}
+      </Sheet>
+
+      {closing ? (
+        <ClosingMoment
+          chapter={chapter}
+          world={world}
+          stepsDone={p.done}
+          keptCount={keptAll.length}
+          memory={chapter.epigraph}
+          memoryState={closing.memory}
+          onRewrite={() => setSheet({ kind: 'memory' })}
+          onKeep={() => {
+            const undo = closing.undo;
+            setClosing(null);
+            nav.goBack();
+            showSnack('Kept in your story.', undo);
+          }}
+          onNotYet={async () => {
+            const undo = closing.undo;
+            setClosing(null);
+            try {
+              await undo();
+            } catch (err) {
+              showFailed('Leaving it open', err);
+            }
+          }}
+        />
+      ) : null}
+
+      <UndoSnack bottom={(closed ? 0 : BOX_SPACE) + 30} />
     </SafeAreaView>
   );
 }
 
-// ─── ChapterBody ──────────────────────────────────────────────────────────────
-
-interface ChapterBodyProps {
-  chapter: Chapter;
-  worldId: string;
-  worldName: string;
-  onNavigateWorld: () => void;
-}
-
-function ChapterBody({ chapter, worldId }: ChapterBodyProps) {
-  const palette = useWorldPalette(worldId);
-  const [editSheetVisible, setEditSheetVisible] = useState(false);
-  const [titleSheetOpen, setTitleSheetOpen] = useState(false);
-  const updateChapterDates = useGremlyStore((s) => s.updateChapterDates);
-  const updateChapterTitle = useGremlyStore((s) => s.updateChapterTitle);
-
-  return (
-    <View style={bodyStyles.root}>
-      {/* 2. Title */}
-      <View style={bodyStyles.titleWrap}>
-        <Pressable
-          onPress={() => setTitleSheetOpen(true)}
-          hitSlop={4}
-          testID="chapter-title-pressable"
-        >
-          <Text style={bodyStyles.title}>{chapter.title}</Text>
-        </Pressable>
-      </View>
-
-      {/* 3. Date banner */}
-      <EditableChapterBanner
-        chapter={chapter}
-        onEdit={() => setEditSheetVisible(true)}
-        extraRow={
-          chapter.arc_shape === 'commitment' && !chapter.closed_at ? (
-            <ChapterHeldStripBanner chapter={chapter} />
-          ) : undefined
-        }
-      />
-      <ChapterDateEditSheet
-        visible={editSheetVisible}
-        chapter={chapter}
-        onClose={() => setEditSheetVisible(false)}
-        onSave={async (input) => {
-          await updateChapterDates({ chapterId: chapter.id, ...input });
-        }}
-      />
-      <ChapterTitleEditSheet
-        visible={titleSheetOpen}
-        chapter={chapter}
-        onClose={() => setTitleSheetOpen(false)}
-        onSave={(input) =>
-          updateChapterTitle({
-            chapterId: chapter.id,
-            title: input.title,
-            reason: input.reason,
-          })
-        }
-      />
-
-      <ChapterDispatcher chapter={chapter} />
-    </View>
-  );
-}
-
-const bodyStyles = StyleSheet.create({
-  root: {
-    paddingHorizontal: 16,
-    paddingTop: 20,
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: W.forest },
+  chead: {
+    backgroundColor: W.forest,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    paddingTop: 6,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    overflow: 'hidden',
   },
-  titleWrap: {
-    marginBottom: 12,
+  glow: {
+    position: 'absolute',
+    right: -70,
+    top: -90,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(191,216,192,0.10)',
   },
   title: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 22,
-    fontWeight: '500',
-    lineHeight: 28,
-    letterSpacing: -0.3,
-    color: lightTokens.colors.worldsInk,
+    marginTop: 4,
+    fontFamily: F.ui,
+    fontSize: 30,
+    lineHeight: 33,
+    letterSpacing: -0.6,
+    color: W.linen,
   },
-  epigraphWrap: {
-    marginBottom: 26,
-  },
-  epigraph: {
-    fontFamily: 'PlusJakartaSans-Regular',
-    fontSize: 15,
-    lineHeight: 22,
-    color: lightTokens.colors.worldsInk,
-    fontStyle: 'italic',
-  },
-});
-
-// ─── Date banner ─────────────────────────────────────────────────────────────
-
-interface PaletteProps {
-  palette: { dot: string; base: string; tint: string; textOnBase: string };
-}
-
-function ChapterDateBanner({ chapter, palette }: { chapter: Chapter } & PaletteProps) {
-  const startLabel = chapter.start_date
-    ? format(new Date(chapter.start_date), 'MMM d').toUpperCase()
-    : null;
-  const endLabel = chapter.end_date
-    ? format(new Date(chapter.end_date), 'MMM d').toUpperCase()
-    : null;
-
-  let dayLabel: string | null = null;
-  let totalDays: number | null = null;
-  let progress = 0;
-
-  if (chapter.start_date) {
-    const start = new Date(chapter.start_date);
-    const today = getDateService().dayNow();
-    const dayNumber = differenceInCalendarDays(today, start) + 1;
-    dayLabel = `day ${dayNumber}`;
-
-    if (chapter.end_date) {
-      const end = new Date(chapter.end_date);
-      totalDays = differenceInCalendarDays(end, start) + 1;
-      const daysElapsed = Math.max(1, differenceInCalendarDays(today, start) + 1);
-      progress = Math.min(1, daysElapsed / totalDays);
-      dayLabel = `day ${dayNumber} of ~${totalDays}`;
-    }
-  }
-
-  if (!startLabel && !endLabel && !dayLabel) return null;
-
-  return (
-    <View style={bannerStyles.banner}>
-      <View style={bannerStyles.topRow}>
-        {startLabel && endLabel ? (
-          <Text style={bannerStyles.dateRange}>
-            {startLabel} → {endLabel}
-          </Text>
-        ) : startLabel ? (
-          <Text style={bannerStyles.dateRange}>since {startLabel}</Text>
-        ) : null}
-        {dayLabel ? <Text style={bannerStyles.dayLabel}>{dayLabel}</Text> : null}
-      </View>
-      {chapter.end_date && chapter.start_date ? (
-        <View style={bannerStyles.track}>
-          <View
-            style={[
-              bannerStyles.fill,
-              { width: `${Math.round(progress * 100)}%`, backgroundColor: palette.dot },
-            ]}
-          />
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-const bannerStyles = StyleSheet.create({
-  banner: {
-    backgroundColor: lightTokens.colors.worldsInk,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  dateRange: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 11,
-    letterSpacing: 0.4,
-    color: '#F5F0E6',
-  },
-  dayLabel: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 10,
-    color: lightTokens.colors.warmGrey,
-  },
-  track: {
-    height: 3,
-    backgroundColor: '#5F5E5A',
-    borderRadius: 2,
-  },
-  fill: {
-    height: 3,
-    borderRadius: 2,
-  },
-});
-
-// ─── WHERE YOU ARE ────────────────────────────────────────────────────────────
-
-function WhereYouAreSection({ chapter, palette }: { chapter: Chapter } & PaletteProps) {
-  const phases = resolveChapterPhases(chapter);
-  if (phases.labels.length === 0) return null;
-
-  // Insight: prefer card_subtitle (classifier-authored), then summary excerpt
-  const insight =
-    chapter.card_subtitle?.trim() ||
-    (chapter.summary?.trim() ? chapter.summary.trim().slice(0, 120) : null);
-
-  return (
-    <View style={whereStyles.container}>
-      <Text style={whereStyles.sectionLabel}>WHERE YOU ARE</Text>
-
-      {/* Phase spine */}
-      <View style={whereStyles.spineRow}>
-        {phases.labels.map((label, i) => {
-          const active = phases.segments[i];
-          const isCurrent = i === phases.currentIndex;
-          return (
-            <View key={label} style={whereStyles.phaseSegWrap}>
-              <View
-                style={[
-                  whereStyles.phaseSeg,
-                  {
-                    backgroundColor: active ? palette.dot : lightTokens.colors.worldsCardBorder,
-                  },
-                  isCurrent && {
-                    shadowColor: palette.dot,
-                    shadowOpacity: 0.3,
-                    shadowRadius: 4,
-                    elevation: 1,
-                  },
-                ]}
-              />
-              <Text
-                style={[
-                  whereStyles.phaseLabel,
-                  isCurrent && { color: lightTokens.colors.worldsInk, fontWeight: '600' },
-                ]}
-              >
-                {label.toLowerCase()}
-              </Text>
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Insight text */}
-      {insight ? <Text style={whereStyles.insight}>{insight}</Text> : null}
-    </View>
-  );
-}
-
-const whereStyles = StyleSheet.create({
-  container: {
-    marginBottom: 26,
-  },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: lightTokens.colors.warmGrey,
-    textTransform: 'uppercase',
-    marginBottom: 12,
-    paddingHorizontal: 2,
-  },
-  spineRow: {
-    flexDirection: 'row',
-    gap: 4,
-    marginBottom: 12,
-    paddingHorizontal: 2,
-  },
-  phaseSegWrap: {
-    flex: 1,
-  },
-  phaseSeg: {
-    height: 4,
-    borderRadius: 2,
-    marginBottom: 5,
-  },
-  phaseLabel: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 8,
-    color: lightTokens.colors.warmGrey,
-    textAlign: 'center',
-  },
-  insight: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 11,
-    lineHeight: 16,
-    color: lightTokens.colors.worldsInk,
-    paddingHorizontal: 2,
-  },
-});
-
-// ─── NEEDS YOU ────────────────────────────────────────────────────────────────
-
-function ChapterNeedsYouSection({
-  chapterId,
-  palette,
-}: {
-  chapterId: string;
-  palette: { dot: string };
-}) {
-  const drops = useChapterDrops(chapterId);
-  const open = drops.todos
-    .filter((t) => !t.completed_at && !t.archived)
-    .sort((a, b) => {
-      const aB = a.priority_kind === 'blocker' ? 0 : 1;
-      const bB = b.priority_kind === 'blocker' ? 0 : 1;
-      if (aB !== bB) return aB - bB;
-      if (a.due_day && b.due_day) return a.due_day.localeCompare(b.due_day);
-      if (a.due_day) return -1;
-      if (b.due_day) return 1;
-      return 0;
-    })
-    .slice(0, 5);
-
-  if (open.length === 0) return null;
-  const totalOpen = drops.todos.filter((t) => !t.completed_at && !t.archived).length;
-
-  return (
-    <View style={needsStyles.container}>
-      <Text style={needsStyles.sectionLabel}>NEEDS YOU · {totalOpen}</Text>
-      {open.map((todo, idx) => {
-        const isLast = idx === open.length - 1;
-        return (
-          <View key={todo.id} style={[needsStyles.row, !isLast && needsStyles.rowDivider]}>
-            <View style={[needsStyles.checkbox, { borderColor: palette.dot }]} />
-            <Text style={needsStyles.todoLabel} numberOfLines={1}>
-              {todo.name || todo.title || '(untitled)'}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const needsStyles = StyleSheet.create({
-  container: {
-    marginBottom: 26,
-  },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: lightTokens.colors.warmGrey,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-    paddingHorizontal: 2,
-  },
-  row: {
-    paddingVertical: 7,
-    paddingHorizontal: 2,
+  when: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  rowDivider: {
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
-  },
-  checkbox: {
-    width: 14,
-    height: 14,
-    borderWidth: 1.5,
-    borderRadius: 3,
-    flexShrink: 0,
-  },
-  todoLabel: {
-    flex: 1,
-    fontFamily: 'Inter-Regular',
-    fontSize: 11,
-    color: lightTokens.colors.worldsInk,
-  },
-});
-
-// ─── THIS CHAPTER'S RHYTHM ────────────────────────────────────────────────────
-
-interface ChapterRhythmSectionProps {
-  worldId: string;
-  chapterStartDate: string | null;
-  palette: { dot: string };
-}
-
-function ChapterRhythmSection({ worldId, chapterStartDate, palette }: ChapterRhythmSectionProps) {
-  const habits = useActiveHabitsForWorld(worldId);
-  if (habits.length === 0) return null;
-
-  // Label: "since [month year]" derived from start date
-  const sinceLabel = chapterStartDate
-    ? format(new Date(chapterStartDate), 'MMM d').toUpperCase()
-    : null;
-
-  return (
-    <View style={rhythmStyles.container}>
-      <Text style={rhythmStyles.sectionLabel}>
-        THIS CHAPTER'S RHYTHM{sinceLabel ? ` · since ${sinceLabel}` : ''}
-      </Text>
-      {habits.map((habit, idx) => {
-        const isLast = idx === habits.length - 1;
-        return <ChapterHabitRow key={habit.id} habit={habit} isLast={isLast} palette={palette} />;
-      })}
-    </View>
-  );
-}
-
-interface ChapterHabitRowProps {
-  habit: Habit;
-  isLast: boolean;
-  palette: { dot: string };
-}
-
-function ChapterHabitRow({ habit, isLast, palette }: ChapterHabitRowProps) {
-  const grid = useHabitWeekGrid(habit.id, WEEKS_BACK);
-
-  return (
-    <View style={[rhythmStyles.habitWrap, !isLast && rhythmStyles.habitDivider]}>
-      <View style={rhythmStyles.habitHeader}>
-        <Text style={rhythmStyles.habitName} numberOfLines={1}>
-          {habit.name || '(untitled)'}
-        </Text>
-        <Text style={rhythmStyles.hitCount}>
-          {grid.hitCount} / {WEEKS_BACK} weeks
-        </Text>
-      </View>
-      <View style={rhythmStyles.tileRow}>
-        {grid.weeks.map((hit, i) => {
-          const isCurrent = i === WEEKS_BACK - 1;
-          return (
-            <View
-              key={i}
-              style={[
-                rhythmStyles.tile,
-                hit
-                  ? isCurrent
-                    ? [rhythmStyles.tileHit, { backgroundColor: palette.dot, opacity: 1 }]
-                    : [rhythmStyles.tileHit, { backgroundColor: palette.dot }]
-                  : rhythmStyles.tileMiss,
-              ]}
-            />
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-const rhythmStyles = StyleSheet.create({
-  container: {
-    marginBottom: 26,
-  },
-  sectionLabel: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: lightTokens.colors.warmGrey,
-    textTransform: 'uppercase',
-    marginBottom: 14,
-    paddingHorizontal: 2,
-  },
-  habitWrap: {
-    paddingBottom: 14,
-    paddingHorizontal: 2,
-  },
-  habitDivider: {
-    marginBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: lightTokens.colors.worldsCardBorder,
-  },
-  habitHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 6,
-  },
-  habitName: {
-    flex: 1,
-    marginRight: 8,
-    fontFamily: 'Inter-Regular',
-    fontSize: 11,
-    color: lightTokens.colors.worldsInk,
-  },
-  hitCount: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 9,
-    color: lightTokens.colors.warmGrey,
-    flexShrink: 0,
-  },
-  tileRow: {
-    flexDirection: 'row',
-    gap: 3,
-  },
-  tile: {
-    flex: 1,
-    aspectRatio: 1,
-    borderRadius: 2,
-  },
-  tileHit: {
-    opacity: 0.85,
-  },
-  tileMiss: {
-    backgroundColor: '#F5F1E8',
-    borderWidth: 0.5,
-    borderColor: '#E5DFD2',
-  },
-});
-
-// ─── WHEN THIS CLOSES ─────────────────────────────────────────────────────────
-
-function ChapterClosureFooter({ text }: { text: string }) {
-  return (
-    <View style={closureStyles.container}>
-      <Text style={closureStyles.label}>WHEN THIS CLOSES</Text>
-      <View style={closureStyles.box}>
-        <Text style={closureStyles.body}>{text}</Text>
-      </View>
-    </View>
-  );
-}
-
-const closureStyles = StyleSheet.create({
-  container: {
-    marginBottom: 26,
-  },
-  label: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: lightTokens.colors.warmGrey,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-    paddingHorizontal: 2,
-  },
-  box: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderStyle: 'dashed',
-    borderColor: lightTokens.colors.dashedFrameBorder,
+    gap: 7,
+    marginTop: 6,
+    marginLeft: -6,
+    paddingVertical: 4,
+    paddingLeft: 6,
+    paddingRight: 8,
     borderRadius: 8,
   },
-  body: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 11,
-    lineHeight: 16,
-    color: lightTokens.colors.worldsInk,
+  whenText: { fontFamily: F.body, fontSize: 15, color: W.sage },
+  countWrap: { marginTop: 14, marginRight: 122, minHeight: 60 },
+  wordBig: { fontFamily: F.ui, fontSize: 30, lineHeight: 32, color: W.pear, letterSpacing: -0.6 },
+  countLabel: { fontFamily: F.body, fontSize: 15, lineHeight: 20, color: W.onDark },
+  cg: { position: 'absolute', right: 12, bottom: 16, width: 112, height: 112 },
+  body: { paddingHorizontal: 20, paddingTop: 16, backgroundColor: W.linen },
+  hint: {
+    fontFamily: F.body,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: W.muted,
+    marginHorizontal: 2,
+    marginBottom: 4,
   },
-});
-
-// ─── Global screen styles ────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: lightTokens.colors.worldsSurface },
-  hdr: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+  fin: {
+    backgroundColor: W.pearWash,
+    borderRadius: 20,
     paddingTop: 14,
-    paddingBottom: 4,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+  gmark: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  gmarkText: {
+    fontFamily: F.bodySemi,
+    fontSize: 13,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: 'rgba(46,85,64,0.55)',
   },
-  breadcrumb: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  breadcrumbText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 10,
-    color: lightTokens.colors.warmGrey,
-  },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: lightTokens.colors.warmGrey,
-  },
+  finT: { fontFamily: F.ui, fontSize: 17, lineHeight: 21, color: W.forest },
+  finP: { fontFamily: F.body, fontSize: 14.5, lineHeight: 21, color: W.pearInk, marginTop: 4 },
 });
