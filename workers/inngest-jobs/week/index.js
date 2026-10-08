@@ -479,6 +479,14 @@ export function createWeekFunctions(
                   written: r?.written ?? null,
                   left_out: r?.left_out ?? null,
                   failed: r?.failed ?? null,
+                  // the line about each person the weekly pass noted (stage 6)
+                  people: r?.people
+                    ? {
+                        written: r.people.written ?? null,
+                        left_out: r.people.left_out ?? null,
+                        skipped: r.people.skipped ?? r.people.error ?? null,
+                      }
+                    : null,
                 }
               : name === 'memories'
                 ? { chapters: r?.chapters ?? null }

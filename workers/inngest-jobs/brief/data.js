@@ -29,7 +29,7 @@ import {
   weekAround,
 } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
-import { loadLifePack } from '../../shared/lifePack.js';
+import { loadLifePack, personWordsOn } from '../../shared/lifePack.js';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -349,7 +349,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   // Their life right now, as every surface reads it (shared/lifePack.js, data
   // fabric stage 4d). The brief never waits on it: unread, the brief is
   // written from the day alone, and says why in the log.
-  const life = await loadLifePack(d, userId, { today, tz }).catch((err) => {
+  const life = await loadLifePack(d, userId, { today, tz, personWords: personWordsOn(env) }).catch((err) => {
     console.warn(
       `[ALERT][DailyBrief] could not read their life for ${userId}: ${err?.message || err}`,
     );

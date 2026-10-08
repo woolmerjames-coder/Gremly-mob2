@@ -23,7 +23,7 @@ import { getLifePack, recallForMessage } from './lifeContext.js';
 import { formatWeekAhead, readWeekAhead } from './weekAhead.js';
 import { fetchDatedAhead, formatDatedAhead } from './datedAhead.js';
 import { db } from '../../shared/db.js';
-import { loadLifePack, lifePackText, chatLifeSize } from '../../shared/lifePack.js';
+import { loadLifePack, lifePackText, chatLifeSize, personWordsOn } from '../../shared/lifePack.js';
 
 /** The person's latest message text from a chat request body. */
 export function lastUserText(body) {
@@ -520,7 +520,7 @@ export async function readLifeNowForChat(userId, env, { today, timezone, size = 
         }
       }
     }
-    const pack = await loadLifePack(db(env), userId, { today, tz: timezone, size });
+    const pack = await loadLifePack(db(env), userId, { today, tz: timezone, size, personWords: personWordsOn(env) });
     const read = {
       life: lifePackText(pack, { leave: ['ahead', 'rest'] }),
       rest: lifePackText(pack, {

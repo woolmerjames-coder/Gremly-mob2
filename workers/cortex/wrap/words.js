@@ -31,7 +31,7 @@ import {
   personBlock,
 } from '../../inngest-jobs/careRules.js';
 import { db, personIdentity, userTimezone } from '../../shared/db.js';
-import { loadLifePack, lifePackText } from '../../shared/lifePack.js';
+import { loadLifePack, lifePackText, personWordsOn } from '../../shared/lifePack.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
@@ -391,7 +391,7 @@ async function readLifeNow(env, userId, day = null) {
         .catch(() => []),
       day
         ? userTimezone(env, userId)
-            .then((tz) => loadLifePack(d, userId, { today: day, tz }))
+            .then((tz) => loadLifePack(d, userId, { today: day, tz, personWords: personWordsOn(env) }))
             .catch((err) => {
               console.warn(
                 `[ALERT][WrapWords] could not read their life for ${userId}: ${err?.message || err}`,

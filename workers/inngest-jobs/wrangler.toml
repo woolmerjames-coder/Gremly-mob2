@@ -60,6 +60,12 @@ WEEKLY_CLASSIFIER = "on"
 # the week note holds no private matter (the weekly replay's judge still finds
 # one in 2 of 3 weeks that turn on health).
 WEEK_READ_FROM_PASS = "off"
+# The line Gremly keeps about each person the weekly pass notes (context/
+# personWords.js, data fabric stage 6), written after the words each week and
+# read by the life pack: "off" until life_people has its words fields
+# (supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql),
+# then "on", here and in cortex's wrangler.toml.
+PERSON_WORDS = "off"
 
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL

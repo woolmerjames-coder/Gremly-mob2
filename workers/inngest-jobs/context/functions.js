@@ -41,6 +41,7 @@ import {
 } from './story';
 import { writeUsageRow } from '../../shared/aiUsage';
 import { writeWords } from './words';
+import { writePersonWords } from './personWords';
 import { writeMemory, chaptersWantingMemory } from './memory';
 import { makeFirstWorlds, firstWorldsEvents, filedTotals } from './firstWorlds';
 import { writePersonQuestion } from './peopleQuestions';
@@ -727,13 +728,23 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
               ['worlds', 'chapters'].includes(t?.table) && /^[0-9a-f-]{36}$/i.test(t?.id || ''),
           )
         : null;
-      return step.run('write', () =>
+      const written = await step.run('write', () =>
         writeWords(env, userId, {
           targets: targets?.length ? targets : null,
           reason: String(event.data?.reason || 'by_hand').slice(0, 20),
           dryRun: mode !== 'on',
         }),
       );
+      // after the weekly pass, the line about each person it noted (data
+      // fabric stage 6), behind PERSON_WORDS until life_people has its fields
+      if (event.data?.reason !== 'weekly') return written;
+      const people = await step.run('people', () =>
+        writePersonWords(env, userId, { dryRun: mode !== 'on' }).catch((err) => {
+          console.warn(`[ALERT][PersonWords] the lines about people could not be written for ${userId}: ${String(err?.message || err).slice(0, 200)}`);
+          return { error: String(err?.message || err).slice(0, 200) };
+        }),
+      );
+      return { ...written, people };
     },
   );
 

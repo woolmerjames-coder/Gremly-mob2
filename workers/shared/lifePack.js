@@ -60,6 +60,15 @@ export const PACK_SIZES = {
 };
 
 /**
+ * Whether the line Gremly keeps about each person is written and read (data
+ * fabric stage 6, inngest-jobs context/personWords.js): PERSON_WORDS is on in
+ * the worker, once life_people has its words fields.
+ */
+export function personWordsOn(env = {}) {
+  return String(env?.PERSON_WORDS || 'off').toLowerCase() === 'on';
+}
+
+/**
  * How much of their life the two chats about all of it read (Ask Gremly and
  * today's thread): all of it (full), unless the cortex Worker var CHAT_LIFE
  * says compact, the screen's worth the brief reads, which is how to go back.
@@ -84,9 +93,11 @@ const FACT_FIELDS =
  * @param p.today their day, YYYY-MM-DD
  * @param p.tz their timezone, for yesterday's calendar
  * @param p.size compact (the default) or full (PACK_SIZES)
+ * @param p.personWords read the line Gremly keeps about each person (data
+ *   fabric stage 6, context/personWords.js): the worker's PERSON_WORDS is on
  * @returns { yesterday, today, ahead, lately, standing, people, rest }
  */
-export async function loadLifePack(d, userId, { today, tz, size = 'compact' }) {
+export async function loadLifePack(d, userId, { today, tz, size = 'compact', personWords = false }) {
   const CAP = PACK_SIZES[size] || PACK_SIZES.compact;
   // the people are a part of the pack, never the whole of it: a read that
   // fails leaves them out, and says so
@@ -105,7 +116,7 @@ export async function loadLifePack(d, userId, { today, tz, size = 'compact' }) {
     ...calendarSelects(d, userId, tz, yesterday),
     d
       .select(
-        `life_people?user_id=eq.${userId}&merged_into=is.null&hidden_at=is.null&select=id,name,relationship&limit=200`,
+        `life_people?user_id=eq.${userId}&merged_into=is.null&hidden_at=is.null&select=id,name,relationship${personWords ? ',words' : ''}&limit=200`,
       )
       .catch(said('people')),
     d
@@ -289,9 +300,11 @@ export function lifePackText(pack, { leave = [] } = {}) {
     parts.push(
       `The people who come up most:\n${pack.people
         .map((p) =>
-          p.name
-            ? `- ${p.name}${p.relationship ? `, ${p.relationship}` : ''}`
-            : `- their ${p.relationship} (no name given yet)`,
+          `${
+            p.name
+              ? `- ${p.name}${p.relationship ? `, ${p.relationship}` : ''}`
+              : `- their ${p.relationship} (no name given yet)`
+          }${p.words ? `: ${p.words}` : ''}`,
         )
         .join('\n')}`,
     );

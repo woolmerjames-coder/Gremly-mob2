@@ -65,6 +65,7 @@ import {
   chatLifeSize,
   loadLifePack,
   lifePackText,
+  personWordsOn,
 } from '../../shared/lifePack.js';
 import { checkForCorrection } from '../context/corrections.js';
 
@@ -920,7 +921,7 @@ export function dayContext(
 async function readLife(ctx, userId, today, tz) {
   try {
     return lifePackText(
-      await loadLifePack(ctx.db, userId, { today, tz, size: chatLifeSize(ctx.env) }),
+      await loadLifePack(ctx.db, userId, { today, tz, size: chatLifeSize(ctx.env), personWords: personWordsOn(ctx.env) }),
     );
   } catch (err) {
     console.warn(
