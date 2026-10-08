@@ -23,7 +23,8 @@ deploys and merges, and no session drops a table or column.
 | --- | --- | --- | --- |
 | Facts about their life | `life_facts` (read through the view `life_facts_now`) | the reader, `workers/inngest-jobs/context/reader.js`, from everything they record | Each fact has one of seven kinds, a health flag, a private flag and a timing (dated, yearly, standing). `kinds.js` gives a kind to facts that lack one. |
 | How a fact changed | `life_fact_changes` | the reader, corrections, tidy ups | One row per state change, with where it came from. |
-| The people in their life | `life_people`, `life_fact_people`, `life_person_names`, `person_merges` | `context/people.js` | Who someone is comes only from what they said; a merge is proposed, done on a tap. |
+| The people in their life | `life_people`, `life_fact_people`, `life_person_names`, `person_merges` | `context/people.js` | Who someone is comes only from what they said; a merge is proposed, done on a tap. `life_people.matters_rank` is who matters most to them now, as the weekly pass judges it (`context/unsure.js`). |
+| What Gremly is not sure of yet | `life_unsure` | the weekly pass (`context/unsure.js`); the person's answer confirms it or says no | What the records point to but do not state: who someone is to them, or anything else that shapes their life. Kept apart from the facts, never shown, never read by any writer of something shown; the app cannot read the table. Gremly's questions ask about it, a yes becomes a fact in their words, a no closes it, and one the pass stops giving fades after three weeks. |
 | What each stored sentence rests on | `passage_refs` | every writer under the check | One row per table, row and field: the facts, people and items it rests on, the writer and its prompt version. Corrections find sentences here. |
 | What the check did | `check_runs` | every writer under the check | Per run: how many sentences it read, sent back, left out, and which steps found them wrong. Never words. Something to watch, not a gate. |
 | Gremly's questions | `gremly_questions` | `context/questions.js`, `peopleQuestions.js`, `chapterQuestions.js`, `review.js` | Answers come back as corrections with surface `question`. |
@@ -41,8 +42,13 @@ it; since stage 7 every note it writes is checked before anything is applied
 (`weekly.js` `checkWeekly`), its stored notes with the words question only,
 and a World's or Chapter's notes that fail keep the notes they had when those
 still hold. The weekly pass and the summary also ask a second reader of
-another family (`checkSecond`, Gemini 3.8 Flash) before anything is sent back
-or left out: a sentence is wrong only when both say so.
+another family (`checkSecond`, Gemini 3.8 Flash), only before something would
+be left out for its words: what the first reader finds is put right first,
+and a sentence is left out only when both say its last version does not hold.
+Asked first, the replays showed it keeping real slips, such as calling
+someone family whose tie is not recorded. A line seen at a glance that rests
+on something private and on other records goes back once with only the
+others. The words question is given the person's own pronouns.
 
 | Writer | Writes | Model | Read by |
 | --- | --- | --- | --- |
@@ -52,7 +58,8 @@ or left out: a sentence is wrong only when both say so.
 | The words, `context/words.js` | the line under each open World and Chapter (`card_subtitle`) | Luna | Worlds and Chapter cards, the life pack |
 | The memory, `context/memory.js` | a closed Chapter's memory (`epigraph`) | Luna | the Chapter page, a World's eras |
 | First Worlds, `context/firstWorlds.js` | a new person's first Worlds | Luna | Worlds |
-| The weekly pass, `context/weekly.js` | the Life Map, the profile, Gremly's notes on Worlds and Chapters, questions, the week note, the summary plan, the week's counts, notes on people | Sonnet, Luna when it fails | everything that reads the Life Map; the summary; the line about a person |
+| The weekly pass, `context/weekly.js` | the Life Map, the profile, Gremly's notes on Worlds and Chapters, questions, the week note, the summary plan, the week's counts, notes on people, what it is not sure of and who matters most (`context/unsure.js`) | Sonnet, Luna when it fails | everything that reads the Life Map; the summary; the line about a person; the week's questions |
+| The week's questions, `context/peopleQuestions.js` | one set of up to five questions a week about the people in their life and what Gremly is not sure of, the people who matter most first, what Gremly thinks offered as the first answer | Luna | the brief, the wrap up and Ask Gremly's questions |
 | The weekly summary, `summaryFromPass.ts` and `summaryPlanWriter.ts` | the weekly summary deck, from the pass's plan. A card that fails is repaired, not rewritten; an opening that fails is tried three times more at once, then falls back to the plan's checked character and the week's figures, so a deck is never lost to one card | Sonnet | the app's weekly summary |
 | The story, `context/story.js` | the monthly story: milestones, shifts, proud moments, patterns, people | Sonnet | Your Story, chat |
 | The line about a person, `context/personWords.js` | `life_people.words` | Luna | the life pack (`workers/shared/lifePack.js`), so chat, today's thread and the brief |
@@ -113,8 +120,8 @@ runner reads live through a read only role and writes nothing.
 | `scripts/reader-replay`, `kinds-replay`, `people-replay` | the ledger, kinds and people |
 | `scripts/filing-replay`, `words-replay`, `first-worlds-replay` | filing, the words and memory, first Worlds |
 | `scripts/people-questions-replay`, `chapter-questions-replay`, `review-replay`, `correction-replay` | Gremly's questions and their answers |
-| `scripts/weekly-replay`, `week-replay`, `worlds-parity`, `classifier-replay` | the weekly pass and summary, the weekly read, the classifier |
-| `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark |
+| `scripts/weekly-replay`, `week-replay`, `worlds-parity`, `classifier-replay` | the weekly pass and summary, the weekly read, the classifier. The weekly replay's `unsure` week, its `judge` step and its `questions` step cover what Gremly is not sure of and the week's set of questions |
+| `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark, and a yes and a no to something Gremly was not sure of |
 | `scripts/chat-replay`, `ask-replay`, `writer-test` | Ask Gremly |
 
 `scripts/shadow/run.sh <job>` runs one job for one real person on any tree,
@@ -123,7 +130,9 @@ need Claude where Claude cannot be reached (weekly-summary, story,
 person-words) read its answers from a replies file kept beside the shadow
 output and save what still needs one for `scripts/weekly-replay/run.sh answer`.
 The correction job replays a correction on the ledger as it stood when it was
-said.
+said. The `not-sure` job runs this week's weekly pass for a real person, shows
+what Gremly would not be sure of and who matters most, and the week's set of
+questions that would follow, writing nothing.
 
 ## Held for deletion
 

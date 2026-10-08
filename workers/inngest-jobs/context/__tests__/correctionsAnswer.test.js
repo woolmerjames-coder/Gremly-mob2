@@ -28,7 +28,7 @@ const NOTHING = {
  * The database and the model, stood in for: reads answer from the rows given,
  * everything written is kept in sent, and the model replies with output.
  */
-function standIn({ said, output, status = 'asked' }) {
+function standIn({ said, output, status = 'asked', question = {}, extra = {} }) {
   const sent = [];
   const asked = [];
   const rows = {
@@ -52,9 +52,11 @@ function standIn({ said, output, status = 'asked' }) {
         question:
           'Did the move to the Lisbon office get confirmed, or are you still waiting to hear?',
         status,
+        ...question,
       },
     ],
     notification_preferences: [{ timezone: 'America/Los_Angeles' }],
+    ...extra,
   };
   const answer = (body) => ({
     ok: true,
@@ -158,5 +160,59 @@ describe('a reply that answers the question', () => {
     });
     expect(result).toMatchObject({ answers_question: true, question_answered: QUESTION });
     expect(result.question_left_open).toBeUndefined();
+  });
+});
+
+describe('an answer about something Gremly thought but was not sure of', () => {
+  const UNSURE = '5e5e5e5e-5e5e-4e5e-8e5e-5e5e5e5e5e5e';
+  const question = {
+    kind: 'unsure',
+    question: 'Are you training for a race at the moment?',
+    proposed_change: { type: 'unsure', unsure_id: UNSURE },
+    rests_on: [],
+  };
+  const extra = {
+    life_unsure: [{ id: UNSURE, thinks: 'They may be training for a race', status: 'open' }],
+  };
+
+  it('is read beside what Gremly thought, made a fact in their words on a yes, and confirmed', async () => {
+    const { sent, asked } = standIn({
+      said: 'Yes, a half in the spring',
+      question,
+      extra,
+      output: {
+        understood: 'They are training for a half in the spring.',
+        answers_question: true,
+        guess_holds: 'yes',
+        ...NOTHING,
+        new_facts: [{ statement: 'Training for a half in the spring', subject: 'running', about_date: null, state: 'current' }],
+      },
+    });
+    const result = await applyCorrection(ENV, CORRECTION, 'run-3');
+    expect(asked[0].contents[0].parts[0].text).toContain(
+      'WHAT GREMLY THOUGHT BUT WAS NOT SURE OF, WHICH THE QUESTION ASKED ABOUT:\n"They may be training for a race"',
+    );
+    expect(asked[0].generationConfig.responseSchema.required).toContain('guess_holds');
+    expect(sent.find((w) => w.method === 'POST' && w.table === 'life_facts').body[0]).toMatchObject({
+      statement: 'Training for a half in the spring',
+      said_by: 'user',
+    });
+    expect(sent.find((w) => w.table === 'life_unsure')).toMatchObject({
+      method: 'PATCH',
+      body: { status: 'confirmed' },
+    });
+    expect(result).toMatchObject({ question_answered: QUESTION, facts_added: 1 });
+  });
+
+  it('is closed as a no on any other answer, and makes no fact of what Gremly thought', async () => {
+    const { sent } = standIn({
+      said: 'No, I stopped running',
+      question,
+      extra,
+      output: { understood: 'They are not training.', answers_question: true, guess_holds: 'no', ...NOTHING },
+    });
+    await applyCorrection(ENV, CORRECTION, 'run-4');
+    expect(sent.filter((w) => w.method === 'POST' && w.table === 'life_facts')).toEqual([]);
+    expect(sent.find((w) => w.table === 'life_unsure')).toMatchObject({ body: { status: 'said_no' } });
   });
 });

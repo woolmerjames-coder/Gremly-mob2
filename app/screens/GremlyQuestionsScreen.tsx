@@ -52,7 +52,8 @@ export function receiptLine(
     const done = some ? `${answer.picked} forgotten.` : 'Forgotten.';
     return t.from_calendar ? `${done} Your calendar still has them.` : done;
   }
-  const noted = q.kind === 'person' ? 'Noted.' : 'Updated everywhere.';
+  // an answer about someone, or about what Gremly was not sure of, is noted; nothing shown is written again for it
+  const noted = q.kind === 'person' || q.kind === 'unsure' ? 'Noted.' : 'Updated everywhere.';
   return answer.typed ? `Thanks. ${noted}` : `${answer.said}. ${noted}`;
 }
 

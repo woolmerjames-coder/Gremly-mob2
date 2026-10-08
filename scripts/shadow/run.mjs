@@ -22,6 +22,7 @@
  *   scripts/shadow/run.sh up-next --user <uuid>
  *   scripts/shadow/run.sh people-check --user <uuid> [--limit n]
  *   scripts/shadow/run.sh person-question --user <uuid>
+ *   scripts/shadow/run.sh not-sure --user <uuid> --week-end YYYY-MM-DD --replies <file> [--at ISO]
  *   scripts/shadow/run.sh chapter-questions --user <uuid>
  *   scripts/shadow/run.sh ask --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--sizes compact,full]
  *   scripts/shadow/run.sh review --user <uuid> [--at ISO]
@@ -90,6 +91,8 @@ import { jsonCall, modelFor, anthropicJsonResult } from '../../workers/inngest-j
 import * as stage5Summary from '../../workers/inngest-jobs/summaryFromPass';
 import * as stage5Writer from '../../workers/inngest-jobs/summaryPlanWriter';
 import * as stage6People from '../../workers/inngest-jobs/context/personWords.js';
+// a namespace import, so a tree without what Gremly is not sure of still bundles
+import * as unsureMod from '../../workers/inngest-jobs/context/unsure.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -905,11 +908,25 @@ const JOBS = {
       at: flag('--at') || new Date().toISOString(),
       userId,
       run: async () => {
+        // the week's set since 18 Oct; a tree before it asks one question
+        if (typeof stage4cPeople.writeQuestionSet === 'function') {
+          const { candidates } = await stage4cPeople.loadAskCandidates(env, userId);
+          const out = await stage4cPeople.writeQuestionSet(env, userId, { dryRun: true });
+          return {
+            ...out,
+            candidates: candidates.map((c) => ({
+              type: c.type,
+              weight: c.weight,
+              who: c.type === 'same' ? [c.kept.name || c.kept.relationship, c.merged.name || c.merged.relationship] : c.person?.name || c.person?.relationship || 'them',
+            })),
+          };
+        }
         if (typeof stage4cPeople.writePersonQuestion !== 'function') fail('This tree has no people questions.');
         const { candidates } = await stage4cPeople.loadPersonCandidates(env, userId);
         const out = await stage4cPeople.writePersonQuestion(env, userId, { dryRun: true });
         return {
           ...out,
+          rows: out?.row ? [out.row] : [],
           candidates: candidates.map((c) => ({
             type: c.type,
             weight: c.weight,
@@ -921,16 +938,12 @@ const JOBS = {
         written: out?.written,
         skipped: out?.skipped || null,
         why: out?.why || null,
-        question: out?.row?.question || null,
-        choices: out?.row?.choices || null,
-        about: out?.row?.proposed_change || null,
+        questions: (out?.rows || []).map((r) => ({ question: r.question, choices: r.choices, about: r.proposed_change })),
         candidates: out?.candidates,
       }),
     };
   },
 
-  // The day's Chapter questions, as they would be raised with the switch on:
-  // the welcome back, the close questions due, and at most one suggestion
   async 'chapter-questions'() {
     const userId = flag('--user');
     if (!userId) fail('chapter-questions needs --user');
@@ -1664,6 +1677,86 @@ Then list every statement in either summary that the records do not hold, each a
   // --weekly-replies (a weekly-summary job's replies file) and --week-end, the
   // notes come from the pass Claude gave there for that week, before live has
   // a pass that notes people; what still needs Claude is saved beside it.
+  // What Gremly is not sure of yet, who matters most, and the week's set of
+  // questions they lead to: the weekly pass for this week, as code would keep
+  // what it is not sure of, then the set writer given that in place of the
+  // table, which live may not have yet. Nothing is written.
+  async 'not-sure'() {
+    const userId = flag('--user');
+    const weekEnd = flag('--week-end');
+    const repliesPath = flag('--replies');
+    if (!userId || !weekEnd || !repliesPath) fail('not-sure needs --user, --week-end and --replies');
+    if (typeof unsureMod.unsurePlan !== 'function') fail('This tree has no not sure yet layer.');
+    const replies = existsSync(repliesPath) ? JSON.parse(readFileSync(repliesPath, 'utf8')) : { claude: {} };
+    const keyOf = (x) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 24);
+    const headers = { apikey: APIKEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        const p = await weekly.weeklyRequestParams(env, userId, weekEnd);
+        const key = keyOf(p.params);
+        let output = replies.claude?.[key]?.output;
+        if (!output) {
+          if (!process.env.ANTHROPIC_API_KEY) fail('the weekly pass needs ANTHROPIC_API_KEY');
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify(p.params),
+          });
+          const text = await res.text();
+          if (!res.ok) throw new Error(`Anthropic ${res.status}: ${text.slice(0, 300)}`);
+          output = anthropicJsonResult(JSON.parse(text));
+          replies.claude = { ...(replies.claude || {}), [key]: { output } };
+          writeFileSync(repliesPath, JSON.stringify(replies, null, 2));
+        }
+        const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: `shadow-not-sure-${weekEnd}`, today: p.today });
+        const refs = new Map(p.refsSnapshot);
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/life_people?user_id=eq.${userId}&select=id,name,relationship,merged_into,hidden_at&limit=2000`, { headers });
+        const peopleRows = res.ok ? await res.json() : [];
+        const plan = unsureMod.unsurePlan({ output, refs, open: [], people: new Map(peopleRows.map((x) => [x.id, x])), today: p.today });
+        const guesses = plan.inserts.map((g, i) => ({ id: `shadow-u${i + 1}`, status: 'open', ...g }));
+        const ranks = plan.matters.map((m) => ({ id: m.person_id, matters_rank: m.rank }));
+        const set = await stage4cPeople.writeQuestionSet(env, userId, { dryRun: true, guesses, ranks });
+        const nameOf = (id) => peopleRows.find((x) => x.id === id)?.name || '(no name)';
+        const labelOf = (r) => {
+          const x = refs.get(r);
+          if (!x) return r;
+          if (x.type === 'fact') return `${r} fact: ${x.statement}`;
+          if (x.type === 'person') return `${r} person: ${x.name}`;
+          return `${r} ${x.type}`;
+        };
+        return {
+          not_sure: (output.not_sure || []).map((x) => ({
+            kind: x.kind,
+            about: x.about_ref === 'self' ? 'them' : refs.get(x.about_ref)?.name || x.about_ref,
+            thinks: x.thinks,
+            sure: x.sure,
+            rests_on: (x.refs || []).map(labelOf),
+          })),
+          kept: plan.inserts.length,
+          dropped: plan.dropped,
+          who_matters: plan.matters.map((m) => nameOf(m.person_id)),
+          weekly_questions: ((applied.output || output).questions || []).map((q) => q.question),
+          set: set.rows
+            ? set.rows.map((r) => ({ kind: r.kind, type: r.proposed_change?.type, guess: !!r.proposed_change?.unsure_id, question: r.question, choices: r.choices }))
+            : { skipped: set.skipped, why: set.why },
+          set_candidates: set.candidates ?? 0,
+          check: applied.check?.counts || null,
+          // what the check did not keep as written, for a person reading the run
+          check_details: (applied.check?.details || []).map((x) => ({
+            key: x.key,
+            outcome: x.outcome,
+            said: [...(x.first || []), ...(x.second || [])].map((y) => y.say),
+            texts: x.texts,
+          })),
+          cost: Math.round(record.usage.reduce((t, u) => t + (Number(u?.cost_usd) || 0), 0) * 100000) / 1000,
+        };
+      },
+      summarise: (out) => out,
+    };
+  },
+
   async 'person-words'() {
     const userId = flag('--user');
     if (!userId) fail('person-words needs --user');

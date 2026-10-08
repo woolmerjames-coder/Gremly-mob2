@@ -51,8 +51,18 @@ import { dayOn, stateWords, whenTrue } from '../../shared/factTiming.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { oldWorldsFieldsStopped, withoutOldFields } from '../../shared/worldsFields.js';
 import { gatherWeekCounts, weekCountItems } from './weekCounts';
+import {
+  NOT_SURE_PROPERTIES,
+  NOT_SURE_RULES,
+  peopleEvidence,
+  evidenceWords,
+  unsureLines,
+  unsurePlan,
+  loadUnsureState,
+  applyUnsure,
+} from './unsure';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-17a';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -174,6 +184,9 @@ const WEEKLY_SCHEMA = {
         required: ['chapter_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs'],
       },
     },
+    // what Gremly is not sure of yet, and who matters most (context/unsure.js),
+    // decided before its questions, which leave those to it
+    ...NOT_SURE_PROPERTIES,
     questions: {
       type: 'array',
       items: {
@@ -225,6 +238,8 @@ const WEEKLY_SCHEMA = {
     'worlds',
     'worlds_summary',
     'chapters',
+    'not_sure',
+    'who_matters',
     'questions',
     'week_note',
     'week_note_refs',
@@ -233,13 +248,17 @@ const WEEKLY_SCHEMA = {
   ],
 };
 
+// Asked for, but a reply without them is still applied: the rest of the pass
+// never waits on what Gremly is not sure of
+const SHAPE_OPTIONAL = new Set(['not_sure', 'who_matters']);
+
 // What every note the pass writes holds to, in the pass and when one note goes
 // back alone (data fabric stage 7, after the comparison of 8 Oct)
 const TRUTH_RULES = `WHAT IS TRUE
 - Everything here says only what the records hold, as of today, and cites in its refs the records it rests on, by the refs given: facts, journal entries, what is on their list, the week's counts and people.
 - A plan is told as done only when a record says it happened. Until then it is told as what was planned, with no word on how it went. A plan that changed is told as it now stands.
 - An event or a plan whose day has passed is told as past, whatever an older note says. A fact the records hold as current is told in the present, however long ago it was recorded. Something whose day has passed is never a priority: a priority is something still ahead or under way.
-- Each person is called by the name the records use for them. Who someone is to the person is said only when the people list or a fact records it, never worked out from how often they come up, what they do together or anything else. When it is not recorded, their name alone says enough. Nor is anyone else given a pronoun or a gender their records do not give.
+- Each person is called by the name the records use for them. Who someone is to the person is said only when the people list or a fact records it, never worked out from how often they come up, what they do together or anything else, and never implied in other words, by the kind of tie or the group they would belong to. When it is not recorded, their name alone says enough. Nor is anyone else given a pronoun or a gender their records do not give.
 - A date is given only where the day matters, and as a date (a weekday or month is fine), never as today, tomorrow, yesterday, this week or next week, because everything here is read for the whole week ahead.`;
 
 const VOICE_RULES = `WHO READS WHAT
@@ -307,7 +326,7 @@ WHAT YOU ARE GIVEN
 - The fact ledger: what is known about their life, each fact with its date, state and when it was last confirmed, marked when it is private or about their health. Corrections the person made are listed separately and always win.
 - The week's own words: journal entries and what they said in chat. These carry the texture the ledger summarises. A journal entry, or something on their list, is marked private or about their health when a fact marked so was read from it.
 - What they did this week, the week counted by code, and counts of how they used the app over recent weeks.
-- The people in their life as their records hold them, and what the last weekly summaries showed.
+- The people in their life as their records hold them, each with how often and how lately they come up in the facts and which of the facts given are about them; what Gremly was not sure of before; and what the last weekly summaries showed.
 - The current Life Map, Worlds and open questions.
 
 THE LIFE MAP
@@ -339,8 +358,11 @@ CHAPTERS
 - Cite the facts each chapter's notes rest on in card_fact_refs, and write the whole chapter from what the facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has.
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
 
+${NOT_SURE_RULES}
+
 QUESTIONS
-- Ask about anything the records leave genuinely unclear that bears on their life now or on something still ahead, especially plans whose outcome is unknown. Differences about things long past are left as they are. Short and friendly, asked as Gremly asks, never naming itself. Do not repeat open questions. A question takes nothing for granted that the records do not hold.
+- Ask about something a record states but leaves genuinely unclear that bears on their life now or on something still ahead: how a plan turned out, a date or detail still unknown, or two records that disagree. Ask first about what is most pressing: an unknown that something coming up soon depends on, and what they have most recently brought up. Differences about things long past are left as they are. Short and friendly, asked as Gremly asks, never naming itself. Do not repeat open questions. A question takes nothing for granted that the records do not hold.
+- Anything Gremly would only be inferring, which no record states as such, and who someone is to them, are never asked here: give them in not_sure, and Gremly asks them from there.
 
 WEEK NOTE
 - One short paragraph on what this week was, in plain words, spoken to them, since their weekly review may show it to them; their story reads it too. It says only what the records show, never speaks of anything private or about their health, and cites in week_note_refs the records it rests on.
@@ -471,13 +493,39 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     loadStory(env, userId),
     // the people in their life, from the people records (data fabric stage 4c)
     d.select(
-      `life_people?user_id=eq.${userId}&merged_into=is.null&hidden_at=is.null&select=id,name,relationship&order=updated_at.desc&limit=60`,
+      `life_people?user_id=eq.${userId}&merged_into=is.null&hidden_at=is.null&select=id,name,relationship&order=updated_at.desc&limit=${PEOPLE_READ}`,
     ),
     // what the last weekly summaries showed, so the plan can move on from it
     d.select(
       `weekly_summaries?user_id=eq.${userId}&week_start_date=lt.${periodStart}&week_start_date=gte.${addDays(periodStart, -42)}&select=week_start_date,content&order=week_start_date.desc&limit=6`,
     ),
   ]);
+  // how often and how lately each person comes up, from the facts tied to
+  // them, and what Gremly was not sure of before (context/unsure.js). The
+  // people who come up most are the ones shown.
+  const { ties, tiedFacts } = await peopleTies(d, userId, people || []);
+  const evidence = peopleEvidence({ ties, facts: new Map(tiedFacts.map((f) => [f.id, f])), today: periodEnd });
+  const shownPeople = (people || [])
+    .map((p, i) => ({ p, i, e: evidence.get(p.id) }))
+    .sort(
+      (a, b) =>
+        (b.e?.facts || 0) - (a.e?.facts || 0) ||
+        String(b.e?.latest || '').localeCompare(String(a.e?.latest || '')) ||
+        a.i - b.i,
+    )
+    .slice(0, PEOPLE_SHOWN)
+    .map((x) => x.p);
+  let unsure = [];
+  try {
+    unsure =
+      (await d.select(
+        `life_unsure?user_id=eq.${userId}&status=eq.open&select=id,person_id,kind,thinks,sure,created_at&order=created_at.asc&limit=40`,
+      )) || [];
+  } catch (err) {
+    console.warn(
+      `[ALERT][Weekly] what Gremly is not sure of could not be read for ${userId}, so the pass sees none of it: ${String(err?.message || err).slice(0, 200)}`,
+    );
+  }
   // the week counted by code (stage 5); a count that cannot be made is said,
   // and the pass goes on without it
   let counts = null;
@@ -540,10 +588,39 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     usage,
     chapters,
     story: story || [],
-    people: people || [],
+    people: shownPeople,
+    // plain lists, so the gathered week can be kept as it is
+    ties: ties.filter((t) => shownPeople.some((p) => p.id === t.person_id)),
+    tiedFacts,
+    unsure,
     shown: shownBefore(summaries || []),
     counts,
   };
+}
+
+/** People read for the pass, and the most of them it is shown. */
+const PEOPLE_READ = 200;
+const PEOPLE_SHOWN = 60;
+
+/**
+ * Which facts are about each person, and those facts as they stand: whether
+ * private or about health, their state and when they were recorded.
+ */
+async function peopleTies(d, userId, people) {
+  if (!people.length) return { ties: [], tiedFacts: [] };
+  const ids = new Set(people.map((p) => p.id));
+  const ties = (
+    (await d.select(`life_fact_people?user_id=eq.${userId}&select=fact_id,person_id&limit=10000`)) || []
+  ).filter((t) => ids.has(t.person_id));
+  const factIds = [...new Set(ties.map((t) => t.fact_id))];
+  const tiedFacts = [];
+  for (let i = 0; i < factIds.length; i += 100)
+    tiedFacts.push(
+      ...((await d.select(
+        `life_facts_now?user_id=eq.${userId}&id=in.(${factIds.slice(i, i + 100).join(',')})&select=id,private,health,state,observed_at`,
+      )) || []),
+    );
+  return { ties, tiedFacts };
 }
 
 /**
@@ -673,10 +750,28 @@ export function renderWeek(g, today) {
     const ref = add('n', { type: 'count', paths: c.paths, line: c.line, private: !!c.private, health: !!c.health });
     return shown(ref, `${ref} | ${c.line}${c.private ? ' [private]' : ''}${c.health ? ' [health]' : ''}`, `counted by code for this week, ${g.periodStart} to ${g.periodEnd}`);
   });
+  // the ledger's lines first, so each person's line can name the facts about them
+  const openFactLines = g.openFacts.map(factLine);
+  const happenedFactLines = g.recentHappened.map(factLine);
+  // how often and how lately each person comes up, with the refs of the
+  // facts given here that are about them (context/unsure.js)
+  const refOfFact = new Map(
+    [...refs.entries()].filter(([, v]) => v.type === 'fact' && v.id).map(([k, v]) => [v.id, k]),
+  );
+  const evidence = peopleEvidence({
+    ties: g.ties || [],
+    facts: new Map((g.tiedFacts || []).map((f) => [f.id, f])),
+    refOfFact,
+    today,
+  });
+  const personRef = new Map();
   const peopleLines = (g.people || []).map((p) => {
     const ref = add('p', { type: 'person', id: p.id, name: p.name, relationship: p.relationship });
-    return shown(ref, `${ref} | ${trim(p.name, 60)} | ${p.relationship ? trim(p.relationship, 60) : 'who they are to them is not recorded'}`, 'someone in their life');
+    personRef.set(p.id, ref);
+    return shown(ref, `${ref} | ${trim(p.name, 60)} | ${p.relationship ? trim(p.relationship, 60) : 'who they are to them is not recorded'} | ${evidenceWords(evidence.get(p.id))}`, 'someone in their life');
   });
+  // never a record: nothing may rest on them, so they have no line the check reads
+  const unsureText = unsureLines(g.unsure || [], personRef, add);
   const shownLines = (g.shown || []).map(
     (w) =>
       `week of ${w.week_start}: ${w.line ? `"${trim(w.line, 160)}"` : 'no line'}${w.shown.length ? `; cards about ${w.shown.map((x) => trim(x, 80)).join('; ')}` : ''}`,
@@ -688,9 +783,9 @@ export function renderWeek(g, today) {
     `TIME AWAY: last active ${g.absence?.last_active_day || 'never'}; active days in the last 7: ${g.absence?.active_days_last_7 ?? 0}, last 30: ${g.absence?.active_days_last_30 ?? 0}.`,
     `APP USE BY WEEK, NEWEST FIRST:\n${usageLines.join('\n') || '(none)'}`,
     '',
-    `LEDGER, OPEN FACTS (ref | state | date | statement | recorded):\n${g.openFacts.map(factLine).join('\n') || '(none)'}`,
+    `LEDGER, OPEN FACTS (ref | state | date | statement | recorded):\n${openFactLines.join('\n') || '(none)'}`,
     '',
-    `LEDGER, FACTS THAT RECENTLY HAPPENED OR CHANGED:\n${g.recentHappened.map(factLine).join('\n') || '(none)'}`,
+    `LEDGER, FACTS THAT RECENTLY HAPPENED OR CHANGED:\n${happenedFactLines.join('\n') || '(none)'}`,
     `CHANGES THIS WEEK: ${g.changes.map((c) => `${c.created_at.slice(0, 10)} ${c.from_state} to ${c.to_state}: ${trim(c.reason, 160)}`).join('; ') || 'none'}`,
     `CORRECTIONS THE PERSON MADE (always win): ${g.corrections.map((c) => `${c.corrected_at.slice(0, 10)}: "${trim(c.statement, 160)}" is wrong; they said "${trim(c.correction_text, 200)}"`).join('; ') || 'none'}`,
     '',
@@ -703,7 +798,9 @@ export function renderWeek(g, today) {
       ? `THE WEEK COUNTED BY CODE (ref | count):\n${countLines.join('\n')}`
       : `THE WEEK COULD NOT BE COUNTED THIS TIME. HABITS THIS WEEK: ${g.habits.map((h) => `${trim(h.name || h.title, 50)} ${counts.get(h.id) || 0} of ${h.cadence === 'daily' ? 7 : h.target_per_period || 1}`).join('; ') || 'none'}`,
     '',
-    `PEOPLE IN THEIR LIFE (ref | name | who they are to them):\n${peopleLines.join('\n') || '(none recorded)'}`,
+    `PEOPLE IN THEIR LIFE (ref | name | who they are to them | how often and how lately they come up in the facts, and the facts given here about them):\n${peopleLines.join('\n') || '(none recorded)'}`,
+    '',
+    `WHAT GREMLY WAS NOT SURE OF BEFORE, NEVER TO BE SAID AS KNOWN (ref | about | what | what Gremly thought | how sure | since):\n${unsureText.join('\n') || '(nothing)'}`,
     '',
     `WHAT THE LAST WEEKLY SUMMARIES SHOWED, NEWEST FIRST:\n${shownLines.join('\n') || '(none yet)'}`,
     '',
@@ -772,6 +869,8 @@ export async function weeklyRequestParams(env, userId, periodEnd) {
         ...(v.type === 'item' ? { title: v.title, added: v.added, done: v.done, due: v.due } : {}),
         ...(v.type === 'count' ? { paths: v.paths, line: v.line } : {}),
         ...(v.type === 'person' ? { name: v.name, relationship: v.relationship || null } : {}),
+        // what Gremly was not sure of before, by its own ref (context/unsure.js)
+        ...(v.type === 'unsure' ? { person_id: v.person_id || null, kind: v.kind } : {}),
       },
     ]),
     today,
@@ -792,6 +891,7 @@ export function weeklyShapeProblems(output) {
   if (!output || typeof output !== 'object' || Array.isArray(output)) return ['no object'];
   const problems = [];
   for (const key of WEEKLY_SCHEMA.required) {
+    if (SHAPE_OPTIONAL.has(key) && output[key] === undefined) continue;
     const want = WEEKLY_SCHEMA.properties[key].type;
     const v = output[key];
     const is = Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v;
@@ -1292,7 +1392,26 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   // A Life Map with no threads is not a rewrite; keep the current one.
   const lifeMapOk = applied.threads > 0;
   if (!lifeMapOk) applied.life_map_skipped = true;
-  if (shadow) return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked };
+  // What Gremly is not sure of yet, and who matters most (context/unsure.js):
+  // never shown, so it waits on nothing the check does
+  let unsure = null;
+  try {
+    const state = await loadUnsureState(d, userId);
+    const plan = unsurePlan({ output, refs, ...state, today });
+    unsure = { state, plan };
+    applied.unsure = {
+      added: plan.inserts.length,
+      given_again: plan.updates.length,
+      faded: plan.fades.length,
+      dropped: plan.dropped,
+      matters: plan.matters.length,
+    };
+  } catch (err) {
+    applied.unsure = { error: String(err?.message || err).slice(0, 200) };
+    console.warn(`[ALERT][Weekly] what Gremly is not sure of could not be planned for ${userId}: ${applied.unsure.error}`);
+  }
+  if (shadow)
+    return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked, unsure: unsure?.plan || null };
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
   const [prevProfile] = await d.select(`user_profiles?user_id=eq.${userId}&select=profile_text`);
@@ -1534,6 +1653,22 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     }
   }
   applied.passages = await recordPassages(d, passages);
+
+  if (unsure)
+    try {
+      applied.unsure = {
+        ...(await applyUnsure(d, userId, unsure.plan, {
+          runId,
+          promptVersion: WEEKLY_PROMPT_VERSION,
+          nowIso,
+          people: unsure.state.people,
+        })),
+        dropped: unsure.plan.dropped,
+      };
+    } catch (err) {
+      applied.unsure = { ...applied.unsure, error: String(err?.message || err).slice(0, 200) };
+      console.warn(`[ALERT][Weekly] what Gremly is not sure of could not be kept for ${userId}: ${applied.unsure.error}`);
+    }
 
   await invalidateChatCache(env, userId);
   return { applied, worldsSummary, previous, output };

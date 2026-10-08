@@ -1,21 +1,24 @@
 /**
  * @jest-environment node
  *
- * Questions about the people in someone's life (context/peopleQuestions.js,
- * data fabric stage 4c): code finds who may be asked about, by ids and counts,
- * the model chooses one and writes it, and an answer merges, declines or
- * fills in a person only as the person's words say.
+ * Questions about the people in someone's life and about what Gremly is not
+ * sure of (context/peopleQuestions.js, data fabric stage 4c, asked as a set
+ * since 8 Oct): code finds what may be asked about, by ids and counts, the
+ * model chooses up to a set and writes each, and an answer merges, declines
+ * or fills in a person, and confirms or closes what Gremly thought, only as
+ * the person's words say.
  */
 import {
-  personCandidates,
-  personQuestionRequest,
+  askCandidates,
+  questionSetRequest,
   cleanChoices,
-  personQuestionRow,
+  questionSetRow,
   personNoKey,
-  writePersonQuestion,
+  writeQuestionSet,
   personAnswerPlan,
   answerPersonQuestion,
   personQuestionLive,
+  sortOpen,
 } from '../peopleQuestions.js';
 import { jsonCall } from '../llm.js';
 import { db } from '../db.js';
@@ -50,13 +53,15 @@ const ROWAN = { id: 'p-rowan', name: 'Rowan', relationship: null };
 const SPOUSE = { id: 'p-spouse', name: null, relationship: 'husband' };
 const AUNT = { id: 'p-aunt', name: null, relationship: 'aunt' };
 const KIM = { id: 'p-kim', name: 'Kim', relationship: 'friend from work' };
+const ODA = { id: 'p-oda', name: 'Oda', relationship: null };
 
-describe('who may be asked about', () => {
+describe('what may be asked about', () => {
   const factsOf = new Map([
     ['p-rowan', three('Rowan')],
     ['p-spouse', [fact('the husband once')]],
     ['p-aunt', three('aunt')],
     ['p-kim', three('Kim')],
+    ['p-oda', [fact('Oda once')]],
   ]);
   const merge = {
     id: 'm-1',
@@ -65,9 +70,30 @@ describe('who may be asked about', () => {
     status: 'proposed',
     reason: 'maybe',
   };
+  const restFacts = new Map([
+    ['f-a', { id: 'f-a', statement: 'Oda came for the weekend', private: false, health: false }],
+    ['f-b', { id: 'f-b', statement: 'Runs before work most days', private: false, health: false }],
+    ['f-p', { id: 'f-p', statement: 'something kept', private: true, health: false }],
+  ]);
+  const odaGuess = {
+    id: 'u-1',
+    person_id: 'p-oda',
+    kind: 'who',
+    thinks: 'Oda may be their sister',
+    sure: 'medium',
+    rests_on: [{ table: 'life_facts', id: 'f-a' }],
+  };
+  const runGuess = {
+    id: 'u-2',
+    person_id: null,
+    kind: 'life',
+    thinks: 'They may be training for a race',
+    sure: 'high',
+    rests_on: [{ table: 'life_facts', id: 'f-b' }],
+  };
 
   it('is a merge proposed, someone with no who, someone with no name, and never someone complete', () => {
-    const c = personCandidates({ people: [ROWAN, SPOUSE, AUNT, KIM], factsOf, merges: [merge] });
+    const c = askCandidates({ people: [ROWAN, SPOUSE, AUNT, KIM], factsOf, merges: [merge] });
     expect(c.map((x) => [x.type, x.person?.id || x.merge_id])).toEqual([
       ['same', 'm-1'],
       ['who', 'p-rowan'],
@@ -79,13 +105,52 @@ describe('who may be asked about', () => {
     const hidden = new Map([
       ['p-rowan', [fact('a'), fact('b', { private: true }), fact('c', { health: true })]],
     ]);
-    expect(personCandidates({ people: [ROWAN], factsOf: hidden })).toEqual([]);
+    expect(askCandidates({ people: [ROWAN], factsOf: hidden })).toEqual([]);
+  });
+
+  it('is someone who matters most to them, or whom Gremly has a guess about, however often they come up', () => {
+    expect(askCandidates({ people: [ODA], factsOf })).toEqual([]);
+    expect(
+      askCandidates({ people: [{ ...ODA, matters_rank: 2 }], factsOf }).map((x) => x.person.id),
+    ).toEqual(['p-oda']);
+    const [c] = askCandidates({ people: [ODA], factsOf, guesses: [odaGuess], restFacts });
+    expect(c).toMatchObject({ type: 'who', guess: { id: 'u-1', thinks: 'Oda may be their sister' } });
+  });
+
+  it('asks about what Gremly is not sure of while all it rests on can be shown', () => {
+    const c = askCandidates({ people: [], factsOf, guesses: [runGuess], restFacts });
+    expect(c).toEqual([expect.objectContaining({ type: 'unsure', entry: runGuess, person: null })]);
+    const onPrivate = { ...runGuess, rests_on: [...runGuess.rests_on, { table: 'life_facts', id: 'f-p' }] };
+    const onGone = { ...runGuess, rests_on: [{ table: 'life_facts', id: 'f-gone' }] };
+    expect(askCandidates({ people: [], factsOf, guesses: [onPrivate, onGone], restFacts })).toEqual([]);
+    // a guess at who someone is that rests on something private is never offered
+    const [who] = askCandidates({
+      people: [ROWAN],
+      factsOf,
+      guesses: [{ ...odaGuess, person_id: 'p-rowan', rests_on: [{ table: 'life_facts', id: 'f-p' }] }],
+      restFacts,
+    });
+    expect(who.type).toBe('who');
+    expect(who.guess).toBeUndefined();
+  });
+
+  it('puts the people who matter most first, then what Gremly is surest of', () => {
+    const c = askCandidates({
+      people: [ROWAN, { ...AUNT, matters_rank: 1 }],
+      factsOf,
+      guesses: [runGuess],
+      restFacts,
+    });
+    expect(c.map((x) => x.type)).toEqual(['name', 'unsure', 'who']);
   });
 
   it('is never asked again once answered or turned away, nor about someone they hid', () => {
-    const noKeys = new Set([personNoKey({ type: 'who', person: ROWAN })]);
-    expect(personCandidates({ people: [ROWAN], factsOf, noKeys })).toEqual([]);
-    expect(personCandidates({ people: [{ ...AUNT, hidden_at: 'x' }], factsOf })).toEqual([]);
+    const noKeys = new Set([
+      personNoKey({ type: 'who', person: ROWAN }),
+      personNoKey({ type: 'unsure', entry: runGuess }),
+    ]);
+    expect(askCandidates({ people: [ROWAN], factsOf, noKeys, guesses: [runGuess], restFacts })).toEqual([]);
+    expect(askCandidates({ people: [{ ...AUNT, hidden_at: 'x' }], factsOf })).toEqual([]);
   });
 
   it('keys a no by ids alone', () => {
@@ -93,6 +158,7 @@ describe('who may be asked about', () => {
       'person:same:p-rowan:p-spouse',
     );
     expect(personNoKey({ type: 'name', person: AUNT })).toBe('person:name:p-aunt');
+    expect(personNoKey({ type: 'unsure', entry: runGuess })).toBe('unsure:u-2');
   });
 });
 
@@ -110,6 +176,10 @@ describe('an open question', () => {
     ['m-1', { id: 'm-1', status: 'proposed' }],
     ['m-2', { id: 'm-2', status: 'declined' }],
   ]);
+  const unsure = new Map([
+    ['u-1', { id: 'u-1', status: 'open' }],
+    ['u-2', { id: 'u-2', status: 'faded' }],
+  ]);
   const q = (proposed_change) => ({ proposed_change });
 
   it('still asks while what it asks is missing on a live record', () => {
@@ -122,9 +192,10 @@ describe('an open question', () => {
         merges,
       ),
     ).toBe(true);
+    expect(personQuestionLive(q({ type: 'unsure', unsure_id: 'u-1' }), people, merges, unsure)).toBe(true);
   });
 
-  it('has nothing left to ask once filled in, merged, hidden, gone or decided', () => {
+  it('has nothing left to ask once filled in, merged, hidden, gone, decided or no longer thought', () => {
     expect(personQuestionLive(q({ type: 'name', person_id: 'p-a' }), people, merges)).toBe(false);
     expect(personQuestionLive(q({ type: 'who', person_id: 'p-c' }), people, merges)).toBe(false);
     expect(personQuestionLive(q({ type: 'who', person_id: 'p-d' }), people, merges)).toBe(false);
@@ -143,30 +214,61 @@ describe('an open question', () => {
         merges,
       ),
     ).toBe(false);
+    expect(personQuestionLive(q({ type: 'unsure', unsure_id: 'u-2' }), people, merges, unsure)).toBe(false);
+    expect(
+      personQuestionLive(q({ type: 'unsure', unsure_id: 'u-1', person_id: 'p-d' }), people, merges, unsure),
+    ).toBe(false);
+  });
+
+  it('is waiting until put to them, a skip once put to them a while ago, and done with once nothing is left', () => {
+    const rows = [
+      { id: 'a', asked_at: null },
+      { id: 'b', asked_at: '2026-10-06T08:00:00Z' },
+      { id: 'c', asked_at: '2026-10-01T08:00:00Z' },
+      { id: 'd', asked_at: null, dead: true },
+    ];
+    const out = sortOpen(rows, (r) => !r.dead, '2026-10-07');
+    expect(out.waiting.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(out.skipped.map((r) => r.id)).toEqual(['c']);
+    expect(out.expired.map((r) => r.id)).toEqual(['d']);
   });
 });
 
-describe('the question', () => {
-  it('shows the writer only what is not private, and the records by name and who', () => {
-    const c = personCandidates({
-      people: [ROWAN],
+describe('the questions', () => {
+  it('shows the writer only what is not private, what Gremly thinks, and who matters most', () => {
+    const c = askCandidates({
+      people: [{ ...ROWAN, matters_rank: 1 }],
       factsOf: new Map([
         ['p-rowan', [...three('Rowan'), fact('Rowan secret thing', { private: true })]],
       ]),
+      guesses: [
+        {
+          id: 'u-1',
+          person_id: 'p-rowan',
+          kind: 'who',
+          thinks: 'Rowan may be their brother',
+          sure: 'low',
+          rests_on: [{ table: 'life_facts', id: 'f-1' }],
+        },
+      ],
+      restFacts: new Map([['f-1', { id: 'f-1', statement: 'Rowan one', private: false, health: false }]]),
     });
-    const { user, refs } = personQuestionRequest({
+    const { user, refs } = questionSetRequest({
       candidates: c,
       person: null,
       today: '2026-10-07',
     });
     expect(user).toContain('c1 | who this person is to them');
-    expect(user).toContain('Rowan | who they are not known');
+    expect(user).toContain('Rowan | who they are not known | one of the people who matter most to them');
+    expect(user).toContain('Gremly thinks, but is not sure: Rowan may be their brother (how sure: low)');
     expect(user).not.toContain('secret');
     expect(refs.get('c1').person.id).toBe('p-rowan');
   });
 
   it('keeps up to four short answers, each once, and none for one answered by typing', () => {
     expect(cleanChoices([])).toEqual([]);
+    // one too long to tap is left off, never cut short
+    expect(cleanChoices(['Yes', 'No, I am not thinking about moving there at all'])).toEqual(['Yes']);
     expect(cleanChoices(['Yes', 'yes', '', 'No', 'Not sure', 'Ask me later', 'Fifth'])).toEqual([
       'Yes',
       'No',
@@ -175,24 +277,54 @@ describe('the question', () => {
     ]);
   });
 
-  it('is written as a person question that points at the merge or the person, with its no key', () => {
-    const row = personQuestionRow({
+  it('is written as one of a set, pointing at the merge, the person or what Gremly thought, with its no key', () => {
+    const same = questionSetRow({
       userId: 'u',
       c: { type: 'same', merge_id: 'm-1', kept: ROWAN, merged: SPOUSE },
       question: 'Is Rowan your husband?',
       choices: ['Yes', 'No'],
       runId: 'r',
-      holdUntil: '2026-10-08',
+      setId: 's',
     });
-    expect(row).toMatchObject({
+    expect(same).toMatchObject({
       kind: 'person',
       record_table: 'person_merges',
       record_id: 'm-1',
       proposed_change: { type: 'same', merge_id: 'm-1', kept_id: 'p-rowan', merged_id: 'p-spouse' },
       no_key: 'person:same:p-rowan:p-spouse',
-      hold_until: '2026-10-08',
+      set_id: 's',
       status: 'open',
     });
+    const who = questionSetRow({
+      userId: 'u',
+      c: { type: 'who', person: ROWAN, guess: { id: 'u-1' } },
+      question: 'Who is Rowan to you?',
+      choices: ['My brother', 'A friend'],
+      runId: 'r',
+      setId: 's',
+    });
+    expect(who.proposed_change).toEqual({ type: 'who', person_id: 'p-rowan', unsure_id: 'u-1' });
+    const unsure = questionSetRow({
+      userId: 'u',
+      c: {
+        type: 'unsure',
+        entry: { id: 'u-2', person_id: null, rests_on: [{ table: 'life_facts', id: 'f-b' }, { table: 'notes', id: 'n-1' }] },
+      },
+      question: 'Are you training for a race?',
+      choices: ['Yes', 'No'],
+      runId: 'r',
+      setId: 's',
+    });
+    expect(unsure).toMatchObject({
+      kind: 'unsure',
+      record_table: 'life_unsure',
+      record_id: 'u-2',
+      proposed_change: { type: 'unsure', unsure_id: 'u-2' },
+      rests_on: [{ table: 'life_facts', id: 'f-b' }],
+      no_key: 'unsure:u-2',
+    });
+    // one insert writes the set, so every row has the same fields
+    expect(Object.keys(same).sort()).toEqual(Object.keys(unsure).sort());
   });
 });
 
@@ -254,12 +386,15 @@ function peopleTables(extra = {}) {
         moved: null,
       },
     ],
+    life_unsure: [],
     ...extra,
   };
 }
 
-describe('writing a question', () => {
-  it('asks nothing while one about a person is open', async () => {
+const setOf = (questions, why = '') => ({ output: { questions, why }, model: 'personQuestion' });
+
+describe('writing a set', () => {
+  it('asks nothing while any of the last set waits to be put to them', async () => {
     db.mockReturnValue(
       memoryDb(
         peopleTables({
@@ -269,6 +404,7 @@ describe('writing a question', () => {
               user_id: 'u',
               kind: 'person',
               status: 'asked',
+              asked_at: '2026-10-06T08:00:00Z',
               proposed_change: {
                 type: 'same',
                 merge_id: 'm-1',
@@ -280,14 +416,14 @@ describe('writing a question', () => {
         }),
       ),
     );
-    expect(await writePersonQuestion({}, 'u')).toMatchObject({
+    expect(await writeQuestionSet({}, 'u')).toMatchObject({
       written: false,
-      skipped: 'one is open',
+      skipped: 'a set is waiting',
     });
     expect(jsonCall).not.toHaveBeenCalled();
   });
 
-  it('closes an open one with nothing left to ask, then asks', async () => {
+  it('closes the last set first: nothing left to ask expires, a skip is closed for good, then asks', async () => {
     const tables = peopleTables({
       gremly_questions: [
         {
@@ -298,26 +434,35 @@ describe('writing a question', () => {
           no_key: 'person:who:p-gone',
           proposed_change: { type: 'who', person_id: 'p-gone' },
         },
+        {
+          id: 'q-left',
+          user_id: 'u',
+          kind: 'person',
+          status: 'asked',
+          asked_at: '2026-09-30T08:00:00Z',
+          no_key: 'person:same:p-rowan:p-spouse',
+          proposed_change: { type: 'same', merge_id: 'm-1', kept_id: 'p-rowan', merged_id: 'p-spouse' },
+        },
       ],
     });
     const mem = memoryDb(tables);
     db.mockReturnValue(mem);
-    jsonCall.mockResolvedValue({
-      output: {
-        ask: true,
-        candidate_ref: 'c1',
-        question: 'Is Rowan your husband?',
-        choices: ['Yes', 'No'],
-        why: '',
-      },
-      model: 'personQuestion',
-    });
-    expect(await writePersonQuestion({}, 'u')).toMatchObject({ written: true });
+    jsonCall.mockResolvedValue(
+      setOf([{ candidate_ref: 'c1', question: 'Who is Rowan to you?', choices: ['A friend'] }]),
+    );
+    expect(await writeQuestionSet({}, 'u')).toMatchObject({ written: true, closed: { expired: 1, skipped: 1 } });
     // closed without their answer: no no is kept for it
     expect(mem.tables.gremly_questions.find((q) => q.id === 'q-old')).toMatchObject({
       status: 'expired',
       no_key: null,
     });
+    // put to them and left: never asked again, so the merge is not offered
+    expect(mem.tables.gremly_questions.find((q) => q.id === 'q-left')).toMatchObject({
+      status: 'dismissed',
+      no_key: 'person:same:p-rowan:p-spouse',
+    });
+    const { user } = jsonCall.mock.calls[0][1];
+    expect(user).not.toContain('whether two records are one person');
   });
 
   it('closes nothing in a dry run', async () => {
@@ -335,11 +480,8 @@ describe('writing a question', () => {
       }),
     );
     db.mockReturnValue(mem);
-    jsonCall.mockResolvedValue({
-      output: { ask: false, candidate_ref: null, question: null, choices: [], why: '' },
-      model: 'personQuestion',
-    });
-    await writePersonQuestion({}, 'u', { dryRun: true });
+    jsonCall.mockResolvedValue(setOf([]));
+    await writeQuestionSet({}, 'u', { dryRun: true });
     expect(mem.tables.gremly_questions[0].status).toBe('open');
   });
 
@@ -355,72 +497,114 @@ describe('writing a question', () => {
       { fact_id: 'f-2', person_id: 'p-spouse', user_id: 'u' },
     );
     db.mockReturnValue(mem);
-    jsonCall.mockResolvedValue({
-      output: { ask: false, candidate_ref: null, question: null, choices: [], why: '' },
-      model: 'personQuestion',
-    });
-    await writePersonQuestion({}, 'u', { dryRun: true });
+    jsonCall.mockResolvedValue(setOf([]));
+    await writeQuestionSet({}, 'u', { dryRun: true });
     expect(jsonCall).toHaveBeenCalledTimes(1);
     const { user } = jsonCall.mock.calls[0][1];
     expect(user).toContain('Rowan');
     expect(user).not.toContain('husband');
   });
 
-  it('writes the one the model chooses, and only from a ref it was given', async () => {
-    const mem = memoryDb(peopleTables());
-    db.mockReturnValue(mem);
-    jsonCall.mockResolvedValue({
-      output: {
-        ask: true,
-        candidate_ref: 'c1',
-        question: 'Is Rowan the husband you mention?',
-        choices: ['Yes', 'No, someone else'],
-        why: 'x',
-      },
-      model: 'personQuestion',
-    });
-    const out = await writePersonQuestion({}, 'u', { holdUntil: '2026-10-08' });
-    expect(out).toMatchObject({ written: true, type: 'same' });
-    expect(mem.tables.gremly_questions).toEqual([
-      expect.objectContaining({
-        kind: 'person',
-        question: 'Is Rowan the husband you mention?',
-        choices: ['Yes', 'No, someone else'],
-        record_id: 'm-1',
-        hold_until: '2026-10-08',
+  it('writes the ones the model chooses as one set, only from refs it was given, each once', async () => {
+    const mem = memoryDb(
+      peopleTables({
+        life_unsure: [
+          {
+            id: 'u-2',
+            user_id: 'u',
+            person_id: null,
+            kind: 'life',
+            thinks: 'They may be training for a race',
+            sure: 'high',
+            status: 'open',
+            rests_on: [{ table: 'life_facts', id: 'f-3' }],
+          },
+        ],
       }),
+    );
+    db.mockReturnValue(mem);
+    jsonCall.mockResolvedValue(
+      setOf([
+        { candidate_ref: 'c2', question: 'Is Rowan the husband you mention?', choices: ['Yes', 'No, someone else'] },
+        { candidate_ref: 'c2', question: 'Again?', choices: [] },
+        { candidate_ref: 'c9', question: 'Who?', choices: [] },
+        { candidate_ref: 'c1', question: 'Are you training for a race?', choices: ['Yes', 'Not right now'] },
+      ]),
+    );
+    const out = await writeQuestionSet({}, 'u');
+    expect(out).toMatchObject({ written: true, count: 2, types: ['same', 'unsure'] });
+    expect(out.problems).toEqual(['the same one twice', 'a ref it was never given']);
+    const rows = mem.tables.gremly_questions;
+    expect(rows).toEqual([
+      expect.objectContaining({ kind: 'person', record_id: 'm-1', question: 'Is Rowan the husband you mention?' }),
+      expect.objectContaining({ kind: 'unsure', record_id: 'u-2', question: 'Are you training for a race?' }),
     ]);
+    expect(new Set(rows.map((r) => r.set_id)).size).toBe(1);
   });
 
-  it('writes nothing for a ref it never gave, no question, or none worth asking', async () => {
-    for (const output of [
-      { ask: true, candidate_ref: 'c9', question: 'Who?', choices: ['A', 'B'], why: '' },
-      { ask: true, candidate_ref: 'c1', question: '', choices: ['A', 'B'], why: '' },
-      { ask: false, candidate_ref: null, question: null, choices: [], why: 'not now' },
+  it('writes at most a set', async () => {
+    const people = Array.from({ length: 7 }, (_, i) => ({
+      id: `p-${i}`,
+      user_id: 'u',
+      name: `N${i}`,
+      relationship: null,
+      name_by: 'gremly',
+      relationship_by: 'gremly',
+      merged_into: null,
+      updated_at: String(i),
+    }));
+    const tables = peopleTables({
+      life_people: people,
+      life_fact_people: people.flatMap((p) => ['f-1', 'f-2', 'f-3'].map((f) => ({ fact_id: f, person_id: p.id, user_id: 'u' }))),
+      person_merges: [],
+    });
+    const mem = memoryDb(tables);
+    db.mockReturnValue(mem);
+    jsonCall.mockResolvedValue(
+      setOf(people.map((_, i) => ({ candidate_ref: `c${i + 1}`, question: `Who is N${i}?`, choices: [] }))),
+    );
+    const out = await writeQuestionSet({}, 'u');
+    expect(out.count).toBe(5);
+    expect(out.problems).toEqual(['more than a set', 'more than a set']);
+  });
+
+  it('writes nothing for refs it never gave, no question, or none worth asking', async () => {
+    for (const questions of [
+      [{ candidate_ref: 'c9', question: 'Who?', choices: ['A', 'B'] }],
+      [{ candidate_ref: 'c1', question: '', choices: ['A', 'B'] }],
+      [],
     ]) {
       const mem = memoryDb(peopleTables());
       db.mockReturnValue(mem);
-      jsonCall.mockResolvedValue({ output, model: 'personQuestion' });
-      expect((await writePersonQuestion({}, 'u')).written).toBe(false);
+      jsonCall.mockResolvedValue(setOf(questions, 'not now'));
+      expect((await writeQuestionSet({}, 'u')).written).toBe(false);
       expect(mem.tables.gremly_questions).toEqual([]);
     }
   });
 
-  it('writes nothing in a dry run and returns the question', async () => {
+  it('writes nothing in a dry run and returns the set, from what Gremly is not sure of as given', async () => {
     const mem = memoryDb(peopleTables());
     db.mockReturnValue(mem);
-    jsonCall.mockResolvedValue({
-      output: {
-        ask: true,
-        candidate_ref: 'c1',
-        question: 'Is Rowan the husband you mention?',
-        choices: ['Yes', 'No'],
-        why: '',
+    jsonCall.mockResolvedValue(
+      setOf([{ candidate_ref: 'c1', question: 'Who is Rowan to you?', choices: ['My brother', 'A friend'] }]),
+    );
+    const guesses = [
+      {
+        id: 'shadow-u1',
+        person_id: 'p-rowan',
+        kind: 'who',
+        thinks: 'Rowan may be their brother',
+        sure: 'medium',
+        rests_on: [{ table: 'life_facts', id: 'f-1' }],
       },
-      model: 'personQuestion',
+    ];
+    const out = await writeQuestionSet({}, 'u', { dryRun: true, guesses, ranks: [{ id: 'p-rowan', matters_rank: 1 }] });
+    expect(out).toMatchObject({
+      dry_run: true,
+      rows: [expect.objectContaining({ kind: 'person', proposed_change: { type: 'who', person_id: 'p-rowan', unsure_id: 'shadow-u1' } })],
     });
-    const out = await writePersonQuestion({}, 'u', { dryRun: true });
-    expect(out).toMatchObject({ dry_run: true, row: expect.objectContaining({ kind: 'person' }) });
+    // who matters most comes first, ahead of the merge
+    expect(jsonCall.mock.calls[0][1].user).toMatch(/c1 \| who this person is to them/);
     expect(mem.tables.gremly_questions).toEqual([]);
   });
 });
@@ -547,6 +731,37 @@ describe('the answer', () => {
     expect(mem.tables.life_people[0].relationship).toBeNull();
     expect(warn.mock.calls[0][0]).toMatch(/\[ALERT\]\[People\]/);
     warn.mockRestore();
+  });
+
+  it('confirms what Gremly thought only on a yes, and closes it on any other answer', () => {
+    const guessQ = { ...whoQ, proposed_change: { ...whoQ.proposed_change, unsure_id: 'u-1' } };
+    expect(personAnswerPlan(guessQ, { answers: true, who: 'brother', guess: 'yes' }).guess).toEqual({
+      id: 'u-1',
+      status: 'confirmed',
+    });
+    expect(personAnswerPlan(guessQ, { answers: true, who: 'cousin', guess: 'no' }).guess.status).toBe('said_no');
+    expect(personAnswerPlan(guessQ, { answers: true, who: null, guess: 'unsure' }).guess.status).toBe('said_no');
+    expect(personAnswerPlan(guessQ, { answers: false, guess: 'yes' }).guess).toBeNull();
+    expect(personAnswerPlan(whoQ, { answers: true, who: 'brother', guess: null }).guess).toBeNull();
+  });
+
+  it('reads the answer beside what Gremly thought, and settles it as they said', async () => {
+    const mem = memoryDb(
+      peopleTables({
+        life_unsure: [{ id: 'u-1', user_id: 'u', person_id: 'p-rowan', kind: 'who', thinks: 'Rowan may be their brother', status: 'open' }],
+      }),
+    );
+    db.mockReturnValue(mem);
+    jsonCall.mockResolvedValue({
+      output: { answers: true, same: null, who: 'brother', name: null, guess: 'yes' },
+      model: 'personQuestion',
+    });
+    const guessQ = { ...whoQ, proposed_change: { ...whoQ.proposed_change, unsure_id: 'u-1' } };
+    const r = await answerPersonQuestion({}, { userId: 'u', question: guessQ, said: 'My brother' });
+    expect(r.guess).toBe('confirmed');
+    expect(mem.tables.life_unsure[0]).toMatchObject({ status: 'confirmed', decided_at: expect.any(String) });
+    expect(jsonCall.mock.calls[0][1].user).toContain('WHAT GREMLY THOUGHT, AND OFFERED AS AN ANSWER: Rowan may be their brother');
+    expect(mem.tables.life_people.find((p) => p.id === 'p-rowan').relationship).toBe('brother');
   });
 
   it('changes nothing when their words do not answer it', async () => {

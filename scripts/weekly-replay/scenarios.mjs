@@ -8,6 +8,8 @@
  *   quiet   a week with few records
  *   return  a week back after three weeks away
  *   health  a week that turns on a private matter of health
+ *   unsure  a week whose records point to who someone is, and to more of
+ *           her life, than they state (what Gremly is not sure of yet)
  */
 
 export const USER = '00000000-0000-4000-8000-0000000000bb';
@@ -91,6 +93,13 @@ const person = (key, name, relationship) => ({
   hidden_at: null,
   updated_at: at('2026-11-01'),
 });
+/** Which facts are about which people, by their keys. */
+const ties = (facts, people, pairs) =>
+  pairs.map(([factKey, personKey]) => ({
+    fact_id: facts.find((f) => f.key === factKey).id,
+    person_id: people.find((p) => p.key === personKey).id,
+    user_id: USER,
+  }));
 const thread = (day, m = {}) => ({
   id: uuid(),
   user_id: USER,
@@ -236,6 +245,15 @@ function full() {
     tables: {
       life_facts: facts,
       life_people: people,
+      life_fact_people: ties(facts, people, [
+        ['hudson', 'eli'],
+        ['anniv', 'eli'],
+        ['argument', 'eli'],
+        ['mira-job', 'mira'],
+        ['mira-lunch', 'mira'],
+        ['priya', 'priya'],
+        ['desk', 'sam'],
+      ]),
       notes: [
         journal('j-deck', '2026-11-04', '21:00', 'Wednesday', 'Finally sent the Hartley deck. Walked home the long way along the river and felt lighter than I have in weeks.'),
         journal('j-mira', '2026-11-05', '22:00', 'Thursday', 'Lunch with Mira. She starts at the museum on Monday and she is so nervous. I told her she will be brilliant, because she will.'),
@@ -378,6 +396,10 @@ function back() {
       daily_ritual_progress: WEEK.map((d, i) => ({ owner_id: USER, ritual_day: d, is_fed: i >= 4, drops_count: i >= 4 ? 1 : 0, sweeps_count: 0 })),
     },
   });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, [
+    ['away', 'dad'],
+    ['dad', 'dad'],
+  ]);
   return {
     id: 'return',
     look: 'A week back after three weeks away: the plan is about coming back, never about the weeks missed, and her dad’s health stays off its character and line.',
@@ -436,6 +458,7 @@ function health() {
       daily_ritual_progress: WEEK.map((d, i) => ({ owner_id: USER, ritual_day: d, is_fed: i > 0, drops_count: 1, sweeps_count: 0 })),
     },
   });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, [['soup', 'tom']]);
   return {
     id: 'health',
     look: 'A week that turns on a private matter of health: the plan finds what else was in it, and her health is never its character or its line.',
@@ -445,4 +468,75 @@ function health() {
   };
 }
 
-export const SCENARIOS = [full(), quiet(), back(), health()];
+// ── unsure: records that point further than they state ─────────────────────
+
+function unsure() {
+  const people = [
+    person('theo', 'Theo', null),
+    person('ray', 'Ray', null),
+    person('kit', 'Kit', 'friend'),
+  ];
+  const facts = [
+    fact('swim', 'Bea took Theo to his swimming lesson on 3 November.', { about_date: '2026-11-03' }),
+    fact('school', 'Bea dropped Theo at school with his lunch box on 4 November.', { about_date: '2026-11-04' }),
+    fact('play', "Theo's school play is on 12 November.", { state: 'planned', about_date: '2026-11-12' }),
+    fact('care', 'Bea visited Ray at the care home on 8 November.', { about_date: '2026-11-08' }),
+    fact('ray-memory', "Ray's memory is getting worse.", { timing: 'standing', state: 'current', private: true, health: true }),
+    fact('kit', 'Bea had coffee with Kit on 6 November.', { about_date: '2026-11-06' }),
+    fact('run1', 'Bea ran 10 kilometres on 1 November.', { about_date: '2026-11-01' }),
+    fact('run2', 'Bea ran 14 kilometres on 5 November.', { about_date: '2026-11-05' }),
+    fact('run3', 'Bea ran 16 kilometres on 8 November.', { about_date: '2026-11-08' }),
+    fact('ward', 'Bea finished a twelve hour shift on the ward on 2 November.', { about_date: '2026-11-02' }),
+    fact('nights', 'Bea is on nights from 9 November.', { state: 'planned', about_date: '2026-11-09' }),
+    fact('bristol', 'Bea lives in Bristol.', { timing: 'standing', state: 'current' }),
+    fact('spanish', 'Bea had her weekly Spanish lesson on 3 November.', { about_date: '2026-11-03' }),
+    fact('flats', 'Bea looked at flats to rent in Valencia on 6 November.', { about_date: '2026-11-06' }),
+    fact('register', 'Bea emailed the nursing council about registering in Spain on 7 November.', { about_date: '2026-11-07' }),
+    fact('counsellor', 'Bea has been seeing a counsellor since the separation.', {
+      timing: 'standing',
+      state: 'current',
+      private: true,
+      health: true,
+    }),
+  ];
+  const s = base({
+    name: 'Bea',
+    pronouns: 'she/her',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 6, active_days_last_30: 25 },
+    tables: {
+      life_facts: facts,
+      life_people: people,
+      life_fact_people: ties(facts, people, [
+        ['swim', 'theo'],
+        ['school', 'theo'],
+        ['play', 'theo'],
+        ['care', 'ray'],
+        ['ray-memory', 'ray'],
+        ['kit', 'kit'],
+      ]),
+      notes: [
+        journal('j-tooth', '2026-11-04', '21:00', 'Wednesday', 'Theo lost his first tooth at dinner and wrote the tooth fairy a very serious letter.'),
+        journal('j-run', '2026-11-08', '12:00', 'Sunday', 'Sixteen kilometres this morning, the longest yet. Legs heavy, and not long to go now.'),
+      ],
+      todos: [todo('Collect race number', '2026-11-05', { due_day: '2026-11-14' })],
+      scope_chats: days('2026-11-02', 7).map((d) => thread(d, { answered_at: at(d, '08:00') })),
+      daily_ritual_progress: WEEK.map((d) => ({ owner_id: USER, ritual_day: d, is_fed: true, drops_count: 2, sweeps_count: 0 })),
+    },
+  });
+  return {
+    id: 'unsure',
+    look: 'Records that point further than they state: Gremly thinks Theo may be her son and that she may be planning a move to Spain, says neither as known anywhere, and never guesses from what is private.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: {
+      cards: [2, 5],
+      private: ['ray-memory', 'counsellor'],
+      health: ['ray-memory', 'counsellor'],
+      unstated: ['theo', 'ray'],
+      // what Gremly should come to think but is not sure of
+      unsure: { who: ['theo'], life: true },
+    },
+  };
+}
+
+export const SCENARIOS = [full(), quiet(), back(), health(), unsure()];

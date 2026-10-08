@@ -44,7 +44,7 @@ import { writeWords } from './words';
 import { writePersonWords } from './personWords';
 import { writeMemory, chaptersWantingMemory } from './memory';
 import { makeFirstWorlds, firstWorldsEvents, filedTotals } from './firstWorlds';
-import { writePersonQuestion } from './peopleQuestions';
+import { writeQuestionSet } from './peopleQuestions';
 import { reviewLedger } from './review';
 import { chapterQuestionsForDay, chapterQuestionEvents } from './chapterQuestions';
 import { chapterQuestionsOn } from '../../shared/questionRules.js';
@@ -793,11 +793,12 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
     },
   );
 
-  // ── People: the weekly check and question (data fabric 4c) ──────────────
+  // ── People: the weekly check and the week's questions (data fabric 4c) ──
   // In the weekly pipe after the words and the memories: who someone is, and
   // names, made before the check existed are checked against the person's
-  // words, once each; then one question about someone may be written, when
-  // one is worth asking and none is open.
+  // words, once each; then this week's set of questions about the people in
+  // their life and what Gremly is not sure of may be written, when any is
+  // worth asking and no set is waiting (context/peopleQuestions.js).
   const people = inngest.createFunction(
     {
       id: 'context-people',
@@ -826,7 +827,7 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
         }
       });
       const asked = await step.run('ask', () =>
-        writePersonQuestion(env, userId, { dryRun: shadow }),
+        writeQuestionSet(env, userId, { dryRun: shadow }),
       );
       return { user_id: userId, checked, asked };
     },

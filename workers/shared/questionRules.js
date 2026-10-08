@@ -35,12 +35,14 @@ export const QUESTION_CAPS = Object.freeze({
 export const OPEN_CHAPTER_SUGGESTIONS = 1;
 
 /**
- * At most this many questions about the people in their life open at once
- * (data fabric stage 4c), so Gremly never asks about people more than one at a
- * time. Their writer checks it; the database holds it too
- * (gremly_questions_one_open_person_idx).
+ * Questions about the people in their life and about what Gremly is not sure
+ * of are asked as one set of at most this many, at most one set a week, and
+ * no new set while any of the last is waiting to be put to them (decided by
+ * James on 8 Oct, in place of one person question open at a time). Their
+ * writer (inngest-jobs context/peopleQuestions.js) holds it; the database
+ * holds one open question for each record (gremly_questions_one_open_per_record_idx).
  */
-export const OPEN_PERSON_QUESTIONS = 1;
+export const QUESTION_SET_MOST = 5;
 
 /**
  * Someone is asked about only once this many facts that are neither private
@@ -91,6 +93,9 @@ export const QUESTION_KINDS = Object.freeze([
   // facts Gremly proposes to set aside or close, done only on their word
   // (data fabric stage 4f): never asked in the brief or the wrap up
   'tidy',
+  // something Gremly thinks about their life but no record states, asked so
+  // they can say whether it is so (context/unsure.js)
+  'unsure',
 ]);
 
 /**

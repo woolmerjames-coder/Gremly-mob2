@@ -39,6 +39,8 @@ or with an apikey that is not the public anon key.
     scripts/shadow/run.sh reread     --user <uuid> [--from ISO] [--to ISO] [--max n]
     scripts/shadow/run.sh kinds      --user <uuid> [--calls n]
     scripts/shadow/run.sh life-morning --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--timings <kinds summary.json>] [--add-facts <reread record.json>]
+    scripts/shadow/run.sh person-question --user <uuid>
+    scripts/shadow/run.sh not-sure   --user <uuid> --week-end YYYY-MM-DD --replies <file> [--at ISO]
 
 A correction is replayed on the ledger as it stood when it was said: facts
 written since, and its own, are not read; each fact reads with the state it
@@ -53,6 +55,13 @@ on the same saved input, beside the pass that ran live for that week and the
 summary the old path sent. `--judge` reads each pair blind, once in each
 order, against the week's records, and a verdict stands only when both orders
 agree.
+
+not-sure runs this week's weekly pass for one real person (calling Claude
+directly when ANTHROPIC_API_KEY is set, and keeping its answer in the replies
+file), keeps aside what code would keep of what Gremly is not sure of and who
+matters most, and writes the week's set of questions from them, in place of
+the table, which live may not have yet. person-question writes the week's set
+from what live holds.
 
 The story, person-words, weekly-summary and weekly-compare jobs need Claude. Where Claude
 cannot be reached they read its answers from a replies file kept beside the
