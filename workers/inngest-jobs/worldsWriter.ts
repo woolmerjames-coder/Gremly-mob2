@@ -285,7 +285,8 @@ export async function writeClassifierOutput(
       noKeyMoments: (c.key_moments_source as string | null) === 'user',
       noWithYou: (c.with_you_source as string | null) === 'user',
       noStartDate: (c.start_date_source as string | null) === 'user',
-      noEndDate: (c.end_date_source as string | null) === 'user',
+      // the weekly pass keeps a Chapter's end date once it has given one (data fabric 7)
+      noEndDate: ['user', 'synthesis'].includes(c.end_date_source as string),
       noCurrentPhaseKey: (c.current_phase_key_source as string | null) === 'user',
       noTargetDescription: (c.target_description_source as string | null) === 'user',
       noPhaseLabels: (c.phase_labels_source as string | null) === 'user',

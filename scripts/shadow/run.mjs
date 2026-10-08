@@ -1738,6 +1738,30 @@ Then list every statement in either summary that the records do not hold, each a
           dropped: plan.dropped,
           who_matters: plan.matters.map((m) => nameOf(m.person_id)),
           weekly_questions: ((applied.output || output).questions || []).map((q) => q.question),
+          // Gremly's notes on each World and Chapter as the check left them, and the
+          // end each Chapter would be given from a fact it cites
+          worlds: (applied.worldUpdates || []).map((x) => ({
+            world: p.g.worlds?.find((w) => w.id === x.id)?.name || x.id,
+            summary: x.w?.summary,
+            priorities: x.w?.key_priorities,
+          })),
+          chapters: (applied.chapterUpdates || []).map((x) => {
+            const c = p.g.chapters.find((y) => y.id === x.id);
+            return {
+              chapter: c?.title || x.id,
+              phase: c?.phase,
+              end_was: c?.end_date || null,
+              end_given: (applied.chapterEnds || []).find((e) => e.chapter_id === x.id)?.end_date || null,
+              end_refused: (applied.chapterEnds || []).find((e) => e.chapter_id === x.id)?.refused || null,
+              begun_for: (() => {
+                const ref = (output.chapters || []).find((y) => refs.get(y.chapter_ref)?.id === x.id)?.begun_for_ref;
+                return ref ? labelOf(ref) : null;
+              })(),
+              summary: x.c?.summary,
+              stage: x.c?.stage,
+              priorities: x.c?.key_priorities,
+            };
+          }),
           // the people on each Chapter, as code would keep them
           chapter_people: (applied.chapterPeople || []).map((cp) => ({
             chapter: p.g.chapters.find((c) => c.id === cp.chapter_id)?.title || cp.chapter_id,

@@ -76,3 +76,70 @@ describe('the people on a Chapter', () => {
     expect(rows).toEqual(['ch-1 pe-eli gremly', 'ch-1 pe-theirs person', 'ch-2 pe-eli person']);
   });
 });
+
+describe('the day a Chapter ends', () => {
+  const { chapterEndPlan, applyChapterEnds } = jest.requireActual('../weekly.js');
+  const dated = new Map([
+    ['c1', { type: 'chapter', id: 'ch-1', start_date: '2026-01-01' }],
+    ['c2', { type: 'chapter', id: 'ch-2', start_date: null }],
+    ['c3', { type: 'chapter', id: 'ch-3', start_date: '2026-08-01' }],
+    ['f1', { type: 'fact', id: 'fa-1', about_date: '2026-05-17' }],
+    ['f2', { type: 'fact', id: 'fa-2', about_date: '2026-09-01', about_date_end: '2026-09-05' }],
+    ['f3', { type: 'fact', id: 'fa-3', about_date: null }],
+    ['p1', { type: 'person', id: 'pe-1' }],
+  ]);
+
+  it('is the day of the fact the pass says it was begun for, the last day of its span', () => {
+    expect(
+      chapterEndPlan({
+        output: {
+          chapters: [
+            { chapter_ref: 'c1', begun_for_ref: 'f1' },
+            { chapter_ref: 'c2', begun_for_ref: 'f2' },
+            // nothing it was begun for, a fact with no day, or no fact at all
+            { chapter_ref: 'c2', begun_for_ref: '' },
+            { chapter_ref: 'c1', begun_for_ref: 'f3' },
+            { chapter_ref: 'c1', begun_for_ref: 'p1' },
+            { chapter_ref: 'x9', begun_for_ref: 'f1' },
+          ],
+        },
+        refs: dated,
+      }),
+    ).toEqual([
+      { chapter_id: 'ch-1', end_date: '2026-05-17', fact_id: 'fa-1' },
+      { chapter_id: 'ch-2', end_date: '2026-09-05', fact_id: 'fa-2' },
+    ]);
+  });
+
+  it('is refused, and says so, when it falls before the Chapter began', () => {
+    expect(chapterEndPlan({ output: { chapters: [{ chapter_ref: 'c3', begun_for_ref: 'f1' }] }, refs: dated })).toEqual([
+      { chapter_id: 'ch-3', end_date: '2026-05-17', fact_id: 'fa-1', refused: 'before it began' },
+    ]);
+  });
+
+  it("is set on an open Chapter as Gremly's, never over the person's date or on a closed one", async () => {
+    const mem = memoryDb({
+      chapters: [
+        { id: 'ch-1', owner_id: 'u', phase: 'active', closed_at: null, end_date: null, end_date_source: null },
+        { id: 'ch-2', owner_id: 'u', phase: 'active', closed_at: null, end_date: '2026-09-10', end_date_source: 'user' },
+        { id: 'ch-3', owner_id: 'u', phase: 'closed', closed_at: '2026-09-01', end_date: null, end_date_source: null },
+      ],
+    });
+    const out = await applyChapterEnds(
+      mem,
+      'u',
+      [
+        { chapter_id: 'ch-1', end_date: '2026-05-17' },
+        { chapter_id: 'ch-2', end_date: '2026-09-05' },
+        { chapter_id: 'ch-3', end_date: '2026-08-01' },
+      ],
+      '2026-10-18T12:00:00Z',
+    );
+    expect(out.set).toEqual([{ chapter_id: 'ch-1', end_date: '2026-05-17', was: null }]);
+    expect(mem.tables.chapters.map((c) => [c.id, c.end_date, c.end_date_source])).toEqual([
+      ['ch-1', '2026-05-17', 'synthesis'],
+      ['ch-2', '2026-09-10', 'user'],
+      ['ch-3', null, null],
+    ]);
+  });
+});

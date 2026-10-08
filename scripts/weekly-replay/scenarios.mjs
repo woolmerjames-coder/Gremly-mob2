@@ -230,6 +230,15 @@ function full() {
       health: true,
     }),
     fact('argument', 'Noor and Eli argued about money on 3 November.', { about_date: '2026-11-03', private: true }),
+    fact('river-run', 'Noor went for a run along the river on 1 November.', { about_date: '2026-11-01' }),
+    // a race whose day has passed, still held as planned, behind a Chapter with no end set
+    fact('river', 'Noor planned to run the Riverside 10K on 18 October.', {
+      state: 'planned',
+      about_date: '2026-10-18',
+      observed_at: at('2026-09-01'),
+      last_confirmed_at: at('2026-09-01'),
+      updated_at: at('2026-09-01'),
+    }),
   ];
   const swim = habit('Swim before work', 'weekly', 4);
   const call = habit('Call Mum', 'weekly', 1);
@@ -298,6 +307,9 @@ function full() {
         { id: uuid(), owner_id: USER, title: 'Lisbon work trip', title_source: 'user', chapter_type: 'trip', phase: 'upcoming', start_date: '2026-11-17', end_date: '2026-11-20', closed_at: null, card_subtitle: '', card_subtitle_source: null, summary: '', summary_source: null, epigraph: '', epigraph_source: null, key_priorities: [], current_phase_key: null, phase_labels: [] },
         // a Chapter shared with someone: Eli is part of it, through facts that can be shown
         { id: uuid(), key: 'hudson', owner_id: USER, title: 'Anniversary weekend in Hudson', title_source: 'user', chapter_type: 'trip', phase: 'closed', start_date: '2026-11-06', end_date: '2026-11-08', closed_at: at('2026-11-08', '20:00'), card_subtitle: '', card_subtitle_source: null, summary: '', summary_source: null, epigraph: '', epigraph_source: null, key_priorities: [], current_phase_key: null, phase_labels: [] },
+        // still open with no end set, though the day it built towards has passed
+        // and its earlier notes, like what was filed in it since, speak of a season of running and swimming
+        { id: uuid(), key: 'river', owner_id: USER, title: 'Riverside 10K training', title_source: 'user', chapter_type: 'bounded', phase: 'active', start_date: '2026-08-15', end_date: null, end_date_source: null, closed_at: null, card_subtitle: 'Your runs by the river and swims before work', card_subtitle_source: 'words', summary: 'A season of running and swimming that began in August, with swims before work most mornings.', summary_source: 'synthesis', epigraph: '', epigraph_source: null, key_priorities: [], current_phase_key: 'Ongoing', phase_labels: [] },
       ],
       weekly_summaries: [
         {
@@ -336,6 +348,8 @@ function full() {
       shownBefore: ['swim'],
       // who is part of each Chapter
       chapterPeople: { hudson: ['eli'] },
+      // the day each Chapter ends, from a fact it cites
+      chapterEnds: { river: '2026-10-18' },
     },
   };
 }

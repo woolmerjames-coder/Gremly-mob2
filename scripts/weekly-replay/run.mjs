@@ -42,6 +42,7 @@ import { SCENARIOS, USER, at } from './scenarios.mjs';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
 import {
   applyWeekly,
+  chapterEndPlan,
   weeklyRequestParams,
   weeklyShapeProblems,
   WEEKLY_PROMPT_VERSION,
@@ -255,6 +256,12 @@ export function checkPass(s, output, refsSnapshot) {
     const got = new Set((c?.people_refs || []).map((r) => refs.get(r)?.id));
     for (const k of want) add(`${k} is on the ${key} Chapter`, got.has(s.tables.life_people.find((p) => p.key === k)?.id));
   }
+  for (const [key, want] of Object.entries(s.truth.chapterEnds || {})) {
+    const chapterId = s.tables.chapters.find((c) => c.key === key)?.id;
+    const c = (output?.chapters || []).find((x) => refs.get(x.chapter_ref)?.id === chapterId);
+    const kept = chapterEndPlan({ output, refs }).find((x) => x.chapter_id === chapterId);
+    add(`the ${key} Chapter ends on ${want}`, kept?.end_date === want && !kept.refused, `begun for ${c?.begun_for_ref || 'nothing'}: ${kept?.end_date || 'no day'}${kept?.refused ? `, refused: ${kept.refused}` : ''}`);
+  }
   if (s.truth.unsure) {
     for (const key of s.truth.unsure.who || []) {
       const id = s.tables.life_people.find((p) => p.key === key)?.id;
@@ -376,6 +383,12 @@ async function runPass() {
         lines.push(`    who matters: ${(rec.output.who_matters || []).map((r) => refsMap.get(r)?.name || r).join(', ') || 'none'}`);
         const nameById = new Map([...refsMap.values()].filter((v) => v.type === 'person').map((v) => [v.id, v.name]));
         const titleOf = (id) => s.tables.chapters.find((c) => c.id === id)?.title || id;
+        const ends = chapterEndPlan({ output: rec.output, refs: refsMap });
+        for (const c of (rec.checked || rec.output).chapters || []) {
+          const ch = s.tables.chapters.find((x) => x.id === refsMap.get(c.chapter_ref)?.id);
+          const end = ends.find((x) => x.chapter_id === ch?.id);
+          if (ch?.key && s.truth.chapterEnds?.[ch.key]) lines.push(`    the ${ch.title} Chapter: ends ${end?.end_date || 'unset'}${end?.refused ? ` (refused, ${end.refused})` : ''} | ${c.summary}`);
+        }
         for (const cp of rec.chapter_people || [])
           lines.push(`    on the ${titleOf(cp.chapter_id)} Chapter: ${cp.people.map((id) => nameById.get(id)).join(', ') || 'no one'}${cp.dropped.length ? ` (left off: ${cp.dropped.map((x) => `${refsMap.get(x.ref)?.name || x.ref}, ${x.why}`).join('; ')})` : ''}`);
       }

@@ -62,7 +62,7 @@ import {
   applyUnsure,
 } from './unsure';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18b';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18e';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -165,6 +165,9 @@ const WEEKLY_SCHEMA = {
         type: 'object',
         properties: {
           chapter_ref: { type: 'string' },
+          // the fact about what it was begun for, whose day is when it ends;
+          // decided before its notes, which are written to match
+          begun_for_ref: { type: 'string' },
           summary: { type: 'string' },
           stage: { type: 'string' },
           key_priorities: {
@@ -183,7 +186,7 @@ const WEEKLY_SCHEMA = {
           // the people who are part of the chapter (chapter_people)
           people_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['chapter_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs', 'people_refs'],
+        required: ['chapter_ref', 'begun_for_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs', 'people_refs'],
       },
     },
     // what Gremly is not sure of yet, and who matters most (context/unsure.js),
@@ -265,6 +268,7 @@ const TRUTH_RULES = `WHAT IS TRUE
 
 const VOICE_RULES = `WHO READS WHAT
 - Gremly's notes on their Worlds and Chapters, the Worlds headline and the note on their week are shown to the person, so every one of them speaks to them as a friend who knows their life would: to them, warm and plain, never as a file note about them.
+- What is not known is simply left out. Nothing written speaks of records, of what was or was not recorded, of what Gremly does not know, or of who set a title or any other part of what it writes about.
 - The Life Map, the profile, the notes on people and the plan for their summary are Gremly's own, written about them.`;
 
 // The fixed part comes first so Anthropic can cache it across people; today's
@@ -359,6 +363,7 @@ CHAPTERS
 - Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
 - Cite the facts each chapter's notes rest on in card_fact_refs, and write the whole chapter from what the facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has.
 - In people_refs, give the refs from the people list of the people who are part of the chapter as the facts it cites show them: those who share it with them or take part in it. It is empty when those facts show no one.
+- First, in begun_for_ref, give the ref of the fact about what the chapter was begun for, as its title and the facts show: the event or day it leads up to, or the day they said it ends. What was filed in it since, and Gremly's earlier notes on it, never change what it was begun for. It is empty when no fact given holds that day. Its day is when the chapter ends, and when that day has passed, everything on the chapter is written as what it was, never as still going.
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
 
 ${NOT_SURE_RULES}
@@ -700,7 +705,7 @@ export function renderWeek(g, today) {
     (q) => `- ${trim(q.question, 200)} (asked ${q.created_at.slice(0, 10)})`,
   );
   const chapterLines = (g.chapters || []).map((c) => {
-    const ref = add('c', { type: 'chapter', id: c.id });
+    const ref = add('c', { type: 'chapter', id: c.id, start_date: c.start_date || null });
     const kp = (Array.isArray(c.key_priorities) ? c.key_priorities : [])
       .map((k) => (typeof k === 'string' ? k : k?.text))
       .filter(Boolean);
@@ -710,7 +715,7 @@ export function renderWeek(g, today) {
       c.summary_source === 'user' && 'summary',
       c.epigraph_source === 'user' && 'epigraph',
     ].filter(Boolean);
-    return shown(ref, `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'now')} | stage: ${c.current_phase_key || 'none'} | card: "${trim(c.card_subtitle, 100)}" | summary: "${trim(c.summary, 300)}" | epigraph: "${trim(c.epigraph, 200)}" | priorities: ${kp.map((k) => trim(k, 70)).join('; ') || 'none'}${userSet.length ? ` | set by the person, keep unless untrue: ${userSet.join(', ')}` : ''}`, 'a Chapter of their life');
+    return shown(ref, `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'no end set')} | stage: ${c.current_phase_key || 'none'} | card: "${trim(c.card_subtitle, 100)}" | summary: "${trim(c.summary, 300)}" | epigraph: "${trim(c.epigraph, 200)}" | priorities: ${kp.map((k) => trim(k, 70)).join('; ') || 'none'}${userSet.length ? ` | set by the person, keep unless untrue: ${userSet.join(', ')}` : ''}`, 'a Chapter of their life');
   });
   const storyText = storyLines(g.story || [], today);
   // the week's own entries, the counts and the people, each by a ref the
@@ -1413,6 +1418,14 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     applied.unsure = { error: String(err?.message || err).slice(0, 200) };
     console.warn(`[ALERT][Weekly] what Gremly is not sure of could not be planned for ${userId}: ${applied.unsure.error}`);
   }
+  // the day each open Chapter ends, as the pass gives it from a fact it cites
+  let chapterEnds = [];
+  try {
+    chapterEnds = chapterEndPlan({ output, refs });
+    applied.chapter_ends = chapterEnds.map((x) => ({ chapter_id: x.chapter_id, end_date: x.end_date, ...(x.refused ? { refused: x.refused } : {}) }));
+  } catch (err) {
+    applied.chapter_ends = { error: String(err?.message || err).slice(0, 200) };
+  }
   // the people on each Chapter (chapter_people), as the pass names them
   let chapterPeople = [];
   try {
@@ -1427,7 +1440,7 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     console.warn(`[ALERT][Weekly] the people on Chapters could not be planned for ${userId}: ${applied.chapter_people.error}`);
   }
   if (shadow)
-    return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked, unsure: unsure?.plan || null, chapterPeople };
+    return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked, unsure: unsure?.plan || null, chapterPeople, chapterEnds };
 
   // Keep what this run replaces, so a bad week can be rolled back by hand.
   const [prevProfile] = await d.select(`user_profiles?user_id=eq.${userId}&select=profile_text`);
@@ -1670,6 +1683,17 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   }
   applied.passages = await recordPassages(d, passages);
 
+  if (chapterEnds.some((x) => !x.refused))
+    try {
+      applied.chapter_ends = {
+        ...(await applyChapterEnds(d, userId, chapterEnds.filter((x) => !x.refused), nowIso)),
+        refused: chapterEnds.filter((x) => x.refused),
+      };
+    } catch (err) {
+      applied.chapter_ends = { error: String(err?.message || err).slice(0, 200) };
+      console.warn(`[ALERT][Weekly] the end dates of Chapters could not be kept for ${userId}: ${applied.chapter_ends.error}`);
+    }
+
   if (chapterPeople.length)
     try {
       applied.chapter_people = { ...applied.chapter_people, ...(await applyChapterPeople(d, userId, chapterPeople, nowIso)) };
@@ -1754,6 +1778,54 @@ export function chapterPeoplePlan({ output, refs, ties = [] }) {
     plan.push({ chapter_id: ref.id, people, dropped });
   }
   return plan;
+}
+
+/**
+ * The day each Chapter ends, from the fact the pass says it was begun for.
+ * Pure. The pass names the fact; code reads its day, the last day of its span
+ * when it has one: never a day no record gives.
+ * @returns [{ chapter_id, end_date, fact_id }]
+ */
+export function chapterEndPlan({ output, refs }) {
+  const out = [];
+  for (const c of output?.chapters || []) {
+    const ref = refs.get(c?.chapter_ref);
+    const f = refs.get(c?.begun_for_ref);
+    if (ref?.type !== 'chapter' || !ref.id || f?.type !== 'fact') continue;
+    const end = validDate(String(f.about_date_end || '').slice(0, 10)) || validDate(String(f.about_date || '').slice(0, 10));
+    if (!end || out.some((x) => x.chapter_id === ref.id)) continue;
+    // a Chapter never ends before it began: the fact named is not what it was begun for
+    const start = validDate(String(ref.start_date || '').slice(0, 10));
+    out.push({ chapter_id: ref.id, end_date: end, fact_id: f.id, ...(start && end < start ? { refused: 'before it began' } : {}) });
+  }
+  return out;
+}
+
+/**
+ * Keep the end dates on open Chapters, as Gremly's: never over a date the
+ * person set, never on a Chapter already closed.
+ */
+export async function applyChapterEnds(d, userId, plan, nowIso) {
+  const ids = plan.map((x) => x.chapter_id);
+  const rows = ids.length
+    ? (await d.select(
+        `chapters?owner_id=eq.${userId}&id=in.(${ids.join(',')})&select=id,phase,closed_at,end_date,end_date_source`,
+      )) || []
+    : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const set = [];
+  for (const x of plan) {
+    const r = byId.get(x.chapter_id);
+    if (!r || r.phase === 'closed' || r.closed_at || r.end_date_source === 'user') continue;
+    if (String(r.end_date || '').slice(0, 10) === x.end_date) continue;
+    await d.update(`chapters?id=eq.${x.chapter_id}&owner_id=eq.${userId}&closed_at=is.null`, {
+      end_date: x.end_date,
+      end_date_source: 'synthesis',
+      end_date_updated_at: nowIso,
+    });
+    set.push({ chapter_id: x.chapter_id, end_date: x.end_date, was: r.end_date || null });
+  }
+  return { set };
 }
 
 /** Keep the plan: Gremly's rows as given, the person's own never touched. */
