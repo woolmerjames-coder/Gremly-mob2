@@ -6,17 +6,24 @@
  *
  * The model writes the words and decides what matters. Code only checks that
  * every item rests on facts it was shown, and stores it with those facts.
+ *
+ * Each item's body goes through the shared check (data fabric stage 6): it
+ * names the facts it rests on and lists what it states, and is held to those
+ * facts as they stand. One that does not hold goes back once to the story's
+ * writer, alone, with only its own facts, and one still wrong is left out.
  */
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, relativeDay, personIdentity } from './db';
 import { whenTrue } from '../../shared/factTiming.js';
-import { anthropicJsonParams, modelFor } from './llm';
+import { anthropicSchemaInPromptParams, modelFor, jsonCall } from './llm';
 import { recentCorrections } from './corrections';
 import { invalidateChatCache } from './cache';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
+import { STATED_RULES, SENTENCE_SCHEMA } from '../../shared/check/stated.js';
+import { runCheck, checkRunRow } from '../../shared/check/run.js';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-15a';
+export const STORY_PROMPT_VERSION = 'story-2026-10-16a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -30,6 +37,8 @@ function validDate(s) {
 }
 
 const REFS = { type: 'array', items: { type: 'string' } };
+// what an item's body states, as every writer under the check lists it
+const STATED = SENTENCE_SCHEMA.properties.stated;
 
 const STORY_SCHEMA = {
   type: 'object',
@@ -48,6 +57,7 @@ const STORY_SCHEMA = {
           chapter_ref: { type: 'string', nullable: true },
           private: { type: 'boolean' },
           fact_refs: REFS,
+          stated: STATED,
         },
         required: [
           'title',
@@ -57,6 +67,7 @@ const STORY_SCHEMA = {
           'chapter_ref',
           'private',
           'fact_refs',
+          'stated',
         ],
       },
     },
@@ -71,8 +82,9 @@ const STORY_SCHEMA = {
           body: { type: 'string' },
           private: { type: 'boolean' },
           fact_refs: REFS,
+          stated: STATED,
         },
-        required: ['title', 'start_date', 'end_date', 'body', 'private', 'fact_refs'],
+        required: ['title', 'start_date', 'end_date', 'body', 'private', 'fact_refs', 'stated'],
       },
     },
     proud_moments: {
@@ -85,8 +97,9 @@ const STORY_SCHEMA = {
           body: { type: 'string' },
           private: { type: 'boolean' },
           fact_refs: REFS,
+          stated: STATED,
         },
-        required: ['title', 'date', 'body', 'private', 'fact_refs'],
+        required: ['title', 'date', 'body', 'private', 'fact_refs', 'stated'],
       },
     },
     patterns: {
@@ -99,8 +112,9 @@ const STORY_SCHEMA = {
           body: { type: 'string' },
           private: { type: 'boolean' },
           fact_refs: REFS,
+          stated: STATED,
         },
-        required: ['kind', 'title', 'body', 'private', 'fact_refs'],
+        required: ['kind', 'title', 'body', 'private', 'fact_refs', 'stated'],
       },
     },
     people: {
@@ -113,8 +127,9 @@ const STORY_SCHEMA = {
           body: { type: 'string' },
           private: { type: 'boolean' },
           fact_refs: REFS,
+          stated: STATED,
         },
-        required: ['name', 'relationship', 'body', 'private', 'fact_refs'],
+        required: ['name', 'relationship', 'body', 'private', 'fact_refs', 'stated'],
       },
     },
   },
@@ -166,12 +181,36 @@ WHAT TO WRITE
 EVIDENCE
 - Every item cites the facts it rests on by ref. A pattern needs facts from at least two different times. Nothing Gremly said is evidence, and a corrected fact is never used.
 - Leave a section short rather than stretch the evidence. Plans that never showed as happening are not milestones.
+- Each item's body is held to the facts it cites. Its fact_refs are its refs, and its stated list is what its body states, by the rules that follow. Only fact refs count; a Chapter is linked, never cited.
+
+${STATED_RULES}
+- In the story, a month said without its day is listed as YYYY-MM and a year said alone as YYYY. A day that comes round every year is listed as its date in the year the body speaks of.
 
 ${PRIVATE_RULES}
 - Mark each item private or not by that meaning. An item that cites a fact marked private is stored as private, so keep a private detail out of an item that is not private in itself, and give the detail an item of its own where it matters. A person, a pattern or a milestone that is open in itself stays open. Write private items only in the person's own terms.
 
 CONTINUITY
 - Keep the story steady from month to month. Carry over items from last time that still hold, revise them when the facts have moved on, and drop only what the facts no longer support.`;
+}
+
+const STORY_PARTS = {
+  title: 'its title, a few words',
+  body: 'its body, a few sentences on what happened, in their words where possible',
+};
+
+/**
+ * What the story's writer is told when one item's title or body goes back to
+ * it alone, as a correction sends it (correctionPassages.js): the story's own
+ * rules, the one part it writes, and the shared check's form.
+ */
+export function storyRewritePrompt(person, field) {
+  return {
+    fixed: `${storySystemPromptFixed()}
+
+ONE PART OF ONE ITEM AGAIN
+You are given one part of one story item you wrote: ${STORY_PARTS[field] || 'one part of it'}. You are given what was wrong with it and only the records it rests on, as they now stand: the person may just have put one of them right. Write that part again so that it says only what those records hold, keeping what it said that they still hold, with its refs and what it states. Cite only the records given here. When nothing true is left to say, return empty text.`,
+    varying: personBlock(person),
+  };
 }
 
 /** Everything the story pass reads. */
@@ -198,6 +237,12 @@ export async function gatherStory(env, userId) {
   return { facts, corrections, chapters, weeks, usage, current };
 }
 
+/** A fact as the story's writer is shown it, and as the check reads it. Pure. */
+function storyFactLine(ref, f) {
+  // a standing fact holds with no date, a yearly one comes every year (stage 4d)
+  return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state}${f.private ? ' [private]' : ''} | ${whenTrue(f)} | ${trim(f.statement, 220)}`;
+}
+
 export function renderStory(g, today) {
   const refs = new Map();
   const add = (prefix, obj) => {
@@ -215,9 +260,7 @@ export function renderStory(g, today) {
       private: !!f.private,
       state: f.state,
     });
-    // a standing fact holds with no date, a yearly one comes every year (stage 4d)
-    const when = whenTrue(f);
-    return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)}`;
+    return storyFactLine(ref, f);
   });
   const chapterLines = g.chapters.map((c) => {
     const ref = add('c', { type: 'chapter', id: c.id });
@@ -262,7 +305,10 @@ export async function storyRequestParams(env, userId) {
   const [g, person] = await Promise.all([gatherStory(env, userId), personIdentity(env, userId)]);
   const { text, refs } = renderStory(g, today);
   const m = modelFor(env, 'weekly');
-  const params = anthropicJsonParams({
+  // the schema rides in the prompt: with what each item states, it is too
+  // large for Anthropic's strict grammar (data fabric stage 6, as the weekly
+  // pass found in stage 5). storyRows and checkStory hold the reply to its shape.
+  const params = anthropicSchemaInPromptParams({
     model: m.model,
     system: storySystemPrompt(today, person),
     user: text,
@@ -417,6 +463,122 @@ export function storyRows(userId, output, refsSnapshot, { runId, model, today })
   return { rows, dropped };
 }
 
+// The story's lists, each with the kind its items are stored as
+const STORY_LISTS = [
+  ['milestones', 'milestone'],
+  ['shifts', 'shift'],
+  ['proud_moments', 'proud'],
+  ['patterns', 'pattern'],
+  ['people', 'person'],
+];
+
+/** When a story item is read: in their story, on any day until the next story. */
+export const STORY_MOMENT = 'kept in their story, read on any day until the story is next written';
+
+/**
+ * The facts the story's writer was shown, as the check reads them: each by
+ * the ref it was shown under, read again from the same view as it stands now,
+ * in the line the writer saw. A fact gone from the ledger since is not among them.
+ */
+export async function storyRecords(env, userId, refsSnapshot) {
+  const d = db(env);
+  const byId = new Map();
+  const facts = (refsSnapshot || []).filter(([, v]) => v?.type === 'fact' && v.id);
+  for (let i = 0; i < facts.length; i += 100) {
+    const ids = facts.slice(i, i + 100).map(([, v]) => v.id);
+    const rows =
+      (await d.select(
+        `life_facts_now?user_id=eq.${userId}&id=in.(${ids.join(',')})&select=id,statement,about_date,about_date_end,timing,state,private,health,observed_at`,
+      )) || [];
+    for (const f of rows) byId.set(f.id, f);
+  }
+  const records = new Map();
+  for (const [ref, v] of facts) {
+    const f = byId.get(v.id);
+    if (!f) continue;
+    const day = f.about_date ? String(f.about_date).slice(0, 10) : null;
+    const end = f.about_date_end ? String(f.about_date_end).slice(0, 10) : null;
+    records.set(ref, {
+      ref,
+      label: storyFactLine(ref, f),
+      dates: [day, end].filter(Boolean),
+      ...(day && end && end !== day ? { spans: [[day, end]] } : {}),
+      private: !!f.private,
+      health: !!f.health,
+    });
+  }
+  return records;
+}
+
+/**
+ * Every item's body through the check (workers/shared/check), against the
+ * facts it cites. Returns the story as it stands after: a body that held
+ * stays, one written again replaces it and rests on what it now cites, and one
+ * still wrong takes its item out. Never throws for one item.
+ * @param p.ask the words question, as the worker asks it
+ * @param p.rewrite ({ key, sentence, records, problems }) => sentence or null
+ * @returns {{ output, counts, details, left_out: [{ list, title }] }}
+ */
+export async function checkStory({ output, records, today, person, ask, rewrite }) {
+  const items = [];
+  for (const [list] of STORY_LISTS)
+    (output?.[list] || []).forEach((it, i) => {
+      if (!it || !String(it.body || '').trim()) return;
+      items.push({
+        key: `${list}.${i}`,
+        sentence: { text: it.body, refs: Array.isArray(it.fact_refs) ? it.fact_refs : [], stated: Array.isArray(it.stated) ? it.stated : [] },
+        // the story is read where the person opens it on purpose
+        glanceable: false,
+      });
+    });
+  const check = await runCheck({ items, records, today, moment: STORY_MOMENT, person, ask, rewrite });
+  const out = { ...output };
+  const leftOut = [];
+  for (const [list] of STORY_LISTS)
+    out[list] = (output?.[list] || [])
+      .map((it, i) => {
+        const r = check.results.get(`${list}.${i}`);
+        if (!r || r.outcome === 'pass' || r.outcome === 'empty') return it;
+        if (r.outcome === 'rewritten' && r.sentence?.text)
+          return { ...it, body: r.sentence.text, fact_refs: r.refs, stated: r.sentence.stated || [] };
+        leftOut.push({ list, title: it.title });
+        return null;
+      })
+      .filter(Boolean);
+  return { output: out, counts: check.counts, details: check.details, left_out: leftOut };
+}
+
+/** The check as the story asks it: the words question, and its writer's one part again. */
+export function storyCheckCalls(env, person, today) {
+  const ask = async (req) =>
+    (
+      await jsonCall(env, {
+        primary: modelFor(env, 'check'),
+        fallback: modelFor(env, 'checkFallback'),
+        ...req,
+        maxTokens: 900,
+        effort: 'low',
+        thinking: 'low',
+      })
+    ).output;
+  const rewrite = async ({ key, sentence, records, problems }) => {
+    const kind = (STORY_LISTS.find(([list]) => list === String(key).split('.')[0]) || [])[1] || 'an item';
+    return (
+      await jsonCall(env, {
+        primary: modelFor(env, 'rewrite'),
+        fallback: modelFor(env, 'rewriteFallback'),
+        system: storyRewritePrompt(person, 'body'),
+        user: `THE STORY ITEM: ${kind}, its body\nTODAY: ${today}.\n\nRECORDS:\n${records.map((r) => r.label).join('\n') || '(none)'}\n\nWHAT YOU WROTE: ${sentence.text}\n\nWHAT WAS WRONG:\n${problems.map((p) => `- ${p}`).join('\n')}`,
+        schema: SENTENCE_SCHEMA,
+        maxTokens: 1500,
+        thinking: 'low',
+        effort: 'low',
+      })
+    ).output;
+  };
+  return { ask, rewrite };
+}
+
 /**
  * Apply a story. In shadow nothing is written outside synthesis_runs.
  * Live: the new items replace the current ones (kept as superseded), and a
@@ -427,16 +589,33 @@ export async function applyStory(
   userId,
   output,
   refsSnapshot,
-  { shadow, runId, model, today },
+  { shadow, runId, model, today, calls = null },
 ) {
   const d = db(env);
-  const { rows, dropped } = storyRows(userId, output, refsSnapshot, { runId, model, today });
+  // every item's body through the check before anything is kept
+  const person = await personIdentity(env, userId);
+  const records = await storyRecords(env, userId, refsSnapshot);
+  const checked = await checkStory({
+    output,
+    records,
+    today,
+    person,
+    ...(calls || storyCheckCalls(env, person, today)),
+  });
+  const { rows, dropped } = storyRows(userId, checked.output, refsSnapshot, { runId, model, today });
   const applied = {
     items: rows.length,
-    dropped,
+    dropped: [...dropped, ...checked.left_out.map((x) => ({ kind: x.list, title: x.title, reason: 'the check left it out' }))],
     by_kind: rows.reduce((m, r) => ({ ...m, [r.kind]: (m[r.kind] || 0) + 1 }), {}),
+    check: checked.counts,
   };
-  if (shadow) return { applied, rows };
+  if (!shadow && (checked.counts.checked || checked.counts.left_out))
+    await d
+      .insertQuiet('check_runs', [
+        checkRunRow({ userId, job: 'story', day: today, counts: checked.counts, details: checked.details, model: model ?? null }),
+      ])
+      .catch((err) => console.warn(`[Story] could not log the check: ${err.message}`));
+  if (shadow) return { applied, rows, check: checked };
   if (!rows.length) return { applied: { ...applied, skipped: 'no items with evidence' } };
 
   const nowIso = new Date().toISOString();
