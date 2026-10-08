@@ -158,11 +158,13 @@ const FACT_READERS = {
     'workers/inngest-jobs/context/daily.js',
     'workers/inngest-jobs/context/weekly.js',
   ],
+  // the ledger review reads it (stage 4f). The life pack does not: grouped by
+  // kind, Ask Gremly's replay came out a little worse (8 October), so what
+  // each kind means for the brief and chat waits for its own replay
+  kind: ['workers/inngest-jobs/context/review.js'],
 };
 
-const FACT_UNREAD = {
-  kind: 'judged for every fact, and read by no surface yet: what each kind means for the brief and chat is a later stage, by replay',
-};
+const FACT_UNREAD = {};
 
 const FACT_RECORD_KEEPING = [
   'id',

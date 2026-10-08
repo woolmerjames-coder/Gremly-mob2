@@ -7,7 +7,11 @@
  *
  * Decided by James on 5 Oct for questions about Worlds and Chapters, and the
  * same for every question: nothing is asked at the moment of dropping, a
- * question only uses a place Gremly already asks in, and never adds one.
+ * question only uses a place Gremly already asks in, and never adds one. On
+ * 8 Oct James asked for one more place (data fabric stage 4f): Answer some
+ * Gremly questions on Ask Gremly, which shows only when a question needs an
+ * answer or several are waiting (questionsWaiting), and is the only place a
+ * tidy up is put to them.
  *
  * Code applies counts, dates and ids here. Which question is worth asking is
  * still the writer's judgment, among the ones these rules allow.
@@ -84,7 +88,32 @@ export const QUESTION_KINDS = Object.freeze([
   'while_away',
   // someone in their life: who they are, their name, or whether two are one
   'person',
+  // facts Gremly proposes to set aside or close, done only on their word
+  // (data fabric stage 4f): never asked in the brief or the wrap up
+  'tidy',
 ]);
+
+/**
+ * How much an answer matters, as the model that asked judged it (stage 4f).
+ * needs: until it is answered Gremly holds two versions of something still
+ * ahead, or would soon say something wrong. helps: it would let Gremly know
+ * them better. A question with none is read as helps.
+ */
+export const QUESTION_WEIGHTS = Object.freeze(['needs', 'helps']);
+
+/** The weight as given, when it is one of the list; otherwise none. */
+export function questionWeight(w) {
+  return QUESTION_WEIGHTS.includes(w) ? w : null;
+}
+
+/** The kinds the brief and the wrap up never ask: a tidy up waits for Ask Gremly's questions. */
+export const QUESTIONS_ONLY_KINDS = Object.freeze(['tidy']);
+
+/**
+ * When Answer some Gremly questions shows on Ask Gremly: a question that
+ * needs an answer is waiting, or at least this many are.
+ */
+export const QUESTIONS_ENTRY_AT = 3;
 
 function addDays(day, n) {
   const d = new Date(`${day}T12:00:00Z`);
@@ -98,10 +127,10 @@ function factOf(q) {
 }
 
 /**
- * The questions that may be asked on this day at all, oldest first: never one
- * about something private or about health, one held until a later day, one put
- * to them in the last few days, one already asked today, or one tied to an
- * item decided today. Pure.
+ * The questions that may be asked on this day at all, those that need an
+ * answer first and then oldest first: never one about something private or
+ * about health, one held until a later day, one put to them in the last few
+ * days, one already asked today, or one tied to an item decided today. Pure.
  *
  * @param questions rows with question, created_at, asked_at, hold_until,
  *   record_id and fact (private, health)
@@ -120,7 +149,22 @@ export function askableQuestions(questions, { day, askedToday = new Set(), decid
     .filter((q) => !askedToday.has(q.id))
     .filter((q) => !q.record_id || !decidedIds.has(q.record_id))
     .slice()
-    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    .sort(
+      (a, b) =>
+        (b.weight === 'needs') - (a.weight === 'needs') ||
+        String(a.created_at).localeCompare(String(b.created_at)),
+    );
+}
+
+/**
+ * Whether Answer some Gremly questions shows on Ask Gremly, and with what
+ * count, from the questions askable today (askableQuestions). Pure.
+ * @returns {{ show: boolean, count: number, needs: number }}
+ */
+export function questionsWaiting(askable) {
+  const list = askable || [];
+  const needs = list.filter((q) => q?.weight === 'needs').length;
+  return { show: needs > 0 || list.length >= QUESTIONS_ENTRY_AT, count: list.length, needs };
 }
 
 /**

@@ -43,6 +43,10 @@ export const MODELS = {
   personQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   chapterQuestion: { provider: 'openai', model: 'gpt-6-luna' },
   chapterQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the ledger review (review.js, data fabric stage 4f): what only the person
+  // can settle, read over the whole ledger at medium effort
+  review: { provider: 'openai', model: 'gpt-6-luna' },
+  reviewFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },

@@ -33,6 +33,7 @@ import {
   dayOn,
 } from '../../shared/factTiming.js';
 import { FACT_KINDS, KIND_RULES, validKind } from '../../shared/factKinds.js';
+import { questionWeight } from '../../shared/questionRules.js';
 import {
   FACT_PEOPLE_SCHEMA,
   SAME_PEOPLE_SCHEMA,
@@ -59,11 +60,26 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-13c';
+export const READER_PROMPT_VERSION = 'reader-2026-10-14a';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
-const MAX_OPEN_FACTS = 200;
+const MAX_OPEN_FACTS = 300;
+/** Open facts dated from four months before the records on, and the latest confirmed, up to this many each. */
+const DATED_FACTS = 150;
+const RECENT_FACTS = 150;
+/** Every fact that comes round each year is shown, up to this many. */
+const YEARLY_FACTS = 60;
+/** What happened in the months around the records, up to this many. */
+const HAPPENED_AROUND = 50;
+/** The questions already waiting, shown so none is asked twice. */
+const WAITING_QUESTIONS = 30;
+/**
+ * A catch up asks only while fewer than this many questions are waiting, and
+ * only what needs an answer (data fabric stage 4f): history read again raises
+ * what bears on now or ahead, never a pile of questions.
+ */
+export const CATCH_UP_QUESTIONS_WHILE_UNDER = 4;
 
 export const READER_SCHEMA = {
   type: 'object',
@@ -151,8 +167,10 @@ export const READER_SCHEMA = {
           fact_ref: { type: 'string', nullable: true },
           source_ref: { type: 'string', nullable: true },
           proposed_change: { type: 'string', nullable: true },
+          // how much the answer matters (data fabric stage 4f)
+          matters: { type: 'string', enum: ['needs', 'helps'] },
         },
-        required: ['question'],
+        required: ['question', 'matters'],
       },
     },
     same_people: SAME_PEOPLE_SCHEMA,
@@ -183,6 +201,8 @@ ${CARE_RULES}
 WHAT BELONGS IN THE LEDGER
 - Facts a thoughtful friend would want to remember to understand what is going on in this person's life: plans and trips, commitments and deadlines, events that happened, people who matter and what is happening with them, ongoing situations, goals, routines they keep, and things they say they want or prefer.
 - The day an occasion in their life falls on, and whose occasion it is, belongs in the ledger whenever the person gives it, however much in passing, and above all when they put Gremly right about it. A plan made around an occasion never stands in for the occasion's own day: each is a fact of its own.
+- An occasion has one day. When the ledger already holds a day for it, in any state, a record that only points near it, to something planned around it, is a fact about that plan and leaves the occasion's day as it is. When a record gives the occasion itself a different day and you cannot tell which is right, never add a second day for it: ask the person, since an occasion that comes every year always bears on what is ahead.
+- When a record shows that someone in their life has died, however it is said, keep that as a fact of its own about that person, and write every other fact about them so it stays true beside it.
 - Not every record produces a fact. Routine chores, passing remarks and app housekeeping usually do not. Be selective; a short, accurate ledger is worth more than a long one.
 - Write each statement in plain words, about the person, in the third person, as true as of the record's date. Keep it to one sentence.
 - A statement says what the record shows. Whether a later record confirmed it is carried by the state, not written into the statement.
@@ -203,6 +223,7 @@ RECORDS THAT CHANGED OR WENT
 - A record marked as changed was made before and has changed since. It is shown as it stands now, with what changed and the ledger facts already taken from it. Add a fact only for what it now says that the ledger does not hold. When what it now says adds to or alters one of those facts, update that fact instead of adding a second one. When the change adds nothing, return nothing for it.
 - A record marked as deleted cannot be shown; the ledger facts taken from it are listed. Deleting can be tidying, so the deletion alone changes none of those facts, not even to unconfirmed: change one only when the ledger or the other records show it no longer holds.
 - A record marked as read before was read under older rules and is shown again, with the ledger facts already taken from it. The ledger already holds what came after it, so leave every fact as it is: add a fact only for what the record says that those facts and the rest of the ledger miss, and return nothing for a record whose facts already say all it holds. A listed fact that was put right, changed or replaced already stands for what the record said: the ledger keeps the later version, so add nothing for it.
+- A listed fact they set aside is one they asked Gremly to stop treating as part of their life. Leave it as it is, and never add what it says again, in any words.
 - A record split into parts is one record. Read the parts together.
 
 ITEMS
@@ -219,6 +240,8 @@ KEEPING THE LEDGER TRUE
 - When a record shows the same trip, event, milestone or plan as a fact the ledger holds, but at a different date or with a different outcome, the fact is no longer reliable as written. If the record makes clear it is the same thing, update the fact (changed, with the replacement). If it might be a separate occurrence, mark the fact unconfirmed and ask the person.
 - When records disagree and you cannot tell which is right, ask the person one short, friendly question instead of choosing. Ask only when the answer bears on their life now or on something still ahead, measured against today's date. Differences about things long past are recorded as they are, without a question.
 - With each question, give two to four short answers the person could tap, each a few words, covering what they would most likely say. They can always answer in their own words instead.
+- Say how much each answer matters. needs: until it is answered the ledger holds two versions of something still ahead, or Gremly would soon say something wrong. helps: the answer would let Gremly know them better, and nothing is wrong without it.
+- QUESTIONS ALREADY WAITING are put to the person already. Never ask one of them again, in any words.
 - Never mark a fact as happened just because its date has passed. Without a record, a passed plan stays as it is; it is simply no longer ahead.
 
 ${PRIVATE_RULES}
@@ -371,8 +394,9 @@ export async function loadRecords(
       d.select(
         `user_profile_overrides?user_id=eq.${userId}${w('created_at')}&select=id,action,fact_text,created_at&order=created_at.asc&limit=500`,
       ),
+      // a tidy up's answer is a tap that already did all it says (stage 4f)
       d.select(
-        `gremly_questions?user_id=eq.${userId}&status=eq.answered${w('answered_at')}&select=id,question,answer,answered_at&order=answered_at.asc&limit=500`,
+        `gremly_questions?user_id=eq.${userId}&status=eq.answered&or=(kind.is.null,kind.neq.tidy)${w('answered_at')}&select=id,question,answer,answered_at&order=answered_at.asc&limit=500`,
       ),
       d.select(
         `item_changes?owner_id=eq.${userId}&by=in.(person,calendar)&table_name=in.(${READ_TABLES.join(',')})${w('at')}&select=table_name,row_id,op,fields,dates,at&order=at.asc&limit=5000`,
@@ -593,22 +617,35 @@ const FACT_SELECT =
 export async function loadOpenFacts(env, userId, aroundIso, extraIds = []) {
   const d = db(env);
   const lo = new Date(Date.parse(aroundIso) - 120 * 864e5).toISOString().slice(0, 10);
-  const [dated, recent, extra] = await Promise.all([
+  const hi = new Date(Date.parse(aroundIso) + 30 * 864e5).toISOString().slice(0, 10);
+  const [dated, recent, extra, yearly, around] = await Promise.all([
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=${FACT_SELECT}&order=about_date.asc&limit=${MAX_OPEN_FACTS}`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&about_date=gte.${lo}&select=${FACT_SELECT}&order=about_date.asc&limit=${DATED_FACTS}`,
     ),
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=${FACT_SELECT}&order=last_confirmed_at.desc&limit=${MAX_OPEN_FACTS}`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=${FACT_SELECT}&order=last_confirmed_at.desc&limit=${RECENT_FACTS}`,
     ),
     extraIds.length
       ? d.select(
           `life_facts_now?user_id=eq.${userId}&id=in.(${extraIds.join(',')})&select=${FACT_SELECT}`,
         )
       : [],
+    // what comes round every year, whatever its state (data fabric stage 4f):
+    // a day said once is weighed against every later mention of it
+    d.select(
+      `life_facts_now?user_id=eq.${userId}&timing=eq.yearly&state=in.(current,planned,unconfirmed,happened)&select=${FACT_SELECT}&order=last_confirmed_at.desc&limit=${YEARLY_FACTS}`,
+    ),
+    // what already happened around these records, so a plan made around a day
+    // is read beside what happened on it
+    d.select(
+      `life_facts_now?user_id=eq.${userId}&state=eq.happened&about_date=gte.${lo}&about_date=lte.${hi}&select=${FACT_SELECT}&order=about_date.desc&limit=${HAPPENED_AROUND}`,
+    ),
   ]);
   const byId = new Map();
-  // the facts of a changed or deleted record first, so none is left out
-  for (const f of [...extra, ...dated, ...recent]) if (!byId.has(f.id)) byId.set(f.id, f);
+  // the facts of a changed or deleted record first, so none is left out, then
+  // every day that comes round each year
+  for (const f of [...extra, ...yearly, ...dated, ...around, ...recent])
+    if (!byId.has(f.id)) byId.set(f.id, f);
   const keep = [...byId.values()];
   return keep.slice(0, Math.max(MAX_OPEN_FACTS, extra.length));
 }
@@ -719,7 +756,9 @@ function factStanding(f, today) {
   const fixed =
     f.state === 'corrected'
       ? `, put right by them${f.correction_text ? `: "${trim(f.correction_text, 200)}"` : ''}`
-      : '';
+      : f.state === 'set_aside'
+        ? ', set aside by them as not part of their life'
+        : '';
   return `${stateWords(f, today)}${fixed}${f.private ? ' [private]' : ''}${item}`;
 }
 
@@ -729,6 +768,7 @@ export function readerRequest({
   chunk,
   openFacts,
   people = [],
+  waiting = [],
   tz,
   dayEndHour = 0,
 }) {
@@ -782,6 +822,9 @@ ${peopleRows.length ? peopleRows.join('\n') : '(none yet)'}
 FACTS THE LEDGER ALREADY HOLDS (ref | state | date | statement):
 ${factLines.length ? factLines.join('\n') : '(none yet)'}
 
+QUESTIONS ALREADY WAITING:
+${waiting.length ? waiting.map((q) => `- ${trim(q.question, 200)}`).join('\n') : '(none)'}
+
 RECORDS, OLDEST FIRST (ref | when it happened | record):
 ${recordLines.join('\n')}`;
   return { system: readerSystemPrompt(today, person), user, recRef, factRef, personRef };
@@ -802,10 +845,22 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
   const runId = chunkRunId(baseRunId, chunk);
   await rollbackRun(d, userId, runId);
   const fromRecords = [...new Set(chunk.flatMap((r) => r.factIds || []))];
-  const [openFacts, person, people] = await Promise.all([
+  const [openFacts, person, people, waiting] = await Promise.all([
     loadOpenFacts(env, userId, chunk[0].at, fromRecords),
     personIdentity(env, userId),
     loadPeople(d, userId),
+    // the questions already put to them, so none is asked twice (stage 4f)
+    d
+      .select(
+        `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,weight&order=created_at.desc&limit=${WAITING_QUESTIONS}`,
+      )
+      .catch((err) => {
+        console.warn(
+          `[ALERT][Reader] could not read the questions waiting for ${userId}: ${err?.message || err}`,
+        );
+        // unknown: a catch up then asks nothing (blank is better than a pile)
+        return null;
+      }),
   ]);
   const { system, user, recRef, factRef, personRef } = readerRequest({
     today,
@@ -813,6 +868,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
     chunk,
     openFacts,
     people,
+    waiting: waiting || [],
     tz,
     dayEndHour,
   });
@@ -949,10 +1005,18 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
   // A catch up reads old records against a ledger that already holds what
   // came after them (context/reread.js): it adds what was missed and changes
   // no fact, so what it would change is counted and left, never applied.
+  // What bears on now or ahead is still asked (stage 4f): one question that
+  // needs an answer, while few are waiting, so history read again never
+  // buries them in questions.
+  const asks = reread
+    ? waiting && waiting.length < CATCH_UP_QUESTIONS_WHILE_UNDER
+      ? (output.questions || []).filter((q) => q?.matters === 'needs').slice(0, 1)
+      : []
+    : output.questions || [];
   if (reread) {
     const held = {
       held_updates: (output.fact_updates || []).length,
-      held_questions: (output.questions || []).length,
+      held_questions: (output.questions || []).length - asks.length,
       held_calendar: (output.calendar || []).length,
     };
     for (const [k, n] of Object.entries(held)) if (n) counts[k] = n;
@@ -965,6 +1029,12 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
     const fact = factRef.get(u.fact_ref);
     const src = recRef.get(u.source_ref);
     if (!fact || !src || !UPDATE_STATES.has(u.new_state) || u.new_state === fact.state) {
+      counts.rejected++;
+      continue;
+    }
+    // a fact they set aside changes only on their word (data fabric stage 4f)
+    if (fact.state === 'set_aside') {
+      console.warn(`[ALERT][Reader] ${userId}: an update to a fact they set aside was left (${fact.id})`);
       counts.rejected++;
       continue;
     }
@@ -1058,7 +1128,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
   }
 
   // Questions, one open question per fact at a time
-  for (const q of reread ? [] : output.questions || []) {
+  for (const q of asks) {
     if (!q.question) continue;
     const fact = q.fact_ref ? factRef.get(q.fact_ref) : null;
     const src = q.source_ref ? recRef.get(q.source_ref) : null;
@@ -1081,6 +1151,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
         record_table: src?.table || null,
         record_id: src?.id || null,
         proposed_change: q.proposed_change ? { text: trim(q.proposed_change, 300) } : null,
+        weight: questionWeight(q.matters),
         run_id: runId,
         prompt_version: READER_PROMPT_VERSION,
       },

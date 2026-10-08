@@ -20,6 +20,8 @@
  *   scripts/shadow/run.sh person-question --user <uuid>
  *   scripts/shadow/run.sh chapter-questions --user <uuid>
  *   scripts/shadow/run.sh ask --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--sizes compact,full]
+ *   scripts/shadow/run.sh review --user <uuid> [--at ISO]
+ *   scripts/shadow/run.sh answer --from <review dir>/record.json --row n --said "their answer"
  *   scripts/shadow/run.sh ... --code <dir>   run another tree's code (run.sh)
  *
  * Keys come from the environment: SHADOW_SUPABASE_KEY (a key for the
@@ -62,6 +64,8 @@ import * as stage4bFirst from '../../workers/inngest-jobs/context/firstWorlds.js
 import * as upNextMod from '../../workers/shared/upNext.js';
 import * as stage4cPeople from '../../workers/inngest-jobs/context/peopleQuestions.js';
 import * as stage4cChapters from '../../workers/inngest-jobs/context/chapterQuestions.js';
+// a namespace import, so a tree without the ledger review (before stage 4f) still bundles
+import * as stage4fReview from '../../workers/inngest-jobs/context/review.js';
 // a namespace import, so a tree without the catch up (before stage 4d) still bundles
 import * as stage4dReread from '../../workers/inngest-jobs/context/reread.js';
 import * as kindsMod from '../../workers/inngest-jobs/context/kinds.js';
@@ -126,6 +130,7 @@ const THIS_TREE_ADDS = {
     life_facts: ['timing'],
     life_facts_now: ['timing'],
     life_people: ['who_checked_at'],
+    gremly_questions: ['weight'],
   },
   tables: ['ledger_reads'],
 };
@@ -834,6 +839,36 @@ const JOBS = {
     };
   },
 
+  // The ledger review (data fabric stage 4f): the questions and tidy ups the
+  // weekly review of this tree would put to them, never written. The summary
+  // keeps what each rests on by id, its kind and weight; the questions and
+  // statements stay in record.json.
+  async review() {
+    const userId = flag('--user');
+    if (!userId) fail('review needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof stage4fReview.reviewLedger !== 'function') fail('This tree has no ledger review.');
+        return stage4fReview.reviewLedger(env, userId, { shadow: true, runId: `shadow-review-${userId.slice(0, 8)}` });
+      },
+      summarise: (out) => ({
+        model: out?.model || null,
+        facts: out?.facts ?? null,
+        found: out?.found || null,
+        skipped: out?.skipped || null,
+        rows: (out?.rows || []).map((r) => ({
+          kind: r.kind,
+          weight: r.weight,
+          type: r.proposed_change?.type || 'question',
+          facts: (r.rests_on || []).map((x) => x.id),
+          choices: r.choices,
+        })),
+      }),
+    };
+  },
+
   async 'person-question'() {
     const userId = flag('--user');
     if (!userId) fail('person-question needs --user');
@@ -945,6 +980,56 @@ const JOBS = {
             ),
           })),
       }),
+    };
+  },
+
+  // Their answer to a question a review run would ask (data fabric stage 4f):
+  // the question is taken from that run's record (--from, its record.json,
+  // --row its place among the rows), read as if it were waiting, with their
+  // answer (--said) as the correction the app sends, and the answer applied
+  // as it ships. What it would change is kept aside, as in every job.
+  async answer() {
+    const from = flag('--from');
+    const said = flag('--said');
+    if (!from || !said) fail('answer needs --from, --row and --said');
+    const rows = JSON.parse(readFileSync(from, 'utf8')).output?.rows || [];
+    const row = rows[Number(flag('--row') || 0)];
+    if (!row) fail(`That review asked ${rows.length} questions; there is no row ${flag('--row') || 0}.`);
+    const qid = crypto.randomUUID();
+    const cid = crypto.randomUUID();
+    const at = flag('--at') || new Date().toISOString();
+    const question = { ...row, id: qid, status: 'open', created_at: at };
+    const correction = {
+      id: cid,
+      user_id: row.user_id,
+      said,
+      surface: 'question',
+      target_ref: { id: qid },
+      status: 'received',
+      created_at: at,
+    };
+    return {
+      at: new Date(Date.parse(at) + 60000).toISOString(),
+      userId: row.user_id,
+      rewrite: ({ table, url }) => {
+        const q = new URL(url).searchParams;
+        if (table === 'user_corrections' && q.get('id') === `eq.${cid}`) return [correction];
+        if (table === 'gremly_questions' && q.get('id') === `eq.${qid}`) return [question];
+        return null;
+      },
+      run: () => applyCorrection(env, cid, `shadow-answer-${Date.now()}`),
+      summarise: (out) => {
+        const writes = (table) => record.writes.filter((w) => w.table === table);
+        return {
+          question: { kind: row.kind, type: row.proposed_change?.type || null, rests_on: (row.rests_on || []).map((x) => x.id) },
+          result: out,
+          facts_changed: writes('life_facts')
+            .filter((w) => w.method === 'PATCH')
+            .map((w) => ({ path: w.path.replace(/^\/rest\/v1\//, ''), state: w.body?.state ?? null })),
+          facts_added: writes('life_facts').filter((w) => w.method === 'POST').flatMap((w) => (Array.isArray(w.body) ? w.body : [w.body])).length,
+          question_writes: writes('gremly_questions').map((w) => ({ method: w.method, status: w.body?.status ?? null })),
+        };
+      },
     };
   },
 

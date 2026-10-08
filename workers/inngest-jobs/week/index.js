@@ -347,7 +347,7 @@ export async function ensureWeekSpread(env, userId, p = {}) {
 
 export function createWeekFunctions(
   inngest,
-  { synthesis, classifier = null, words = null, memories = null, people = null },
+  { synthesis, classifier = null, words = null, memories = null, people = null, review = null },
 ) {
   const dispatch = inngest.createFunction(
     { id: 'weekly-pipe-dispatch', name: 'Weekly pipe: start the pipes due now' },
@@ -448,13 +448,16 @@ export function createWeekFunctions(
       // Then the words under each World and open Chapter, from what the week
       // filed, and a memory for each closed Chapter that has none (data fabric
       // stage 4b), then the people records checked and one question about
-      // someone, when one is worth asking (stage 4c). After the read, so the
+      // someone, when one is worth asking (stage 4c), then the ledger looked
+      // over for what only they can settle (stage 4f). After the read, so the
       // read never waits on them.
       const after = {};
       for (const [name, fn] of [
         ['words', words],
         ['memories', memories],
         ['people', people],
+        // what only they can settle, put as questions (data fabric stage 4f)
+        ['review', review],
       ]) {
         if (!fn) continue;
         try {
@@ -472,11 +475,17 @@ export function createWeekFunctions(
                 }
               : name === 'memories'
                 ? { chapters: r?.chapters ?? null }
-                : {
-                    checked: r?.checked?.checked ?? null,
-                    who_cleared: r?.checked?.who_cleared ?? null,
-                    asked: r?.asked?.written ?? null,
-                  };
+                : name === 'review'
+                  ? {
+                      written: r?.written ?? null,
+                      found: r?.found ?? null,
+                      shadow: r?.shadow ?? null,
+                    }
+                  : {
+                      checked: r?.checked?.checked ?? null,
+                      who_cleared: r?.checked?.who_cleared ?? null,
+                      asked: r?.asked?.written ?? null,
+                    };
         } catch (err) {
           after[name] = { error: String(err?.message || err).slice(0, 200) };
           console.warn(

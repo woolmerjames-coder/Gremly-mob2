@@ -107,7 +107,97 @@ const SCENARIOS = [
 
   ...STAGE_ONE(),
   ...STAGE_FOUR_D(),
+  ...STAGE_FOUR_F(),
 ];
+
+/**
+ * Stage 4f: an occasion has one day. A plan made around it never becomes a
+ * second day for it, a different day for it is asked about rather than kept,
+ * a death said in passing is kept, a routine said with one day is standing,
+ * and a fact they set aside stays set aside. Checked by the dates, timings,
+ * updates and questions returned.
+ */
+function STAGE_FOUR_F() {
+  const chat = (id, at, content, gremly) =>
+    chatRecord({ id, chat_id: 'c-1', content, created_at: at }, gremly);
+  const yearlyNotOn = (facts, monthDay) =>
+    facts.filter((f) => f.timing === 'yearly' && String(f.about_date || '').slice(5, 10) !== monthDay);
+  const said = (facts) => facts.map((f) => `${f.about_date || 'no date'} ${f.timing}: ${f.statement}`).join(' / ') || 'no fact';
+  return [
+    {
+      id: 'birthday-trip-not-the-day',
+      look: 'The ledger has their 35th on 30 April, as happened. A trip for the birthday leaves on the 25th: the trip is a plan of its own, never a second birthday.',
+      runAt: '2026-04-21T03:00:00Z',
+      facts: [{ id: 'fb1', statement: 'Alex turned 35 on 30 April.', state: 'happened', about_date: '2026-04-30', timing: 'day' }],
+      records: [chat('m-trip', '2026-04-21T02:30:00Z', 'Booked Big Sur for my birthday, we leave on the 25th!', 'Any plans coming up?')],
+      check: ({ facts }) => [
+        { name: 'no birthday on a day but 30 April', ok: yearlyNotOn(facts, '04-30').length === 0, detail: said(facts) },
+      ],
+    },
+    {
+      id: 'birthday-two-days-asked',
+      look: 'The ledger holds their birthday every year on 30 April. They say it is on the 25th: asked about, or put right, never kept as a second day.',
+      runAt: '2026-04-11T03:00:00Z',
+      facts: [{ id: 'fb2', statement: "Alex's birthday is on 30 April.", state: 'current', about_date: '2025-04-30', timing: 'yearly' }],
+      records: [chat('m-bday', '2026-04-11T02:30:00Z', "It's my birthday on the 25th, so keep that weekend free", 'What does the rest of April look like?')],
+      check: ({ facts, updates, questions }) => {
+        const second = yearlyNotOn(facts, '04-30').length > 0;
+        const settled = updates.some((u) => u.fact_ref === 'f1') || questions.some((q) => q.fact_ref === 'f1' || /birthday/i.test(q.question));
+        return [
+          { name: 'never a second day kept beside the first', ok: !second || settled, detail: `${said(facts)} | updates ${updates.map((u) => `${u.fact_ref} ${u.new_state}`).join(', ') || 'none'} | questions ${questions.map((q) => q.question).join(' / ') || 'none'}` },
+          { name: 'a question about it needs an answer', ok: !questions.some((q) => /birthday/i.test(q.question)) || questions.some((q) => /birthday/i.test(q.question) && q.matters === 'needs'), detail: questions.map((q) => `${q.matters}: ${q.question}`).join(' / ') || 'none' },
+        ];
+      },
+    },
+    {
+      id: 'late-parent-kept',
+      look: "Said in a journal on what would have been their dad's birthday: that he has died is kept, and his birthday comes every year.",
+      runAt: '2026-10-13T03:00:00Z',
+      records: [noteRecord({ id: 'n-dad', subtype: 'journal', title: 'Monday', body: 'Dad would have been 72 today. Quiet day. Called Mum for a long time.', created_at: '2026-10-13T01:00:00Z' })],
+      check: ({ facts }) => [
+        { name: 'that he has died is kept', ok: facts.some((f) => /died|passed away|death|late father|no longer alive|lost (his|her|their) (dad|father)/i.test(f.statement)), detail: said(facts) },
+        { name: 'his birthday every year', ok: facts.some((f) => f.timing === 'yearly' && String(f.about_date || '').slice(5, 10) === '10-12'), detail: said(facts) },
+      ],
+    },
+    {
+      id: 'routine-kept-up',
+      look: 'A routine said with the day it was done, and that they are keeping it up: a standing fact.',
+      runAt: '2026-10-20T03:00:00Z',
+      records: [noteRecord({ id: 'n-swim2', subtype: 'journal', title: 'Monday', body: 'Swam before work again. That is three mornings this week now, I am actually keeping it up.', created_at: '2026-10-20T00:10:00Z' })],
+      check: ({ facts }) => [
+        { name: 'a standing routine', ok: facts.some((f) => f.timing === 'standing'), detail: said(facts) },
+      ],
+    },
+    {
+      id: 'set-aside-left',
+      look: 'A note they changed gave a fact they set aside as not part of their life: it stays as it is and is not added again.',
+      runAt: '2026-11-12T17:00:00Z',
+      facts: [{ id: 'fsa', statement: 'Alex added a note called test note to try the app.', state: 'set_aside', about_date: null, timing: 'day' }],
+      records: [
+        {
+          ...noteRecord({ id: 'n-try', title: 'test note', body: 'trying the app again, ignore', created_at: '2026-11-12T16:30:00Z' }),
+          kind: 'changed',
+          factIds: ['fsa'],
+        },
+      ],
+      check: ({ facts, updates }) => [
+        { name: 'nothing added again', ok: facts.length === 0, detail: said(facts) },
+        { name: 'the set aside fact left as it is', ok: !updates.some((u) => u.fact_ref === 'f1'), detail: updates.map((u) => `${u.fact_ref} ${u.new_state}`).join(', ') || 'none' },
+      ],
+    },
+    {
+      id: 'question-already-waiting',
+      look: 'The same thing is unclear again, and a question about it is already waiting: it is not asked twice.',
+      runAt: '2026-11-12T17:00:00Z',
+      facts: [{ id: 'fw', statement: 'Alex plans a weekend in Hudson with Jo from 6 to 8 November.', state: 'planned', about_date: '2026-11-06', about_date_end: '2026-11-08', timing: 'span' }],
+      waiting: [{ question: 'Did the Hudson weekend go ahead, or was it moved?' }],
+      records: [chat('m-hud', '2026-11-12T16:30:00Z', 'Not sure if Hudson is even happening now, Jo might have work', 'How was the weekend?')],
+      check: ({ questions }) => [
+        { name: 'nothing asked again', ok: !questions.some((q) => /hudson|weekend/i.test(q.question)), detail: questions.map((q) => q.question).join(' / ') || 'none' },
+      ],
+    },
+  ];
+}
 
 /**
  * Stage 4d: what is said in passing is kept, with when it is true, and the
@@ -397,6 +487,7 @@ async function runOne(s) {
     person: PERSON,
     chunk: s.records,
     openFacts: s.facts || [],
+    waiting: s.waiting || [],
     tz: TZ,
     ...(oldClock ? {} : { dayEndHour: DAY_END }),
   });
@@ -433,7 +524,7 @@ async function runOne(s) {
     ];
     if (s.check) {
       const checks = [...structure, ...s.check({ facts, updates, questions, calendar, recRef, factRef })];
-      return { id: s.id, model, ms: Date.now() - started, ok: checks.every((c) => c.ok), checks, facts, updates, calendar, today, user };
+      return { id: s.id, model, ms: Date.now() - started, ok: checks.every((c) => c.ok), checks, facts, updates, questions, calendar, today, user };
     }
     const checks = [...structure, ...s.expect.map((e) => {
       const hit = facts.filter((f) => e.about.test(`${f.statement} ${f.quote}`));
@@ -443,7 +534,7 @@ async function runOne(s) {
       const ok = hit.some((f) => f.about_date === e.date) && !hit.some((f) => (e.wrong || []).includes(f.about_date));
       return { name: `${e.about} on ${e.date}`, ok, detail: dates.join(', ') || 'no fact' };
     })];
-    return { id: s.id, model, ms: Date.now() - started, ok: checks.every((c) => c.ok), checks, facts, today, user };
+    return { id: s.id, model, ms: Date.now() - started, ok: checks.every((c) => c.ok), checks, facts, questions, today, user };
   } catch (err) {
     return { id: s.id, ms: Date.now() - started, ok: false, error: String(err?.message || err) };
   }

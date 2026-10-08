@@ -113,7 +113,8 @@ export async function getLifePack(userId, env) {
         ).catch(() => []),
         select(
           env,
-          `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=question,created_at&order=created_at.desc&limit=5`,
+          // a tidy up is put only on Ask Gremly's questions, on a tap (stage 4f)
+          `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&or=(kind.is.null,kind.neq.tidy)&select=question,created_at&order=created_at.desc&limit=5`,
         ).catch(() => []),
         select(
           env,

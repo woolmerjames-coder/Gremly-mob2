@@ -4234,6 +4234,7 @@ const inngestHandler = serve({
       words: contextFunctions.words,
       memories: contextFunctions.memories,
       people: contextFunctions.people,
+      review: contextFunctions.review,
     }),
     ...createBriefFunctions(inngest),
     ...createNotificationFunctions(inngest),
@@ -4310,6 +4311,14 @@ const appHandler = {
                   kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind)
                     ? body.kind
                     : null,
+                  // Some of them on a tidy up: the facts they ticked (data fabric stage 4f)
+                  ...(Array.isArray(body.pick)
+                    ? {
+                        pick: body.pick
+                          .filter((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))
+                          .slice(0, 50),
+                      }
+                    : {}),
                 }
               : null,
           status: 'received',

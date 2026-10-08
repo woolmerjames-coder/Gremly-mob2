@@ -4199,6 +4199,14 @@ After the user confirms and locks in a habit, check the existing habits listed i
               // sent by app builds that know them
               briefUnread: body.brief_unread === true,
               toDecide: Number(body.to_decide) || 0,
+              // while Answer some Gremly questions shows (data fabric stage 4f)
+              questions:
+                body.questions_waiting && typeof body.questions_waiting === 'object'
+                  ? {
+                      count: Math.max(0, Math.min(99, Number(body.questions_waiting.count) || 0)),
+                      needs: Math.max(0, Math.min(99, Number(body.questions_waiting.needs) || 0)),
+                    }
+                  : null,
             }),
           });
 
@@ -7640,6 +7648,10 @@ ${assistantMessage.substring(0, 2000)}
             target_id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
             // Not right sheet choice (wrong, changed, done, private); answers send surface 'question' and the question id.
             kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind) ? body.kind : null,
+            // Some of them on a tidy up: the facts they ticked, by id (data fabric stage 4f)
+            pick: Array.isArray(body.pick)
+              ? body.pick.filter((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 50)
+              : undefined,
           }),
         }).catch(() => null);
         if (!res?.ok) return j({ error: 'could not send the correction' }, 502);

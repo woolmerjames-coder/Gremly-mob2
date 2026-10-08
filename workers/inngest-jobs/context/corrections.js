@@ -310,11 +310,23 @@ export async function applyCorrection(env, correctionId, runId) {
   // An answer to a question about someone in their life is read on its own:
   // it merges, declines or fills in a person, and changes nothing else
   // (context/peopleQuestions.js, data fabric stage 4c)
+  // The same for a tidy up (data fabric stage 4f): the answer that says yes
+  // does what was proposed to the facts it names, the answer that says no
+  // leaves them, and anything else is read below like any answer.
+  let restsOn = [];
   if (correction.surface === 'question' && /^[0-9a-f-]{36}$/i.test(correction.target_ref?.id || '')) {
     const [asked] = await d.select(
-      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&kind=eq.person&select=id,question,status,kind,proposed_change`,
+      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change,rests_on`,
     );
     if (asked?.kind === 'person') return applyPersonAnswer(env, { correction, question: asked });
+    if (asked?.kind === 'tidy') {
+      const done = await applyTidyAnswer(env, { correction, question: asked });
+      if (done) return done;
+    }
+    // the facts a question rests on are read with the answer, whatever their age
+    restsOn = (Array.isArray(asked?.rests_on) ? asked.rests_on : [])
+      .filter((r) => r?.table === 'life_facts' && /^[0-9a-f-]{36}$/i.test(String(r.id || '')))
+      .map((r) => r.id);
   }
   const tz = await userTimezone(env, userId);
   // their day, so a correction after midnight still reaches the day they are in
@@ -335,6 +347,14 @@ export async function applyCorrection(env, correctionId, runId) {
   const facts = correction.fact_ids?.length
     ? await d.select(`life_facts_now?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,state,private`)
     : await d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,state,private&order=last_confirmed_at.desc&limit=300`);
+  // what the question was about comes first, wherever it stands
+  if (restsOn.length) {
+    const about = await d.select(
+      `life_facts_now?id=in.(${restsOn.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,state,private`,
+    );
+    const seen = new Set(about.map((f) => f.id));
+    facts.splice(0, facts.length, ...about, ...facts.filter((f) => !seen.has(f.id)));
+  }
   // An answer to one of Gremly's questions arrives as a correction about that question.
   const [question] = correction.surface === 'question' && correction.target_ref?.id && /^[0-9a-f-]{36}$/i.test(correction.target_ref.id)
     ? await d.select(`gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status`)
@@ -617,6 +637,96 @@ ${anchorLines.join('\n') || '(none)'}`;
     status: 'applied',
     applied_at: nowIso,
     fact_ids: correctedIds.length ? correctedIds : correction.fact_ids,
+    result,
+  });
+  return result;
+}
+
+/** The states a tidy up's yes moves its facts to, and from. */
+const TIDY_MOVES = {
+  // they asked Gremly to stop treating these as part of their life
+  set_aside: { to: 'set_aside', from: ['current', 'planned', 'unconfirmed', 'happened'] },
+  // they said these plans happened
+  happened: { to: 'happened', from: ['planned', 'unconfirmed'] },
+};
+
+/** Whether their words are exactly one of the answers offered: a tap, not words of their own. */
+function tapped(said, choice) {
+  const a = String(said || '').trim().toLowerCase();
+  const b = String(choice || '').trim().toLowerCase();
+  return !!a && a === b;
+}
+
+/**
+ * Apply an answer to a tidy up (data fabric stage 4f, context/review.js).
+ * Their yes does what was proposed to the facts it names, and their no
+ * leaves them as they are; either closes the question. Some of them is their
+ * yes with the facts they ticked (target_ref.pick): only those, of the ones
+ * it names. Anything else is words of their own, read by the correction
+ * model like any answer: null.
+ */
+async function applyTidyAnswer(env, { correction, question }) {
+  const change = question.proposed_change || {};
+  const move = TIDY_MOVES[change.type];
+  const yes = tapped(correction.said, change.yes);
+  const no = tapped(correction.said, change.no);
+  if (!move || (!yes && !no)) return null;
+  const d = db(env);
+  const userId = correction.user_id;
+  const nowIso = new Date().toISOString();
+  const named = (Array.isArray(change.fact_ids) ? change.fact_ids : []).filter((id) =>
+    /^[0-9a-f-]{36}$/i.test(String(id)),
+  );
+  // the ones they ticked, when they chose some of them; never one it did not name
+  const pick = Array.isArray(correction.target_ref?.pick) ? correction.target_ref.pick.map(String) : null;
+  const ids = pick ? named.filter((id) => pick.includes(id)) : named;
+  const result = {
+    tidy: question.id,
+    type: change.type,
+    said: yes ? (pick ? 'some' : 'yes') : 'no',
+    ...(pick ? { picked: ids.length, of: named.length } : {}),
+  };
+  if (question.status !== 'answered') {
+    if (yes && ids.length) {
+      const before = await d.select(
+        `life_facts?user_id=eq.${userId}&id=in.(${ids.join(',')})&state=in.(${move.from.join(',')})&select=id,state`,
+      );
+      const reason = trim(`Their answer to "${question.question}": ${correction.said}`, 300);
+      if (before.length) {
+        // each change kept in the fact's history, as every correction's is,
+        // and kept first: a retry after the move would find nothing to keep
+        await d.insertQuiet(
+          'life_fact_changes',
+          before.map((f) => ({
+            fact_id: f.id,
+            user_id: userId,
+            from_state: f.state,
+            to_state: move.to,
+            reason,
+            source_table: 'user_corrections',
+            source_id: correction.id,
+            run_id: `tidy-${question.id}`,
+          })),
+        );
+        await d.update(
+          `life_facts?user_id=eq.${userId}&id=in.(${before.map((f) => f.id).join(',')})`,
+          { state: move.to, state_reason: reason, updated_at: nowIso },
+        );
+      }
+      result.facts = before.length;
+    }
+    await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, {
+      status: 'answered',
+      answer: trim(correction.said, 1000),
+      answered_at: nowIso,
+    });
+    result.question_answered = question.id;
+  }
+  await invalidateChatCache(env, userId);
+  await d.update(`user_corrections?id=eq.${correction.id}`, {
+    status: 'applied',
+    applied_at: nowIso,
+    fact_ids: yes ? ids : [],
     result,
   });
   return result;

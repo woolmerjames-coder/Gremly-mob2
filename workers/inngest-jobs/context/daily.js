@@ -47,7 +47,11 @@ import {
   problemWords,
 } from '../../shared/check/index.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
-import { askableQuestions, welcomeBackOf } from '../../shared/questionRules.js';
+import {
+  askableQuestions,
+  QUESTIONS_ONLY_KINDS,
+  welcomeBackOf,
+} from '../../shared/questionRules.js';
 import { loadUpNext } from '../../shared/upNext.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-13b';
@@ -216,7 +220,7 @@ export async function gatherDay(env, userId, tz, today) {
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
     ),
     d.select(
-      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,kind,set_id,question,choices,created_at,asked_at,hold_until,fact:life_facts(private,health)&order=created_at.asc&limit=20`,
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,kind,set_id,question,choices,weight,created_at,asked_at,hold_until,fact:life_facts(private,health)&order=weight.desc.nullslast,created_at.asc&limit=20`,
     ),
     d.rpc('absence_snapshot', { p_user: userId }),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'week', p_periods: 5 }),
@@ -628,9 +632,12 @@ export function renderDay(g, tz) {
   // private here too (careRules.js); none held until a later day; and one put
   // to them in the last few days, and skipped or left, waits
   // A welcome back's questions travel as one set, which the picture points to
-  // (welcome_back), so none is asked on its own here
+  // (welcome_back), so none is asked on its own here; a tidy up waits for Ask
+  // Gremly's questions (stage 4f); those that need an answer come first
   const qLines = askableQuestions(
-    (g.questions || []).filter((q) => q.kind !== 'while_away'),
+    (g.questions || []).filter(
+      (q) => q.kind !== 'while_away' && !QUESTIONS_ONLY_KINDS.includes(q.kind),
+    ),
     { day: today },
   )
     .slice(0, 10)

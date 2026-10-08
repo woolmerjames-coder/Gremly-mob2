@@ -1004,7 +1004,7 @@ export async function fillPeople(
   // the facts with no people tied yet, filtered by the database so the limit
   // counts only those
   const untied = await d.select(
-    `life_facts?user_id=eq.${userId}&state=not.in.(corrected,superseded)&created_at=lt.${encodeURIComponent(before)}&select=id,statement,source_quote,created_at,life_fact_people(person_id)&life_fact_people=is.null&order=created_at.asc&limit=${FILL_PER_CALL * maxCalls}`,
+    `life_facts?user_id=eq.${userId}&state=not.in.(corrected,superseded,set_aside)&created_at=lt.${encodeURIComponent(before)}&select=id,statement,source_quote,created_at,life_fact_people(person_id)&life_fact_people=is.null&order=created_at.asc&limit=${FILL_PER_CALL * maxCalls}`,
   );
   const existing = await loadPeople(d, userId);
   let known = existing;

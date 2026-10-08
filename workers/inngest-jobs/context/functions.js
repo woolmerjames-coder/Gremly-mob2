@@ -43,6 +43,7 @@ import { writeWords } from './words';
 import { writeMemory, chaptersWantingMemory } from './memory';
 import { makeFirstWorlds, firstWorldsEvents, filedTotals } from './firstWorlds';
 import { writePersonQuestion } from './peopleQuestions';
+import { reviewLedger } from './review';
 import { chapterQuestionsForDay, chapterQuestionEvents } from './chapterQuestions';
 import { chapterQuestionsOn } from '../../shared/questionRules.js';
 
@@ -727,6 +728,45 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
     },
   );
 
+  // ── The ledger review: what only the person can settle (data fabric 4f) ──
+  // Weekly in the week pipe after the people, and on app/ledger.review for one
+  // person (user_id) or everyone with facts. It writes questions only: a
+  // conflict to settle, or a tidy up they decide (context/review.js). In
+  // shadow, or with shadow true, it returns what it would ask and writes
+  // nothing.
+  const review = inngest.createFunction(
+    {
+      id: 'context-review',
+      name: "Context: review a person's ledger for what only they can settle",
+      concurrency: [{ key: 'event.data.user_id', limit: 1 }, { limit: 3 }],
+      retries: 1,
+    },
+    { event: 'app/ledger.review' },
+    async ({ event, step, env }) => {
+      if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
+      const userId = event.data?.user_id;
+      if (userId) {
+        const shadow = event.data?.shadow ?? contextMode(env, userId) !== 'on';
+        return step.run('review', () =>
+          reviewLedger(env, userId, { shadow, runId: `review-${event.id || Date.now()}` }),
+        );
+      }
+      const ids = await step.run('who', () => usersWithFacts(env));
+      if (ids.length)
+        await step.sendEvent(
+          'fan-out',
+          ids.map((id) => ({
+            name: 'app/ledger.review',
+            data:
+              event.data?.shadow == null
+                ? { user_id: id }
+                : { user_id: id, shadow: event.data.shadow },
+          })),
+        );
+      return { users: ids.length };
+    },
+  );
+
   // ── Chapter questions: closing, suggesting, the welcome back (4c) ───────
   // Once a day, early in the person's morning, while CHAPTER_QUESTIONS is on.
   // Built and replayed, and left off until the Worlds build can act on an
@@ -815,6 +855,7 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
       words,
       memories,
       people,
+      review,
       chapterQuestions,
       firstWorlds,
     ],
@@ -822,6 +863,7 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
     words,
     memories,
     people,
+    review,
   };
 }
 
