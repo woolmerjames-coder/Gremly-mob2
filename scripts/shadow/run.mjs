@@ -71,6 +71,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
 const args = process.argv.slice(2);
 const job = args[0];
+// when this run began, by the real clock (the shadow clock reads the job's
+// moment): it names the run's folder, so two runs of one moment never share one
+const RUN_STAMP = new Date().toISOString();
 const flag = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : null;
@@ -863,7 +866,7 @@ const summary = {
   side_effects: record.effects.length,
   ...(error ? {} : plan.summarise(out)),
 };
-const dir = join(process.env.SHADOW_OUT || join(ROOT, 'Claude outputs', 'shadow'), `${new Date(started).toISOString().replace(/[:.]/g, '-')}-${job}-${String(plan.userId).slice(0, 8)}`);
+const dir = join(process.env.SHADOW_OUT || join(ROOT, 'Claude outputs', 'shadow'), `${RUN_STAMP.replace(/[:.]/g, '-')}-${job}-${String(plan.userId).slice(0, 8)}`);
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, 'summary.json'), JSON.stringify(summary, null, 2));
 writeFileSync(join(dir, 'record.json'), JSON.stringify({ ...record, output: out ?? null }, null, 2));
