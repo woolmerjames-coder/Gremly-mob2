@@ -46,10 +46,10 @@ function recordsOf(refs, records) {
 const short = (err) => String(err?.message || err).slice(0, 120);
 
 /** One sentence through every step. Never throws: a step that breaks is a problem. */
-async function checkOne(sentence, records, { glanceable, today, moment, person, ask }) {
+async function checkOne(sentence, records, { glanceable, listed = true, today, moment, person, ask }) {
   let code;
   try {
-    code = codeCheck(sentence, records, { glanceable });
+    code = codeCheck(sentence, records, { glanceable, listed });
   } catch (err) {
     return {
       sentence: { text: '', refs: [], stated: [] },
@@ -93,7 +93,9 @@ const steps = (problems) => [...new Set(problems.map((p) => p.step))];
 
 /**
  * Run the check over a writer's sentences.
- * @param items [{ key, sentence, glanceable }]
+ * @param items [{ key, sentence, glanceable, listed }] listed false: a stored
+ *   sentence with no list of what it states (stated.js codeCheck); a rewrite of
+ *   it comes with its list and is held to it
  * @param records Map ref -> record, everything the writer was given
  * @returns {{ results: Map, counts: { checked, sent_back, left_out }, details: [] }}
  *   results: key -> { outcome: 'pass' | 'rewritten' | 'left_out' | 'empty',
@@ -111,7 +113,7 @@ export async function runCheck({
   rewrite,
 }) {
   const first = await inTurn(items, (it) =>
-    checkOne(it.sentence, records, { glanceable: it.glanceable, today, moment, person, ask }),
+    checkOne(it.sentence, records, { glanceable: it.glanceable, listed: it.listed !== false, today, moment, person, ask }),
   );
   const results = new Map();
   const details = [];

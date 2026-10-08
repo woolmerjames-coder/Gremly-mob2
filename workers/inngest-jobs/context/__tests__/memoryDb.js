@@ -1,7 +1,7 @@
 /**
  * A small in-memory database for tests: select, update, remove, insert,
  * insertIgnore and insertQuiet on PostgREST style paths, with eq, neq, in, is,
- * the comparisons, not and or filters. Like PostgREST, a bulk insert whose rows
+ * the comparisons, ov (arrays that share a value), not and or filters. Like PostgREST, a bulk insert whose rows
  * do not all have the same keys is refused. Not a test itself (jest runs only
  * *.test.js).
  */
@@ -11,8 +11,8 @@ function topLevel(list) {
   let depth = 0;
   let cur = '';
   for (const ch of list) {
-    if (ch === '(') depth++;
-    if (ch === ')') depth--;
+    if (ch === '(' || ch === '{') depth++;
+    if (ch === ')' || ch === '}') depth--;
     if (ch === ',' && depth === 0) {
       out.push(cur);
       cur = '';
@@ -66,6 +66,11 @@ export function memoryDb(tables) {
       if (op === 'gt') return v != null && String(v) > val;
       if (op === 'lte') return v != null && String(v) <= val;
       if (op === 'lt') return v != null && String(v) < val;
+      // an array column sharing any value with the list: fact_ids.ov.{a,b}
+      if (op === 'ov') {
+        const want = topLevel(val.replace(/^\{|\}$/g, ''));
+        return Array.isArray(v) && v.some((x) => want.includes(String(x)));
+      }
       // a filter it does not know fails the test, rather than matching every row
       throw new Error(`memoryDb: no filter ${op} on ${col}`);
     };
@@ -111,6 +116,19 @@ export function memoryDb(tables) {
       sameKeys(table, rows);
       tables[table] = tables[table] || [];
       tables[table].push(...rows.map((r) => ({ ...r })));
+    },
+    // rows merged into the one that shares their keys, as PostgREST's merge-duplicates does
+    upsert: async (table, rows, on) => {
+      const keys = on.split(',');
+      tables[table] = tables[table] || [];
+      const out = [];
+      for (const r of rows) {
+        const hit = tables[table].find((x) => keys.every((k) => x[k] === r[k]));
+        if (hit) Object.assign(hit, r);
+        else tables[table].push({ ...r });
+        out.push({ ...(hit || r) });
+      }
+      return out;
     },
     insertIgnore: async (table, rows, on) => {
       sameKeys(table, rows);

@@ -57,6 +57,8 @@ export const STATED_RULES = `REFS AND WHAT EACH SENTENCE STATES
 
 const TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/;
+const YEAR = /^\d{4}$/;
 
 /** A stated time in the agreed form, as HH:MM, or null. */
 export function normalTime(value) {
@@ -64,9 +66,15 @@ export function normalTime(value) {
   return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
 }
 
-/** A stated date in the agreed form, or null. */
+/**
+ * A stated date in an agreed form, or null: a day as YYYY-MM-DD, a month said
+ * without its day as YYYY-MM and a year said alone as YYYY. Only the story,
+ * which names months and years, is told of the last two; from any writer a
+ * month or a year holds when a day of its record falls in it.
+ */
 export function normalDate(value) {
   const s = String(value || '').trim();
+  if (MONTH.test(s) || YEAR.test(s)) return s;
   const m = DATE.exec(s);
   if (!m) return null;
   const d = new Date(`${s}T12:00:00Z`);
@@ -101,8 +109,8 @@ export function numbersOf(item) {
   if (item.kind === 'date') {
     const d = normalDate(item.value);
     if (!d) return [];
-    const [y, mo, day] = d.split('-').map(Number);
-    return [y, y % 100, mo, day];
+    // a month or a year accounts for only the parts it has
+    return d.split('-').map(Number).flatMap((n, i) => (i === 0 ? [n, n % 100] : [n]));
   }
   if (item.kind === 'number') {
     const n = normalNumber(item.value);
@@ -128,8 +136,12 @@ function inFields(item, record) {
     }
     case 'date': {
       const d = normalDate(item.value);
-      if ((record.dates || []).includes(d)) return true;
-      return (record.spans || []).some((s) => s && s[0] && d >= s[0] && d <= (s[1] || s[0]));
+      // a month or a year holds when a day of the record's falls in it
+      const n = d.length;
+      if ((record.dates || []).some((x) => String(x).slice(0, n) === d)) return true;
+      return (record.spans || []).some(
+        (s) => s && s[0] && d >= String(s[0]).slice(0, n) && d <= String(s[1] || s[0]).slice(0, n),
+      );
     }
     case 'number':
       return (record.numbers || []).includes(normalNumber(item.value));
@@ -184,8 +196,11 @@ const list = (x) => (Array.isArray(x) ? x : []);
  * @param sentence { text, refs, stated }
  * @param records Map ref -> record, everything the writer was given
  * @param opts.glanceable the line can be seen without the person opening anything
+ * @param opts.listed false for a sentence stored before what it states was
+ *   kept (a correction asks about it again): it has no list, so its digits
+ *   are left to the words question, which reads numbers too
  */
-export function codeCheck(sentence, records, { glanceable = false } = {}) {
+export function codeCheck(sentence, records, { glanceable = false, listed = true } = {}) {
   const text = clean(sentence?.text);
   const problems = [];
   const given = (r) => typeof r === 'string' && records.has(r);
@@ -220,7 +235,7 @@ export function codeCheck(sentence, records, { glanceable = false } = {}) {
     else if (result === 'unheld') unheld.push(item);
   }
   const accounted = new Set(stated.flatMap(numbersOf));
-  const loose = digitsIn(text).filter((n) => !accounted.has(n));
+  const loose = listed ? digitsIn(text).filter((n) => !accounted.has(n)) : [];
   if (loose.length)
     problems.push({
       step: 'digits',

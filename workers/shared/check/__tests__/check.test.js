@@ -93,6 +93,17 @@ describe('the stated values', () => {
       'malformed',
     );
     expect(compareValue({ kind: 'number', value: 'three' }, records.get('t1'))).toBe('malformed');
+    // a month or a year needs its year; a day of a month with no year is no form
+    expect(compareValue({ kind: 'date', value: '10-07' }, records.get('f1'))).toBe('malformed');
+    expect(compareValue({ kind: 'date', value: '2026-13' }, records.get('f1'))).toBe('malformed');
+  });
+
+  it('a month or a year said without its day holds when a day of the record falls in it', () => {
+    expect(compareValue({ kind: 'date', value: '2026-10' }, records.get('f1'))).toBe('match');
+    expect(compareValue({ kind: 'date', value: '2026' }, records.get('c1'))).toBe('match');
+    // the exact date record holds no day in September: wrong
+    expect(compareValue({ kind: 'date', value: '2026-09' }, records.get('c1'))).toBe('differs');
+    expect(compareValue({ kind: 'date', value: '2025' }, records.get('f1'))).toBe('unheld');
   });
 });
 
@@ -107,6 +118,8 @@ describe('digits', () => {
     expect(numbersOf({ kind: 'time', value: '14:30' })).toEqual([14, 2, 30]);
     expect(numbersOf({ kind: 'time', value: '00:15' })).toEqual([0, 12, 15]);
     expect(numbersOf({ kind: 'date', value: '2026-10-09' })).toEqual([2026, 26, 10, 9]);
+    expect(numbersOf({ kind: 'date', value: '2026-10' })).toEqual([2026, 26, 10]);
+    expect(numbersOf({ kind: 'date', value: '2026' })).toEqual([2026, 26]);
     expect(numbersOf({ kind: 'number', value: '1.5' })).toEqual([1.5, 1, 5, 1, 5]);
     expect(numbersOf({ kind: 'number', value: '1200' })).toEqual(
       expect.arrayContaining([1200, 1, 200]),
@@ -163,6 +176,12 @@ describe('the code steps', () => {
   it('fail a number in digits that the list does not state', () => {
     const r = codeCheck(sentence('Three things today, 3 of them quick.', ['t1'], []), records);
     expect(r.problems).toHaveLength(1);
+  });
+
+  it('leave the digits of a stored sentence with no list to the words question', () => {
+    const s = { text: 'The Q4 deck takes about 30 min', refs: ['t1'], stated: [] };
+    expect(codeCheck(s, records).problems.map((p) => p.step)).toEqual(['digits']);
+    expect(codeCheck(s, records, { listed: false }).problems).toEqual([]);
   });
 
   it("add a stated value's record to the refs", () => {

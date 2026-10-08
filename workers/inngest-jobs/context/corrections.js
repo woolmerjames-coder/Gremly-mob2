@@ -1,13 +1,17 @@
 /**
  * Corrections: when a person says something Gremly holds is wrong, the fact is
  * marked corrected with their words, and every place that repeated it is
- * rewritten straight away: today's DCO, Life Map threads, the profile text,
- * world cards and any live date anchors. Later runs see the correction and
- * cannot bring the old claim back.
+ * rewritten straight away. Later runs see the correction and cannot bring the
+ * old claim back.
  *
- * A model decides which facts and passages the correction is about and writes
- * the replacement wording. Code applies exactly what it returns, to the ids it
- * was shown, and nothing else.
+ * Three steps (data fabric stage 6). First a model works out what they put
+ * right and what is true instead, from the ledger and their words alone, and
+ * code changes the facts and people as it says. Then code finds, in
+ * passage_refs, every stored sentence that rests on what changed, and each
+ * goes back to its own writer's one sentence path with the records it rests on
+ * as they now stand (correctionPassages.js). The profile, which no writer
+ * records yet, is read once beside them. Code applies exactly what is
+ * returned, to the ids it was shown, and nothing else.
  *
  * An answer to one of Gremly's questions arrives the same way. The model also
  * says whether their words answer the question at all: when they ask something
@@ -23,8 +27,9 @@ import { invalidateChatCache } from './cache';
 import { peopleAfterCorrection } from './people';
 import { answerPersonQuestion, writePersonQuestion, tomorrowFor } from './peopleQuestions';
 import { personNow } from '../../shared/day.js';
+import { restingPassages, rewritePassages, glanceable, tidyDay, moveDayRefs } from './correctionPassages';
 
-export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-07';
+export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-16b';
 
 const CORRECTION_SCHEMA = {
   type: 'object',
@@ -69,20 +74,10 @@ const CORRECTION_SCHEMA = {
         required: ['statement', 'subject', 'state'],
       },
     },
-    rewrites: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          passage_ref: { type: 'string' },
-          new_text: { type: 'string', nullable: true },
-        },
-        required: ['passage_ref'],
-      },
-    },
     retire_anchor_refs: { type: 'array', items: { type: 'string' } },
+    line_refs: { type: 'array', items: { type: 'string' } },
   },
-  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'rewrites', 'retire_anchor_refs'],
+  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'retire_anchor_refs', 'line_refs'],
 };
 
 /**
@@ -97,7 +92,7 @@ export function questionOutcome(question, output) {
 }
 
 function systemPrompt(today, person) {
-  return `The person has told Gremly something that changes what it holds about their life: that something is wrong, that something has changed or already happened, an answer to one of Gremly's questions, or that something should be kept private. Your job is to apply it everywhere, exactly and only where it applies.
+  return `The person has told Gremly something that changes what it holds about their life: that something is wrong, that something has changed or already happened, an answer to one of Gremly's questions, or that something should be kept private. Your job is to work out exactly what it changes in the ledger, and only that. Every sentence Gremly wrote from what changes is written again afterwards by the writer that wrote it.
 
 TODAY'S DATE: ${today}
 
@@ -112,10 +107,10 @@ WHAT TO DO
 - When they say something has happened or is done, mark that fact as happened.
 - When what they said is given as their answer to one of Gremly's questions, first decide whether it answers it, and say so in answers_question. It answers the question when it tells Gremly what the question was asking, in whole or in part, or tells Gremly the question is wrong, no longer applies or is not one they want to be asked. It does not answer the question when it only asks Gremly something back, or speaks of something else and leaves what was asked as unknown as it was. When there is no question, answers_question is true.
 - When it answers the question, apply the answer the same way: confirm, change, correct or add facts as the answer says. When it does not, the question tells you nothing new about their life: apply only what their own words say, which may be nothing.
-- When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. So rewrite only the passages marked glanceable that name it, and leave every other passage as it is; nothing about it was wrong.
+- When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. Nothing about it was wrong, so mark nothing corrected for it.
 - If they stated what is true, record it as a new fact in their words, with the day it is about whenever it has one: for something that comes round every year, the date of one of its days. When the ledger already holds what they say, as they say it, add nothing beside it.
-- For each passage of Gremly-written text that repeats or relies on the wrong or outdated claim, write a replacement that removes it and reads naturally, keeping everything else in the passage as it was. If nothing would be left worth saying, return null for that passage so it is cleared. Leave untouched any passage the correction does not concern; do not list it.
 - Retire any date anchor that only exists because of the wrong claim.
+- When you are shown lines Gremly showed them, of their day or of a World or Chapter, and what they said is about those lines, name in line_refs each line that says something they have just said is not so, and each line seen at a glance that shows something they asked to keep private. Name none when what they said is about something else.
 - Never argue with the correction and never keep the old claim in softened form.
 
 ${WRITING_RULES}`;
@@ -144,154 +139,171 @@ export function correctedField(field, text, nowIso) {
   return { [field]: text, [`${field}_updated_at`]: nowIso };
 }
 
-/** Collect every Gremly-written passage that could carry the wrong claim. */
-async function loadPassages(env, userId, today) {
+/**
+ * What a correction tidies besides the sentences resting on what changed: the
+ * day's structured parts (its anchors, claims and reach), the Life Map's
+ * evidence, story items wholly resting on corrected facts, the profile and the
+ * live date anchors.
+ */
+async function loadAround(env, userId, today) {
   const d = db(env);
-  const [dcoRows, lifeMapRows, profileRows, worlds, anchors, chapters, storyItems] = await Promise.all([
+  const [dcoRows, lifeMapRows, profileRows, anchors, storyItems] = await Promise.all([
     d.select(`user_daily_state?user_id=eq.${userId}&date=gte.${today}&select=id,date,dco`),
     d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`),
     d.select(`user_profiles?user_id=eq.${userId}&select=user_id,profile_text`),
-    d.select(`worlds?owner_id=eq.${userId}&phase=in.(candidate,active,evolving,dormant)&select=id,display_name,name,card_subtitle,card_subtitle_source,summary,summary_source,key_priorities`),
     d.select(`user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=id,title,description,resolved_date,source_message`),
-    d.select(`chapters?owner_id=eq.${userId}&select=id,title,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source&limit=80`),
     d.select(`story_items?user_id=eq.${userId}&state=eq.current&select=id,kind,title,body,fact_ids&limit=200`),
   ]);
-
-  const passages = [];
-  // Glanceable passages are read at a glance (notifications, headlines, card lines).
-  const GLANCE = new Set(['brief_headline', 'lead_story', 'today_focus', 'brief.headline', 'brief.day_shape', 'worlds_summary', 'card_subtitle']);
-  const add = (kind, locator, text) => {
-    if (!text || typeof text !== 'string' || !text.trim()) return;
-    const where = locator.field || (locator.path || []).filter((x) => typeof x === 'string').join('.');
-    const glance = GLANCE.has(where) || GLANCE.has(where.split('.')[0]);
-    passages.push({ ref: `p${passages.length + 1}`, kind, locator, text, where: `${kind} ${where}${glance ? ' (glanceable)' : ''}` });
-  };
-
-  for (const row of dcoRows) {
-    const dco = row.dco || {};
-    add('dco', { id: row.id, path: ['brief_headline'] }, dco.brief_headline);
-    add('dco', { id: row.id, path: ['lead_story', 'what'] }, dco.lead_story?.what);
-    add('dco', { id: row.id, path: ['lead_story', 'why_today'] }, dco.lead_story?.why_today);
-    add('dco', { id: row.id, path: ['voice_note'] }, dco.voice_note);
-    add('dco', { id: row.id, path: ['life_moment'] }, dco.life_moment);
-    (dco.today_focus || []).forEach((t, i) => add('dco', { id: row.id, path: ['today_focus', i] }, t));
-    (dco.also_matters || []).forEach((t, i) => add('dco', { id: row.id, path: ['also_matters', i] }, t));
-    add('dco', { id: row.id, path: ['brief', 'headline'] }, dco.brief?.headline);
-    add('dco', { id: row.id, path: ['brief', 'day_shape'] }, dco.brief?.day_shape);
-    add('dco', { id: row.id, path: ['brief', 'reach', 'why'] }, dco.brief?.reach?.why);
-    add('dco', { id: row.id, path: ['brief', 'return', 'note'] }, dco.brief?.return?.note);
-    (dco.brief?.claims || []).forEach((c, i) => add('dco', { id: row.id, path: ['brief', 'claims', i, 'why'] }, c?.why));
-    add('dco', { id: row.id, path: ['worlds_summary', 'headline'] }, dco.worlds_summary?.headline);
-  }
-
-  const lm = lifeMapRows?.[0];
-  add('life_map', { id: lm?.id, path: ['story', 'story_so_far'] }, lm?.life_map?.story?.story_so_far);
-  add('life_map', { id: lm?.id, path: ['story', 'story_for_them'] }, lm?.life_map?.story?.story_for_them);
-  if (lm?.life_map?.domains) {
-    lm.life_map.domains.forEach((dom, di) => {
-      (dom.threads || []).forEach((t, ti) => {
-        add('life_map', { id: lm.id, path: ['domains', di, 'threads', ti, 'summary'] }, t.summary);
-        add('life_map', { id: lm.id, path: ['domains', di, 'threads', ti, 'recent_update'] }, t.recent_update);
-      });
-    });
-  }
-
-  const prof = profileRows?.[0];
-  if (prof?.profile_text) add('profile', { user_id: prof.user_id, field: 'profile_text' }, prof.profile_text);
-
-  for (const w of worlds) {
-    if (!isTheirs(w, 'card_subtitle')) add('world', { id: w.id, field: 'card_subtitle' }, w.card_subtitle);
-    if (!isTheirs(w, 'summary')) add('world', { id: w.id, field: 'summary' }, w.summary);
-    (Array.isArray(w.key_priorities) ? w.key_priorities : []).forEach((k, i) =>
-      add('world', { id: w.id, field: 'key_priorities', index: i }, typeof k === 'string' ? k : k?.text),
-    );
-  }
-
-  for (const c of chapters || []) {
-    for (const field of ['card_subtitle', 'summary', 'epigraph']) {
-      if (!isTheirs(c, field)) add('chapter', { id: c.id, field }, c[field]);
-    }
-  }
-  for (const s of storyItems || []) {
-    add('story', { id: s.id, field: 'title' }, s.title);
-    add('story', { id: s.id, field: 'body' }, s.body);
-  }
-
   const anchorRefs = new Map();
-  const anchorLines = anchors.map((a, i) => {
+  const anchorLines = (anchors || []).map((a, i) => {
     const ref = `a${i + 1}`;
     anchorRefs.set(ref, a);
     return `${ref} | ${a.resolved_date || 'no date'} | ${a.title}${a.description ? `: ${a.description}` : ''}`;
   });
-
-  return { passages, anchorRefs, anchorLines, lifeMap: lm, worlds, dcoRows, storyItems: storyItems || [] };
+  return {
+    anchorRefs,
+    anchorLines,
+    lifeMap: lifeMapRows?.[0] || null,
+    profile: profileRows?.[0] || null,
+    dcoRows: dcoRows || [],
+    storyItems: storyItems || [],
+  };
 }
 
-function setPath(obj, path, value) {
-  let cur = obj;
-  for (let i = 0; i < path.length - 1; i++) {
-    if (cur[path[i]] == null) return false;
-    cur = cur[path[i]];
-  }
-  const last = path[path.length - 1];
-  if (Array.isArray(cur) && value == null) {
-    cur.splice(last, 1, null);
-  } else {
-    cur[last] = value;
-  }
-  return true;
+/** The lines of a day Gremly showed them, by the field that holds each (daily.js). Pure. */
+export function dayLinesOf(dco) {
+  const lines = [];
+  const add = (field, text) => {
+    if (typeof text === 'string' && text.trim()) lines.push({ ref: `d${lines.length + 1}`, field, text });
+  };
+  if (!dco) return lines;
+  add('brief_headline', dco.brief_headline);
+  add('brief.day_shape', dco.brief?.day_shape);
+  add('lead_story.what', dco.lead_story?.what);
+  add('lead_story.why_today', dco.lead_story?.why_today);
+  (dco.today_focus || []).forEach((t, i) => add(`today_focus.${i}`, t));
+  (dco.also_matters || []).forEach((t, i) => add(`also_matters.${i}`, t));
+  (dco.brief?.claims || []).forEach((c, i) => add(`brief.claims.${i}.why`, c?.why));
+  add('brief.reach.why', dco.brief?.reach?.why);
+  add('brief.return.note', dco.brief?.return?.note);
+  return lines;
 }
 
-function compactArrays(obj, paths) {
-  for (const p of paths) {
-    let cur = obj;
-    for (const k of p) cur = cur?.[k];
-    if (Array.isArray(cur)) {
-      const kept = cur.filter((x) => x != null);
-      cur.length = 0;
-      cur.push(...kept);
+// The lines of a World or Chapter Gremly wrote, and the writer of each
+// (data fabric stage 4b): the words under it, Gremly's notes on it and, for a
+// Chapter that has ended, its memory.
+const CARD_FIELDS = {
+  worlds: [
+    ['card_subtitle', 'words', 'the words under it'],
+    ['summary', 'weekly', "Gremly's notes on it"],
+  ],
+  chapters: [
+    ['card_subtitle', 'words', 'the words under it'],
+    ['summary', 'weekly', "Gremly's notes on it"],
+    ['epigraph', 'memory', 'its memory'],
+  ],
+};
+
+/**
+ * The lines of Worlds or Chapters Gremly showed them, by the field and writer
+ * of each. A line they wrote themselves is theirs and is not among them: no
+ * writer writes it again. Pure.
+ */
+export function cardLinesOf(rows, table) {
+  const lines = [];
+  for (const r of rows || []) {
+    const name = table === 'worlds' ? r.display_name || r.name : r.title;
+    for (const [field, writer, what] of CARD_FIELDS[table] || []) {
+      const text = r[field];
+      if (typeof text !== 'string' || !text.trim() || r[`${field}_source`] === 'user') continue;
+      lines.push({
+        ref: `c${lines.length + 1}`,
+        field,
+        text,
+        where: `${table === 'worlds' ? 'World' : 'Chapter'} "${trim(name || 'unnamed', 80)}", ${what}`,
+        row_table: table,
+        row_id: r.id,
+        writer,
+        surface: table === 'worlds' ? 'world' : 'chapter',
+        glance: glanceable({ writer, field }),
+      });
     }
   }
+  return lines;
 }
 
 /**
- * Take corrected facts out of the structured parts of a DCO: date anchors,
- * the coming-up list, brief claims and the reach. Keeps the copies of the
- * focus and lead story in daily_focus in step with the top-level fields.
+ * The lines Gremly showed them that what they said may be about: today's,
+ * when it came from their day, or a World's or Chapter's, when it came from
+ * one (all of that kind when the app did not say which).
  */
-function scrubDco(dco, corrected, retiredTitles = []) {
-  const ids = new Set(corrected.map((f) => f.id));
-  const statements = new Set([...corrected.map((f) => f.statement), ...retiredTitles]);
-  if (Array.isArray(dco.named_anchors)) {
-    dco.named_anchors = dco.named_anchors.filter((a) => !ids.has(a?.fact_id) && !statements.has(a?.title) && !statements.has(a?.label));
+async function shownLines(d, userId, correction, dcoRows, today) {
+  if (correction.surface === 'brief' || correction.target_kind === 'chat') {
+    const day = dcoRows.find((r) => r.date === today);
+    return day
+      ? dayLinesOf(day.dco).map((l) => ({
+          ...l,
+          where: 'today',
+          row_table: 'user_daily_state',
+          row_id: day.id,
+          writer: 'daily',
+          surface: 'daily',
+          glance: glanceable({ writer: 'daily', field: l.field }),
+        }))
+      : [];
   }
-  // the day frame: a corrected fact no longer sets travel or a set time
-  const frame = dco.day_frame;
-  if (frame && typeof frame === 'object') {
-    const cites = (x) => (x?.fact_ids || []).some((id) => ids.has(id));
-    if (Array.isArray(frame.blocks)) frame.blocks = frame.blocks.filter((b) => !ids.has(b?.fact_id));
-    if (cites(frame.travel)) frame.travel = null;
-    if (cites(frame.away)) frame.away = null;
-  }
-  if (Array.isArray(dco.active_today?.upcoming_in_7d)) {
-    dco.active_today.upcoming_in_7d = dco.active_today.upcoming_in_7d.filter((u) => !statements.has(u?.title));
-  }
-  if (dco.brief) {
-    if (Array.isArray(dco.brief.claims)) {
-      dco.brief.claims = dco.brief.claims.filter((c) => c && !(c.type === 'fact' && ids.has(c.id)) && c.why !== null);
-    }
-    const r = dco.brief.reach;
-    if (r && ((r.type === 'fact' && ids.has(r.id)) || (r.facts || []).some((f) => ids.has(f.id)) || r.why === null)) dco.brief.reach = null;
-    if (dco.brief.return && dco.brief.return.note === null) dco.brief.return = null;
-  }
-  if (dco.lead_story && dco.lead_story.what == null) dco.lead_story = null;
-  if (dco.lead_story && dco.lead_story.detail != null && dco.lead_story.what !== dco.lead_story.detail && dco.pipeline === 'dco-v4') {
-    dco.lead_story.detail = dco.lead_story.what;
-  }
-  if (dco.daily_focus) {
-    dco.daily_focus.today_focus = dco.today_focus || [];
-    dco.daily_focus.lead_story = dco.lead_story || null;
-  }
+  const table = { chapter: 'chapters', world: 'worlds' }[correction.target_kind];
+  if (!table) return [];
+  const id = /^[0-9a-f-]{36}$/i.test(String(correction.target_ref?.id || '')) ? correction.target_ref.id : null;
+  const cols =
+    table === 'chapters'
+      ? 'id,title,card_subtitle,card_subtitle_source,summary,summary_source,epigraph,epigraph_source'
+      : 'id,name,display_name,card_subtitle,card_subtitle_source,summary,summary_source';
+  const rows = await d.select(`${table}?owner_id=eq.${userId}${id ? `&id=eq.${id}` : ''}&select=${cols}&order=created_at.desc&limit=40`);
+  return cardLinesOf(rows, table);
+}
+
+const PROFILE_SCHEMA = {
+  type: 'object',
+  properties: { same: { type: 'boolean' }, text: { type: 'string' } },
+  required: ['same', 'text'],
+};
+
+/**
+ * The profile every conversation reads, read once against what they put
+ * right: returned with only what is now wrong changed, or as it was. No
+ * writer records what the profile rests on, so it is the one text a
+ * correction still reads whole.
+ */
+export async function profileAfterCorrection(env, { profileText, person, said, put, added }) {
+  if (!profileText || !put.length) return null;
+  const { output } = await jsonCall(env, {
+    primary: modelFor(env, 'rewrite'),
+    fallback: modelFor(env, 'rewriteFallback'),
+    system: `You keep the short profile Gremly reads before every conversation with one person. They have just put something right about their life.
+
+${personBlock(person)}
+
+${CARE_RULES}
+
+- When the profile says anything that is now wrong or out of date because of what they put right, return it with only that changed, so it reads naturally and keeps everything else exactly as it was. Never keep the old claim in a softened form.
+- When it says nothing about what they put right, return same as true and the text as it was.
+
+${WRITING_RULES}`,
+    user: `WHAT THEY SAID: "${trim(said, 1200)}"
+
+WHAT THEY PUT RIGHT (as the ledger now holds it):
+${put.map((f) => `- ${f.statement} (${f.state === 'corrected' ? 'wrong, they said' : f.state === 'changed' ? 'it has changed' : 'it has happened'})`).join('\n')}
+${added.length ? `\nWHAT IS TRUE INSTEAD, IN THEIR WORDS:\n${added.map((f) => `- ${f.statement}`).join('\n')}\n` : ''}
+THE PROFILE:
+${trim(profileText, 6000)}`,
+    schema: PROFILE_SCHEMA,
+    maxTokens: 4000,
+    thinking: 'low',
+    effort: 'low',
+  });
+  if (!output || output.same || typeof output.text !== 'string' || !output.text.trim()) return null;
+  return output.text.trim();
 }
 
 /**
@@ -373,8 +385,11 @@ export async function applyCorrection(env, correctionId, runId) {
     return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${f.statement}`;
   });
 
-  const { passages, anchorRefs, anchorLines, lifeMap, worlds, dcoRows, storyItems } = await loadPassages(env, userId, today);
-  const passageRefs = new Map(passages.map((p) => [p.ref, p]));
+  const { anchorRefs, anchorLines, profile, dcoRows, storyItems } = await loadAround(env, userId, today);
+  const person = await personIdentity(env, userId);
+  // what they said about lines Gremly showed them reaches those lines even
+  // when it changes nothing in the ledger: step one names the lines it is about
+  const shown = await shownLines(d, userId, correction, dcoRows, today);
 
   const user = `WHAT THE PERSON SAID (${correction.surface}${correction.target_kind ? `, about ${correction.target_kind}` : ''}):
 "${trim(correction.said, 1500)}"
@@ -383,25 +398,25 @@ ${conversation ? `CONVERSATION AROUND IT:\n${conversation}\n` : ''}
 LEDGER FACTS (ref | state | date, or its day each year | statement):
 ${factLines.join('\n') || '(none)'}
 
-GREMLY-WRITTEN PASSAGES (ref | where | text):
-${passages.map((p) => `${p.ref} | ${p.where} | ${trim(p.text, 4000)}`).join('\n') || '(none)'}
-
 LIVE DATE ANCHORS (ref | date | title):
-${anchorLines.join('\n') || '(none)'}`;
+${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOWED THEM THAT THIS MAY BE ABOUT (ref | where | how it is seen | line):\n${shown.map((l) => `${l.ref} | ${l.where} | ${l.glance ? 'seen at a glance' : 'seen when they open it'} | ${trim(l.text, 300)}`).join('\n')}` : ''}`;
 
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'rewrite'),
     fallback: modelFor(env, 'rewriteFallback'),
-    system: systemPrompt(today, await personIdentity(env, userId)),
+    system: systemPrompt(today, person),
     user,
     schema: CORRECTION_SCHEMA,
     maxTokens: 8000,
-    thinking: 'medium',
-    effort: 'medium',
+    // low: the same calls on the replay and on real corrections, at a third
+    // of the cost (scripts/corrections-replay, data fabric stage 6)
+    thinking: 'low',
+    effort: 'low',
   });
 
   const nowIso = new Date().toISOString();
   const result = { understood: output.understood, model, facts_corrected: 0, facts_changed: 0, facts_happened: 0, facts_made_private: 0, facts_added: 0, passages_rewritten: 0, anchors_retired: 0 };
+  const happenedFacts = [];
   const correctedIds = [];
   const correctedFacts = [];
 
@@ -449,6 +464,7 @@ ${anchorLines.join('\n') || '(none)'}`;
       { fact_id: f.id, user_id: userId, from_state: f.state, to_state: 'happened', reason: trim(c.why, 400), source_table: 'user_corrections', source_id: correction.id, run_id: runId },
     ]);
     touched.add(f.id);
+    happenedFacts.push(f);
     result.facts_happened++;
   }
   // Keep it private: nothing was wrong, it just stays off glanceable places from now on.
@@ -464,6 +480,8 @@ ${anchorLines.join('\n') || '(none)'}`;
   const newFactRows = (output.new_facts || [])
     .filter((f) => f.statement)
     .map((f) => ({
+      // its id is given here, so a sentence written again can rest on it
+      id: crypto.randomUUID(),
       user_id: userId,
       statement: trim(f.statement, 400),
       subject: f.subject ? trim(f.subject, 80) : null,
@@ -483,82 +501,56 @@ ${anchorLines.join('\n') || '(none)'}`;
     result.facts_added = newFactRows.length;
   }
 
-  // Passage rewrites, grouped by the row they live in.
-  const dcoEdits = new Map();
-  const lifeMapCopy = lifeMap ? JSON.parse(JSON.stringify(lifeMap.life_map)) : null;
-  let lifeMapChanged = false;
-  const worldPatches = new Map();
-  const chapterPatches = new Map();
-  const storyPatches = new Map();
-  let profilePatch = null;
-  for (const r of output.rewrites || []) {
-    const p = passageRefs.get(r.passage_ref);
-    if (!p) continue;
-    const text = r.new_text == null ? null : trim(r.new_text, 4000);
-    if (p.kind === 'dco') {
-      if (!dcoEdits.has(p.locator.id)) dcoEdits.set(p.locator.id, []);
-      dcoEdits.get(p.locator.id).push({ path: p.locator.path, text });
-    } else if (p.kind === 'life_map' && lifeMapCopy) {
-      setPath(lifeMapCopy, p.locator.path, text);
-      lifeMapChanged = true;
-    } else if (p.kind === 'profile') {
-      profilePatch = text || '';
-    } else if (p.kind === 'chapter') {
-      const patch = chapterPatches.get(p.locator.id) || {};
-      patch[p.locator.field] = text;
-      chapterPatches.set(p.locator.id, patch);
-    } else if (p.kind === 'story') {
-      const patch = storyPatches.get(p.locator.id) || {};
-      patch[p.locator.field] = text;
-      storyPatches.set(p.locator.id, patch);
-    } else if (p.kind === 'world') {
-      const w = worlds.find((x) => x.id === p.locator.id);
-      if (!w) continue;
-      const patch = worldPatches.get(w.id) || {};
-      if (p.locator.field === 'key_priorities') {
-        const list = patch.key_priorities || JSON.parse(JSON.stringify(w.key_priorities || []));
-        const item = list[p.locator.index];
-        if (text == null) list[p.locator.index] = null;
-        else if (item && typeof item === 'object') list[p.locator.index] = { ...item, text };
-        else list[p.locator.index] = text;
-        patch.key_priorities = list;
-      } else {
-        patch[p.locator.field] = text;
-      }
-      worldPatches.set(w.id, patch);
+  // The sentences resting on what changed, each sent back to its own writer
+  // with the records it rests on as they now stand (correctionPassages.js).
+  // Someone in a fact that changed is part of what changed.
+  const changedIds = [...correctedIds, ...changedFacts.map((f) => f.id), ...happenedFacts.map((f) => f.id)];
+  const privateIds = privateFacts.map((f) => f.id);
+  const personIds = changedIds.length
+    ? ((await d.select(`life_fact_people?user_id=eq.${userId}&fact_id=in.(${changedIds.join(',')})&select=person_id`)) || []).map((x) => x.person_id)
+    : [];
+  const resting = await restingPassages(d, userId, { changedIds, privateIds, personIds });
+  // the lines they said are not so, or show what they keep private, sent
+  // back to their writers whether or not anything in the ledger changed under them
+  const named = new Set(output.line_refs || []);
+  for (const l of shown.filter((x) => named.has(x.ref))) {
+    const known = resting.find((r) => r.row_table === l.row_table && r.row_id === l.row_id && r.field === l.field);
+    if (known) known.pointed = true;
+    else {
+      const [rec] =
+        (await d.select(
+          `passage_refs?user_id=eq.${userId}&row_table=eq.${l.row_table}&row_id=eq.${l.row_id}&field=eq.${encodeURIComponent(l.field)}&select=id,surface,row_table,row_id,field,fact_ids,person_ids,items,writer`,
+        )) || [];
+      resting.push({
+        ...(rec || { surface: l.surface, row_table: l.row_table, row_id: l.row_id, field: l.field, fact_ids: [], person_ids: [], items: [], writer: l.writer }),
+        why: 'pointed',
+        pointed: true,
+      });
     }
-    result.passages_rewritten++;
   }
+  result.lines_named = shown.filter((x) => named.has(x.ref)).length;
+  const added = newFactRows.map((f) => ({ id: f.id, statement: f.statement, about_date: f.about_date }));
+  const rewrote = await rewritePassages(env, { userId, person, today, said: correction.said, added, rows: resting, nowIso });
+  result.passages = { found: resting.length, ...rewrote, details: undefined };
+  result.passages_rewritten = rewrote.rewritten + rewrote.cleared + rewrote.words + rewrote.memories;
+  // what happened to each, by table, field and outcome; never the words
+  result.passage_outcomes = rewrote.details.map((x) => ({ table: x.table, field: x.field, writer: x.writer, outcome: x.outcome, steps: x.steps || [] }));
 
-  for (const [chapterId, patch] of chapterPatches) {
-    const body = { updated_at: nowIso };
-    for (const field of ['card_subtitle', 'summary', 'epigraph']) {
-      if (field in patch) Object.assign(body, correctedField(field, patch[field], nowIso));
-    }
-    await d.update(`chapters?id=eq.${chapterId}&owner_id=eq.${userId}`, body);
-  }
-
-  // Story items: rewritten, or retired when nothing true is left, and retired
-  // when every fact they rest on was corrected.
-  let storyChanged = false;
+  // Story items wholly resting on corrected facts are retired, and an item
+  // resting on a fact now kept private becomes private too.
+  let storyChanged = rewrote.details.some((x) => x.table === 'story_items' && x.outcome !== 'kept');
   const corrected = new Set(correctedIds);
-  const nowPrivate = new Set(privateFacts.map((f) => f.id));
-  for (const s of storyItems) {
-    // A story item resting on a fact they asked to keep private becomes private too.
-    if (nowPrivate.size && Array.isArray(s.fact_ids) && s.fact_ids.some((id) => nowPrivate.has(id))) {
-      await d.update(`story_items?id=eq.${s.id}&user_id=eq.${userId}`, { private: true, updated_at: nowIso });
+  const nowPrivate = new Set(privateIds);
+  // an item its writer wrote again rests on what it now cites (correctionPassages.js)
+  const rewritten = new Set(rewrote.details.filter((x) => x.table === 'story_items' && x.outcome === 'rewritten').map((x) => x.id));
+  for (const it of storyItems) {
+    if (nowPrivate.size && Array.isArray(it.fact_ids) && it.fact_ids.some((id) => nowPrivate.has(id))) {
+      await d.update(`story_items?id=eq.${it.id}&user_id=eq.${userId}`, { private: true, updated_at: nowIso });
       storyChanged = true;
     }
-    const patch = storyPatches.get(s.id);
-    const allCorrected = Array.isArray(s.fact_ids) && s.fact_ids.length > 0 && s.fact_ids.every((id) => corrected.has(id));
-    if (allCorrected || (patch && (patch.title === null || patch.body === null))) {
-      await d.update(`story_items?id=eq.${s.id}&user_id=eq.${userId}`, { state: 'corrected', correction_text: trim(correction.said, 600), updated_at: nowIso });
-      storyChanged = true;
-    } else if (patch) {
-      const body = { updated_at: nowIso, correction_text: trim(correction.said, 600) };
-      if (patch.title) body.title = patch.title;
-      if (patch.body) body.body = patch.body;
-      await d.update(`story_items?id=eq.${s.id}&user_id=eq.${userId}`, body);
+    const allCorrected = Array.isArray(it.fact_ids) && it.fact_ids.length > 0 && it.fact_ids.every((id) => corrected.has(id));
+    if (allCorrected && !rewritten.has(it.id)) {
+      await d.update(`story_items?id=eq.${it.id}&user_id=eq.${userId}`, { state: 'corrected', correction_text: trim(correction.said, 600), updated_at: nowIso });
       storyChanged = true;
     }
   }
@@ -572,55 +564,60 @@ ${anchorLines.join('\n') || '(none)'}`;
     result.anchors_retired++;
   }
 
-  // Claims, the reach and date anchors drop anything corrected, changed or now private.
+  // Claims, the reach and date anchors drop anything corrected, changed or now
+  // private. Read again, after the lines resting on them were written again.
   const scrubbed = [...correctedFacts, ...changedFacts, ...privateFacts];
-  const dcoRowIds = new Set([...dcoEdits.keys(), ...(scrubbed.length || retiredTitles.length ? dcoRows.map((r) => r.id) : [])]);
-  for (const rowId of dcoRowIds) {
-    const [row] = await d.select(`user_daily_state?id=eq.${rowId}&select=dco,dco_shadow`);
-    if (!row) continue;
-    const dco = row.dco || {};
-    for (const e of dcoEdits.get(rowId) || []) setPath(dco, e.path, e.text);
-    compactArrays(dco, [['today_focus'], ['also_matters'], ['brief', 'claims']]);
-    scrubDco(dco, scrubbed, retiredTitles);
-    dco.corrections_applied = [...(dco.corrections_applied || []), { correction_id: correction.id, at: nowIso }];
-    const patch = { dco, updated_at: nowIso };
-    // The shadow DCO is scrubbed of corrected facts too, so comparisons stay fair.
-    if (row.dco_shadow && (scrubbed.length || retiredTitles.length)) {
-      const sh = row.dco_shadow;
-      scrubDco(sh, scrubbed, retiredTitles);
-      patch.dco_shadow = sh;
+  if (scrubbed.length || retiredTitles.length)
+    for (const { id: rowId } of dcoRows) {
+      const [row] = await d.select(`user_daily_state?id=eq.${rowId}&select=dco,dco_shadow`);
+      if (!row) continue;
+      const dco = row.dco || {};
+      const moves = tidyDay(dco, scrubbed, retiredTitles);
+      dco.corrections_applied = [...(dco.corrections_applied || []), { correction_id: correction.id, at: nowIso }];
+      const patch = { dco, updated_at: nowIso };
+      // The shadow DCO is scrubbed of corrected facts too, so comparisons stay fair.
+      if (row.dco_shadow) {
+        const sh = row.dco_shadow;
+        tidyDay(sh, scrubbed, retiredTitles);
+        patch.dco_shadow = sh;
+      }
+      await d.update(`user_daily_state?id=eq.${rowId}`, patch);
+      // what each line rests on follows it to where it now is
+      await moveDayRefs(d, userId, rowId, moves);
     }
-    await d.update(`user_daily_state?id=eq.${rowId}`, patch);
-  }
-  // Life Map evidence that rests on a corrected fact goes too.
-  if (lifeMapCopy && correctedFacts.length) {
-    const ids = new Set(correctedIds);
-    for (const dom of lifeMapCopy.domains || []) {
-      for (const t of dom?.threads || []) {
-        if (!Array.isArray(t?.evidence)) continue;
-        const kept = t.evidence.filter((e) => !ids.has(e?.fact_id));
-        if (kept.length !== t.evidence.length) {
-          t.evidence = kept;
-          lifeMapChanged = true;
+  // Life Map evidence that rests on a corrected fact goes too, from the map as
+  // it stands after its threads were written again.
+  if (correctedFacts.length) {
+    const [lm] = (await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`)) || [];
+    if (lm?.life_map) {
+      const ids = new Set(correctedIds);
+      let changed = false;
+      for (const dom of lm.life_map.domains || [])
+        for (const t of dom?.threads || []) {
+          if (!Array.isArray(t?.evidence)) continue;
+          const kept = t.evidence.filter((e) => !ids.has(e?.fact_id));
+          if (kept.length !== t.evidence.length) {
+            t.evidence = kept;
+            changed = true;
+          }
         }
+      if (changed) {
+        lm.life_map.updated_at = nowIso;
+        await d.update(`user_life_map?id=eq.${lm.id}`, { life_map: lm.life_map, updated_at: nowIso });
       }
     }
   }
-  if (lifeMapChanged) {
-    lifeMapCopy.updated_at = nowIso;
-    await d.update(`user_life_map?id=eq.${lifeMap.id}`, { life_map: lifeMapCopy, updated_at: nowIso });
-  }
   if (storyChanged) await refreshLifeMapStory(env, userId);
-  if (profilePatch !== null) {
-    await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: profilePatch });
-  }
-  for (const [worldId, patch] of worldPatches) {
-    const body = { updated_at: nowIso };
-    for (const field of ['card_subtitle', 'summary']) {
-      if (field in patch) Object.assign(body, correctedField(field, patch[field], nowIso));
+  // the profile, read once against what they put right
+  try {
+    const put = [...correctedFacts.map((f) => ({ ...f, state: 'corrected' })), ...changedFacts.map((f) => ({ ...f, state: 'changed' })), ...happenedFacts.map((f) => ({ ...f, state: 'happened' }))];
+    const text = await profileAfterCorrection(env, { profileText: profile?.profile_text, person, said: correction.said, put, added });
+    if (text) {
+      await d.update(`user_profiles?user_id=eq.${userId}`, { profile_text: text });
+      result.profile_rewritten = true;
     }
-    if ('key_priorities' in patch) body.key_priorities = patch.key_priorities.filter((x) => x != null);
-    await d.update(`worlds?id=eq.${worldId}&owner_id=eq.${userId}`, body);
+  } catch (err) {
+    console.warn(`[ALERT][Corrections] the profile could not be read against a correction for ${userId}: ${String(err?.message || err).slice(0, 160)}`);
   }
 
   // Their words close the question only when they answer it. Asked something
