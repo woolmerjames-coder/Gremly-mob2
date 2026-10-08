@@ -46,7 +46,6 @@ import WorldDetailScreen from '../app/screens/WorldDetailScreen';
 import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
 import YourStoryScreen from '../app/screens/YourStoryScreen';
 import GremlyQuestionsScreen from '../app/screens/GremlyQuestionsScreen';
-import ScopedChatScreen from '../app/screens/ScopedChatScreen';
 
 // Wrapper to bridge navigation params to HabitBuilderScreen props
 function HabitBuilderWrapper({ navigation, route }: any) {
@@ -118,12 +117,6 @@ export type RootStackParamList = {
   ChapterDetail: { chapterId: string };
   YourStory: undefined;
   GremlyQuestions: undefined;
-  ScopedChat: {
-    scopeType: 'world' | 'chapter';
-    scopeId: string;
-    scopeName: string;
-    chatId?: string;
-  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -387,14 +380,6 @@ export default function RootNavigator() {
             name="GremlyQuestions"
             component={GremlyQuestionsScreen}
             options={{ headerShown: false, animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="ScopedChat"
-            component={ScopedChatScreen}
-            options={{ headerShown: false, animation: 'slide_from_right' }}
-            getId={({ params }) =>
-              `${params?.scopeType}-${params?.scopeId}-${params?.chatId ?? 'new'}`
-            }
           />
           {__DEV__ && (
             <Stack.Screen

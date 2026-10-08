@@ -166,6 +166,8 @@ import {
 } from './context/chatProjection.js';
 import { checkTurn } from './context/corrections.js';
 import { fetchPageDetail, pageAnchorFrom } from './context/pageDetail.js';
+import { rememberChapterNo } from './context/saidNo.js';
+import { judgeKeep } from './context/keep.js';
 import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
@@ -2292,6 +2294,24 @@ function pageScopeOf(body) {
 }
 
 /**
+ * The Save button under a reply worth keeping (Worlds rebuild, stage 2,
+ * context/keep.js), for an app build that can show it, in Ask Gremly, a
+ * World's or a Chapter's chat or the box on Worlds. Null when there is none.
+ */
+function keepCheck(env, body, userId, reply, card = false) {
+  if (!userId || body?.worldsCard !== true || body?.chatSurface === 'brief' || !reply)
+    return Promise.resolve(null);
+  return judgeKeep({
+    env,
+    userId,
+    message: lastUserText(body),
+    reply,
+    page: pageAnchorFrom(body?.anchorEntity),
+    card,
+  }).catch(() => null);
+}
+
+/**
  * One Ask Gremly message answered by the agent (agent/chat.js): status lines
  * while it works, then its reply and its card on the chat's stream, then what
  * follows every reply (the chat's summary, an item chat's summary and the
@@ -2336,12 +2356,16 @@ async function answerWithAgent({
   }
   const reply = turn.reply;
   const latency = Date.now() - t0;
+  // whether the reply is worth a Save button, read while it goes out
+  const keepP = keepCheck(env, body, userId, reply, (turn.card || []).length > 0);
   await send({ delta: reply, done: false });
+  const keep = await keepP;
   await send({
     done: true,
     full_content: reply,
     save_suggestion: null,
     entity_card: null,
+    ...(keep ? { keep } : {}),
     // the agent offers anything new on its card, so no Save items pill follows
     extraction: 'skipped',
     agent: {
@@ -3389,6 +3413,7 @@ const cortexHandler = {
         'forget-me',
         'chapter-memory',
         'worlds-changed',
+        'chapter-said-no',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7697,6 +7722,12 @@ ${assistantMessage.substring(0, 2000)}
         ).catch(() => null);
         if (!res) return j({ error: 'could not reach the pipeline' }, 502);
         return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : res.status);
+      }
+
+      // chapter-said-no: a Chapter Gremly offered in chat that they said no to
+      // (Worlds rebuild, stage 2), kept so it is never offered again
+      if (type === 'chapter-said-no') {
+        return j(await rememberChapterNo(env, authenticatedUserId, body.chapters));
       }
 
       // =========================
@@ -12938,6 +12969,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               const save_suggestion = smartSuggestion || null;
 
               const latency = Date.now() - t0;
+              // the Save button under a reply worth keeping (Worlds rebuild, stage 2)
+              const keep = await keepCheck(env, body, authenticatedUserId, fullContent);
               await writer.write(
                 encoder.encode(
                   `data: ${JSON.stringify({
@@ -12945,6 +12978,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     full_content: fullContent,
                     save_suggestion,
                     entity_card: entityCard || null,
+                    ...(keep ? { keep } : {}),
                     // whether the Save items pill and a late card may follow, so the
                     // app knows to wait for them (it watches for this turn's marker)
                     extraction:

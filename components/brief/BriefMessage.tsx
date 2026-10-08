@@ -17,6 +17,7 @@ import type {
   BriefMeta,
   BriefOfferMeta,
   BriefPlanMeta,
+  KeepOfferMeta,
   OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
@@ -39,6 +40,8 @@ export type BriefMessageProps = {
   renderWrap?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
   /** The weekly review's cards and the button to their week (lib/week), drawn by the screen that owns the review */
   renderWeek?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
+  /** The Save button under a reply worth keeping (lib/worlds/keep.ts), drawn by the chat it is in */
+  renderKeep?: (message: SpaceChatMessage, meta: KeepOfferMeta) => React.ReactNode;
   /** Buttons left out of a live offer for now (Write a few lines, while the box already saves to the journal) */
   hiddenActions?: OfferAction[];
   /**
@@ -62,6 +65,7 @@ function BriefMessageInner({
   renderChanges,
   renderWrap,
   renderWeek,
+  renderKeep,
   hiddenActions,
   showOffer,
   renderHabitWeek,
@@ -135,6 +139,10 @@ function BriefMessageInner({
     case 'week-card':
     case 'week-offer': {
       const drawn = renderWeek?.(message, meta);
+      return drawn ? <View style={styles.card}>{drawn}</View> : null;
+    }
+    case 'keep-offer': {
+      const drawn = renderKeep?.(message, meta);
       return drawn ? <View style={styles.card}>{drawn}</View> : null;
     }
     default:

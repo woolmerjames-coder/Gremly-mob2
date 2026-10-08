@@ -71,7 +71,7 @@ export async function readPlaces(ctx) {
 export const worldName = (w) => String(w?.display_name || w?.name || '').trim() || 'a World';
 export const isHidden = (w) => w?.phase === 'archived';
 export const isClosed = (c) => !!c?.closed_at || c?.phase === 'closed';
-const isOpen = (c) => !isClosed(c) && OPEN.includes(c?.phase);
+export const isOpen = (c) => !isClosed(c) && OPEN.includes(c?.phase);
 
 /** The Worlds and Chapters in the shape the change model checks against. */
 export function checkPlaces(places) {

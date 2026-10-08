@@ -30,6 +30,7 @@ import { costUsd } from '../../workers/shared/aiUsage.js';
 import { formatWeekAhead, weekFrom } from '../../workers/cortex/context/weekAhead.js';
 import { formatDatedAhead } from '../../workers/cortex/context/datedAhead.js';
 import { fetchPageDetail } from '../../workers/cortex/context/pageDetail.js';
+import { judgeKeep } from '../../workers/cortex/context/keep.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -286,8 +287,25 @@ function check(s, r, back) {
     else if (e.offer === 'week') add('The Your week button', !!offer && offer.done === true, JSON.stringify(offer));
     else if (e.offer !== 'may') add('No week button unasked', !offer, JSON.stringify(offer));
   }
+  // the Save button under a reply worth keeping (Worlds rebuild, stage 2):
+  // there when the scenario says it is worth keeping, with the kind and the
+  // place it names; never there when the scenario says it is not
+  if (placesOn(s) && e.keep !== undefined) {
+    const k = r.keep || null;
+    const seen = JSON.stringify(k ? { ...k, place: k.place ? { ...k.place, id: short(k.place.id) } : null } : null);
+    if (e.keep === false) add('No Save button', !k, seen);
+    else if (!k && e.keepOr && rows.some(e.keepOr)) add('Made on the card instead', true);
+    else {
+      add('A Save button', !!k, seen);
+      if (k && e.keep.kind) add(`Kept as a ${e.keep.kind}`, k.kind === e.keep.kind, seen);
+      if (k && e.keep.place !== undefined)
+        add('Names where it belongs', [].concat(e.keep.place).includes(k.place ? short(k.place.id) : null), seen);
+      if (k && e.keep.minLines) add(`At least ${e.keep.minLines} lines kept`, k.lines.length >= e.keep.minLines, seen);
+    }
+  }
   add('At most one question', asked <= 1, reply);
-  add('No dashes as punctuation', !/\s[-–—]\s|—/.test(reply), reply);
+  // a list's bullet marks are not dashes
+  add('No dashes as punctuation', !/\s[-–—]\s|—/.test(reply.replace(/^\s*[-*]\s+/gm, '')), reply);
   add('A reply', reply.trim().length > 0, reply);
   return { checks: out, rows };
 }
@@ -354,8 +372,19 @@ async function runOne(s, modelKey) {
         },
       },
     });
+    if (!r.ok) return { model: modelKey, ms: Date.now() - started, error: `the agent did not finish: ${r.error}` };
+    // the Save button under a reply worth keeping, as cortex checks it after every reply (context/keep.js)
+    if (placesOn(s))
+      r.keep = await judgeKeep({
+        env,
+        userId: USER,
+        message: s.text,
+        reply: r.reply,
+        page: s.page ? { type: s.page.type, id: to.get(s.page.id), title: s.page.title || 'page' } : null,
+        card: (r.card || []).length > 0,
+        deps: { db },
+      });
     const ms = Date.now() - started;
-    if (!r.ok) return { model: modelKey, ms, error: `the agent did not finish: ${r.error}` };
     return { model: modelKey, ms, out: r, calls, triage: triage ? { mode: triage.mode, personal: triage.personal, lane: triage.lane } : null, ...check(s, r, back) };
   } catch (err) {
     return { model: modelKey, ms: Date.now() - started, error: String(err?.message || err) };
@@ -407,7 +436,7 @@ const done = await pool(jobs, 4, async ({ s, m }) => {
   );
   if (r.out) {
     console.log(`      reply: ${r.out.reply}`);
-    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields, ...(c.ease ? { ease: c.ease } : {}), ...(c.into ? { into: c.into } : {}) })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}`);
+    console.log(`      card: ${JSON.stringify(r.rows.map((c) => ({ op: c.op, type: c.type, id: c.id, title: c.title, fields: c.fields, ...(c.ease ? { ease: c.ease } : {}), ...(c.into ? { into: c.into } : {}) })))}  tools: ${(r.out.tools || []).join(', ') || 'none'}${r.out.offer ? `  offer: ${r.out.offer.done ? 'Your week' : 'Plan your week'}` : ''}${r.out.keep ? `  keep: ${r.out.keep.kind} "${r.out.keep.title}" (${r.out.keep.lines.length} lines) to ${r.out.keep.place ? idsFor(s).back.get(r.out.keep.place.id) || r.out.keep.place.id : 'pick'}` : ''}`);
   }
   return { id: s.id, kind: s.kind, ...r };
 });

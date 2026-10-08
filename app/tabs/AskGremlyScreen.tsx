@@ -107,6 +107,7 @@ import type {
   BriefOfferMeta,
   BriefPlanMeta,
   DailyThreadMeta,
+  KeepOfferMeta,
   OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
@@ -152,6 +153,8 @@ import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 import { PlanPickSheet } from '../../components/brief/PlanPickSheet';
 import { HomeChips } from '../../components/home/HomeChips';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
+import { keepOfferFrom, pagePlace } from '../../lib/worlds/keep';
+import { KeepOffer } from '../../components/worlds/KeepOffer';
 import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
@@ -244,6 +247,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const wakeOnInput = useWakeOnInput();
+  // a World's or a Chapter's own chat: what is kept from it goes there unless Gremly says otherwise
+  const keepPageRef = useRef(pagePlace(item?.anchor));
+  keepPageRef.current = pagePlace(item?.anchor);
   // set further down, once the hooks they call exist
   const wrapResumeRef = useRef<() => Promise<void>>(async () => undefined);
   const weekReviewRef = useRef<WeekReview | null>(null);
@@ -791,6 +797,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 });
               }
               void keepAgentTasks(chat, agent.tasks ?? []);
+            }
+            // the Save button under a reply worth keeping (Worlds rebuild, stage 2)
+            const keep = keepOfferFrom(richResult?.keep, keepPageRef.current);
+            if (keep) {
+              await appendBriefMessage('system', '', {
+                type: 'keep-offer',
+                ...keep,
+              } as unknown as Record<string, unknown>);
             }
             if (richResult?.entity_card) {
               await appendEntityCard(richResult.entity_card);
@@ -1762,6 +1776,20 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     },
     [item, openEntity],
   );
+  // the Save button under a reply worth keeping (lib/worlds/keep.ts): the
+  // message keeps where it went, and Open it opens the note it made
+  const renderKeep = useCallback(
+    (message: SpaceChatMessage, meta: KeepOfferMeta) => (
+      <KeepOffer
+        messageId={message.id}
+        meta={meta}
+        onSaved={(saved) => patchMessageMetadata(message.id, { saved })}
+        onUndone={() => patchMessageMetadata(message.id, { saved: null })}
+        onOpen={(id, title) => openChangeItem({ id, type: 'note', title })}
+      />
+    ),
+    [patchMessageMetadata, openChangeItem],
+  );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
   const renderChanges = useRenderChanges(
     { ...changeActions, apply: applyAndFollow },
@@ -1968,6 +1996,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             renderChanges={renderChanges}
             renderWrap={renderWrap}
             renderWeek={renderWeek}
+            renderKeep={renderKeep}
             hiddenActions={hiddenActions}
             showOffer={showOffer}
             renderHabitWeek={renderHabitWeek}
@@ -2000,6 +2029,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       renderChanges,
       renderWrap,
       renderWeek,
+      renderKeep,
       hiddenActions,
       showOffer,
       renderHabitWeek,

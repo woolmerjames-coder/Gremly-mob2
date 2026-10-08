@@ -13,6 +13,7 @@ import type { AgentTask, DayChange } from '../cortex/CortexClient';
 import type { Change } from '../changes/model';
 import type { SweepRecord } from '../changes/sweep';
 import type { ThreadBlock } from './dayRecord';
+import type { KeepOffer, KeepPlace } from '../worlds/keep';
 
 /** The part of the day a brief was written for. */
 export type DayPart = 'morning' | 'afternoon' | 'evening';
@@ -34,7 +35,9 @@ export type BriefMessageType =
   | 'sweep-end'
   // the weekly review in the same thread (lib/week)
   | 'week-card'
-  | 'week-offer';
+  | 'week-offer'
+  // the Save button under a reply worth keeping (lib/worlds/keep.ts)
+  | 'keep-offer';
 
 /** Fields every brief message carries. */
 interface BriefMetaBase {
@@ -450,6 +453,13 @@ export interface WeekOfferMeta extends BriefMetaBase {
   done: boolean;
 }
 
+/** Something in a reply of Gremly's worth keeping, with the Save button under it (lib/worlds/keep.ts). */
+export interface KeepOfferMeta extends BriefMetaBase, KeepOffer {
+  type: 'keep-offer';
+  /** Once saved: the note it made, and where it went */
+  saved?: { id: string; place: KeepPlace } | null;
+}
+
 export type BriefMeta =
   | BriefTextMeta
   | BriefDayCardMeta
@@ -465,7 +475,8 @@ export type BriefMeta =
   | SweepItemMeta
   | SweepEndMeta
   | WeekCardMeta
-  | WeekOfferMeta;
+  | WeekOfferMeta
+  | KeepOfferMeta;
 
 /** Where tonight's wrap up has got to. */
 export type WrapStep =

@@ -75,6 +75,7 @@ export const HELPER_JOB_VARS = {
   correction_check: 'MODEL_CORRECTION_CHECK', // context/corrections.js: did they say Gremly has something wrong
   wrap_words: 'MODEL_WRAP_WORDS', // wrap/words.js: Gremly's own words in the evening wrap up
   age_words: 'MODEL_AGE_WORDS', // age/words.js: What got me here, the line on the age up page
+  keep_offer: 'MODEL_KEEP_OFFER', // context/keep.js: whether a chat reply is worth a Save button, and where it goes
 };
 
 /**

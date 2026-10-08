@@ -29,12 +29,15 @@ export function Sheet({
   label,
   children,
   testID,
+  snack = true,
 }: {
   visible: boolean;
   onClose: () => void;
   label: string;
   children: ReactNode;
   testID?: string;
+  /** The Worlds screens' Undo message shows over the sheet; false where there is none (a chat) */
+  snack?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -64,7 +67,7 @@ export function Sheet({
             {children}
           </ScrollView>
         </View>
-        <UndoSnack bottom={12 + insets.bottom} />
+        {snack ? <UndoSnack bottom={12 + insets.bottom} /> : null}
       </KeyboardAvoidingView>
     </Modal>
   );

@@ -524,7 +524,7 @@ SCENARIOS.push(
     text: 'Can you rename my Lisbon trip chapter to Portugal trip? We are doing Porto too',
     items: [],
     ...P,
-    expect: { rows: 1, row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && /portugal trip/i.test(c.fields?.name || '') },
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && /portugal trip/i.test(c.fields?.name || '') },
   },
   {
     id: 'places-dates-moved',
@@ -533,6 +533,7 @@ SCENARIOS.push(
     items: [],
     ...P,
     expect: {
+      keep: false,
       rows: 1,
       row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && c.fields?.start_day === '2026-11-27' && c.fields?.end_day === '2026-11-29',
     },
@@ -568,7 +569,7 @@ SCENARIOS.push(
     items: [],
     worlds: [...P.worlds.filter((w) => w.id !== 'wBand'), { id: 'wBand', name: 'Old band' }],
     chapters: P.chapters,
-    expect: { rows: 1, row: (c) => c.op === 'archive' && c.type === 'world' && c.id === 'wBand' },
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'archive' && c.type === 'world' && c.id === 'wBand' },
   },
   {
     id: 'places-delete',
@@ -618,7 +619,7 @@ SCENARIOS.push(
     text: 'This is done!',
     items: [],
     ...P,
-    expect: { rows: 1, row: (c) => c.op === 'close' && c.type === 'chapter' && c.id === 'cFence' },
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'close' && c.type === 'chapter' && c.id === 'cFence' },
   },
   {
     id: 'page-chapter-dates',
@@ -651,7 +652,7 @@ SCENARIOS.push(
     items: [{ id: 'flights', kind: 'todo', title: 'Book flights', due_day: '2026-10-09' }],
     links: [{ item: 'flights', chapter: 'cLisbon', world: 'wTravel' }],
     ...P,
-    expect: { rows: 1, row: (c) => c.op === 'done' && c.id === 'flights' },
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'done' && c.id === 'flights' },
   },
   {
     id: 'page-world-start',
@@ -664,5 +665,70 @@ SCENARIOS.push(
       askOrRows: true,
       some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHome',
     },
+  },
+);
+
+// Save from chat (Worlds rebuild, stage 2, decision 3): under a reply worth
+// keeping, a Save button naming the Chapter or World it belongs in. Gremly
+// judges which replies are worth keeping (cortex context/keep.js, after every
+// reply). On a page's own chat a button with no place names the page, so no
+// place passes there.
+SCENARIOS.push(
+  {
+    id: 'keep-packing-page',
+    kind: 'Save from chat',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'Make me a packing list for this',
+    items: [],
+    ...P,
+    // the agent may make the list itself, on the card, in this Chapter; a list in the reply has the Save button
+    expect: {
+      maxRows: 1,
+      keepOr: (c) => c.op === 'add' && c.type === 'note' && (c.fields?.chapters?.add || []).includes('cLisbon'),
+      keep: { kind: 'list', place: ['cLisbon', null], minLines: 5 },
+    },
+  },
+  {
+    id: 'keep-ideas-home',
+    kind: 'Save from chat',
+    text: 'What should we do in Lisbon? Give me a few ideas',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'cLisbon', minLines: 3 } },
+  },
+  {
+    id: 'keep-plan-world',
+    kind: 'Save from chat',
+    text: 'Can you give me a simple four week plan to get back into running? Nothing too hard',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wHealth', minLines: 4 } },
+  },
+  {
+    id: 'keep-chat-only',
+    kind: 'Save from chat',
+    text: 'Ugh, long day. Work was a lot',
+    items: [],
+    ...P,
+    expect: { rows: 0, keep: false },
+  },
+  {
+    id: 'keep-quick-answer',
+    kind: 'Save from chat',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'Is Lisbon an hour ahead of London or the same?',
+    items: [],
+    ...P,
+    expect: { rows: 0, keep: false },
+  },
+  {
+    // a Chapter they said no to is never offered again, but when they ask for it, it is made
+    id: 'places-declined-asked',
+    kind: 'Worlds and Chapters',
+    text: 'Actually we are doing the kitchen redo after all. Start a chapter for it, starting in March',
+    items: [],
+    ...P,
+    declined: ['Kitchen redo'],
+    expect: { askOrRows: true, some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHome' },
   },
 );
