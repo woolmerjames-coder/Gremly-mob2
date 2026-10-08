@@ -37,11 +37,11 @@ import { recentCorrections } from './corrections';
 import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../../shared/aiUsage';
-import { stateWords } from '../../shared/factTiming.js';
+import { dayOn, stateWords, whenTrue } from '../../shared/factTiming.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { oldWorldsFieldsStopped, withoutOldFields } from '../../shared/worldsFields.js';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-01d';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-13a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -300,7 +300,7 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     story,
   ] = await Promise.all([
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,timing,about_date,about_date_end,state,observed_at,last_confirmed_at,private&order=last_confirmed_at.desc&limit=400`,
     ),
     d.select(
       `life_facts_now?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private&order=updated_at.desc&limit=150`,
@@ -392,9 +392,12 @@ export function renderWeek(g, today) {
   };
   const factLine = (f) => {
     const ref = add('f', { type: 'fact', ...f });
-    const when = f.about_date
-      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
-      : 'no date';
+    // a standing fact holds with no date, a yearly one on its next day (stage 4d)
+    const on = dayOn(f, today);
+    const when =
+      f.timing === 'standing' || f.timing === 'yearly' || !f.about_date
+        ? `${whenTrue(f, today)}${f.timing === 'yearly' && on ? ` (${relativeDay(on, today)})` : ''}`
+        : `${whenTrue(f)} (${relativeDay(f.about_date, today)})`;
     return `${ref} | ${stateWords(f, today)}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`;
   };
   const weekItemIds = new Set([...g.created.map((t) => t.id), ...g.completed.map((t) => t.id)]);
@@ -769,7 +772,10 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     // once the old Worlds fields stop (shared/worldsFields.js), neither the
     // phase nor the priorities are written: a World is there or hidden
     if (oldWorldsFieldsStopped(env)) delete patch.phase;
-    await d.update(`worlds?id=eq.${id}&owner_id=eq.${userId}`, withoutOldFields('worlds', patch, env));
+    await d.update(
+      `worlds?id=eq.${id}&owner_id=eq.${userId}`,
+      withoutOldFields('worlds', patch, env),
+    );
   }
 
   // Chapters: the words, stage label and priorities, never the person's own edits.

@@ -25,7 +25,13 @@ import {
 import { jsonCall, modelFor } from './llm';
 import { minutesIn } from '../../shared/calendar.js';
 import { personDay, personNow } from '../../shared/day.js';
-import { stateWords } from '../../shared/factTiming.js';
+import {
+  stateWords,
+  FACT_TIMINGS,
+  TIMING_RULES,
+  validTiming,
+  dayOn,
+} from '../../shared/factTiming.js';
 import { FACT_KINDS, KIND_RULES, validKind } from '../../shared/factKinds.js';
 import {
   FACT_PEOPLE_SCHEMA,
@@ -53,7 +59,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-08n';
+export const READER_PROMPT_VERSION = 'reader-2026-10-13c';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -70,6 +76,7 @@ export const READER_SCHEMA = {
           statement: { type: 'string' },
           subject: { type: 'string' },
           kind: { type: 'string', enum: FACT_KINDS },
+          timing: { type: 'string', enum: FACT_TIMINGS },
           about_date: { type: 'string', nullable: true },
           about_date_end: { type: 'string', nullable: true },
           date_confidence: { type: 'string', enum: ['exact', 'approximate', 'unknown'] },
@@ -85,6 +92,7 @@ export const READER_SCHEMA = {
           'statement',
           'subject',
           'kind',
+          'timing',
           'health',
           'people',
           'date_confidence',
@@ -174,12 +182,15 @@ ${CARE_RULES}
 
 WHAT BELONGS IN THE LEDGER
 - Facts a thoughtful friend would want to remember to understand what is going on in this person's life: plans and trips, commitments and deadlines, events that happened, people who matter and what is happening with them, ongoing situations, goals, routines they keep, and things they say they want or prefer.
+- The day an occasion in their life falls on, and whose occasion it is, belongs in the ledger whenever the person gives it, however much in passing, and above all when they put Gremly right about it. A plan made around an occasion never stands in for the occasion's own day: each is a fact of its own.
 - Not every record produces a fact. Routine chores, passing remarks and app housekeeping usually do not. Be selective; a short, accurate ledger is worth more than a long one.
 - Write each statement in plain words, about the person, in the third person, as true as of the record's date. Keep it to one sentence.
 - A statement says what the record shows. Whether a later record confirmed it is carried by the state, not written into the statement.
 - Records that say the same thing produce one fact, not one per record.
 
 ${KIND_RULES}
+
+${TIMING_RULES}
 
 ${PEOPLE_RULES}
 
@@ -191,6 +202,7 @@ EVIDENCE
 RECORDS THAT CHANGED OR WENT
 - A record marked as changed was made before and has changed since. It is shown as it stands now, with what changed and the ledger facts already taken from it. Add a fact only for what it now says that the ledger does not hold. When what it now says adds to or alters one of those facts, update that fact instead of adding a second one. When the change adds nothing, return nothing for it.
 - A record marked as deleted cannot be shown; the ledger facts taken from it are listed. Deleting can be tidying, so the deletion alone changes none of those facts, not even to unconfirmed: change one only when the ledger or the other records show it no longer holds.
+- A record marked as read before was read under older rules and is shown again, with the ledger facts already taken from it. The ledger already holds what came after it, so leave every fact as it is: add a fact only for what the record says that those facts and the rest of the ledger miss, and return nothing for a record whose facts already say all it holds. A listed fact that was put right, changed or replaced already stands for what the record said: the ledger keeps the later version, so add nothing for it.
 - A record split into parts is one record. Read the parts together.
 
 ITEMS
@@ -228,10 +240,11 @@ function trim(text, n) {
 const READ_TABLES = ['notes', 'todos', 'habits', 'synced_calendar_events', 'weekly_reviews'];
 const ROW_SELECT = {
   notes:
-    'id,title,body,subtype,journal_subtype,date,target_date,end_date,event_time,mood,views,list_items,origin,archived,archived_reason,created_at',
+    'id,title,body,subtype,journal_subtype,date,target_date,end_date,event_time,mood,views,list_items,reminders_json,origin,external_source,archived,archived_reason,created_at',
   todos:
-    'id,title,body,notes,due_day,due_date,scheduled_date,target_date,status,completed_at,archived,archived_reason,resurface_at,sweep_reschedule_count,views,list_items,created_at',
-  habits: 'id,name,title,frequency,why_string,notes,archived,archived_reason,created_at',
+    'id,title,body,notes,due_day,due_date,scheduled_date,target_date,status,completed_at,archived,archived_reason,resurface_at,sweep_reschedule_count,views,list_items,reminders_json,origin,created_at',
+  habits:
+    'id,name,title,frequency,why_string,notes,start_date,end_date,reminders_json,origin,archived,archived_reason,created_at',
   synced_calendar_events:
     'id,title,location,start_at,end_at,is_all_day,archived,cancelled_at,created_at',
   weekly_reviews: 'id,week_start,status,answers,read,created_at,updated_at',
@@ -239,6 +252,20 @@ const ROW_SELECT = {
 // Gremly's own saves of a chat (Save from chat) are his reading of it, not the
 // person's words: the chat itself is read
 const NOT_GREMLYS = 'or=(origin.is.null,origin.neq.chat_save)';
+
+/**
+ * Whether a row first saved in this read, though made before it, is one the
+ * reader reads as new: the same rules as the reads of what was made in the
+ * window (Gremly's own saves of a chat, imported notes and calendar entries
+ * no longer on the calendar are not).
+ */
+export function lateReadable(table, row) {
+  if (!row) return false;
+  if (table === 'synced_calendar_events') return row.archived !== true;
+  if (table === 'notes' && row.external_source) return false;
+  if (['todos', 'notes', 'habits'].includes(table)) return row.origin !== 'chat_save';
+  return false;
+}
 
 async function rowsByIds(d, table, ids) {
   const out = [];
@@ -283,13 +310,15 @@ export function gatherChanges(logRows) {
 }
 
 /** The ledger facts taken from each record, by "table:id". Facts set aside are left out. */
-async function factsFrom(d, userId, refs) {
+export async function factsFrom(d, userId, refs, { all = false } = {}) {
   const out = new Map();
   for (let i = 0; i < refs.length; i += 60) {
     const chunk = refs.slice(i, i + 60);
     const ids = [...new Set(chunk.map((r) => r.id))];
+    // the catch up sees every fact a record ever gave, the corrected and the
+    // replaced too, so nothing the person put right comes back
     const rows = await d.select(
-      `life_fact_sources?user_id=eq.${userId}&source_id=in.(${ids.join(',')})&select=fact_id,source_table,source_id,life_facts!inner(state)&life_facts.state=not.in.(superseded,corrected)&limit=2000`,
+      `life_fact_sources?user_id=eq.${userId}&source_id=in.(${ids.join(',')})&select=fact_id,source_table,source_id,life_facts!inner(state)${all ? '' : '&life_facts.state=not.in.(superseded,corrected)'}&limit=2000`,
     );
     for (const r of rows) {
       const key = `${r.source_table}:${r.source_id}`;
@@ -305,7 +334,13 @@ async function factsFrom(d, userId, refs) {
  * in it, and what changed in it to things made before runSince (the start of
  * this read, so a row made earlier in the same read is not read twice).
  */
-export async function loadRecords(env, userId, sinceIso, untilIso, { runSince = sinceIso } = {}) {
+export async function loadRecords(
+  env,
+  userId,
+  sinceIso,
+  untilIso,
+  { runSince = sinceIso, late: readLate = true } = {},
+) {
   const d = db(env);
   const w = (col) =>
     `&${col}=gt.${encodeURIComponent(sinceIso)}&${col}=lte.${encodeURIComponent(untilIso)}`;
@@ -321,7 +356,7 @@ export async function loadRecords(env, userId, sinceIso, untilIso, { runSince = 
         `notes?owner_id=eq.${userId}&external_source=is.null&${NOT_GREMLYS}${w('created_at')}&select=${ROW_SELECT.notes}&order=created_at.asc&limit=5000`,
       ),
       d.select(
-        `habits?owner_id=eq.${userId}&${NOT_GREMLYS}${w('created_at')}&select=id,name,title,frequency,why_string,created_at&order=created_at.asc&limit=1000`,
+        `habits?owner_id=eq.${userId}&${NOT_GREMLYS}${w('created_at')}&select=${ROW_SELECT.habits}&order=created_at.asc&limit=1000`,
       ),
       d.select(
         `space_milestones?owner_id=eq.${userId}${w('created_at')}&select=id,title,name,date,note,completed,completed_at,created_at&order=created_at.asc&limit=1000`,
@@ -356,6 +391,7 @@ export async function loadRecords(env, userId, sinceIso, untilIso, { runSince = 
   }
   const changed = [];
   const reviews = [];
+  const late = { todos: [], notes: [], habits: [], synced_calendar_events: [] };
   for (const c of updated) {
     const row = current.get(`${c.table}:${c.row_id}`);
     if (!row) continue;
@@ -365,7 +401,33 @@ export async function loadRecords(env, userId, sinceIso, untilIso, { runSince = 
     }
     // made in this read: read as new, as it stands
     if (row.created_at > runSince) continue;
+    // made before this read but first saved now (a save made offline reaches
+    // the server late, with the time it was made): no read has seen it, so it
+    // is read as new, as it stands, under the same rules as anything made now
+    if (c.op === 'insert') {
+      if (readLate && lateReadable(c.table, row)) late[c.table].push(row);
+      continue;
+    }
     changed.push({ change: c, row });
+  }
+  const oldestFirst = (list) =>
+    list.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  // a late save an earlier read already read (it synced while that read ran) is not read again
+  const lateIds = Object.values(late).flatMap((l) => l.map((r) => String(r.id)));
+  if (lateIds.length) {
+    const read = await d
+      .select(
+        `ledger_reads?user_id=eq.${userId}&source_id=in.(${lateIds.join(',')})&select=source_table,source_id&limit=1000`,
+      )
+      .catch((err) => {
+        console.warn(
+          `[ALERT][Reader] could not check late saves against the marks for ${userId}: ${err?.message || err}`,
+        );
+        return [];
+      });
+    const seenRead = new Set(read.map((m) => `${m.source_table}:${m.source_id}`));
+    for (const t of Object.keys(late))
+      late[t] = late[t].filter((r) => !seenRead.has(`${t}:${r.id}`));
   }
 
   // the facts already taken from each changed or deleted record
@@ -399,14 +461,21 @@ export async function loadRecords(env, userId, sinceIso, untilIso, { runSince = 
     }
   }
 
+  if (Object.values(late).some((l) => l.length))
+    console.log(
+      `[Reader] ${userId}: read late as new ${Object.entries(late)
+        .filter(([, l]) => l.length)
+        .map(([t, l]) => `${l.length} ${t}`)
+        .join(', ')}`,
+    );
   return {
-    created,
+    created: oldestFirst([...created, ...late.todos]),
     completed,
-    notes,
-    habits,
+    notes: oldestFirst([...notes, ...late.notes]),
+    habits: oldestFirst([...habits, ...late.habits]),
     milestones,
     chats,
-    calendar,
+    calendar: oldestFirst([...calendar, ...late.synced_calendar_events]),
     overrides,
     answers,
     changed,
@@ -514,7 +583,7 @@ export function chunkRecords(items) {
 }
 
 const FACT_SELECT =
-  'id,statement,subject,kind,health,about_date,about_date_end,state,observed_at,private,item_table,item_done,item_archived,item_cancelled,item_gone';
+  'id,statement,subject,kind,timing,health,about_date,about_date_end,state,observed_at,private,correction_text,item_table,item_done,item_archived,item_cancelled,item_gone';
 
 /**
  * The facts worth showing alongside a chunk: still open, or recently
@@ -583,7 +652,7 @@ export function chunkRunId(baseRunId, chunk) {
   return `${baseRunId}:${first.at}:${first.id}${first.part ? `#${first.part}` : ''}`;
 }
 
-async function rollbackRun(d, userId, runId) {
+export async function rollbackRun(d, userId, runId) {
   const rid = encodeURIComponent(runId);
   const changes = await d.select(
     `life_fact_changes?user_id=eq.${userId}&run_id=eq.${rid}&select=id,fact_id,from_state&order=id.desc`,
@@ -647,7 +716,11 @@ function factStanding(f, today) {
   const item = f.item_table
     ? ` | about ${ITEM_WORDS[f.item_table] || 'an item'}${f.item_gone ? ', which is gone' : ''}${f.item_done ? ', done' : ''}${f.item_cancelled ? ', cancelled' : ''}${f.item_archived ? ', archived' : ''}`
     : '';
-  return `${stateWords(f, today)}${f.private ? ' [private]' : ''}${item}`;
+  const fixed =
+    f.state === 'corrected'
+      ? `, put right by them${f.correction_text ? `: "${trim(f.correction_text, 200)}"` : ''}`
+      : '';
+  return `${stateWords(f, today)}${fixed}${f.private ? ' [private]' : ''}${item}`;
 }
 
 export function readerRequest({
@@ -666,9 +739,15 @@ export function readerRequest({
     const ref = `f${i + 1}`;
     factRef.set(ref, f);
     refOfFact.set(f.id, ref);
-    const when = f.about_date
-      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
-      : 'no date';
+    const on = dayOn(f, today);
+    const when =
+      f.timing === 'standing'
+        ? 'standing, no date'
+        : f.timing === 'yearly' && on
+          ? `every year on ${String(f.about_date).slice(5, 10)}, next ${on} (${relativeDay(on, today)})`
+          : f.about_date
+            ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
+            : 'no date';
     return `${ref} | ${factStanding(f, today)} | ${when} | ${f.statement}`;
   });
   const recRef = new Map();
@@ -682,7 +761,14 @@ export function readerRequest({
       day !== clock.slice(0, 10)
         ? `, after midnight, so still ${weekdayName(day)} ${day} for them`
         : '';
-    const mark = r.kind === 'changed' ? '[changed] ' : r.kind === 'deleted' ? '[deleted] ' : '';
+    const mark =
+      r.kind === 'changed'
+        ? '[changed] '
+        : r.kind === 'deleted'
+          ? '[deleted] '
+          : r.kind === 'read_before'
+            ? '[read before] '
+            : '';
     const from = (r.factIds || []).map((id) => refOfFact.get(id)).filter(Boolean);
     const facts = r.kind
       ? ` | ledger facts from it: ${from.length ? from.join(', ') : 'none'}`
@@ -705,7 +791,7 @@ ${recordLines.join('\n')}`;
  * Read one chunk of records against the ledger and write the result.
  * Returns counts. Throws on model or database failure so Inngest retries.
  */
-export async function readChunk(env, userId, tz, chunk, baseRunId) {
+export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = false } = {}) {
   const d = db(env);
   // their day, and the hour it ends, for what each record's dates count from
   const { today, dayEndHour } = await personNow(env, userId, tz);
@@ -800,7 +886,10 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       statement: trim(f.statement, 400),
       subject: f.subject ? trim(f.subject, 80) : null,
       kind: validKind(f.kind),
+      timing: validTiming(f.timing),
       health: f.health === true,
+      // every reader reads a standing fact as having no date, and a yearly
+      // one on its next day (shared/factTiming.js)
       about_date: validDate(f.about_date),
       about_date_end: validDate(f.about_date_end),
       date_confidence: ['exact', 'approximate', 'unknown'].includes(f.date_confidence)
@@ -831,22 +920,48 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   // words, the whole record each comes from, before they are written (data
   // fabric stage 4c)
   const quoteOf = new Map(newRows.map((r) => [r.id, r.source_quote]));
-  const peoplePlan = await checkPlan(
-    env,
-    planPeople({
-      known: personRef,
-      facts: factPeople,
-      same: output.same_people,
-      userId,
-      runId,
-      refs: [...recRef.keys(), ...factRef.keys()],
-    }),
-    { person, wordsOf: (id) => recordOf.get(id) || quoteOf.get(id) || null },
-  );
+  const planned = planPeople({
+    known: personRef,
+    facts: factPeople,
+    same: output.same_people,
+    userId,
+    runId,
+    refs: [...recRef.keys(), ...factRef.keys()],
+  });
+  // An old record read again knows less than the ledger does now: the catch
+  // up adds people and ties, fills a name nobody has given yet, and changes
+  // no one's relationship (what it would have changed is counted)
+  if (reread) {
+    for (const [id, patch] of planned.updates) {
+      if (!('relationship' in patch)) continue;
+      counts.held_people = (counts.held_people || 0) + 1;
+      delete patch.relationship;
+      delete patch.relationship_fact_id;
+      if (!Object.keys(patch).length) planned.updates.delete(id);
+    }
+  }
+  const peoplePlan = await checkPlan(env, planned, {
+    person,
+    wordsOf: (id) => recordOf.get(id) || quoteOf.get(id) || null,
+  });
   Object.assign(counts, await writePeople(d, userId, peoplePlan));
 
+  // A catch up reads old records against a ledger that already holds what
+  // came after them (context/reread.js): it adds what was missed and changes
+  // no fact, so what it would change is counted and left, never applied.
+  if (reread) {
+    const held = {
+      held_updates: (output.fact_updates || []).length,
+      held_questions: (output.questions || []).length,
+      held_calendar: (output.calendar || []).length,
+    };
+    for (const [k, n] of Object.entries(held)) if (n) counts[k] = n;
+    if (held.held_updates || held.held_questions || held.held_calendar)
+      console.log(`[Reader] ${userId}: the catch up left ${JSON.stringify(held)}`);
+  }
+
   // Updates to existing facts
-  for (const u of output.fact_updates || []) {
+  for (const u of reread ? [] : output.fact_updates || []) {
     const fact = factRef.get(u.fact_ref);
     const src = recRef.get(u.source_ref);
     if (!fact || !src || !UPDATE_STATES.has(u.new_state) || u.new_state === fact.state) {
@@ -928,21 +1043,22 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
     counts.facts_updated++;
   }
 
-  // Confirmations
+  // Confirmations. A fact is confirmed as of its latest record: an older
+  // record (one read again, or a change to an old item) never moves it back.
   for (const c of output.confirmations || []) {
     const fact = factRef.get(c.fact_ref);
     const src = recRef.get(c.source_ref);
     if (!fact || !src) continue;
-    await d.update(`life_facts?id=eq.${fact.id}&user_id=eq.${userId}`, {
-      last_confirmed_at: src.at,
-      updated_at: nowIso,
-    });
+    await d.update(
+      `life_facts?id=eq.${fact.id}&user_id=eq.${userId}&or=(last_confirmed_at.is.null,last_confirmed_at.lt.${encodeURIComponent(`"${src.at}"`)})`,
+      { last_confirmed_at: src.at, updated_at: nowIso },
+    );
     sourceRows.push(sourceOf(fact.id, src, null, c.about_item === true));
     counts.confirmed++;
   }
 
   // Questions, one open question per fact at a time
-  for (const q of output.questions || []) {
+  for (const q of reread ? [] : output.questions || []) {
     if (!q.question) continue;
     const fact = q.fact_ref ? factRef.get(q.fact_ref) : null;
     const src = q.source_ref ? recRef.get(q.source_ref) : null;
@@ -988,7 +1104,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
   }
 
   // Calendar entries the reader judged cancelled, or on again: code stamps the entry
-  for (const c of output.calendar || []) {
+  for (const c of reread ? [] : output.calendar || []) {
     const src = recRef.get(c.ref);
     if (!src || src.table !== 'synced_calendar_events') {
       counts.rejected++;
@@ -1003,7 +1119,55 @@ export async function readChunk(env, userId, tz, chunk, baseRunId) {
       (counts[c.cancelled ? 'cancelled' : 'uncancelled'] || 0) + 1;
   }
 
+  // Which rules read each record, so a better rule can reach what was read
+  // under an older one (context/reread.js)
+  counts.marked = await markRead(d, userId, chunk);
+
   return counts;
+}
+
+/**
+ * The name a record is marked under: its table, and what it is when one item
+ * gives more than one record (a todo made, and the same todo done).
+ */
+export function markTable(r) {
+  return r.mark ? `${r.table}:${r.mark}` : r.table;
+}
+
+/**
+ * Mark each record in a chunk as read under this reader's rules
+ * (ledger_reads). A record that is gone is not marked. Never stops a read: a
+ * mark that cannot be written is said loudly, and the record is read again
+ * by the next catch up.
+ */
+export async function markRead(d, userId, chunk) {
+  const seen = new Set();
+  const rows = [];
+  for (const r of chunk) {
+    // a change or a deletion is not the record that made the item: only what
+    // the person made, did and said is marked (the catch up reads those)
+    if (r.kind === 'deleted' || r.kind === 'changed' || !r.table || !r.id) continue;
+    const key = `${markTable(r)}:${r.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      user_id: userId,
+      source_table: markTable(r),
+      source_id: String(r.id),
+      reader_version: READER_PROMPT_VERSION,
+      read_at: new Date().toISOString(),
+    });
+  }
+  if (!rows.length) return 0;
+  try {
+    await d.upsert('ledger_reads', rows, 'user_id,source_table,source_id');
+    return rows.length;
+  } catch (err) {
+    console.warn(
+      `[ALERT][Reader] could not mark ${rows.length} records read for ${userId}: ${err?.message || err}`,
+    );
+    return 0;
+  }
 }
 
 /**

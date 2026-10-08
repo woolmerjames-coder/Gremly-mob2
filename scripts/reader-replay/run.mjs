@@ -16,7 +16,9 @@
  * five times and let go, a weekly review, a calendar entry moved and then
  * cancelled, and a private entry. Those are checked by structure, never by
  * wording: refs that exist, facts only from what is new, one update and no
- * second fact, cancelled entries listed, private facts private.
+ * second fact, cancelled entries listed, private facts private. From stage 4d,
+ * an occasion's day said in passing, a standing fact, and the catch up's
+ * records read before, checked by the dates and timings returned.
  * OPENAI_API_KEY and GEMINI_TEST_API_KEY come from the environment.
  */
 
@@ -36,10 +38,12 @@ import { validKind } from '../../workers/shared/factKinds.js';
 import {
   calendarRecord,
   changeRecord,
+  chatRecord,
   deletedRecord,
   noteRecord,
   reviewRecord,
   splitRecord,
+  todoRecord,
 } from '../../workers/inngest-jobs/context/records.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -102,7 +106,80 @@ const SCENARIOS = [
   },
 
   ...STAGE_ONE(),
+  ...STAGE_FOUR_D(),
 ];
+
+/**
+ * Stage 4d: what is said in passing is kept, with when it is true, and the
+ * catch up adds only what was missed. Checked by the fields the reader
+ * returns (date, timing, refs), never by wording.
+ */
+function STAGE_FOUR_D() {
+  const chat = (id, at, content, gremly) =>
+    chatRecord({ id, chat_id: 'c-1', content, created_at: at }, gremly);
+  const fact = (id, statement, extra = {}) => ({ id, statement, state: 'current', about_date: null, ...extra });
+  const yearlyOn = (facts, monthDay) =>
+    facts.filter((f) => String(f.about_date || '').slice(5, 10) === monthDay && f.timing === 'yearly');
+  return [
+    {
+      id: 'occasion-in-passing',
+      look: 'Gremly wishes them a happy anniversary on the wrong day, and they say in passing when it is: the day is kept, every year.',
+      runAt: '2026-11-07T01:00:00Z',
+      records: [
+        chat(
+          'm-1',
+          '2026-11-07T00:30:00Z',
+          'Ha, not until the 12th! This is just a weekend away.',
+          'Happy anniversary weekend to you both!',
+        ),
+      ],
+      check: ({ facts }) => [
+        { name: 'the anniversary on 11-12, every year', ok: yearlyOn(facts, '11-12').length > 0, detail: facts.map((f) => `${f.about_date || 'no date'} ${f.timing}`).join(', ') || 'no fact' },
+      ],
+    },
+    {
+      id: 'standing-said-today',
+      look: 'How their mornings run, said on one day: a standing fact.',
+      runAt: '2026-10-20T01:00:00Z',
+      records: [
+        noteRecord({ id: 'n-swim', title: 'Mornings', body: 'Swimming before work most days now, it keeps me sane.', created_at: '2026-10-19T23:00:00Z' }),
+      ],
+      check: ({ facts }) => [
+        { name: 'a standing fact', ok: facts.some((f) => f.timing === 'standing'), detail: facts.map((f) => `${f.about_date || 'no date'} ${f.timing}`).join(', ') || 'no fact' },
+      ],
+    },
+    {
+      id: 'read-before-nothing-missed',
+      look: 'A record read before, whose fact already says all it holds: nothing new, nothing changed.',
+      runAt: '2026-11-12T17:00:00Z',
+      facts: [fact('fr1', 'Alex plans to book a check up at the dentist.', { state: 'planned' })],
+      records: [
+        { ...todoRecord({ id: 't-dentist', title: 'Book a dentist check up', created_at: '2026-09-02T16:00:00Z' }), kind: 'read_before', factIds: ['fr1'] },
+      ],
+      check: ({ facts, updates }) => [
+        { name: 'no new fact', ok: facts.length === 0, detail: facts.map((f) => f.statement).join(' / ') || 'none' },
+        { name: 'no fact changed', ok: updates.length === 0, detail: updates.map((u) => `${u.fact_ref} ${u.new_state}`).join(', ') || 'none' },
+      ],
+    },
+    {
+      id: 'read-before-missed-occasion',
+      look: 'A record read before under older rules, where the day of an occasion was missed: the catch up adds it, every year, and changes nothing else.',
+      runAt: '2026-11-12T17:00:00Z',
+      facts: [fact('fr2', 'Alex has a weekend away with Jo from 6 to 8 November.', { state: 'happened', about_date: '2026-11-06', about_date_end: '2026-11-08' })],
+      records: [
+        {
+          ...chat('m-2', '2026-11-07T00:30:00Z', 'Ha, not until the 12th! This is just a weekend away.', 'Happy anniversary weekend to you both!'),
+          kind: 'read_before',
+          factIds: ['fr2'],
+        },
+      ],
+      check: ({ facts, updates }) => [
+        { name: 'the anniversary on 11-12, every year', ok: yearlyOn(facts, '11-12').length > 0, detail: facts.map((f) => `${f.about_date || 'no date'} ${f.timing}`).join(', ') || 'no fact' },
+        { name: 'no fact changed', ok: updates.length === 0, detail: updates.map((u) => `${u.fact_ref} ${u.new_state}`).join(', ') || 'none' },
+      ],
+    },
+  ];
+}
 
 /** The stage 1 scenarios: what changed and what went, checked by structure. */
 function STAGE_ONE() {

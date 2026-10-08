@@ -16,7 +16,8 @@
  *
  * Run it in a tree before a change and after, and review.mjs puts the two
  * side by side for a person to read. OPENAI_API_KEY and GEMINI_TEST_API_KEY
- * come from the environment, and CONTEXT_MODEL_DAILY (provider:model) tries
+ * come from the environment, CONTEXT_EFFORT_DAILY (low, medium, high) how hard
+ * it thinks, and CONTEXT_MODEL_DAILY (provider:model) tries
  * another model for the day.
  */
 
@@ -105,7 +106,7 @@ const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   GEMINI_API_KEY: process.env.GEMINI_TEST_API_KEY,
   // a model to try in place of the one that ships, as provider:model
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_'))),
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_') || k.startsWith('CONTEXT_EFFORT_'))),
 };
 
 /** The day's lines as the app and the brief read them, field by field. */

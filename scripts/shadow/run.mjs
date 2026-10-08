@@ -6,6 +6,9 @@
  *   scripts/shadow/run.sh story-copy --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh correction --correction <uuid> [--said "other words"]
  *   scripts/shadow/run.sh ledger --user <uuid> [--from ISO] [--to ISO]
+ *   scripts/shadow/run.sh reread --user <uuid> [--from ISO] [--to ISO] [--max n]
+ *   scripts/shadow/run.sh kinds --user <uuid> [--calls n]
+ *   scripts/shadow/run.sh life-morning --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--timings kinds/summary.json] [--add-facts reread/record.json]
  *   scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh filing --user <uuid> [--limit n] [--at ISO]
@@ -26,7 +29,7 @@
  * change it), which git ignores: real data never goes into the repo.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -58,6 +61,11 @@ import * as stage4bFirst from '../../workers/inngest-jobs/context/firstWorlds.js
 import * as upNextMod from '../../workers/shared/upNext.js';
 import * as stage4cPeople from '../../workers/inngest-jobs/context/peopleQuestions.js';
 import * as stage4cChapters from '../../workers/inngest-jobs/context/chapterQuestions.js';
+// a namespace import, so a tree without the catch up (before stage 4d) still bundles
+import * as stage4dReread from '../../workers/inngest-jobs/context/reread.js';
+import * as kindsMod from '../../workers/inngest-jobs/context/kinds.js';
+import { writeDailyBrief } from '../../workers/inngest-jobs/brief/index.js';
+import { buildChatContext } from '../../workers/cortex/context/chatProjection.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -93,11 +101,36 @@ if (!APIKEY) fail('The project\'s public anon key is not set (SHADOW_SUPABASE_AP
 if (keyRole(APIKEY) !== 'anon' && !APIKEY.startsWith('sb_publishable_'))
   fail('The apikey must be the project\'s public anon key, never a secret one. Nothing was run.');
 
+/**
+ * What this tree's SQL adds that live may not have yet (supabase/migrations,
+ * stages 4c and 4d). Each is looked for before a run; what live lacks is
+ * answered as the SQL would leave existing rows (harness.js pendingRead), and
+ * the summary names it, so a run on SQL James has not applied says so.
+ */
+const THIS_TREE_ADDS = {
+  columns: {
+    life_facts: ['timing'],
+    life_facts_now: ['timing'],
+    life_people: ['who_checked_at'],
+  },
+  tables: ['ledger_reads'],
+};
+async function pendingSchema() {
+  const has = async (path) =>
+    (await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: APIKEY, Authorization: `Bearer ${KEY}` } })).ok;
+  const columns = {};
+  for (const [t, cols] of Object.entries(THIS_TREE_ADDS.columns))
+    for (const c of cols) if (!(await has(`${t}?select=${c}&limit=1`))) (columns[t] = columns[t] || []).push(c);
+  const tables = [];
+  for (const t of THIS_TREE_ADDS.tables) if (!(await has(`${t}?select=*&limit=1`))) tables.push(t);
+  return Object.keys(columns).length || tables.length ? { columns, tables } : null;
+}
+
 const record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
 const env = {
   ...workerVars(join(ROOT, 'workers/inngest-jobs/wrangler.toml')),
   // a model to try in place of the one that ships, as CONTEXT_MODEL_<JOB>=provider:model
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_'))),
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_') || k.startsWith('CONTEXT_EFFORT_'))),
   SUPABASE_URL,
   SUPABASE_SERVICE_KEY: KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -175,6 +208,197 @@ const JOBS = {
         });
       },
       summarise: (totals) => ({ from, to, totals, ...ledgerWrites(record) }),
+    };
+  },
+
+  // The catch up (data fabric stage 4d): what was read under older rules, read
+  // again under this tree's, up to the reader's cursor. Every window of the
+  // plan by default; --from and --to keep the windows that overlap a span,
+  // and --max the first n of those. What one window would add is kept aside,
+  // so a later window here does not see it (live, it would).
+  async reread() {
+    const userId = flag('--user');
+    if (!userId) fail('reread needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () => {
+        if (typeof stage4dReread.planReread !== 'function') fail('This tree has no catch up.');
+        const plan = await stage4dReread.planReread(env, userId, { untilIso: flag('--until') || null });
+        const lo = flag('--from');
+        const hi = flag('--to');
+        const max = Number(flag('--max')) || Infinity;
+        const chosen = plan.windows
+          .filter((w) => (!lo || w.to > lo) && (!hi || w.from < hi))
+          .slice(0, max);
+        const totals = {};
+        for (const w of chosen) {
+          const c = await stage4dReread.rereadWindow(env, userId, plan.tz, w.from, w.to, `shadow-reread-${userId.slice(0, 8)}`);
+          for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + (c[k] || 0);
+        }
+        return {
+          plan: { until: plan.until, version: plan.version, windows: plan.windows.length, stale: plan.total },
+          read: chosen.map((w) => ({ from: w.from, to: w.to, n: w.n })),
+          totals,
+        };
+      },
+      summarise: (out) => ({ ...out, ...ledgerWrites(record) }),
+    };
+  },
+
+  // The kind pass over one person's facts, read only: the kind, health flag
+  // and timing (stage 4d) each fact that lacks one would get. The summary
+  // keeps ids and counts; the statements stay in record.json.
+  async kinds() {
+    const userId = flag('--user');
+    if (!userId) fail('kinds needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: async () =>
+        kindsMod.giveKinds(env, userId, { maxCalls: Number(flag('--calls')) || 8, shadow: true }),
+      summarise: (out) => {
+        const count = (key) =>
+          (out.judged || []).reduce((m, j) => ({ ...m, [j[key]]: (m[j[key]] || 0) + 1 }), {});
+        return {
+          lacking: out.lacking,
+          given: out.given,
+          left_out: out.left_out,
+          calls: out.calls,
+          timings: count('timing'),
+          kinds: count('kind'),
+          health: out.health,
+          judged: (out.judged || []).map((j) => ({ id: j.id, kind: j.kind, timing: j.timing, health: j.health })),
+        };
+      },
+    };
+  },
+
+  // A morning as stage 4d makes it, on a real day: the timings a kinds run
+  // (--timings, its summary.json) would give are read as given, then the
+  // daily picture, the brief from it, and what Ask Gremly is given about
+  // their life. Everything is kept aside, as in every job.
+  async 'life-morning'() {
+    const userId = flag('--user');
+    const day = flag('--day');
+    if (!userId || !day) fail('life-morning needs --user and --day');
+    const tz = await timezoneOf(userId);
+    const at = momentOn(day, flag('--at') || '06:40', tz);
+    const timings = new Map();
+    const from = flag('--timings');
+    if (from) for (const j of JSON.parse(readFileSync(from, 'utf8')).judged || []) if (j.timing) timings.set(j.id, j.timing);
+    // facts a catch up run (--add-facts, its record.json) would add, read as if
+    // it had run: added to reads of the ledger that ask by person, state or id
+    // (any other filter is not applied to them, so the summary counts them)
+    const added = [];
+    const addFrom = flag('--add-facts');
+    if (addFrom)
+      for (const w of JSON.parse(readFileSync(addFrom, 'utf8')).writes || [])
+        if (w.table === 'life_facts' && w.method === 'POST')
+          for (const r of Array.isArray(w.body) ? w.body : [w.body])
+            if (r?.id && r.user_id === userId)
+              added.push({ item_table: null, item_id: null, item_done: false, item_archived: false, item_cancelled: false, item_gone: false, ...r });
+    const addedTo = (url, rows) => {
+      const q = new URL(url).searchParams;
+      const states = q.getAll('state').map((v) => (v.startsWith('in.(') ? v.slice(4, -1).split(',') : v.startsWith('eq.') ? [v.slice(3)] : null));
+      const ids = q.getAll('id').map((v) => (v.startsWith('in.(') ? v.slice(4, -1).split(',') : v.startsWith('eq.') ? [v.slice(3)] : null));
+      const fits = added.filter(
+        (f) =>
+          states.every((st) => !st || st.includes(f.state)) &&
+          ids.every((i) => !i || i.includes(f.id)) &&
+          !rows.some((r) => r?.id === f.id),
+      );
+      return [...rows, ...fits];
+    };
+    let shadowDco = null;
+    // the made picture stands in for the stored one of the day, field by field as each read selects it
+    const pictureRows = (rows, url) => {
+      const named = new URL(url).searchParams.get('select') || '';
+      const asked = new URL(url).searchParams.getAll('date').some((v) => v === `eq.${day}`);
+      const fill = (r) => {
+        const out = { ...r };
+        for (const item of named.split(',')) {
+          const [alias, expr] = item.includes(':') ? item.split(':') : [item.split('->').pop(), item];
+          if (expr === 'dco') out[alias] = shadowDco;
+          else if (expr.startsWith('dco->')) out[alias] = expr.split('->').slice(1).reduce((v, k) => v?.[k], shadowDco) ?? null;
+          else if (alias === 'date') out.date = day;
+        }
+        return out;
+      };
+      if (rows.some((r) => r.date === day)) return rows.map((r) => (r.date === day ? fill(r) : r));
+      return asked || !named.includes('date') ? [fill({ user_id: userId, date: day }), ...rows] : rows;
+    };
+    // the day's thread, new and unread, so the brief is written as on a first morning
+    const threadId = crypto.randomUUID();
+    return {
+      at,
+      userId,
+      rpcAnswer: (fn) =>
+        fn === 'ensure_daily_thread'
+          ? [{ id: threadId, user_id: userId, chat_type: 'daily', ritual_day: day, metadata_json: {} }]
+          : undefined,
+      rewrite: ({ table, url, body }) => {
+        let rows;
+        try {
+          rows = JSON.parse(body);
+        } catch {
+          return null;
+        }
+        if (!Array.isArray(rows)) return null;
+        if ((table === 'life_facts' || table === 'life_facts_now') && (timings.size || added.length))
+          return addedTo(url, rows).map((r) => (r?.id && !r.timing && timings.has(r.id) ? { ...r, timing: timings.get(r.id) } : r));
+        if (table === 'user_daily_state' && shadowDco) return pictureRows(rows, url);
+        return null;
+      },
+      run: async () => {
+        const built = await buildDcoV4(env, userId, { tz });
+        await writeDco(env, userId, built, { shadow: false });
+        shadowDco = built.dco;
+        await writeDailyBrief(env, userId, { reason: 'scheduled' });
+        const brief = record.writes
+          .filter((w) => w.table === 'scope_chat_messages' && w.method === 'POST')
+          .flatMap((w) => (Array.isArray(w.body) ? w.body : [w.body]))
+          .filter((m) => m?.role === 'assistant' && m.content)
+          .map((m) => m.content);
+        const chat = await buildChatContext(
+          userId,
+          'general',
+          { message: 'What have I got going on?', timezone: tz, today: day, currentChatId: null },
+          env,
+        );
+        return { dco: built.dco, brief, chat };
+      },
+      summarise: (out) => {
+        const lines = String(out.chat || '').split('\n');
+        const section = (start) => {
+          const i = lines.findIndex((l) => l.startsWith(start));
+          if (i < 0) return 0;
+          let n = 0;
+          for (const l of lines.slice(i + 1)) {
+            if (!l.startsWith('- ')) break;
+            n++;
+          }
+          return n;
+        };
+        return {
+          day,
+          timings_read: timings.size,
+          facts_added_from_catch_up: added.length,
+          lead: out.dco?.lead_story?.what ?? null,
+          why_today: out.dco?.lead_story?.why_today ?? null,
+          headline: out.dco?.brief_headline ?? null,
+          also_matters: out.dco?.also_matters ?? [],
+          brief: out.brief,
+          chat_context: {
+            chars: String(out.chat || '').length,
+            yesterday: section('Yesterday,'),
+            falls_today: section('Falls on today'),
+            lately: section('Said lately'),
+            standing: section('How their life runs'),
+            people: section('The people who come up most'),
+          },
+        };
+      },
     };
   },
 
@@ -570,6 +794,7 @@ function ledgerWrites(rec) {
     new_facts: rows('life_facts', 'POST').map((f) => ({
       statement: f.statement,
       date: f.about_date,
+      timing: f.timing ?? null,
       state: f.state,
       private: f.private,
       from: f.source_table,
@@ -607,8 +832,10 @@ function pickMorning(dco, built) {
 const make = JOBS[job];
 if (!make) fail(`Unknown job "${job}". Jobs: ${Object.keys(JOBS).join(', ')}`);
 const plan = await make();
+const pending = await pendingSchema();
+if (pending) console.log(`SQL this tree needs is not on live yet; answered as it would leave live: ${JSON.stringify(pending)}`);
 installClock(plan.at);
-installFetchGuard({ supabaseUrl: SUPABASE_URL, atIso: plan.at, record, rewrite: plan.rewrite, apikey: APIKEY });
+installFetchGuard({ supabaseUrl: SUPABASE_URL, atIso: plan.at, record, rewrite: plan.rewrite, apikey: APIKEY, pending, rpcAnswer: plan.rpcAnswer });
 installAiUsageLogging();
 const started = Date.now();
 let out;
@@ -629,6 +856,8 @@ const summary = {
   ms: Date.now() - started,
   error,
   cost: shadowCost(record.usage),
+  // SQL this tree needs that live lacked, answered as the SQL would leave it
+  pending_schema: pending,
   writes_kept: record.writes.length,
   writes_by_table: record.writes.reduce((m, w) => ({ ...m, [w.table || `rpc ${w.rpc}`]: (m[w.table || `rpc ${w.rpc}`] || 0) + 1 }), {}),
   side_effects: record.effects.length,

@@ -10,12 +10,13 @@
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, userTimezone, localDate, relativeDay, personIdentity } from './db';
+import { whenTrue } from '../../shared/factTiming.js';
 import { anthropicJsonParams, modelFor } from './llm';
 import { recentCorrections } from './corrections';
 import { invalidateChatCache } from './cache';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-01c';
+export const STORY_PROMPT_VERSION = 'story-2026-10-13a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -178,7 +179,7 @@ export async function gatherStory(env, userId) {
   const d = db(env);
   const [facts, corrections, chapters, weeks, usage, current] = await Promise.all([
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,timing,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`,
     ),
     recentCorrections(env, userId, 3650),
     d.select(
@@ -212,9 +213,8 @@ export function renderStory(g, today) {
       private: !!f.private,
       state: f.state,
     });
-    const when = f.about_date
-      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}`
-      : 'no date';
+    // a standing fact holds with no date, a yearly one comes every year (stage 4d)
+    const when = whenTrue(f);
     return `${ref} | recorded ${String(f.observed_at).slice(0, 10)} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${trim(f.statement, 220)}`;
   });
   const chapterLines = g.chapters.map((c) => {

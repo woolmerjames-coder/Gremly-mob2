@@ -32,6 +32,9 @@ or with an apikey that is not the public anon key.
     scripts/shadow/run.sh ledger     --user <uuid> [--from ISO] [--to ISO]
     scripts/shadow/run.sh weekly-input --user <uuid> [--at ISO]
     scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
+    scripts/shadow/run.sh reread     --user <uuid> [--from ISO] [--to ISO] [--max n]
+    scripts/shadow/run.sh kinds      --user <uuid> [--calls n]
+    scripts/shadow/run.sh life-morning --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--timings <kinds summary.json>] [--add-facts <reread record.json>]
 
 `--said` replays a correction with other words in place of what was said, to
 see what a correction would do to passages a past one has already fixed.
@@ -53,6 +56,15 @@ Add `--code <dir>` to run another tree's code, such as main from
 Results are saved under `Claude outputs/shadow`, which git ignores. Real data
 never goes into the repo, fixtures or prompts.
 
+## SQL not applied yet
+
+A tree whose SQL James has not applied yet still runs. The runner looks for
+what this tree's SQL adds (THIS_TREE_ADDS in run.mjs) before it starts. What
+live lacks is answered as the SQL would leave existing rows: a new column is
+null on every row, so it is taken out of the select, given as null, and a
+filter on it is judged against null; a new table has no rows. The summary
+names it under pending_schema.
+
 ## Its limits
 
 - A past day is rebuilt from rows as they stand now, cut to what existed then.
@@ -61,5 +73,7 @@ never goes into the repo, fixtures or prompts.
 - A correction is replayed on today's facts, which already carry it.
 - Weekly review and journal page sources can only be tried with made up people
   until real rows exist.
+- In the catch up, what one window would add is kept aside, so a later window
+  of the same run does not see it, as it would live.
 - Real records go to OpenAI, Google and Anthropic under the replay keys, the
   same providers production uses.

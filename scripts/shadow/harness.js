@@ -50,6 +50,7 @@ export const CUT_COLUMN = {
   habits: 'created_at',
   item_changes: 'at',
   journal_pages: 'created_at',
+  ledger_reads: 'read_at',
   life_fact_changes: 'created_at',
   life_fact_sources: 'created_at',
   life_people: 'created_at',
@@ -113,6 +114,65 @@ export function cutRead(url, table, atIso) {
   return u.toString();
 }
 
+// a list split at its own commas, never inside brackets
+function topLevel(list) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of list) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      out.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/**
+ * A read on a tree whose SQL James has not applied yet. pending names what
+ * that SQL adds: { columns: { table: [column] }, tables: [table] }. A new
+ * column holds null on every existing row until something writes it, and a
+ * new table holds no rows, so the read is answered as live would answer it
+ * once the SQL ran and before anything wrote: the column is taken out of the
+ * select and given as null, a filter on it is judged against null, and a new
+ * table answers no rows. Returns { url, empty, add }.
+ */
+export function pendingRead(url, table, pending) {
+  if (!pending) return { url, empty: false, add: [] };
+  if ((pending.tables || []).includes(table)) return { url, empty: true, add: [] };
+  const cols = pending.columns?.[table] || [];
+  if (!cols.length) return { url, empty: false, add: [] };
+  const nameOf = (item) => item.split('::')[0].split(':').pop().trim();
+  const u = new URL(url);
+  const out = [];
+  let empty = false;
+  for (const [k, v] of u.searchParams) {
+    if (k === 'select') {
+      const kept = topLevel(v).filter((x) => !cols.includes(nameOf(x)));
+      out.push([k, kept.length ? kept.join(',') : '*']);
+    } else if (cols.includes(k)) {
+      // null everywhere: is.null holds for every row, anything else for none
+      if (v !== 'is.null') empty = true;
+    } else if (k === 'or') {
+      const terms = topLevel(v.replace(/^\(|\)$/g, ''));
+      const always = terms.some((t) => cols.includes(t.split('.')[0]) && t.slice(t.indexOf('.') + 1) === 'is.null');
+      const kept = terms.filter((t) => !cols.includes(t.split('.')[0]));
+      if (always) continue;
+      if (!kept.length) empty = true;
+      else out.push([k, `(${kept.join(',')})`]);
+    } else if (k === 'order') {
+      const kept = v.split(',').filter((x) => !cols.includes(x.split('.')[0]));
+      if (kept.length) out.push([k, kept.join(',')]);
+    } else out.push([k, v]);
+  }
+  u.search = '';
+  for (const [k, v] of out) u.searchParams.append(k, v);
+  return { url: u.toString(), empty, add: cols };
+}
+
 function parseBody(init) {
   if (!init || typeof init.body !== 'string') return null;
   try {
@@ -146,7 +206,15 @@ function withGatewayKey(init, apikey) {
  * (a correction read as not yet applied, say). `apikey` is the project's public
  * key, which the gateway wants beside the read only role's token.
  */
-export function installFetchGuard({ supabaseUrl, atIso, record, rewrite, apikey }) {
+export function installFetchGuard({
+  supabaseUrl,
+  atIso,
+  record,
+  rewrite,
+  apikey,
+  pending = null,
+  rpcAnswer = null,
+}) {
   const realFetch = globalThis.fetch.bind(globalThis);
   let n = 0;
   globalThis.fetch = async function shadowFetch(input, init = {}) {
@@ -160,8 +228,21 @@ export function installFetchGuard({ supabaseUrl, atIso, record, rewrite, apikey 
       }
       const isRead = method === 'GET' || method === 'HEAD';
       if (isRead && target.table) {
-        const res = await realFetch(cutRead(url, target.table, atIso), withGatewayKey(init, apikey));
-        record.reads.push({ table: target.table, status: res.status });
+        // SQL this tree needs that live does not have yet: answered as it would leave live
+        const p = pendingRead(url, target.table, pending);
+        if (p.empty) {
+          record.reads.push({ table: target.table, status: 200, pending: true });
+          return json([]);
+        }
+        let res = await realFetch(cutRead(p.url, target.table, atIso), withGatewayKey(init, apikey));
+        record.reads.push({ table: target.table, status: res.status, ...(p.add.length ? { pending: true } : {}) });
+        if (p.add.length && res.ok) {
+          const rows = await res.json();
+          const filled = Array.isArray(rows)
+            ? rows.map((r) => ({ ...Object.fromEntries(p.add.map((c) => [c, null])), ...r }))
+            : rows;
+          res = json(filled, res.status);
+        }
         if (!rewrite) return res;
         const body = await res.clone().text();
         const changed = rewrite({ table: target.table, url, body });
@@ -176,6 +257,11 @@ export function installFetchGuard({ supabaseUrl, atIso, record, rewrite, apikey 
       n += 1;
       const body = parseBody(init);
       record.writes.push({ n, method, ...target, path: new URL(url).pathname + new URL(url).search, body });
+      // a function that writes, answered as the job needs it to carry on (still never sent)
+      if (target.rpc && rpcAnswer) {
+        const answer = rpcAnswer(target.rpc, body);
+        if (answer !== undefined) return json(answer);
+      }
       if (method === 'POST' && target.table) {
         const rows = (Array.isArray(body) ? body : [body]).map((r, i) =>
           r && typeof r === 'object' ? { id: `shadow-${n}-${i}`, ...r } : r,

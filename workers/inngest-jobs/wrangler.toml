@@ -24,6 +24,15 @@ NOTIFICATIONS_MODE = "on"
 #           the profile text and the words on each World
 # Models can be overridden per job, e.g. CONTEXT_MODEL_DAILY = "google:gemini-3.8-flash".
 CONTEXT_PIPELINE = "on"
+# How hard the daily picture thinks before it chooses what leads the day (data
+# fabric stage 4d). At low effort, on a real morning in shadow where an
+# occasion fell on the day itself, it led with a work deadline due the next
+# day and left the occasion to "also matters"; at medium it led with the
+# occasion, as Gemini 3.8 Flash did at two to four times the cost. Medium on
+# the morning replay: 9 of 9 clean at 0.22 cents a morning against 0.16, about
+# 25s a morning against 15s; on the life replay the occasion led 3 of 3
+# mornings. To go back: "low".
+CONTEXT_EFFORT_DAILY = "medium"
 # Only used when CONTEXT_PIPELINE is "shadow": people who get the new pipeline live
 # (comma-separated user ids). James, Tina and Dave were the accounts checked first;
 # since 1 Oct 2026 the pipeline is on for everyone, new people included.

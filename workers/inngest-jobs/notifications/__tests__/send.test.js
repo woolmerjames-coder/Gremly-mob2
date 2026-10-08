@@ -294,6 +294,25 @@ describe('decide', () => {
     expect(briefFacts({ ...g, day: null }, 'brief')).not.toHaveProperty('travel_today');
   });
 
+  it('gives the morning what the daily picture says today is about, and only the morning', () => {
+    const g = {
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-11-12',
+      ritualDay: '2026-11-12',
+      lead: { what: 'An anniversary falls today.', why_today: 'It is the day itself.' },
+      headline: 'A day for the two of you',
+    };
+    expect(briefFacts(g, 'brief')).toMatchObject({
+      what_leads_today: 'An anniversary falls today.',
+      todays_headline: 'A day for the two of you',
+    });
+    expect(briefFacts(g, 'sweep')).not.toHaveProperty('what_leads_today');
+    expect(briefFacts({ ...g, lead: null, headline: null }, 'brief')).not.toHaveProperty(
+      'todays_headline',
+    );
+  });
+
   it('leaves the number out rather than guess when it cannot be counted', async () => {
     mockTables.todos = () => {
       throw new Error('database down');

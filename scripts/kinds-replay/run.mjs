@@ -7,7 +7,8 @@
  * It passes when every fact gets a kind from the list each time, the same fact
  * gets the same kind at least 9 times in 10 on average, the facts whose kind
  * is plain get it, and the facts that plainly do or do not concern health are
- * flagged that way. Every name and fact is made up. OPENAI_API_KEY and
+ * flagged that way, and the facts whose timing is plain get it (stage 4d),
+ * whatever date the ledger holds. Every name and fact is made up. OPENAI_API_KEY and
  * GEMINI_TEST_API_KEY come from the environment.
  */
 
@@ -27,41 +28,65 @@ const repeat = Math.max(1, Number(flag('--repeat') || 5));
 
 // kind: the plain answer, or null where more than one is fair.
 // health: true or false where it is plain, null where it is not.
+// timing: when it is true, where it is plain (stage 4d), null where it is not;
+// then the date the ledger holds, when it holds one.
 const FACTS = [
-  ['Alex has a dentist appointment on Thursday.', 'event', true],
-  ['Alex is flying to Porto on 1 November for Ana\'s birthday.', 'event', false],
-  ["Alex had dinner with Jo's parents and it went better than Alex feared.", 'event', false],
-  ['Alex has a work trip to Berlin next month.', 'event', false],
-  ['Alex has to hand in the billing proposal by Friday.', 'event', false],
-  ['Alex ran a half marathon in two hours and five minutes on Sunday.', 'event', null],
-  ['Alex goes to the climbing gym every Tuesday evening.', 'routine', null],
-  ['Alex walks the dog before work each morning.', 'routine', false],
-  ['Alex calls their mum every Sunday.', 'routine', false],
-  ['Alex wants to run a half marathon in under two hours by spring.', 'goal', null],
-  ['Alex is saving for a deposit on a flat.', 'goal', false],
-  ['Alex is working towards a promotion to lead engineer.', 'goal', false],
-  ['Alex prefers to work from cafes in the morning.', 'preference', false],
-  ['Alex does not enjoy big parties.', 'preference', false],
-  ['Alex wants a quiet birthday this year.', null, false],
-  ["Jo is Alex's partner.", 'relationship', false],
-  ["Priya is Alex's closest friend at work.", 'relationship', false],
-  ['Alex and Sam have not spoken since their argument in August.', 'relationship', false],
-  ["Ana is Alex's younger sister.", 'relationship', false],
-  ["Alex's team is in the middle of a reorganisation.", 'situation', false],
-  ['Alex is between flats and staying with Jo for now.', 'situation', false],
-  ['The billing service Alex works on has had no owner since Sam left.', 'situation', false],
-  ['Alex is recovering from a sprained ankle.', 'situation', true],
-  ['Alex sees themself as someone who keeps their promises.', 'self', false],
-  ['Alex is vegetarian.', null, false],
-  ['Alex grew up in Leeds.', 'self', false],
-  ['Alex started seeing a counsellor about panic on trains.', null, true],
-  ['Alex takes medication for migraines each morning.', 'routine', true],
-  ["Alex's dad is in hospital after a fall.", null, true],
-  ['Alex finished the garden bed and planted bulbs on Saturday.', 'event', false],
-].map(([statement, kind, health], i) => ({ id: `fact-${i + 1}`, statement, kind, health }));
+  ['Alex has a dentist appointment on Thursday.', 'event', true, 'day', '2026-10-15'],
+  ["Alex is flying to Porto on 1 November for Ana's birthday.", 'event', false, null],
+  ["Alex had dinner with Jo's parents and it went better than Alex feared.", 'event', false, null],
+  ['Alex has a work trip to Berlin next month.', 'event', false, null],
+  ['Alex has to hand in the billing proposal by Friday.', 'event', false, 'day'],
+  ['Alex ran a half marathon in two hours and five minutes on Sunday.', 'event', null, 'day'],
+  ['Alex goes to the climbing gym every Tuesday evening.', 'routine', null, 'standing'],
+  ['Alex walks the dog before work each morning.', 'routine', false, 'standing', '2026-09-14'],
+  ['Alex calls their mum every Sunday.', 'routine', false, 'standing'],
+  ['Alex wants to run a half marathon in under two hours by spring.', 'goal', null, null],
+  ['Alex is saving for a deposit on a flat.', 'goal', false, null],
+  ['Alex is working towards a promotion to lead engineer.', 'goal', false, null],
+  ['Alex prefers to work from cafes in the morning.', 'preference', false, 'standing'],
+  ['Alex does not enjoy big parties.', 'preference', false, 'standing'],
+  ['Alex wants a quiet birthday this year.', null, false, null],
+  ["Jo is Alex's partner.", 'relationship', false, 'standing', '2026-08-02'],
+  ["Priya is Alex's closest friend at work.", 'relationship', false, 'standing'],
+  ['Alex and Sam have not spoken since their argument in August.', 'relationship', false, null],
+  ["Ana is Alex's younger sister.", 'relationship', false, 'standing'],
+  ["Alex's team is in the middle of a reorganisation.", 'situation', false, null],
+  ['Alex is between flats and staying with Jo for now.', 'situation', false, null],
+  ['The billing service Alex works on has had no owner since Sam left.', 'situation', false, null],
+  ['Alex is recovering from a sprained ankle.', 'situation', true, null],
+  ['Alex sees themself as someone who keeps their promises.', 'self', false, 'standing'],
+  ['Alex is vegetarian.', null, false, 'standing', '2026-09-30'],
+  ['Alex grew up in Leeds.', 'self', false, 'standing'],
+  ['Alex started seeing a counsellor about panic on trains.', null, true, null],
+  ['Alex takes medication for migraines each morning.', 'routine', true, null],
+  ["Alex's dad is in hospital after a fall.", null, true, null],
+  [
+    'Alex finished the garden bed and planted bulbs on Saturday.',
+    'event',
+    false,
+    'day',
+    '2026-10-10',
+  ],
+  // days that come round every year, one as the ledger dated it the day it was said
+  ["Ana's birthday is on 1 November.", null, false, 'yearly', '2025-11-01'],
+  ["Alex and Jo's anniversary is on 14 February.", null, false, 'yearly', '2026-02-14'],
+  // the ledger dated it the day it was said: a wrong day never comes round again
+  ["Alex and Jo's wedding anniversary is on 9 June.", null, false, 'day', '2026-09-20'],
+  ["Alex's mum turns 60 on 3 March.", null, false, null, '2027-03-03'],
+].map(([statement, kind, health, timing, about_date], i) => ({
+  id: `fact-${i + 1}`,
+  statement,
+  kind,
+  health,
+  timing,
+  about_date: about_date || null,
+}));
 
 async function runOnce() {
-  const env = { OPENAI_API_KEY: process.env.OPENAI_API_KEY, GEMINI_API_KEY: process.env.GEMINI_TEST_API_KEY };
+  const env = {
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    GEMINI_API_KEY: process.env.GEMINI_TEST_API_KEY,
+  };
   const started = Date.now();
   try {
     const { judged, model } = await judgeKinds(env, FACTS);
@@ -80,7 +105,10 @@ const rows = FACTS.map((f) => {
   const counts = new Map();
   for (const k of kinds) if (k) counts.set(k, (counts.get(k) || 0) + 1);
   const [modal, top] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] || [null, 0];
-  const healthRight = f.health == null ? null : answers.filter((a) => a && a.health === f.health).length;
+  const healthRight =
+    f.health == null ? null : answers.filter((a) => a && a.health === f.health).length;
+  const timings = answers.map((a) => a?.timing || null);
+  const timingRight = f.timing == null ? null : timings.filter((t) => t === f.timing).length;
   return {
     statement: f.statement,
     expected: f.kind,
@@ -90,6 +118,9 @@ const rows = FACTS.map((f) => {
     kindRight: f.kind ? kinds.filter((k) => k === f.kind).length : null,
     healthExpected: f.health,
     healthRight,
+    timingExpected: f.timing,
+    timingRight,
+    timings,
     kinds,
   };
 });
@@ -98,21 +129,51 @@ const meanAgreement = rows.reduce((s, r) => s + r.agreement, 0) / rows.length;
 const plain = rows.filter((r) => r.expected);
 const plainRight = plain.reduce((s, r) => s + r.kindRight, 0) / (plain.length * repeat);
 const healthRows = rows.filter((r) => r.healthExpected != null);
-const healthRight = healthRows.reduce((s, r) => s + r.healthRight, 0) / (healthRows.length * repeat);
+const healthRight =
+  healthRows.reduce((s, r) => s + r.healthRight, 0) / (healthRows.length * repeat);
+const timingRows = rows.filter((r) => r.timingExpected != null);
+const timingRight =
+  timingRows.reduce((s, r) => s + r.timingRight, 0) / (timingRows.length * repeat);
 const missing = rows.reduce((s, r) => s + r.missing, 0);
 const errors = runs.filter((r) => r.error);
 
 for (const r of rows) {
-  const mark = r.agreement < 0.9 || (r.expected && r.kindRight < repeat) ? '~' : ' ';
+  const mark =
+    r.agreement < 0.9 ||
+    (r.expected && r.kindRight < repeat) ||
+    (r.timingExpected && r.timingRight < repeat)
+      ? '~'
+      : ' ';
   console.log(
-    `${mark} ${r.kinds.map((k) => (k || '-').padEnd(12)).join('')} ${r.expected ? `(${r.expected}) ` : ''}${r.statement}`,
+    `${mark} ${r.kinds.map((k) => (k || '-').padEnd(12)).join('')} ${r.timings.map((t) => (t || '-').padEnd(9)).join('')} ${r.expected ? `(${r.expected}) ` : ''}${r.timingExpected ? `(${r.timingExpected}) ` : ''}${r.statement}`,
   );
 }
 const checks = [
-  { name: 'every fact gets a kind from the list on every run', ok: missing === 0 && !errors.length, detail: `${missing} missing, ${errors.length} errors` },
-  { name: 'the same fact gets the same kind 9 times in 10 on average', ok: meanAgreement >= 0.9, detail: meanAgreement.toFixed(3) },
-  { name: 'facts whose kind is plain get it 9 times in 10', ok: plainRight >= 0.9, detail: plainRight.toFixed(3) },
-  { name: 'plain health flags are right 9 times in 10', ok: healthRight >= 0.9, detail: healthRight.toFixed(3) },
+  {
+    name: 'every fact gets a kind from the list on every run',
+    ok: missing === 0 && !errors.length,
+    detail: `${missing} missing, ${errors.length} errors`,
+  },
+  {
+    name: 'the same fact gets the same kind 9 times in 10 on average',
+    ok: meanAgreement >= 0.9,
+    detail: meanAgreement.toFixed(3),
+  },
+  {
+    name: 'facts whose kind is plain get it 9 times in 10',
+    ok: plainRight >= 0.9,
+    detail: plainRight.toFixed(3),
+  },
+  {
+    name: 'plain health flags are right 9 times in 10',
+    ok: healthRight >= 0.9,
+    detail: healthRight.toFixed(3),
+  },
+  {
+    name: 'plain timings are right 9 times in 10',
+    ok: timingRight >= 0.9,
+    detail: timingRight.toFixed(3),
+  },
 ];
 for (const c of checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
 for (const e of errors) console.log(`error: ${e.error}`);
@@ -120,5 +181,17 @@ console.log(`\n${checks.filter((c) => c.ok).length} of ${checks.length} checks p
 
 const dir = join(HERE, 'out', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19));
 mkdirSync(dir, { recursive: true });
-writeFileSync(join(dir, 'results.json'), JSON.stringify({ version: KINDS_PROMPT_VERSION, checks, rows, runs: runs.map((r) => ({ model: r.model, ms: r.ms, error: r.error })) }, null, 2));
+writeFileSync(
+  join(dir, 'results.json'),
+  JSON.stringify(
+    {
+      version: KINDS_PROMPT_VERSION,
+      checks,
+      rows,
+      runs: runs.map((r) => ({ model: r.model, ms: r.ms, error: r.error })),
+    },
+    null,
+    2,
+  ),
+);
 console.log(`Results: ${join(dir, 'results.json')}`);

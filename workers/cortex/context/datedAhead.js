@@ -89,7 +89,7 @@ export function formatDatedAhead(read) {
     const end =
       r.about_date_end && r.about_date_end !== r.about_date ? ` to ${r.about_date_end}` : '';
     const when = r.about_date < read.day ? 'under way' : whenWords(r.about_date, read.day);
-    return `- ${r.about_date}${end} (${when}) | ${stateWords(r, read.day)} | ${trim(r.statement, 240)}${r.private ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`;
+    return `- ${r.about_date}${end} (${when}) | ${stateWords(r, read.day)} | ${trim(r.statement, 240)}${r.private || r.health ? ' [private: use when it bears on what they are talking about, in their own words; never open with it]' : ''}`;
   });
   return `=== DATED THINGS AHEAD (from their own records, with how each stands; a plan stays a plan until they say it happened, and unconfirmed means it may no longer hold) ===\n${lines.join('\n')}`;
 }

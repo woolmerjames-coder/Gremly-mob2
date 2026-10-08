@@ -9,6 +9,8 @@
  *     Later while they were away (notifications/planner.js cameBackReason), n times each
  *   scripts/notif-replay/run.sh --summary [--repeat n]   the one push of their weekly day, for
  *     the summary alone and for the summary and the weekly review together (week/summaryPush.js)
+ *   scripts/notif-replay/run.sh --morning [--repeat n]   the morning's push that the brief is
+ *     ready, starting from what the daily picture says leads today (data fabric stage 4d)
  *
  * GEMINI_TEST_API_KEY and OPENAI_API_KEY come from the environment.
  */
@@ -128,8 +130,93 @@ const NUDGES = [
   },
 ];
 
+// Made up mornings, as briefFacts gives them: one led by an occasion, one by work, one with no lead
+const MORNINGS = [
+  {
+    id: 'occasion-leads',
+    lead: ['anniversary'],
+    facts: {
+      weekday: 'Thursday',
+      part_of_day: 'morning',
+      meetings_today: 2,
+      first_meeting: '9:30',
+      due_today: 2,
+      due_today_titles: ['Send the invoice to Hartley and Co.', 'Book dinner'],
+      habits_today: 1,
+      dated_today: ['Anniversary'],
+      waiting_in_sweep: 3,
+      gremly_age: 'young',
+      what_leads_today: 'Your anniversary with Eli is today.',
+      todays_headline: 'A day for you and Eli',
+    },
+  },
+  {
+    id: 'work-leads',
+    lead: ['pitch'],
+    facts: {
+      weekday: 'Tuesday',
+      part_of_day: 'morning',
+      meetings_today: 5,
+      first_meeting: '8:00',
+      due_today: 1,
+      due_today_titles: ['Final pass on the pitch deck'],
+      habits_today: 2,
+      dated_today: [],
+      waiting_in_sweep: 0,
+      gremly_age: 'young',
+      what_leads_today: 'The pitch to the Fernhill board is at 2pm.',
+      todays_headline: 'Pitch day',
+    },
+  },
+  {
+    id: 'no-lead',
+    lead: [],
+    facts: {
+      weekday: 'Saturday',
+      part_of_day: 'morning',
+      meetings_today: 0,
+      first_meeting: null,
+      due_today: 0,
+      due_today_titles: [],
+      habits_today: 1,
+      dated_today: [],
+      waiting_in_sweep: 1,
+      gremly_age: 'young',
+    },
+  },
+];
+
 const DASH = /[–—]|--/;
 const results = [];
+if (args.includes('--morning')) {
+  for (const m of MORNINGS) {
+    for (let i = 0; i < repeat * ANGLES.brief.length; i++) {
+      const angle = ANGLES.brief[i % ANGLES.brief.length];
+      const t0 = Date.now();
+      const out = await writeCopy(env, {
+        moment: 'brief',
+        angle,
+        facts: m.facts,
+        fallbackFacts: { weekday: m.facts.weekday },
+      });
+      const text = `${out.title} ${out.body}`;
+      const timedOut = out.usedFallback && /timed out/.test(out.problem || '');
+      const fails = [];
+      if (out.usedFallback && !timedOut) fails.push(`fallback: ${out.problem}`);
+      if (DASH.test(text)) fails.push('dash');
+      // it starts from what leads today, when there is one
+      if (!timedOut && m.lead.length && !m.lead.some((w) => text.toLowerCase().includes(w)))
+        fails.push('says nothing of what leads today');
+      results.push({ id: m.id, angle, out, ms: Date.now() - t0, fails });
+      console.log(
+        `${fails.length ? 'FAIL' : 'ok  '} ${m.id} (${angle})  [${out.model || 'fixed'} ${Date.now() - t0}ms]  ${out.title ? `${out.title} | ` : ''}${out.body}${fails.length ? `  ✗ ${fails.join('; ')}` : ''}`,
+      );
+    }
+  }
+  const passed = results.filter((r) => !r.fails.length).length;
+  console.log(`\n${COPY_PROMPT_VERSION}: ${passed} of ${results.length} keep every rule`);
+  process.exit(0);
+}
 if (args.includes('--summary')) {
   // the facts as the weekly summary's worker sends them, by where the review of the week ahead stands
   const pushes = [

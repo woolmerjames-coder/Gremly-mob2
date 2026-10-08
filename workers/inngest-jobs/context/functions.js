@@ -16,6 +16,7 @@ import { db, userTimezone, localDate, addDays, personIdentity } from './db';
 import { cycleOf } from '../../shared/week.js';
 import { weekSettings } from '../week/settings';
 import { planWindows, readWindow, readCursor, advanceCursor } from './reader';
+import { planReread, rereadWindow } from './reread';
 import { applyCorrection } from './corrections';
 import { giveKinds, usersLackingKinds } from './kinds';
 import { fillPeople, usersWithFacts, recheckPeople } from './people';
@@ -91,6 +92,35 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
       if (contextMode(env) === 'off') return { skipped: 'pipeline off' };
       const userId = event.data?.user_id;
       if (!userId) throw new Error('user_id is required');
+      // The catch up (context/reread.js): what was read under older rules is
+      // read again under these, up to the cursor. It runs here so it never
+      // runs beside a read for the same person, and leaves the cursor alone.
+      if (event.data?.reread) {
+        const plan = await step.run('plan-reread', () => planReread(env, userId));
+        const runId = `reread-${userId.slice(0, 8)}-${plan.until}`;
+        const totals = {
+          windows: plan.windows.length,
+          stale: plan.total,
+          version: plan.version || null,
+          records: 0,
+          facts_added: 0,
+          confirmed: 0,
+          rejected: 0,
+        };
+        for (let i = 0; i < plan.windows.length; i++) {
+          const w = plan.windows[i];
+          const c = await step.run(`reread-${i}`, () =>
+            rereadWindow(env, userId, plan.tz, w.from, w.to, runId),
+          );
+          for (const k of Object.keys(c)) totals[k] = (totals[k] || 0) + c[k];
+        }
+        if (totals.facts_added > 0 && contextMode(env, userId) === 'on') {
+          // the facts it added get a kind, a health flag and a timing, as any read's
+          totals.kinds = await step.run('kinds', () => giveKinds(env, userId));
+          await step.run('chat-cache', () => invalidateChatCache(env, userId));
+        }
+        return totals;
+      }
       // One planning step, then one step per window: Inngest bills each step,
       // so a run with nothing new costs a single step.
       const plan = await step.run('plan', async () => {

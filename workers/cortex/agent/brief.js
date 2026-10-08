@@ -60,9 +60,10 @@ import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
 import { sourceWords } from '../../shared/factSource.js';
 import { upNextWords } from '../../shared/upNext.js';
+import { loadLifePack, lifePackText } from '../../shared/lifePack.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-09e/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-13b/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -893,11 +894,28 @@ export function dayContext(
   dayEndHour = null,
   week = null,
   asked = '',
+  life = '',
 ) {
   const meaning = dayMeaning(dco);
   const evening = wrapContext(wrap, week);
   const review = weekContext(week);
-  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}${asked ? `\n\n${asked}` : ''}`;
+  // what a friend would know about their life today (shared/lifePack.js, data fabric stage 4d)
+  const lifeNow = life
+    ? `THEIR LIFE RIGHT NOW (what a friend would know; draw on it the way a friend would, when it fits what they said and when a friend would raise it in reply, once and in a few words; never list it, and never tell them as news what they told you)\n${life}`
+    : '';
+  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${lifeNow ? `\n\n${lifeNow}` : ''}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}${asked ? `\n\n${asked}` : ''}`;
+}
+
+/** Their life right now (shared/lifePack.js) as lines; never stops the turn, and says when it cannot be read. */
+async function readLife(ctx, userId, today, tz) {
+  try {
+    return lifePackText(await loadLifePack(ctx.db, userId, { today, tz }));
+  } catch (err) {
+    console.warn(
+      `[ALERT][BriefTurn] could not read their life for ${userId}: ${err?.message || err}`,
+    );
+    return '';
+  }
 }
 
 /** Today's picture of the day, if the brief has made one; never stops the turn. */
@@ -955,13 +973,15 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
     : toolContext(env, { userId, today: req.date, timezone, day, week: weekFrame });
   const wrap = readWrap(body?.wrap);
   const question = questionInPlay(req, wrap);
-  const [person, dco, dayEndHour, source] = await Promise.all([
+  const [person, dco, dayEndHour, source, life] = await Promise.all([
     deps.person || personIdentity(env, userId),
     readDco(ctx, userId, req.date),
     // when their day ends, so the small hours read as the end of it
     deps.dayEndHour ?? dayEndHourOf(env, userId),
     // where the question in play came from, so "how did you know" has its answer
     questionSource(ctx, userId, question),
+    // their life right now, as the brief and the wrap up read it
+    deps.life !== undefined ? deps.life : readLife(ctx, userId, req.date, timezone),
   ]);
   const asked = questionSourceContext(question, source, { today: req.date, timezone });
 
@@ -969,7 +989,7 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
     surface: 'brief',
     variant: weekVariant(week, { answering: !!wrap?.answering }),
     persona: briefPersona(person),
-    context: dayContext(req, dco, wrap, dayEndHour, week, asked),
+    context: dayContext(req, dco, wrap, dayEndHour, week, asked, life),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,

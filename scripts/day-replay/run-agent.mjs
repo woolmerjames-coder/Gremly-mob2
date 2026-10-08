@@ -371,6 +371,8 @@ async function runOne(s, modelKey) {
         person: { first_name: 'Alex', pronouns: null, identity: {} },
         // when their day ends (3am unless the scenario says otherwise)
         dayEndHour: s.dayEnd ?? 3,
+        // their life right now, when the scenario gives it (stage 4d); none otherwise
+        life: s.life ?? '',
         ctx: { env, userId: USER, timezone: 'America/Los_Angeles', cache: new Map(), db: dbFor(s, to) },
         models: { model: MODELS[modelKey], fallback: MODELS[modelKey], thinking: thinking || undefined },
         // every tool call and what it said back, for the results file

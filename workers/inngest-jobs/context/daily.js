@@ -38,7 +38,7 @@ import { personNow } from '../../shared/day.js';
 import { spanDays, weeklyDayOf } from '../../shared/week.js';
 import { dayOfWeek, easeOn, unpaused, weekAround } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
-import { stateWords } from '../../shared/factTiming.js';
+import { stateWords, asOfToday } from '../../shared/factTiming.js';
 import {
   SENTENCE_SCHEMA,
   STATED_RULES,
@@ -50,7 +50,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { askableQuestions, welcomeBackOf } from '../../shared/questionRules.js';
 import { loadUpNext } from '../../shared/upNext.js';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-08h';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-13b';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -210,7 +210,7 @@ export async function gatherDay(env, userId, tz, today) {
       `notes?owner_id=eq.${userId}&subtype=eq.journal&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -3)))}&select=id,title,body,mood,created_at&order=created_at.asc&limit=10`,
     ),
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private,health,item_table,item_id&order=last_confirmed_at.desc&limit=250`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,timing,about_date,about_date_end,state,date_confidence,observed_at,last_confirmed_at,private,health,item_table,item_id&order=last_confirmed_at.desc&limit=250`,
     ),
     d.select(
       `life_fact_changes?user_id=eq.${userId}&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -7)))}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.desc&limit=40`,
@@ -275,7 +275,8 @@ export async function gatherDay(env, userId, tz, today) {
     brief: brief?.[0] || null,
     intention: intentions?.[0] || null,
     journals,
-    facts,
+    // a yearly fact on its next day, a standing one with no date (data fabric stage 4d)
+    facts: (facts || []).map((f) => asOfToday(f, today)),
     changes,
     questions,
     absence,
@@ -593,16 +594,24 @@ export function renderDay(g, tz) {
   const factLine = (f) => {
     const ref = addRef('f', { type: 'fact', id: f.id, statement: f.statement });
     const when = f.about_date
-      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})`
-      : 'no date';
+      ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''} (${relativeDay(f.about_date, today)})${f.every_year ? ', every year' : ''}`
+      : f.timing === 'standing'
+        ? 'standing, no date of its own'
+        : 'no date';
     return hold(
       ref,
       factRecord(f),
       `${ref} | ${stateWords(f, today)}${f.private || f.health ? ' [private]' : ''} | ${when} | ${trim(f.statement, 200)} | recorded ${f.observed_at.slice(0, 10)}, last confirmed ${f.last_confirmed_at.slice(0, 10)}${whoIn(f)}`,
     );
   };
+  // what falls on today itself, by an exact comparison of dates (code's to
+  // make), in a section of its own, so the day's own occasions are read
+  // before its tasks; which of it leads is the model's
+  const fallsToday = (f) =>
+    f.about_date && f.about_date <= today && (f.about_date_end || f.about_date) >= today;
+  const todayFactLines = dated.filter(fallsToday).map(factLine);
   const factLines = [
-    ...dated.filter(inWindow).map(factLine),
+    ...dated.filter((f) => inWindow(f) && !fallsToday(f)).map(factLine),
     ...undatedFacts.slice(0, 60).map(factLine),
   ];
   const pastLines = (g.pastFacts || []).map((f) => {
@@ -720,6 +729,9 @@ export function renderDay(g, tz) {
       },
       `COUNTS (k1): on today or due today ${dueToday.length}; past their date ${overdue.length}; coming up in the next 14 days ${comingUp.length}; undated ${undated.length}; done today ${g.doneToday.length}.`,
     ),
+  );
+  lines.push(
+    `FALLS ON TODAY ITSELF, FROM THE LEDGER (ref | state | date | statement | provenance | about):\n${todayFactLines.join('\n') || '(nothing)'}`,
   );
   lines.push(`ON TODAY OR DUE TODAY (ref | title | note):\n${dueLines.join('\n') || '(none)'}`);
   lines.push(
@@ -938,9 +950,9 @@ const FIELD_RULES = {
     'headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice. When little is known about today, name what is true: a quiet day or something genuinely ahead. The headline is only ever about today: it never mentions time away, a return or a welcome back, even for someone returning, because the welcome waits for the brief itself.',
   day_shape:
     "day_shape: one sentence on how full the day is and when the clear stretches are, taken from TODAY'S SHAPE. Take its times from it and from nowhere else, and never count or add up entries yourself. When no calendar is connected, say only what is due or planned, never that the day is open, clear or free, and leave it empty when nothing is due or planned.",
-  lead: "lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, which is not always what fills the most time.",
+  lead: "lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, which is not always what fills the most time. Something in their life that falls on today itself, an occasion, a milestone or a day they have been waiting for, matters more than a task or a meeting; FALLS ON TODAY ITSELF holds what the ledger has on today.",
   focus:
-    'today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly.',
+    'today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly, above all what a close friend would mention or ask after this morning: something they did or went through in the last day or two, something on their mind, or something close ahead in their life.',
   claims:
     'claims: the items with a real claim on today (due today, on Today, a habit that needs today to stay on track for the week, a calendar entry). Each cites its ref and says why in a few words.',
   reach:
@@ -989,7 +1001,7 @@ YOUR JOB
 - ${FIELD_RULES.focus}
 - ${FIELD_RULES.claims}
 - ${FIELD_RULES.reach}
-- anchor_refs: the dated ledger facts happening today or in the next 30 days that are worth keeping in mind, cited by ref, including a trip or travel that starts today or is under way today. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
+- anchor_refs: the dated ledger facts happening today or in the next 30 days that are worth keeping in mind, cited by ref, including what falls on today itself and a trip or travel that starts today or is under way today. Leave out any plan that something in the inputs suggests already happened, moved or fell through, anything with an open question about it, and anything the person corrected.
 - anchor_labels: for each anchor you cite, a short name for the occasion itself as it would appear on a countdown chip on the day card: a few words, never a sentence, never about anything private.
 - Yesterday's brief tells you how they used yesterday's: what they kept, took out or moved says what fits their days. Let it inform what leads and what has a claim today. Never mention it, and never treat it as a judgement.
 - question_ref: at most one of Gremly's open questions, only if it is about something current or ahead and today is a natural day to ask it. A first morning back after time away is a natural day. Otherwise leave it empty.
@@ -1139,6 +1151,9 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     console.warn(`[DCO v4] day frame failed: ${err.message}`);
     return emptyFrame(today, null);
   });
+  // how hard the picture thinks before it writes (CONTEXT_EFFORT_DAILY, a
+  // Worker var; low unless set): what leads a day is the judgment that most
+  // needs the thought
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'daily'),
     fallback: modelFor(env, 'dailyFallback'),
@@ -1147,7 +1162,9 @@ export async function buildDcoV4(env, userId, { tz: tzIn } = {}) {
     schema: DCO_SCHEMA,
     maxTokens: 8000,
     thinking: 'low',
-    effort: 'low',
+    effort: ['low', 'medium', 'high'].includes(env.CONTEXT_EFFORT_DAILY)
+      ? env.CONTEXT_EFFORT_DAILY
+      : 'low',
   });
 
   // Every sentence through the check (workers/shared/check): one that fails

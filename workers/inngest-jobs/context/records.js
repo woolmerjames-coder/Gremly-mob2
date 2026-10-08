@@ -82,6 +82,24 @@ function listItems(items) {
   return lines.length ? ` List: ${lines.join('; ')}.` : '';
 }
 
+/**
+ * The reminders the person set on an item (reminders_json), as words: a
+ * reminder is when they mean to be told about it, which says when they mean
+ * to deal with it. Times are as they set them, in their own day.
+ */
+export function reminderWords(reminders) {
+  if (!Array.isArray(reminders)) return '';
+  const said = reminders
+    .filter((r) => r && (r.date || r.time))
+    .map((r) => {
+      const at = r.time ? ` at ${String(r.time).slice(0, 5)}` : '';
+      if (r.frequency && r.frequency !== 'once') return `${r.frequency}${at}`;
+      return `${r.date ? `${weekdayName(String(r.date).slice(0, 10))} ${String(r.date).slice(0, 10)}` : 'a day not set'}${at}`;
+    });
+  if (!said.length) return '';
+  return ` They set ${said.length === 1 ? 'a reminder' : 'reminders'} for it: ${said.join('; ')}.`;
+}
+
 const NOTE_KIND = {
   journal: 'a journal entry',
   event: 'an event',
@@ -129,7 +147,7 @@ export function noteRecord(n) {
     id: n.id,
     at: n.created_at,
     private: n.views?.private_journal === true,
-    text: `${noteHead(n, 'Wrote')}${words ? `. ${words}` : ''}${listItems(n.list_items)}${moods.length ? ` Mood they chose: ${moods.join(', ')}.` : ''}`,
+    text: `${noteHead(n, 'Wrote')}${words ? `. ${words}` : ''}${listItems(n.list_items)}${moods.length ? ` Mood they chose: ${moods.join(', ')}.` : ''}${reminderWords(n.reminders_json)}`,
   };
 }
 
@@ -141,13 +159,15 @@ export function todoRecord(t) {
     id: t.id,
     at: t.created_at,
     private: t.views?.private_journal === true,
-    text: `Added a todo: "${oneLine(t.title)}"${due ? ` (due ${due})` : ''}${extra ? `. Details: ${extra}` : ''}${listItems(t.list_items)}`,
+    text: `Added a todo: "${oneLine(t.title)}"${due ? ` (due ${due})` : ''}${extra ? `. Details: ${extra}` : ''}${listItems(t.list_items)}${reminderWords(t.reminders_json)}`,
   };
 }
 
 export function completedRecord(t) {
   return {
     table: 'todos',
+    // marked apart from the record of the todo being made (reader.js markTable)
+    mark: 'completed',
     id: t.id,
     at: t.completed_at,
     private: t.views?.private_journal === true,
@@ -156,11 +176,16 @@ export function completedRecord(t) {
 }
 
 export function habitRecord(h) {
+  const notes = String(h.notes || '').trim();
+  const span =
+    h.start_date || h.end_date
+      ? ` It runs ${h.start_date ? `from ${String(h.start_date).slice(0, 10)}` : ''}${h.end_date ? ` until ${String(h.end_date).slice(0, 10)}` : ''}.`
+      : '';
   return {
     table: 'habits',
     id: h.id,
     at: h.created_at,
-    text: `Started tracking a habit: "${oneLine(h.name || h.title)}"${h.frequency ? ` (${h.frequency})` : ''}${h.why_string ? `. Why: ${h.why_string}` : ''}`,
+    text: `Started tracking a habit: "${oneLine(h.name || h.title)}"${h.frequency ? ` (${h.frequency})` : ''}${h.why_string ? `. Why: ${h.why_string}` : ''}${notes ? `. Their notes on it: ${notes}` : ''}.${span}${reminderWords(h.reminders_json)}`,
   };
 }
 
@@ -299,7 +324,7 @@ export function changeRecord(change, row, tz) {
     return {
       ...base,
       private: row?.views?.private_journal === true,
-      text: `Changed the todo "${oneLine(row?.title)}": ${parts.join('; ')}${moves > 1 ? ` (moved ${moves} times in all)` : ''}. It now stands: "${oneLine(row?.title)}"${due ? `, due ${due}` : ', no day'}${row?.completed_at ? ', done' : ''}${row?.archived ? ', archived' : ''}${extra ? `. Details: ${extra}` : ''}${listItems(row?.list_items)}`,
+      text: `Changed the todo "${oneLine(row?.title)}": ${parts.join('; ')}${moves > 1 ? ` (moved ${moves} times in all)` : ''}. It now stands: "${oneLine(row?.title)}"${due ? `, due ${due}` : ', no day'}${row?.completed_at ? ', done' : ''}${row?.archived ? ', archived' : ''}${extra ? `. Details: ${extra}` : ''}${listItems(row?.list_items)}${row?.completed_at || row?.archived ? '' : reminderWords(row?.reminders_json)}`,
     };
   }
 
@@ -340,9 +365,10 @@ export function changeRecord(change, row, tz) {
     if (fields.has('frequency')) parts.push(`changed how often, now ${row?.frequency || 'unset'}`);
     if (['start_date', 'end_date'].some((f) => fields.has(f))) parts.push('changed its dates');
     if (!parts.length) return null;
+    const notes = String(row?.notes || '').trim();
     return {
       ...base,
-      text: `Changed the habit "${oneLine(row?.name || row?.title)}": ${parts.join('; ')}.${row?.why_string ? ` Why: ${row.why_string}` : ''}`,
+      text: `Changed the habit "${oneLine(row?.name || row?.title)}": ${parts.join('; ')}.${row?.why_string ? ` Why: ${row.why_string}` : ''}${notes ? ` Their notes on it: ${notes}` : ''}${row?.archived ? '' : reminderWords(row?.reminders_json)}`,
     };
   }
 

@@ -14,6 +14,7 @@ import {
   fakeStep,
   installClock,
   installFetchGuard,
+  pendingRead,
   restTarget,
   shadowCost,
   workerVars,
@@ -140,5 +141,88 @@ describe('the rest of the harness', () => {
     const file = join(dir, 'wrangler.toml');
     writeFileSync(file, 'name = "w"\n[vars]\nCONTEXT_PIPELINE = "on"\n# a note\nX = "1"\n[triggers]\nY = "2"\n');
     expect(workerVars(file)).toEqual({ CONTEXT_PIPELINE: 'on', X: '1' });
+  });
+});
+
+describe('SQL this tree needs that live does not have yet', () => {
+  const pending = {
+    columns: { life_facts_now: ['timing'], life_people: ['who_checked_at'] },
+    tables: ['ledger_reads'],
+  };
+
+  it('takes a new column out of the select, and judges a filter on it against null', () => {
+    const r = pendingRead(
+      `${DB}/rest/v1/life_facts_now?user_id=eq.1&select=id,statement,timing&order=timing.asc,id.asc`,
+      'life_facts_now',
+      pending,
+    );
+    const u = new URL(r.url);
+    expect(u.searchParams.get('select')).toBe('id,statement');
+    expect(u.searchParams.get('order')).toBe('id.asc');
+    expect(r.add).toEqual(['timing']);
+    expect(r.empty).toBe(false);
+    // is.null holds for every row; an or with it holds too
+    const both = pendingRead(
+      `${DB}/rest/v1/life_people?who_checked_at=is.null&or=(name.is.null,who_checked_at.is.null)`,
+      'life_people',
+      pending,
+    );
+    expect(new URL(both.url).searchParams.get('who_checked_at')).toBeNull();
+    expect(new URL(both.url).searchParams.get('or')).toBeNull();
+    // anything else holds for none
+    expect(pendingRead(`${DB}/rest/v1/life_facts_now?timing=eq.yearly`, 'life_facts_now', pending).empty).toBe(true);
+    expect(pendingRead(`${DB}/rest/v1/ledger_reads?user_id=eq.1`, 'ledger_reads', pending).empty).toBe(true);
+    expect(pendingRead(`${DB}/rest/v1/todos?select=id`, 'todos', pending)).toEqual({
+      url: `${DB}/rest/v1/todos?select=id`,
+      empty: false,
+      add: [],
+    });
+  });
+
+  it('answers a new column as null and a new table with no rows', async () => {
+    const sent = [];
+    globalThis.fetch = async (url) => {
+      sent.push(String(url));
+      return new Response(JSON.stringify([{ id: 'f1', statement: 'x' }]), { status: 200 });
+    };
+    const record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
+    const restore = installFetchGuard({ supabaseUrl: DB, atIso: AT, record, apikey: 'k', pending });
+    try {
+      const rows = await (await fetch(`${DB}/rest/v1/life_facts_now?select=id,statement,timing`)).json();
+      expect(rows).toEqual([{ timing: null, id: 'f1', statement: 'x' }]);
+      expect(await (await fetch(`${DB}/rest/v1/ledger_reads?user_id=eq.1`)).json()).toEqual([]);
+      expect(sent).toHaveLength(1);
+      expect(record.reads.every((r) => r.pending)).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('a function that writes', () => {
+  it('is kept and never sent, and can be answered so the job carries on', async () => {
+    const sent = [];
+    globalThis.fetch = async (url) => {
+      sent.push(String(url));
+      return new Response('[]', { status: 200 });
+    };
+    const record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
+    const restore = installFetchGuard({
+      supabaseUrl: DB,
+      atIso: AT,
+      record,
+      apikey: 'k',
+      rpcAnswer: (fn) => (fn === 'ensure_daily_thread' ? [{ id: 't1' }] : undefined),
+    });
+    try {
+      const res = await fetch(`${DB}/rest/v1/rpc/ensure_daily_thread`, { method: 'POST', body: '{}' });
+      expect(await res.json()).toEqual([{ id: 't1' }]);
+      const other = await fetch(`${DB}/rest/v1/rpc/claim_send`, { method: 'POST', body: '{}' });
+      expect(await other.json()).toEqual([]);
+      expect(sent).toEqual([]);
+      expect(record.writes.map((w) => w.rpc)).toEqual(['ensure_daily_thread', 'claim_send']);
+    } finally {
+      restore();
+    }
   });
 });

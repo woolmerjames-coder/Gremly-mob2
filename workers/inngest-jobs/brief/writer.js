@@ -17,7 +17,7 @@ import { addDays } from '../context/db';
 import { SENTENCE_SCHEMA, STATED_RULES, runCheck, problemList } from '../../shared/check/index.js';
 import { upNextWords } from '../../shared/upNext.js';
 
-export const BRIEF_PROMPT_VERSION = 'brief-2026-10-08d';
+export const BRIEF_PROMPT_VERSION = 'brief-2026-10-13a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -59,6 +59,82 @@ function weekdayLabel(dateStr) {
 function hhmm(min) {
   const m = Math.max(0, Math.round(min));
   return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Their life right now (shared/lifePack.js), each line a record the check
+ * holds a sentence to: what happened yesterday, what falls today, what is
+ * close ahead, what they said lately, what holds with no date of its own, and
+ * the people who come up most. Empty when there is none.
+ */
+function lifeLines(g, add, hold) {
+  const p = g.life;
+  if (!p) return '';
+  const factFields = (f) => ({
+    spans: f.about_date ? [[f.about_date, f.about_date_end || f.about_date]] : [],
+    exact: [],
+    private: !!(f.private || f.health),
+  });
+  const fact = (f, section) => {
+    const ref = add('x', { type: 'fact', id: f.id });
+    return hold(
+      ref,
+      factFields(f),
+      `${ref} | ${f.about_date ? `${f.about_date}${f.every_year ? ', every year' : ''} | ` : ''}${trim(f.statement, 200)}${f.private || f.health ? ' [private]' : ''}`,
+      section,
+    );
+  };
+  const out = [];
+  const yesterday = addDays(g.today, -1);
+  const y = [
+    ...p.yesterday.calendar.map((c) => {
+      const ref = add('y', { type: 'calendar', id: c.id });
+      return hold(
+        ref,
+        {
+          dates: [yesterday],
+          times: Number.isFinite(c.start) ? [hhmm(c.start), hhmm(c.end)] : [],
+          exact: ['date', 'time'],
+        },
+        `${ref} | ${Number.isFinite(c.start) ? `${clockTime(c.start)} to ${clockTime(c.end)}` : 'all day'} | ${trim(c.title, 100)}`,
+        'on their calendar yesterday',
+      );
+    }),
+    ...p.yesterday.facts.map((f) => fact(f, 'yesterday, from what they said')),
+  ];
+  if (y.length)
+    out.push(
+      `Yesterday, ${weekdayLabel(yesterday)} ${yesterday}, already past (ref | when | what):\n${y.join('\n')}`,
+    );
+  if (p.today_facts.length)
+    out.push(
+      `Falls on today, ${weekdayLabel(g.today)} ${g.today}:\n${p.today_facts.map((f) => fact(f, 'falls on today')).join('\n')}`,
+    );
+  if (p.ahead.length)
+    out.push(`Close ahead:\n${p.ahead.map((f) => fact(f, 'close ahead')).join('\n')}`);
+  if (p.lately.length)
+    out.push(`Said lately:\n${p.lately.map((f) => fact(f, 'said lately')).join('\n')}`);
+  if (p.standing.length)
+    out.push(
+      `How their life runs (no date of its own):\n${p.standing.map((f) => fact(f, 'holds with no date of its own')).join('\n')}`,
+    );
+  if (p.people.length)
+    out.push(
+      `The people who come up most (ref | name | who they are):\n${p.people
+        .map((person) => {
+          const ref = add('q', { type: 'person', id: person.id });
+          return hold(
+            ref,
+            { names: [person.name].filter(Boolean), exact: ['person'] },
+            `${ref} | ${person.name || '(no name given yet)'} | ${person.relationship ? `${person.relationship}, as they said` : 'who they are is not known'}`,
+            'someone in their life',
+          );
+        })
+        .join('\n')}`,
+    );
+  return out.length
+    ? `THEIR LIFE RIGHT NOW (what a friend would know this morning; cite by ref):\n${out.join('\n')}`
+    : '';
 }
 
 /**
@@ -185,6 +261,28 @@ export function renderBriefInput(g, offer) {
     L.push(
       named('m1', 'dco', { exact: [] }, `THE DCO'S READ OF THE DAY (m1): ${trim(g.dayShape, 240)}`),
     );
+  if (g.lead?.what)
+    L.push(
+      named(
+        'l1',
+        'dco',
+        { dates: [g.today], exact: [] },
+        `THE DCO'S LEAD (l1; what today is about, and why it is today's): ${trim(g.lead.what, 200)}${g.lead.why_today ? `. ${trim(g.lead.why_today, 200)}` : ''}`,
+      ),
+    );
+  if (g.headline)
+    L.push(named('l2', 'dco', { exact: [] }, `THE DCO'S HEADLINE (l2): ${trim(g.headline, 140)}`));
+  (g.alsoMatters || []).forEach((t, i) =>
+    L.push(
+      named(
+        `l${3 + i}`,
+        'dco',
+        { exact: [] },
+        `THE DCO'S ALSO MATTERS (l${3 + i}): ${trim(t, 200)}`,
+      ),
+    ),
+  );
+  if (g.voiceNote) L.push(`HOW THE DCO SAYS TO SOUND TODAY: ${trim(g.voiceNote, 200)}`);
   L.push('');
   L.push(
     `DUE TODAY (ref | title):\n${
@@ -259,19 +357,30 @@ export function renderBriefInput(g, offer) {
       ),
     );
   }
-  const anchorLines = (g.anchors || [])
-    .filter((a) => a.date >= g.today || (a.date_end && a.date_end >= g.today))
-    .map((a) => {
-      const ref = add('a', { type: 'anchor', id: a.fact_id || null });
-      return hold(
-        ref,
-        { spans: [[a.date, a.date_end || a.date]], exact: ['date'] },
-        `${ref} | ${a.date} | ${trim(a.short_label || a.label, 120)}`,
-        'a dated thing ahead, on the day card',
-      );
-    });
+  // what falls on today itself is today's; the rest is ahead, on the day card
+  const anchorLine = (a, section) => {
+    const ref = add('a', { type: 'anchor', id: a.fact_id || null });
+    return hold(
+      ref,
+      { spans: [[a.date, a.date_end || a.date]], exact: ['date'] },
+      `${ref} | ${a.date} | ${trim(a.short_label || a.label, 120)}`,
+      section,
+    );
+  };
+  const anchors = (g.anchors || []).filter(
+    (a) => a.date >= g.today || (a.date_end && a.date_end >= g.today),
+  );
+  const onToday = anchors.filter((a) => a.date <= g.today);
   L.push(
-    `DATED THINGS AHEAD (shown on the day card already; ref | date | what):\n${anchorLines.join('\n') || 'none'}`,
+    `FALLS ON TODAY ITSELF (ref | date | what):\n${onToday.map((a) => anchorLine(a, 'falls on today')).join('\n') || 'none'}`,
+  );
+  L.push(
+    `DATED THINGS AHEAD (shown on the day card already; ref | date | what):\n${
+      anchors
+        .filter((a) => a.date > g.today)
+        .map((a) => anchorLine(a, 'a dated thing ahead, on the day card'))
+        .join('\n') || 'none'
+    }`,
   );
   // Up next among their Chapters, worked out in code (shared/upNext.js). It is
   // there to know; nothing asks for it to be mentioned
@@ -289,6 +398,8 @@ export function renderBriefInput(g, offer) {
       ),
     );
   }
+  const life = lifeLines(g, add, hold);
+  if (life) L.push(life);
   L.push('');
   const s = g.sweep || {};
   L.push(
@@ -488,12 +599,14 @@ WHAT YOU WRITE
 - ${LINE_RULES.line}
 - Every meeting, todo, habit or reach item a line names is cited in that line's refs, by the refs given in the input. Name nothing that is not in the input. Times come from the input and from nowhere else; never work out or add up times or counts yourself.
 - Talk about todos and habits the way a person would say them in conversation, rather than pasting a title in as the subject of a sentence. Name a todo as the action itself, in the words a person would say out loud, never as an -ing word or a list of titles. Read each line back as speech: it must be grammatical and sound like something a friend would say aloud.
-- Say an occasion falls today (a birthday, an anniversary, a launch) only when the input gives that occasion's own date as today. A trip, plan, task or present named after an occasion does not date the occasion itself.
+- Say an occasion falls today only when the input gives that occasion's own date as today. A trip, plan, task or present named after an occasion does not date the occasion itself.
 - Mention a clash only when the input lists one still ahead.
 - When the input gives travel today, it frames the day: say so early and plainly, and talk about the time before they set off as the time there is. Point out a meeting that falls after they set off once, as something they may want to move. When the time they set off is not known, never guess one.
 - The day is counted to 10pm only so planning has an end; never say the day runs until 10pm or mention that end.
-- The DCO has already decided what matters (its claims), the one undated thing worth suggesting (its reach), the question and the welcome. Phrase those decisions; never choose different ones. Mention the reach only with the reason given for it.
-- The dated things ahead are on the day card. Mention one only when today genuinely needs it, never to fill a line.
+- The DCO has already decided what today is about (its lead), what has a claim on today (its claims), the one undated thing worth suggesting (its reach), the question and the welcome. Phrase those decisions; never choose different ones. Unless it is a return day, open from the lead, as what today means to them, before the shape of the day. Mention the reach only with the reason given for it.
+- What falls on today itself is part of what today is. The dated things ahead are on the day card: mention one only when today genuinely needs it, never to fill a line.
+- What the DCO says also matters is what a friend would mention or ask after this morning. Bring in what fits, in a few words, after the lead and the shape of the day, and cite it.
+- THEIR LIFE RIGHT NOW is what a friend would know about them this morning. Where something in it bears on today or is worth a word now, something from yesterday, something on their mind or something close ahead, bring it in the way a friend would, in a few words, once, and cite it. Never recite it or list it, never tell them as news what they told you, and keep anything marked private to the private rules.
 - LAST NIGHT'S WRAP UP, when given, is how they closed yesterday with Gremly, and it is background for today. What they moved to today and a plan they said yes to are their own choices, so speak of them as theirs. Touch on the evening at most once and lightly, never recap it, never mention their journal, and never mention anything they left unfinished.
 - On a return day: the first line says once, warmly, that it is good to see them and that time away is fine, then the lines talk about today. Never count, list or hint at what was missed, never guess why they were away, never mention streaks. The counts of what is waiting belong only in catch_up, never in the lines or the offer.
 - ${LINE_RULES.offer}

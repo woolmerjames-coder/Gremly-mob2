@@ -5,6 +5,31 @@
  * do not all have the same keys is refused. Not a test itself (jest runs only
  * *.test.js).
  */
+// a list split at its own commas, never inside brackets: a.in.(x,y),b.is.null
+function topLevel(list) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of list) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      out.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+// a column, or a field inside a json column: views->>quiet
+const valueOf = (row, col) => {
+  if (!col.includes('->>')) return row[col];
+  const [c, k] = col.split('->>');
+  const v = row[c]?.[k];
+  return v == null ? v : String(v);
+};
+
 export function memoryDb(tables) {
   const parse = (path) => {
     const [table, q = ''] = path.split('?');
@@ -14,15 +39,13 @@ export function memoryDb(tables) {
       .map((p) => {
         const col = p.slice(0, p.indexOf('='));
         const rest = p.slice(p.indexOf('=') + 1);
-        // or=(a.eq.x,b.eq.y)
+        // or=(a.eq.x,b.not.in.(y,z))
         if (col === 'or') {
-          const parts = decodeURIComponent(rest)
-            .replace(/^\(|\)$/g, '')
-            .split(',')
-            .map((x) => {
-              const [c, o, ...v] = x.split('.');
-              return { col: c, op: o, val: v.join('.') };
-            });
+          const parts = topLevel(decodeURIComponent(rest).replace(/^\(|\)$/g, '')).map((x) => {
+            const [c, o, ...v] = x.split('.');
+            // a value in double quotes, as PostgREST takes one with reserved characters
+            return { col: c, op: o, val: v.join('.').replace(/^"(.*)"$/, '$1') };
+          });
           return { col, op: 'or', val: parts };
         }
         const op = rest.slice(0, rest.indexOf('.'));
@@ -30,29 +53,25 @@ export function memoryDb(tables) {
         return { col, op, val };
       });
     const test = (row, col, op, val) => {
-      if (op === 'eq') return String(row[col]) === val;
-      if (op === 'neq') return String(row[col]) !== val;
-      if (op === 'in')
-        return val
-          .replace(/^\(|\)$/g, '')
-          .split(',')
-          .includes(String(row[col]));
-      if (op === 'is') return val === 'null' ? row[col] == null : String(row[col]) === val;
-      if (op === 'gte') return row[col] != null && String(row[col]) >= val;
-      if (op === 'gt') return row[col] != null && String(row[col]) > val;
-      if (op === 'lte') return row[col] != null && String(row[col]) <= val;
-      if (op === 'lt') return row[col] != null && String(row[col]) < val;
+      const v = valueOf(row, col);
+      if (op === 'not') {
+        const inner = val.slice(0, val.indexOf('.'));
+        return !test(row, col, inner, val.slice(val.indexOf('.') + 1));
+      }
+      if (op === 'eq') return String(v) === val;
+      if (op === 'neq') return String(v) !== val;
+      if (op === 'in') return topLevel(val.replace(/^\(|\)$/g, '')).includes(String(v));
+      if (op === 'is') return val === 'null' ? v == null : String(v) === val;
+      if (op === 'gte') return v != null && String(v) >= val;
+      if (op === 'gt') return v != null && String(v) > val;
+      if (op === 'lte') return v != null && String(v) <= val;
+      if (op === 'lt') return v != null && String(v) < val;
       // a filter it does not know fails the test, rather than matching every row
       throw new Error(`memoryDb: no filter ${op} on ${col}`);
     };
     const match = (row) =>
       filters.every(({ col, op, val }) => {
         if (op === 'or') return val.some((x) => test(row, x.col, x.op, x.val));
-        // not.<op>.<value>
-        if (op === 'not') {
-          const inner = val.slice(0, val.indexOf('.'));
-          return !test(row, col, inner, val.slice(val.indexOf('.') + 1));
-        }
         return test(row, col, op, val);
       });
     return { table, match };

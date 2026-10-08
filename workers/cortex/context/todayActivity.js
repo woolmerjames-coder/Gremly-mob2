@@ -60,9 +60,10 @@ export async function buildTodayActivity(userId, timezone, env, { today = null }
       todayNotes,
       calendarEvents,
     ] = await Promise.all([
-      // Todos completed today
+      // Todos done today: a done todo carries completed_at, whatever its
+      // status (most keep the status active), so the time is what counts
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${encodeURIComponent(userId)}&status=eq.completed&completed_at=gte.${encodeURIComponent(todayStart)}&select=title,completed_at&order=completed_at.desc&limit=20`,
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${encodeURIComponent(userId)}&completed_at=gte.${encodeURIComponent(todayStart)}&select=title,completed_at&order=completed_at.desc&limit=20`,
         { headers },
       )
         .then((r) => r.json())
@@ -70,7 +71,7 @@ export async function buildTodayActivity(userId, timezone, env, { today = null }
 
       // Todos created today (new drops)
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${encodeURIComponent(userId)}&created_at=gte.${encodeURIComponent(todayStart)}&select=title,status,created_at&order=created_at.desc&limit=15`,
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${encodeURIComponent(userId)}&created_at=gte.${encodeURIComponent(todayStart)}&select=title,status,created_at,completed_at&order=created_at.desc&limit=15`,
         { headers },
       )
         .then((r) => r.json())
@@ -182,7 +183,8 @@ export async function buildTodayActivity(userId, timezone, env, { today = null }
     // New drops today (exclude completed ones already listed)
     const completedTitles = new Set(completed.map((t) => t.title?.toLowerCase()));
     const newDrops = safeArr(createdTodos).filter(
-      (t) => t.status !== 'completed' && !completedTitles.has(t.title?.toLowerCase()),
+      (t) =>
+        !t.completed_at && t.status !== 'completed' && !completedTitles.has(t.title?.toLowerCase()),
     );
     if (newDrops.length > 0) {
       parts.push(`New today: ${newDrops.map((t) => `"${t.title}"`).join(', ')}`);

@@ -11,7 +11,7 @@
 import { PRIVATE_RULES, WRITING_RULES } from '../careRules';
 import { jsonCall } from '../context/llm';
 
-export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-08a';
+export const COPY_PROMPT_VERSION = 'notif-copy-2026-10-13a';
 export const COPY_MODELS = Object.freeze({
   primary: { provider: 'google', model: 'gemini-3.8-flash' },
   fallback: { provider: 'openai', model: 'gpt-6-luna' },
@@ -34,7 +34,7 @@ export const ANGLE_RULES = Object.freeze({
 
 const MOMENT_RULES = Object.freeze({
   brief:
-    "Today's brief is written and waiting in Chat. Tell them their day is ready, about today only.",
+    "Today's brief is written and waiting in Chat. Tell them their day is ready, about today only. When the facts say what leads today, the line starts from it, whatever the angle, because it is what today is about for them; the angle shapes the rest.",
   sweep:
     'It is the evening, and the wrap up of their day is ready in Chat: Gremly looks back on the day with them, helps them settle anything still waiting to be sorted, and asks about the day for their journal. Invite them to it lightly, through one real thing from their day in the facts; when things are waiting to be sorted, say a few are ready to settle as part of it, never as a job. Call it their wrap up, the way the app does.',
   habit_checkin:
