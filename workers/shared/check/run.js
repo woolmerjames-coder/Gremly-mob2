@@ -7,9 +7,12 @@
  * fails again is left out: blank is better than wrong.
  *
  * Two kinds of sentence are left out without a second try: one seen at a
- * glance that rests on something private or about health, since the only
- * record it could be written again from is that one, and one whose words
- * question could not be asked or came back without an answer.
+ * glance that rests only on something private or about health, since the
+ * only record it could be written again from is that one, and one whose words
+ * question could not be asked or came back without an answer. One seen at a
+ * glance that rests on other records as well goes back once with only those,
+ * so it is written from what can be seen at a glance or not at all (since
+ * 18 Oct, when the real weeks showed whole weeks' lines lost to one record).
  *
  * The worker gives two functions, so both workers run it the same way:
  *   ask(request) answers the words question for one sentence (it throws when
@@ -18,10 +21,13 @@
  *     or null. problems are the words the writer is shown.
  * and may give a third:
  *   confirm(request) answers the same words question on a model of another
- *     family, asked only when the first says a sentence does not hold. The
- *     sentence is held to be wrong only when both say so, so one reader's
- *     misreading never costs a sentence (stage 7, after the comparison of
- *     8 Oct). When the second cannot be asked, the first answer stands.
+ *     family, asked only before a sentence would be left out for its words:
+ *     what the first reader finds is put right first, and a sentence is left
+ *     out only when both readers say its last version does not hold, so one
+ *     reader's misreading never costs a sentence (stage 7, after the
+ *     comparison of 8 Oct; asked last since 18 Oct, when the replays showed
+ *     the second reader keeping real slips when it was asked first). When the
+ *     second cannot be asked, the first answer stands.
  */
 
 import { codeCheck } from './stated.js';
@@ -52,7 +58,7 @@ function recordsOf(refs, records) {
 const short = (err) => String(err?.message || err).slice(0, 120);
 
 /** One sentence through every step. Never throws: a step that breaks is a problem. */
-async function checkOne(sentence, records, { glanceable, listed = true, today, moment, person, ask, confirm = null }) {
+async function checkOne(sentence, records, { glanceable, listed = true, today, moment, person, ask }) {
   let code;
   try {
     code = codeCheck(sentence, records, { glanceable, listed });
@@ -64,7 +70,10 @@ async function checkOne(sentence, records, { glanceable, listed = true, today, m
     };
   }
   if (!code.sentence.text) return { ...code, problems: [] };
-  if (code.problems.length) return { ...code, final: code.sensitive };
+  // a line seen at a glance can be written again from the records it rests
+  // on that are neither private nor about health, when it has any
+  const open = code.sentence.refs.filter((r) => !records.get(r)?.private && !records.get(r)?.health);
+  if (code.problems.length) return { ...code, final: code.sensitive && !open.length, ...(code.sensitive ? { open } : {}) };
   let output;
   const request = wordsRequest({
     sentence: code.sentence,
@@ -90,17 +99,21 @@ async function checkOne(sentence, records, { glanceable, listed = true, today, m
       final: true,
     };
   const words = wordsProblem(output);
-  if (words && confirm) {
-    let second = null;
-    try {
-      second = await confirm(request);
-    } catch {
-      second = null;
-    }
-    if (second?.not_held === false) return { ...code, heldBySecond: words };
-  }
-  return words ? { ...code, problems: [words] } : code;
+  return words ? { ...code, problems: [words], request } : code;
 }
+
+/** Whether the second reader holds a sentence the first did not, by the same request. */
+async function secondHolds(confirm, request) {
+  if (!confirm || !request) return false;
+  try {
+    return (await confirm(request))?.not_held === false;
+  } catch {
+    return false;
+  }
+}
+
+/** A result whose only problem is what the words question found. */
+const wordsOnly = (r) => !!r?.sentence?.text && r.problems?.length > 0 && r.problems.every((p) => p.step === 'words') && !!r.request;
 
 const says = (problems) => problems.map((p) => p.say);
 const steps = (problems) => [...new Set(problems.map((p) => p.step))];
@@ -128,7 +141,7 @@ export async function runCheck({
   confirm = null,
 }) {
   const first = await inTurn(items, (it) =>
-    checkOne(it.sentence, records, { glanceable: it.glanceable, listed: it.listed !== false, today, moment, person, ask, confirm }),
+    checkOne(it.sentence, records, { glanceable: it.glanceable, listed: it.listed !== false, today, moment, person, ask }),
   );
   const results = new Map();
   const details = [];
@@ -141,9 +154,6 @@ export async function runCheck({
     }
     if (!r.problems.length) {
       results.set(it.key, { outcome: 'pass', sentence: r.sentence, refs: r.sentence.refs });
-      // one reader said it did not hold and the other said it did: kept, and said
-      if (r.heldBySecond)
-        details.push({ key: it.key, outcome: 'held_by_second', first: [r.heldBySecond], texts: [r.sentence.text], refs: [r.sentence.refs] });
       return;
     }
     if (r.final) {
@@ -161,14 +171,16 @@ export async function runCheck({
   });
 
   const second = await inTurn(again, async ({ it, r }) => {
-    // only the records it rested on, and nothing else
-    const own = new Map(r.sentence.refs.map((ref) => [ref, records.get(ref)]));
+    // only the records it rested on, and nothing else: for a line seen at a
+    // glance that rested on something private, only those it may rest on
+    const refs = r.open || r.sentence.refs;
+    const own = new Map(refs.map((ref) => [ref, records.get(ref)]));
     let redone = null;
     try {
       redone = await rewrite({
         key: it.key,
         sentence: r.sentence,
-        records: recordsOf(r.sentence.refs, records),
+        records: recordsOf(refs, records),
         problems: says(r.problems),
       });
     } catch (err) {
@@ -178,11 +190,34 @@ export async function runCheck({
     }
     if (!redone || !String(redone.text || '').trim())
       return { problems: [{ step: 'rewrite', say: 'it was written again with nothing in it' }] };
-    return checkOne(redone, own, { glanceable: it.glanceable, today, moment, person, ask, confirm });
+    return checkOne(redone, own, { glanceable: it.glanceable, today, moment, person, ask });
+  });
+
+  // before anything is left out for its words, the second reader reads its
+  // last version, or the first when the second failed on more than its words
+  const kept = await inTurn(again, async ({ r }, i) => {
+    const s = second[i];
+    if (s.sentence?.text && !s.problems.length) return null;
+    const last = wordsOnly(s) ? s : wordsOnly(r) ? r : null;
+    return last && (await secondHolds(confirm, last.request)) ? last : null;
   });
 
   again.forEach(({ it, r }, i) => {
     const s = second[i];
+    if (kept[i]) {
+      const k = kept[i];
+      results.set(it.key, { outcome: k === r ? 'pass' : 'rewritten', sentence: k.sentence, refs: k.sentence.refs });
+      // one reader said it did not hold and the other said it did: kept, and said
+      details.push({
+        key: it.key,
+        outcome: 'held_by_second',
+        first: r.problems,
+        ...(k === r ? {} : { second: s.problems }),
+        texts: [r.sentence.text, s.sentence?.text || ''],
+        refs: [r.sentence.refs, s.sentence?.refs || []],
+      });
+      return;
+    }
     const ok = s.sentence?.text && !s.problems.length;
     results.set(
       it.key,

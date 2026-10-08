@@ -531,6 +531,19 @@ test('a second reader of another family is asked only when the first says a card
   expect([...c3.parts.keys()]).toEqual(['2']);
 });
 
+test('a card the first reader finds wrong is written again before the second reader is asked, which keeps it only then', async () => {
+  const { brief, f } = setup();
+  // the card still reads the same after its rewrite: the second reader decides
+  const write = jest.fn(async (u) => (!u.rest ? deck() : deck().cards[2]));
+  const ask = async (req) => ({ not_held: /four evenings/.test(req.user), what: 'not held' });
+  const confirm = jest.fn(async () => ({ not_held: false, what: null }));
+  const r = await writePlannedDeck({}, brief, f, { ask, confirm, write, today: WEEK[6], person: null });
+  expect(write).toHaveBeenCalledTimes(2);
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(r.left_out).toEqual([]);
+  expect(r.held_by_second).toEqual(['2']);
+});
+
 test('a card sent back alone is told to change only the words that do not hold', async () => {
   const { brief, f } = setup();
   const write = jest.fn(async (u) => (!u.rest ? deck() : deck().cards[2]));

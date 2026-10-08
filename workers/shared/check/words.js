@@ -9,7 +9,7 @@
  * both workers ask it the same way.
  */
 
-export const WORDS_PROMPT_VERSION = 'check-words-2026-10-08g';
+export const WORDS_PROMPT_VERSION = 'check-words-2026-10-18a';
 
 export const WORDS_SCHEMA = {
   type: 'object',
@@ -47,15 +47,18 @@ function weekday(date) {
  * @param today YYYY-MM-DD, the person's day
  * @param records the records the sentence rests on, each with its label
  * @param moment when in the day the sentence is read, in a few words
- * @param person who the sentence is written for, by first name when known
+ * @param person who the sentence is written for, by first name when known,
+ *   and the pronouns they gave when they gave them
  */
 export function wordsRequest({ sentence, records, today, moment = null, person = null }) {
   // each record's label is the line the writer was shown, its ref included
   const lines = (records || []).map((r) => clean(r.label, 400));
   const name = clean(person?.first_name, 60);
+  // the pronouns they gave for themselves, so a sentence using them is never read as a guess
+  const pronouns = clean(person?.pronouns, 40);
   return {
     system: SYSTEM,
-    user: `TODAY: ${weekday(today)} ${today}${moment ? `, ${clean(moment, 80)}` : ''}.\nTHE PERSON: ${name ? `their first name is ${name}` : 'their name is not known'}.\n\nRECORDS:\n${lines.join('\n') || '(none)'}\n\nSENTENCE: ${clean(sentence.text, 600)}`,
+    user: `TODAY: ${weekday(today)} ${today}${moment ? `, ${clean(moment, 80)}` : ''}.\nTHE PERSON: ${name ? `their first name is ${name}` : 'their name is not known'}${pronouns ? `, and their pronouns are ${pronouns}` : ''}.\n\nRECORDS:\n${lines.join('\n') || '(none)'}\n\nSENTENCE: ${clean(sentence.text, 600)}`,
     schema: WORDS_SCHEMA,
   };
 }
