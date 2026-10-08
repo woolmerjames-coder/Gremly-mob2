@@ -10,6 +10,8 @@
  * Each call returns parsed JSON or throws. Usage is logged by ../../shared/aiUsage.js.
  */
 
+import { jsonrepair } from 'jsonrepair';
+
 export const MODELS = {
   reader: { provider: 'openai', model: 'gpt-6-luna' },
   readerFallback: { provider: 'google', model: 'gemini-3.8-flash' },
@@ -50,6 +52,9 @@ export const MODELS = {
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+  // what the weekly pass falls back on when Sonnet's run fails or never comes
+  // back (functions.js synthesisJob, data fabric stage 5), on the weekly replay
+  weeklyFallback: { provider: 'openai', model: 'gpt-6-luna' },
   // Daily brief in Chat: the brief sounds like chat Gremly; the plan picker is a cheap, careful pick
   brief: { provider: 'google', model: 'gemini-3.8-flash' },
   briefFallback: { provider: 'openai', model: 'gpt-6-luna' },
@@ -236,7 +241,55 @@ export function anthropicJsonResult(message) {
     .map((b) => b.text)
     .join('');
   if (!text) throw new Error('Anthropic reply had no text block');
-  return parseJsonText(text, 'Anthropic');
+  try {
+    return parseJsonText(text, 'Anthropic');
+  } catch (err) {
+    // a reply asked for by its schema in the prompt (anthropicSchemaInPromptParams)
+    // can come back nearly JSON; it is repaired when it can be, and said
+    const t = String(text)
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/, '');
+    let repaired;
+    try {
+      repaired = JSON.parse(jsonrepair(t));
+    } catch {
+      throw err;
+    }
+    console.warn(`[ALERT][context] Anthropic reply was repaired into JSON: ${err.message.slice(0, 160)}`);
+    return repaired;
+  }
+}
+
+/**
+ * The same request as anthropicJsonParams with its schema in the prompt rather
+ * than in output_config: for a reply whose schema is too large for Anthropic's
+ * strict grammar ("The compiled grammar is too large"), which the weekly pass
+ * became when it took on the summary's plan (data fabric stage 5). The schema
+ * goes at the end of the fixed part of the system prompt, so it is cached with
+ * it, and the reply is read by anthropicJsonResult. What comes back is held to
+ * its shape by the caller.
+ */
+export function anthropicSchemaInPromptParams({
+  model,
+  system,
+  user,
+  schema,
+  maxTokens,
+  effort = 'medium',
+}) {
+  const fixed = typeof system === 'string' ? system : system?.fixed || '';
+  const varying = typeof system === 'string' ? null : system?.varying || null;
+  const out = `OUTPUT
+- Return one JSON object and nothing else, matching this JSON schema. Every property the schema lists is present, with an empty string or an empty list where there is nothing to say.
+${JSON.stringify(toStrictSchema(schema))}`;
+  return {
+    model,
+    max_tokens: maxTokens,
+    system: anthropicSystem({ fixed: `${fixed}\n\n${out}`, varying }),
+    messages: [{ role: 'user', content: user }],
+    output_config: { effort },
+  };
 }
 
 async function callAnthropic(env, { model, system, user, schema, maxTokens, effort }) {

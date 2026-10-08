@@ -16,7 +16,7 @@ import { recentCorrections } from './corrections';
 import { invalidateChatCache } from './cache';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-13a';
+export const STORY_PROMPT_VERSION = 'story-2026-10-15a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -151,7 +151,7 @@ DATES
 WHAT YOU ARE GIVEN
 - The fact ledger: everything Gremly has learned from their own records, each fact with its date and state, oldest first. Corrections the person made are listed separately and always win.
 - Their Chapters: stretches of life the app has already recognised.
-- The themes of each week Gremly summarised, and how they used the app month by month.
+- Gremly's own note on each week, written when it read the week, and how they used the app month by month. A week's note is Gremly's reading, never a fact on its own: an item rests on the facts.
 - The story as it stood last time, if there is one.
 
 WHAT TO WRITE
@@ -185,8 +185,10 @@ export async function gatherStory(env, userId) {
     d.select(
       `chapters?owner_id=eq.${userId}&select=id,title,chapter_type,phase,start_date,end_date,summary,card_subtitle&order=start_date.asc.nullslast&limit=60`,
     ),
+    // Gremly's note on each week, from the weekly pass (data fabric stage 5),
+    // in place of the summaries' weekly themes, which were never written
     d.select(
-      `weekly_summaries?user_id=eq.${userId}&select=week_start_date,key_themes&order=week_start_date.asc&limit=80`,
+      `synthesis_runs?user_id=eq.${userId}&kind=in.(weekly,catch_up,first_look)&status=eq.applied&select=period_end,week_note:output->>week_note&order=period_end.asc,created_at.asc&limit=120`,
     ),
     d.rpc('usage_rollup', { p_user: userId, p_grain: 'month', p_periods: 13 }),
     d.select(
@@ -221,9 +223,11 @@ export function renderStory(g, today) {
     const ref = add('c', { type: 'chapter', id: c.id });
     return `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'now')} | ${trim(c.summary || c.card_subtitle, 240)}`;
   });
-  const weekLines = g.weeks
-    .filter((w) => Array.isArray(w.key_themes) && w.key_themes.length)
-    .map((w) => `${w.week_start_date}: ${w.key_themes.map((t) => trim(t, 60)).join('; ')}`);
+  // one note a week: a week passed over again keeps its latest note
+  const notes = new Map();
+  for (const w of g.weeks || [])
+    if (w?.period_end && String(w.week_note || '').trim()) notes.set(w.period_end, w.week_note);
+  const weekLines = [...notes].map(([end, note]) => `week ending ${end}: ${trim(note, 400)}`);
   const usageLines = (g.usage?.periods || []).map(
     (p) =>
       `${String(p.period_start).slice(0, 7)}: ${p.active_days} active days, ${p.drops} drops, ${p.todos_done} done, ${p.habit_checkins} habit check-ins, ${p.journals} journals, ${p.chat_messages} chat messages`,
@@ -243,7 +247,7 @@ export function renderStory(g, today) {
     '',
     `CHAPTERS (ref | title | kind | phase | dates | summary):\n${chapterLines.join('\n') || '(none)'}`,
     '',
-    `WEEKLY THEMES, OLDEST FIRST:\n${weekLines.join('\n') || '(none)'}`,
+    `GREMLY'S NOTE ON EACH WEEK, OLDEST FIRST:\n${weekLines.join('\n') || '(none yet)'}`,
     '',
     `APP USE BY MONTH, NEWEST FIRST:\n${usageLines.join('\n') || '(none)'}${cur ? `\nGremly's age: ${cur.gremly_age ?? 'unknown'}; days fed in total: ${cur.fed_days_total ?? 0}.` : ''}`,
     '',

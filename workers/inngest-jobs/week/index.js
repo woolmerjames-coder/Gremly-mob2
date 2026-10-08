@@ -345,6 +345,11 @@ export async function ensureWeekSpread(env, userId, p = {}) {
   return { on, spread };
 }
 
+/** Whether the Sunday classifier still runs in the weekly pipe (WEEKLY_CLASSIFIER, on unless "off"). */
+export function classifierInPipe(env) {
+  return String(env?.WEEKLY_CLASSIFIER || 'on').toLowerCase() !== 'off';
+}
+
 export function createWeekFunctions(
   inngest,
   { synthesis, classifier = null, words = null, memories = null, people = null, review = null },
@@ -398,8 +403,10 @@ export function createWeekFunctions(
       // What is left of the Sunday classifier runs here, after the synthesis,
       // until stage 5 (data fabric stage 4b): it no longer has a schedule of
       // its own, so it never runs before the synthesis on another day.
+      // its place here is behind WEEKLY_CLASSIFIER (wrangler.toml), "on" until
+      // the Chapter questions take over its suggestions (data fabric stage 5)
       let classified = null;
-      if (classifier) {
+      if (classifier && classifierInPipe(env)) {
         try {
           const c = await step.invoke('classifier', {
             function: classifier,

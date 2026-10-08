@@ -26,12 +26,13 @@ import { buildDcoV4, writeDco } from './daily';
 import { refreshDayFrame } from '../brief/frameRefresh';
 import {
   weeklyRequestParams,
+  weeklyShapeProblems,
   applyWeekly,
   submitWeeklyBatch,
   readWeeklyBatch,
   WEEKLY_PROMPT_VERSION,
 } from './weekly';
-import { anthropicJsonResult } from './llm';
+import { anthropicJsonResult, jsonCall, modelFor } from './llm';
 import {
   storyRequestParams,
   applyStory,
@@ -290,8 +291,23 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
    * One Claude synthesis job: prepare the request, run it straight away
    * (direct) or through the half-price batch API, then apply the result.
    * Used by the weekly synthesis and the monthly story.
+   *
+   * A job given a fallback (the weekly pass, data fabric stage 5) does not end
+   * when Claude's run fails or never comes back: the same request goes to the
+   * fallback model, prepared again when the first was sent by batch, so its
+   * refs are the ones it was written from. The run keeps which model wrote it
+   * and what the first one said.
    */
-  const synthesisJob = ({ id, name, event: eventName, kind: defaultKind, prepare, apply }) =>
+  const synthesisJob = ({
+    id,
+    name,
+    event: eventName,
+    kind: defaultKind,
+    prepare,
+    apply,
+    fallback = null,
+    validate = null,
+  }) =>
     inngest.createFunction(
       {
         id,
@@ -307,6 +323,22 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
         if (mode === 'off') return { skipped: 'pipeline off' };
         const shadow = event.data?.shadow ?? mode !== 'on';
         const direct = !!event.data?.direct;
+        // the same request on the fallback model; throws when that fails too
+        const fallBack = async (p, why) => {
+          const m = modelFor(env, fallback);
+          console.warn(
+            `[ALERT][${name}] Claude's run did not come back for ${userId}, so ${m.model} writes it: ${why.slice(0, 200)}`,
+          );
+          const r = await jsonCall(env, { primary: m, ...p.jsonArgs });
+          const wrong = validate ? validate(r.output) : [];
+          if (wrong.length)
+            throw new Error(`${name} fallback result is not whole: ${wrong.join('; ')}`);
+          return {
+            model: r.model,
+            output: r.output,
+            error: `fell back from Claude: ${why.slice(0, 300)}`,
+          };
+        };
 
         const prepared = await step.run('prepare-and-submit', async () => {
           const p = await prepare(env, userId, event.data || {});
@@ -331,19 +363,35 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
             },
           ]);
           if (direct) {
-            const res = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01',
-              },
-              body: JSON.stringify(p.params),
-            });
-            const text = await res.text();
-            if (!res.ok)
-              throw new Error(`${name} direct call ${res.status}: ${text.slice(0, 300)}`);
-            const output = anthropicJsonResult(JSON.parse(text));
+            let output;
+            try {
+              const res = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': env.ANTHROPIC_API_KEY,
+                  'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify(p.params),
+              });
+              const text = await res.text();
+              if (!res.ok)
+                throw new Error(`${name} direct call ${res.status}: ${text.slice(0, 300)}`);
+              output = anthropicJsonResult(JSON.parse(text));
+              const wrong = validate ? validate(output) : [];
+              if (wrong.length) throw new Error(`${name} result is not whole: ${wrong.join('; ')}`);
+            } catch (err) {
+              if (!fallback || !p.jsonArgs) throw err;
+              const fell = await fallBack(p, String(err?.message || err));
+              await d.update(`synthesis_runs?id=eq.${run.id}`, {
+                status: 'completed',
+                model: fell.model,
+                output: fell.output,
+                error: fell.error,
+                completed_at: new Date().toISOString(),
+              });
+              return { runId: run.id, done: true, fellBack: true };
+            }
             await d.update(`synthesis_runs?id=eq.${run.id}`, {
               status: 'completed',
               output,
@@ -362,7 +410,10 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
 
         if (!prepared.done) {
           let finished = false;
-          for (let i = 0; i < 40 && !finished; i++) {
+          // with a fallback, the batch is waited on for an hour and a half, so
+          // the weekly pipe (which waits two hours) still gets a pass
+          const polls = fallback ? 7 : 40;
+          for (let i = 0; i < polls && !finished; i++) {
             await step.sleep(`wait-${i}`, i < 6 ? '10m' : '30m');
             finished = await step.run(`poll-${i}`, async () => {
               const r = await readWeeklyBatch(env, prepared.batchId, {
@@ -371,7 +422,13 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
               if (!r.done) return false;
               const res = r.results[prepared.runId];
               const d = db(env);
+              const wrong = res?.ok && validate ? validate(res.output) : [];
+              if (wrong.length) {
+                if (fallback) return `came back not whole: ${wrong.join('; ')}`;
+                throw new Error(`${name} result is not whole: ${wrong.join('; ')}`);
+              }
               if (!res?.ok) {
+                if (fallback) return `failed: ${res?.error || 'missing result'}`;
                 await d.update(`synthesis_runs?id=eq.${prepared.runId}`, {
                   status: 'failed',
                   error: res?.error || 'missing result',
@@ -387,7 +444,37 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
               return true;
             });
           }
-          if (!finished) throw new Error(`${name} batch did not finish within the polling window`);
+          if (finished !== true && fallback) {
+            // the batch failed or never came back: written now on the fallback,
+            // from the records as they are now
+            await step.run('fallback', async () => {
+              const p = await prepare(env, userId, event.data || {});
+              const why =
+                typeof finished === 'string'
+                  ? `the batch ${finished}`
+                  : 'the batch did not finish within the polling window';
+              const fell = await fallBack(p, why);
+              const d = db(env);
+              const [run] = await d.select(
+                `synthesis_runs?id=eq.${prepared.runId}&select=input_stats`,
+              );
+              await d.update(`synthesis_runs?id=eq.${prepared.runId}`, {
+                status: 'completed',
+                model: fell.model,
+                output: fell.output,
+                error: fell.error,
+                input_stats: {
+                  ...(run?.input_stats || {}),
+                  ...(p.stats || {}),
+                  input_chars: p.inputChars,
+                  refs: p.refsSnapshot,
+                  today: p.today,
+                },
+                completed_at: new Date().toISOString(),
+              });
+            });
+          } else if (!finished)
+            throw new Error(`${name} batch did not finish within the polling window`);
         }
 
         return step.run('apply', async () => {
@@ -410,6 +497,8 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
     name: 'Context: weekly synthesis (Life Map, profile, Worlds, Chapters)',
     event: 'app/synthesis.weekly',
     kind: 'weekly',
+    fallback: 'weeklyFallback',
+    validate: weeklyShapeProblems,
     prepare: async (env, userId, data) => {
       const tz = await userTimezone(env, userId);
       // the pipe names the weekly day it runs for; a first look or a catch up

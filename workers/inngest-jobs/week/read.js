@@ -47,6 +47,18 @@ import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields
 
 export const WEEK_READ_VERSION = 'week-read-2026-10-09d';
 
+/**
+ * The read from the weekly pass (data fabric stage 5), held behind a switch
+ * until the weekly review's build has agreed it: with WEEK_READ_FROM_PASS on,
+ * the read is also given the dated facts ahead that Gremly holds and its note
+ * on their last week, and reads Gremly's notes on each World and Chapter
+ * without the old priorities. Off, the read is as it was. The week replay
+ * (scripts/week-replay) is run with it on before it is turned on.
+ */
+export function readFromPass(env) {
+  return String(env?.WEEK_READ_FROM_PASS || '').toLowerCase() === 'on';
+}
+
 /** The most open todos the read lists; the figures still count every one. */
 export const TODO_LIST_MAX = 120;
 const DATED_MAX = 60;
@@ -417,6 +429,20 @@ export async function gatherRead(env, userId, p) {
     ),
   ]);
 
+  // from the weekly pass, with the switch on: the dated facts ahead that
+  // Gremly holds (never one private or about health) and its note on the week
+  const fromPass = readFromPass(env);
+  const [factsAhead, passes] = fromPass
+    ? await Promise.all([
+        d.select(
+          `life_facts_now?user_id=eq.${userId}&state=in.(planned,current)&private=is.false&health=is.false&about_date=gte.${today}&about_date=lte.${horizon}&select=statement,about_date,about_date_end,state&order=about_date.asc&limit=60`,
+        ),
+        d.select(
+          `synthesis_runs?user_id=eq.${userId}&kind=in.(weekly,catch_up,first_look)&status=eq.applied&period_end=lte.${today}&select=period_end,week_note:output->>week_note&order=period_end.desc,created_at.desc&limit=1`,
+        ),
+      ])
+    : [[], []];
+
   // the connected calendar on each day being planned
   const calendarDays = spanDays(first, last).map((day) => {
     const { meetings, allDay } = meetingsFrom({ synced: syncedOn(range, day, tz), tz });
@@ -477,6 +503,22 @@ export async function gatherRead(env, userId, p) {
     up_next: upNext(chapters || [], today),
     calendar: { connected: (tokens || []).length > 0, days: calendarDays },
     last_review: await lastReviewOf(d, userId, lastReviews?.[0], p.week_start),
+    ...(fromPass
+      ? {
+          from_pass: true,
+          facts_ahead: (factsAhead || [])
+            .filter((f) => isDay(f.about_date))
+            .map((f) => ({
+              date: f.about_date,
+              end: isDay(f.about_date_end) ? f.about_date_end : null,
+              statement: f.statement,
+              state: f.state,
+            })),
+          week_note: passes?.[0]?.week_note
+            ? { week_ending: passes[0].period_end, note: passes[0].week_note }
+            : null,
+        }
+      : {}),
   };
 }
 
@@ -713,19 +755,47 @@ export function renderRead(g, o = {}) {
       .join('; '),
   );
 
-  L.push('', 'WORLDS, THE PARTS OF THEIR LIFE (name | how active | summary | priorities):');
+  // from the weekly pass (readFromPass): Gremly's notes on each, without the old priorities
+  const pass = !!g.from_pass;
+  L.push(
+    '',
+    pass
+      ? "WORLDS, THE PARTS OF THEIR LIFE (name | how active | Gremly's notes):"
+      : 'WORLDS, THE PARTS OF THEIR LIFE (name | how active | summary | priorities):',
+  );
   if (!g.worlds?.length) L.push('(none yet)');
   for (const w of g.worlds || []) {
     L.push(
-      `${trim(w.name, 60)} | ${w.phase} | ${trim(w.summary, 260) || 'no summary'} | ${(w.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
+      pass
+        ? `${trim(w.name, 60)} | ${w.phase} | ${trim(w.summary, 360) || 'no notes yet'}`
+        : `${trim(w.name, 60)} | ${w.phase} | ${trim(w.summary, 260) || 'no summary'} | ${(w.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
     );
   }
 
-  L.push('', 'CHAPTERS (title | phase | dates | summary | priorities):');
+  L.push(
+    '',
+    pass
+      ? "CHAPTERS (title | phase | dates | Gremly's notes):"
+      : 'CHAPTERS (title | phase | dates | summary | priorities):',
+  );
   if (!g.chapters?.length) L.push('(none)');
   for (const c of g.chapters || []) {
     L.push(
-      `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 260) || 'no summary'} | ${(c.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
+      pass
+        ? `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 360) || 'no notes yet'}`
+        : `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 260) || 'no summary'} | ${(c.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
+    );
+  }
+  if (pass) {
+    L.push('', 'WHAT GREMLY KNOWS IS AHEAD, THE NEXT SIX WEEKS (date | what):');
+    if (!g.facts_ahead?.length) L.push('(nothing dated)');
+    for (const f of g.facts_ahead || [])
+      L.push(`${f.date}${f.end ? ` to ${f.end}` : ''} | ${trim(f.statement, 200)}`);
+    L.push(
+      '',
+      g.week_note
+        ? `GREMLY'S NOTE ON THE WEEK ENDING ${g.week_note.week_ending}: ${trim(g.week_note.note, 700)}`
+        : "GREMLY'S NOTE ON THEIR LAST WEEK: (none yet)",
     );
   }
   const next = upNextWords(g.up_next);

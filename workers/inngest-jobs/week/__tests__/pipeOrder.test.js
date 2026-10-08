@@ -125,6 +125,19 @@ describe('the weekly pipe', () => {
     warn.mockRestore();
   });
 
+  it('leaves the classifier out when WEEKLY_CLASSIFIER is off (data fabric stage 5)', async () => {
+    const step = fakeStep();
+    const out = await pipeHandler()({ event, step, env: { WEEKLY_CLASSIFIER: 'off' } });
+    expect(step.order).toEqual([
+      'invoke:synthesis',
+      'run:read-ahead',
+      'invoke:words',
+      'invoke:memories',
+      'invoke:people',
+    ]);
+    expect(out.classifier).toBeNull();
+  });
+
   it('still runs as before when no classifier, words or memories are given', async () => {
     const { inngest, made } = capture();
     createWeekFunctions(inngest, { synthesis: { id: 'synthesis' } });
