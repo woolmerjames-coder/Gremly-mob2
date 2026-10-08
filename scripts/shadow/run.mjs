@@ -1374,6 +1374,7 @@ Then list every statement in either summary that the records do not hold, each a
           const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: `shadow-compare-${side}`, today: p.today });
           const run = { id: `shadow-compare-${side}`, model: passReply?.model, prompt_version: weekly.WEEKLY_PROMPT_VERSION, status: 'applied', input_stats: { refs: p.refsSnapshot, counts: p.counts, today: p.today }, output };
           let summary = null;
+          const waitingBefore = needs.size;
           try {
             const r = await stage5Summary.generateSummaryFromPass({
               userId,
@@ -1390,7 +1391,9 @@ Then list every statement in either summary that the records do not hold, each a
                   ? (user) => fromClaude('write', user)
                   : (user) => fromOther('write', user, () => stage5Writer.callPlanWriter({ ...env, SUMMARY_WRITER_MODEL: other }, user)),
             });
-            summary = { outcome: r.outcome, why: r.why || null, content: r.content, left_out: r.deck?.left_out ?? null, dropped: r.dropped };
+            // a card whose rewrite waits for Claude is not a card left out:
+            // the deck is read only once every answer it asked for is in
+            summary = needs.size > waitingBefore ? { outcome: 'waits for Claude' } : { outcome: r.outcome, why: r.why || null, content: r.content, left_out: r.deck?.left_out ?? null, dropped: r.dropped };
           } catch (err) {
             summary = err.message === NEEDS ? { outcome: 'waits for Claude' } : { outcome: 'error', why: String(err?.message || err).slice(0, 400) };
           }
