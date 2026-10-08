@@ -38,6 +38,13 @@ import { handleWordsFreshApi } from './context/words';
 import { sendEvents } from './notifications/planner';
 import { reviewQuestions } from './context/questions';
 import { weeklySummaryContext } from './context/summaryContext';
+import {
+  generateSummaryFromPass,
+  loadWeeklyPass,
+  summaryCheckRow,
+  summaryFromPassMode,
+} from './summaryFromPass';
+import { jsonCall, modelFor } from './context/llm';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -367,18 +374,137 @@ const weeklySummaryV07Worker = inngest.createFunction(
       };
     }
 
-    // Step A: fetch a snapshot so the analyst has raw data.
+    // The summary from the weekly pass (data fabric stage 5): for people on
+    // the context pipeline, SUMMARY_FROM_PASS says whether it is sent (on),
+    // written beside the old one for James to read (beside), or not yet (off).
+    // A dry run with from_pass writes it and returns it, saving nothing.
+    const passMode = contextMode(env, user_id) === 'on' ? summaryFromPassMode(env) : 'off';
+    // a card says more than a sentence, so its answer has more room than the morning's
+    const askWords = async (req) =>
+      (
+        await jsonCall(env, {
+          primary: modelFor(env, 'check'),
+          fallback: modelFor(env, 'checkFallback'),
+          ...req,
+          maxTokens: 1500,
+          effort: 'low',
+          thinking: 'low',
+        })
+      ).output;
+    const fromPass = (statuses) =>
+      generateSummaryFromPass({
+        userId: user_id,
+        weekStart: week_start,
+        weekEnd: week_end,
+        label: `${user_id.slice(0, 8)} · ${week_start} · from the weekly pass`,
+        env,
+        runRpc,
+        fetchRows,
+        ask: askWords,
+        statuses,
+      });
+    // the check's row is something to watch, never a gate: a row that cannot
+    // be kept is said, and the summary goes on
+    const keepCheck = async (r) => {
+      if (!r?.deck) return;
+      try {
+        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/check_runs`, {
+          method: 'POST',
+          headers: { ...authHeaders, Prefer: 'return=minimal' },
+          body: JSON.stringify(summaryCheckRow(user_id, week_end, r.deck)),
+        });
+        if (!res.ok)
+          console.error(
+            `[ALERT][V07Worker] the summary's check row was not kept for ${user_id} week ${week_start}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 160)}`,
+          );
+      } catch (err) {
+        console.error(
+          `[ALERT][V07Worker] the summary's check row was not kept for ${user_id} week ${week_start}: ${String(err?.message || err).slice(0, 160)}`,
+        );
+      }
+    };
+
+    if (event.data.dry_run === true && event.data.from_pass === true) {
+      const dry = await step.run('summary-from-pass-dry-run', async () => {
+        const r = await fromPass(['applied', 'shadow']);
+        return { ...r, html: undefined };
+      });
+      return { dry_run: true, from_pass: true, user_id, week_start, ...dry };
+    }
+
+    let passOut = null;
+    // a dry run without from_pass is the old summary's comparison run, as before
+    const passWrites = passMode === 'on' && event.data.dry_run !== true;
+    if (passWrites) {
+      // The summary waits for the week's pass: one that has not been applied
+      // is started now, straight away rather than by batch, and waited for.
+      let hasPass = await step.run(
+        'find-weekly-pass',
+        async () => !!(await loadWeeklyPass(fetchRows, user_id, week_end, ['applied'])),
+      );
+      // a pass already on its way (by batch, which can take hours) is waited
+      // for; a second one would only queue behind it
+      for (let i = 0; !hasPass && i < 18; i++) {
+        const onItsWay = await step.run(`find-weekly-pass-on-its-way-${i}`, async () => {
+          const rows = await fetchRows(
+            `synthesis_runs?user_id=eq.${user_id}&kind=eq.weekly&period_end=eq.${week_end}&status=in.(queued,submitted,completed)&created_at=gte.${encodeURIComponent(new Date(Date.now() - 6 * 3600e3).toISOString())}&select=id&limit=1`,
+          );
+          return Array.isArray(rows) && rows.length > 0;
+        });
+        if (!onItsWay) break;
+        await step.sleep(`wait-for-weekly-pass-${i}`, '10m');
+        hasPass = await step.run(
+          `find-weekly-pass-${i}`,
+          async () => !!(await loadWeeklyPass(fetchRows, user_id, week_end, ['applied'])),
+        );
+      }
+      if (!hasPass) {
+        console.warn(
+          `[ALERT][V07Worker] no weekly pass was applied for ${user_id} week ${week_start}; starting one`,
+        );
+        await step.invoke('weekly-pass', {
+          function: contextFunctions.weekly,
+          data: { user_id, period_end: week_end, direct: true, kind: 'weekly' },
+          timeout: '2h',
+        });
+      }
+      passOut = await step.run('generate-summary-from-pass', async () => {
+        const r = await fromPass(['applied']);
+        await keepCheck(r);
+        return { ...r, html: undefined };
+      });
+      if (passOut.outcome !== 'written') {
+        // never a blank summary: when no deck stands, none is sent, and it is said
+        console.error(
+          `[ALERT][V07Worker] no summary from the weekly pass for ${user_id} week ${week_start}: ${passOut.outcome}${passOut.why ? `, ${passOut.why}` : ''}`,
+        );
+        return {
+          success: false,
+          user_id,
+          week_start,
+          week_end,
+          outcome: passOut.outcome,
+          why: passOut.why || null,
+        };
+      }
+    }
+
+    // Step A: fetch a snapshot so the analyst has raw data. (Not for a summary
+    // from the weekly pass, which reads none of it.)
+    const oldPath = !passWrites;
     // Pass targetDate: week_end so backfill/historical runs anchor to the requested week,
     // not to today.
-    const snapshot = await step.run('fetch-snapshot', async () =>
-      fetchUserSnapshot(user_id, timezone, 21, env, { targetDate: week_end }),
-    );
+    const snapshot = !oldPath
+      ? null
+      : await step.run('fetch-snapshot', async () =>
+          fetchUserSnapshot(user_id, timezone, 21, env, { targetDate: week_end }),
+        );
 
     // Context pipeline: for people on it, the week is read against the fact
     // ledger and their story instead of raw milestones, old summaries and chat
     // summaries (Gremly's own words, which are never evidence).
     const ledgerContext =
-      contextMode(env, user_id) === 'on'
+      oldPath && contextMode(env, user_id) === 'on'
         ? await step.run('ledger-context', () =>
             weeklySummaryContext(env, user_id, week_start, week_end),
           )
@@ -390,7 +516,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
     // Step B: run the analyst — produces week_shape and world_signal_candidate
     // observations that loadBrief (inside generateAdaptiveSummary) needs.
     let analystResult = null;
-    if (!skipAnalyst)
+    if (oldPath && !skipAnalyst)
       analystResult = await step.run('run-analyst', async () => {
         const weeklySnapshot = buildWeeklySnapshot(snapshot);
         if (ledgerContext) {
@@ -403,7 +529,7 @@ const weeklySummaryV07Worker = inngest.createFunction(
       });
 
     // Step C: persist analyst observations (replaces this user-week's prior rows).
-    if (!skipAnalyst)
+    if (oldPath && !skipAnalyst)
       await step.run('persist-analyst-observations', async () => {
         const obsRows = buildAnalystObservations(analystResult.analysis, user_id, week_start);
         await clearAnalystObservationsForWeek(user_id, week_start, env);
@@ -473,6 +599,8 @@ const weeklySummaryV07Worker = inngest.createFunction(
 
     // Step C.5: rebuild the Life Map from this week's analyst output (incremental delta merge).
     const lifeMapRebuild = await step.run('rebuild-life-map', async () => {
+      if (!oldPath)
+        return { skipped: true, mergedLifeMap: null, reason: 'owned by weekly synthesis' };
       const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
       if (contextMode(env, user_id) === 'on') {
         // The weekly synthesis owns the Life Map when the context pipeline is on.
@@ -535,18 +663,79 @@ const weeklySummaryV07Worker = inngest.createFunction(
 
     // Step 1: run v0.7 generation pipeline. Publish-always: fact_errors are review flags,
     // not a publish gate. The only catastrophe guard is genuinely empty cards.
-    const out = await step.run('generate-summary', async () =>
-      generateAdaptiveSummary({
-        userId: user_id,
-        weekStart: week_start,
-        weekEnd: week_end,
-        label: `${user_id.slice(0, 8)} · ${week_start}`,
-        env,
-        runRpc,
-        fetchRows,
-        ledgerContext,
-      }),
-    );
+    // A summary from the weekly pass was written and checked above.
+    const out = passOut
+      ? {
+          content: passOut.content,
+          quality_issues: [],
+          polish_outcome: 'checked',
+          attempts: passOut.deck?.attempts ?? null,
+          fact_errors: [],
+        }
+      : await step.run('generate-summary', async () =>
+          generateAdaptiveSummary({
+            userId: user_id,
+            weekStart: week_start,
+            weekEnd: week_end,
+            label: `${user_id.slice(0, 8)} · ${week_start}`,
+            env,
+            runRpc,
+            fetchRows,
+            ledgerContext,
+          }),
+        );
+
+    // Beside the old summary, the one from the weekly pass is written and kept
+    // in shadow_runs for James to read. Nothing it does touches the old one.
+    if (passMode === 'beside') {
+      await step.run('summary-from-pass-beside', async () => {
+        let payload;
+        try {
+          const r = await fromPass(['applied', 'shadow']);
+          await keepCheck(r);
+          payload = {
+            outcome: r.outcome,
+            why: r.why || null,
+            run_id: r.run_id,
+            content: r.content,
+            dropped: r.dropped,
+            left_out: r.deck?.left_out ?? [],
+            tries: r.deck?.tries ?? [],
+            writer_model: r.deck?.writer_model ?? null,
+          };
+        } catch (err) {
+          console.warn(
+            `[ALERT][V07Worker] the summary from the weekly pass failed beside the old one for ${user_id} week ${week_start}: ${String(err?.message || err).slice(0, 200)}`,
+          );
+          payload = { outcome: 'error', why: String(err?.message || err).slice(0, 500) };
+        }
+        // the copy kept for James to read beside the old one; one that cannot be
+        // kept is said, and the old summary goes out as it would anyway
+        try {
+          const res = await fetch(`${env.SUPABASE_URL}/rest/v1/shadow_runs`, {
+            method: 'POST',
+            headers: { ...authHeaders, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              user_id,
+              run_kind: 'weekly_summary_from_pass',
+              run_mode: 'beside',
+              payload,
+              window_start: week_start,
+              window_end: week_end,
+            }),
+          });
+          if (!res.ok)
+            console.error(
+              `[ALERT][V07Worker] the summary from the weekly pass was not kept beside the old one for ${user_id} week ${week_start}: ${res.status} ${(await res.text().catch(() => '')).slice(0, 160)}`,
+            );
+        } catch (err) {
+          console.error(
+            `[ALERT][V07Worker] the summary from the weekly pass was not kept beside the old one for ${user_id} week ${week_start}: ${String(err?.message || err).slice(0, 160)}`,
+          );
+        }
+        return { outcome: payload.outcome };
+      });
+    }
 
     // Catastrophe guard: nothing to publish if the writer produced zero cards.
     if (!out.content || out.content.cards.length === 0) {
