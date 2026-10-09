@@ -16,6 +16,8 @@ import { summaryForDay } from '../weeklySummary/currentSummary';
 import { weekAround } from '../week/habitWeek';
 import { lightTokens } from '../../design/tokens';
 import { buildUpcomingDatesForWorld, type UpcomingDate } from '../worlds/upcomingDates';
+import { TINT, W } from '../worlds/look';
+import { worldTint } from '../worlds/model';
 import type { GremlyState } from './useGremlyStore';
 import type {
   Chapter,
@@ -189,43 +191,16 @@ export interface WorldPalette {
   textOnBase: string;
 }
 
-// Priority order for tie-breaking between equal-weight archetypes.
-const ARCHETYPE_PRIORITY: import('../supabase/types').WorldArchetype[] = [
-  'creative',
-  'professional',
-  'wellness_body',
-  'wellness_mind',
-  'relational',
-  'domestic',
-  'learning',
-  'generic',
-];
-
+/**
+ * A World's colours for the pickers that mark it with a dot: its tint in the
+ * Worlds look (lib/worlds/look.ts TINT, chosen by worldTint), the same colour
+ * it wears on the Worlds screens. Reads no old Worlds field (stage 4e).
+ */
 export function selectWorldPalette(state: GremlyState, worldId: string): WorldPalette {
   const world = state.worlds.find((w) => w.id === worldId);
   if (!world) return lightTokens.colors.worldPalette.generic;
-
-  // Future path: honor world.visual_style.color when classifier authors it (deferred to 4b).
-  // For 4a, always use archetype-derived palette.
-
-  const archetypes = world.archetypes ?? [];
-  if (archetypes.length === 0) return lightTokens.colors.worldPalette.generic;
-
-  // Find max weight; if tie, use priority order.
-  let bestType = archetypes[0].type;
-  let bestWeight = archetypes[0].weight;
-  for (let i = 1; i < archetypes.length; i++) {
-    const a = archetypes[i];
-    if (a.weight > bestWeight) {
-      bestWeight = a.weight;
-      bestType = a.type;
-    } else if (a.weight === bestWeight) {
-      if (ARCHETYPE_PRIORITY.indexOf(a.type) < ARCHETYPE_PRIORITY.indexOf(bestType)) {
-        bestType = a.type;
-      }
-    }
-  }
-  return lightTokens.colors.worldPalette[bestType] ?? lightTokens.colors.worldPalette.generic;
+  const tint = TINT[worldTint(world)];
+  return { base: tint.ink, tint: tint.wash, dot: tint.ink, textOnBase: W.linen };
 }
 
 // ============================================================================
