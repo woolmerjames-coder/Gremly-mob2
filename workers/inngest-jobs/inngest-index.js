@@ -3990,8 +3990,6 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
       'These capture decisions, emotional processing, and context from conversations. Cross-reference with habits, journals, and todos for deeper patterns.',
     );
     for (const chat of weeklySnapshot.chatSummaries) {
-      const spaceName =
-        (weeklySnapshot.spaces || []).find((s) => s.id === chat.space_id)?.name || 'General';
       const safeSummary = (chat.summary || '')
         // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
         .replace(/[\x00-\x1F\x7F]/g, ' ')
@@ -4001,7 +3999,7 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
         const typeLabel =
           chat.source === 'entity_chat'
             ? `Entity: ${chat.entity_type} "${chat.title || 'Untitled'}"`
-            : `Space: ${spaceName}`;
+            : 'Chat';
         dataLines.push(`[${typeLabel}] ${chat.date || 'recent'}: ${safeSummary}`);
       }
     }
