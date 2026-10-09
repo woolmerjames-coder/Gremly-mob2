@@ -93,9 +93,6 @@ function buildCuriosityQuestion(text: string): string | null {
   const matchThinking = /\bthinking about\s+([^.!?]+)[.!?]*$/.exec(normalized);
   if (matchThinking) {
     const fragment = cleanCuriosityFragment(matchThinking[1]);
-    if (/oaxaca/.test(fragment)) {
-      return "Oaxaca's amazing. Are you thinking culture, food, or nature first?";
-    }
     return `What's the first detail you're exploring about ${fragment}?`;
   }
 

@@ -1366,7 +1366,7 @@ New screens/routes needed:
 - **Tapping Gremly** opens the modal (feeding + age + training info)
 - **Speech bubble** powered by DCO context + AI mode:
   - Encouragement mode: "You've dropped 4 things today — a sweep tonight will help Gremly make sense of them."
-  - Insightful mode: "Day 2 in Bora Bora. The week's rhythm can wait."
+  - Insightful mode: "Day 2 in Lisbon. The week's rhythm can wait."
   - Observant mode: "Still here when you need me."
 
 ### Gap analysis
