@@ -8456,6 +8456,14 @@ Segment rules:
           ? env.CLASSIFY_PROMPT
           : PROMPT_VERSION;
         const systemPrompt = buildClassifyV3Prompt({ version: promptVersion });
+        // Builds from the Mind Drop rethink send piece_questions, so a piece of a
+        // multi drop can ask its own question; builds already out never do.
+        // CLASSIFY_SPLIT_AUTO "false" makes every multi drop ask (stage 3).
+        const classifyOpts = {
+          pieceQuestions: body.piece_questions === true,
+          splitAuto: String(env.CLASSIFY_SPLIT_AUTO ?? 'true') !== 'false',
+          version: promptVersion,
+        };
 
         let result;
         try {
@@ -8484,7 +8492,7 @@ Segment rules:
             // the fallback from this point instead of holding the user for 5s.
             hedgeAfterMs: Number(env.CLASSIFY_HEDGE_MS) || 3000,
             validate: (parsed) =>
-              normalizeClassifyV3(parsed, text)
+              normalizeClassifyV3(parsed, text, { ...classifyOpts, quiet: true })
                 ? { valid: true }
                 : { valid: false, reason: 'classify_v3_shape' },
           });
@@ -8493,7 +8501,9 @@ Segment rules:
           result = { parsed: null };
         }
 
-        let normalized = result?.parsed ? normalizeClassifyV3(result.parsed, text) : null;
+        let normalized = result?.parsed
+          ? normalizeClassifyV3(result.parsed, text, classifyOpts)
+          : null;
         const dropMessage = formatDropMessage(text, {
           currentDate: typeof body.currentDate === 'string' ? body.currentDate : null,
           dayOfWeek: typeof body.dayOfWeek === 'string' ? body.dayOfWeek : null,
@@ -8527,11 +8537,11 @@ Segment rules:
               endpoint: 'classify-v3-second-opinion',
               ...deadlines(3000, 2500),
               validate: (parsed) =>
-                normalizeClassifyV3(parsed, text)
+                normalizeClassifyV3(parsed, text, { ...classifyOpts, quiet: true })
                   ? { valid: true }
                   : { valid: false, reason: 'shape' },
             });
-            const n2 = so?.parsed ? normalizeClassifyV3(so.parsed, text) : null;
+            const n2 = so?.parsed ? normalizeClassifyV3(so.parsed, text, classifyOpts) : null;
             if (n2) {
               normalized = n2;
               steps.second_opinion = { model: so.model, asked: n2.is_ambiguous };
@@ -8620,6 +8630,9 @@ Segment rules:
           ambiguity_type: normalized.ambiguity_type,
           is_multi: normalized.is_multi,
           segments: normalized.segments?.length || 0,
+          split: normalized.split,
+          piece_questions: classifyOpts.pieceQuestions,
+          prompt_version: promptVersion,
           confidence: normalized.confidence,
           provider: result.provider,
           model: result.model,

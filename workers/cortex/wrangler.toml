@@ -28,6 +28,13 @@ CLASSIFY_MODEL = "gemini-3.8-flash"
 CLASSIFY_THINKING_LEVEL = "low"
 CLASSIFY_FALLBACK_PROVIDER = "openai"
 CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
+# The classifier's prompt version (classifyV3.js). v3.8 is the code's default from the
+# Mind Drop rethink (9 Oct 2026); this stays "v3.7" until James switches it after the
+# locked set. Rollback: "v3.7".
+CLASSIFY_PROMPT = "v3.7"
+# "false" makes every multi drop ask on its card (split unsure) instead of splitting the
+# clear ones itself, until the clear list James reads is clean. Builds already out ignore it.
+CLASSIFY_SPLIT_AUTO = "true"
 # Mind Drop: after a drop is classified, ask whether it is about something the user
 # already has (a repeat, a change, a done todo, a habit they did). It runs on its own
 # model, MODEL_DROP_RELATE below, apart from the chat matcher. On for James's hands-on test (30 Sep 2026),

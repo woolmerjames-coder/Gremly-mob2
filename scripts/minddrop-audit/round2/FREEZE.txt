@@ -17,3 +17,13 @@ f5599f2721f28f117dda04ff5c66d0ae  designs/run-design.mjs
 c46e5e2d47ecaa004a12a0b924ec8fde  designs/score2.mjs
 aa8a50984c8c2c568182e1f97152dae5  designs/specialists.mjs
 30054ceee52188e091472473deab1e26  worker/classifyV3.js
+
+Mind Drop rethink stage 3, frozen 9 October 2026 before the locked set (test2, tag v38):
+prompt v3.8 sha256 a7fefc0d89f3319fdc44d0978596514a833d2b635ad7811856857305df9d21fc (13581 characters)
+prompt v3.7 sha256 349d09994ea56ee35b4ebb85c8eb842c2c026a95650dca3b69441dbb32fb37ed (unchanged from main)
+workers/cortex/classifyV3.js sha256 20bddcb20767ee7188744c2161987b740a9a4899dffe1c842762e59601dd9395
+Tuned on the design set only (dev and holdout, 450 drops): runs design37, design38a, design38b, design38b2.
+Locked set, 9 October 2026, through run-v3-worker.mjs with piece_questions: v38 (official) and a second
+run v38b, against base37 and a second v3.7 run base37b. v38: 97.4%, 16 wrong without asking, 10 needless,
+multi 35/35, pieces 75/76. v38b: 97.5%, 15, 9, 35/35, 76/76. base37: 97.6%, 16, 8, 33/35, 72/76.
+base37b: 97.1%, 11, 18, 34/35, 73/76. Gate page: round2/split-gate.mjs.
