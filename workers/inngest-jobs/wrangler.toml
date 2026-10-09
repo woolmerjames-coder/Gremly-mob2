@@ -70,6 +70,12 @@ WEEK_READ_FROM_PASS = "off"
 # (supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql),
 # here and in cortex's wrangler.toml. "off" stops it.
 PERSON_WORDS = "on"
+# Gremly's read of the whole of their life (the Life Map the weekly pass
+# writes) given as background to the narrower writers (context/lifeMap.js):
+# "on" for all of them, a comma list of writers (words, person_words, memory,
+# chapter_questions, people_questions, review, reader) for those alone, "off"
+# for none. Set from the side by side shadow runs on real weeks (18 Oct).
+LIFE_MAP_BACKGROUND = "off"
 
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL

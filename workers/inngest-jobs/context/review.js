@@ -22,13 +22,14 @@
  */
 
 import { addDays, db, personIdentity, userTimezone } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, lifeMapSection, loadLifeMapLines } from './lifeMap';
 import { CARE_RULES, PRIVATE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { personNow } from '../../shared/day.js';
 import { questionWeight } from '../../shared/questionRules.js';
 import { questionRoom } from './questionRoom';
 
-export const REVIEW_PROMPT_VERSION = 'review-2026-10-18a';
+export const REVIEW_PROMPT_VERSION = 'review-2026-10-18b';
 
 /** Facts read for one review; a ledger with more says so, and the least lately confirmed are left out. */
 export const REVIEW_FACTS = 800;
@@ -104,7 +105,7 @@ const ITEM = {
   habits: 'the habit',
 };
 
-function reviewSystemPrompt(today, person) {
+function reviewSystemPrompt(today, person, { lifeMap = false } = {}) {
   return `You look over the ledger of facts Gremly, a companion app, keeps about one person, and find what only they can settle. You change nothing: everything you find is put to them as a question, and only their answer changes anything.
 
 TODAY'S DATE: ${today}
@@ -112,7 +113,7 @@ TODAY'S DATE: ${today}
 ${personBlock(person)}
 
 ${CARE_RULES}
-
+${lifeMap ? `\n${LIFE_MAP_RULES}\n` : ''}
 WHAT YOU ARE SHOWN
 - Every fact the ledger holds about them, each with its kind, when it is true, its state, its date and where it came from. A standing fact holds with no date of its own; a yearly one comes round on its day each year.
 - The questions already put to them. Never find again what one of them already asks.
@@ -146,7 +147,7 @@ Return only the structured result.`;
 }
 
 /** The request for one person's review, and the refs that name the facts. */
-export function reviewRequest({ today, person, facts, waiting = [] }) {
+export function reviewRequest({ today, person, facts, waiting = [], lifeMap = [] }) {
   const ref = new Map();
   const lines = facts.map((f, i) => {
     const r = `f${i + 1}`;
@@ -163,12 +164,12 @@ export function reviewRequest({ today, person, facts, waiting = [] }) {
     return `${r} | ${f.kind || 'no kind'} | ${when} | ${f.state}${f.private || f.health ? ' [private]' : ''} | from ${from} | ${oneLine(f.statement)}`;
   });
   return {
-    system: reviewSystemPrompt(today, person),
+    system: reviewSystemPrompt(today, person, { lifeMap: lifeMap.length > 0 }),
     user: `FACTS (ref | kind | when it is true | state | where it came from | statement):
 ${lines.join('\n') || '(none)'}
 
 QUESTIONS ALREADY PUT TO THEM:
-${waiting.length ? waiting.map((q) => `- ${oneLine(q.question, 200)}`).join('\n') : '(none)'}`,
+${waiting.length ? waiting.map((q) => `- ${oneLine(q.question, 200)}`).join('\n') : '(none)'}${lifeMap.length ? `\n\n${lifeMapSection(lifeMap)}` : ''}`,
     ref,
   };
 }
@@ -385,7 +386,7 @@ export async function reviewLedger(env, userId, { shadow = false, runId = null }
   const d = db(env);
   const tz = await userTimezone(env, userId);
   const { today } = await personNow(env, userId, tz);
-  const [facts, questions, person] = await Promise.all([
+  const [facts, questions, person, lifeMap] = await Promise.all([
     d.select(
       `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,kind,timing,state,about_date,about_date_end,private,health,source_table,item_table,last_confirmed_at&order=last_confirmed_at.desc&limit=${REVIEW_FACTS}`,
     ),
@@ -393,13 +394,14 @@ export async function reviewLedger(env, userId, { shadow = false, runId = null }
       `gremly_questions?user_id=eq.${userId}&select=id,kind,question,status,about_fact_id,rests_on,no_key&order=created_at.desc&limit=500`,
     ),
     personIdentity(env, userId),
+    loadLifeMapLines(env, d, userId, 'review'),
   ]);
   if (facts.length >= REVIEW_FACTS)
     console.warn(
       `[ALERT][Review] ${userId} has more facts than one review reads (${REVIEW_FACTS}): the least lately confirmed are left out`,
     );
   const waiting = questions.filter((q) => ['open', 'asked'].includes(q.status));
-  const { system, user, ref } = reviewRequest({ today, person, facts, waiting });
+  const { system, user, ref } = reviewRequest({ today, person, facts, waiting, lifeMap });
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'review'),
     fallback: modelFor(env, 'reviewFallback'),
@@ -409,8 +411,7 @@ export async function reviewLedger(env, userId, { shadow = false, runId = null }
     // the whole ledger is weighed before a word is written: at 8000 the
     // reasoning on 400 facts ran out before the answer (shadow, 8 October)
     maxTokens: 24000,
-    effort: 'medium',
-    thinking: 'medium',
+    ...effortFor(env, 'review', { effort: 'medium', thinking: 'medium' }),
   });
   const run = runId || `review-${userId.slice(0, 8)}-${Date.now()}`;
   const { rows, skipped } = reviewRows({

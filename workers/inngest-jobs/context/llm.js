@@ -76,6 +76,20 @@ export const MODELS = {
   weekReliefFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
 
+/**
+ * How hard one writer thinks: CONTEXT_EFFORT_<JOB> when set (minimal, low,
+ * medium or high), for Gemini thinking high at medium and above; otherwise
+ * the writer's own, as it was. Lets a replay or the shadow runner try a writer
+ * thinking harder without a code change (18 Oct).
+ * @param own { effort, thinking } the writer ships with
+ * @returns {{ effort: string, thinking: string }}
+ */
+export function effortFor(env, job, own = { effort: 'low', thinking: 'low' }) {
+  const v = String(env?.[`CONTEXT_EFFORT_${String(job).toUpperCase()}`] ?? '').trim();
+  if (!['minimal', 'low', 'medium', 'high'].includes(v)) return { ...own };
+  return { effort: v, thinking: ['medium', 'high'].includes(v) ? 'high' : 'low' };
+}
+
 export function modelFor(env, job) {
   const base = MODELS[job];
   const override = env[`CONTEXT_MODEL_${job.toUpperCase()}`];

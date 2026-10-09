@@ -31,11 +31,13 @@
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, weekdayName, personIdentity } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, lifeMapSection, loadLifeMapLines } from './lifeMap';
 import { invalidateChatCache } from './cache';
 import { loadFiled } from './filed';
 import { personToday } from './filing';
 import { stateWords } from '../../shared/factTiming.js';
+import { whoSaid } from '../../shared/whoSaid.js';
 import {
   SENTENCE_SCHEMA,
   STATED_RULES,
@@ -47,7 +49,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 
-export const WORDS_WRITER_VERSION = 'words-2026-10-18c';
+export const WORDS_WRITER_VERSION = 'words-2026-10-18d';
 
 /** What a person's words fields record as their writer. */
 export const WORDS_SOURCE = 'words';
@@ -71,14 +73,14 @@ const RULES = `THE WORDS
 - Never describe their feelings for them, never judge how they are doing, and never give advice.
 - A record marked private is about something private or about health. It may help you understand them, and is never cited and never named or hinted at, because these words are seen at a glance.`;
 
-export function wordsSystemPrompt(person) {
+export function wordsSystemPrompt(person, { lifeMap = false } = {}) {
   return {
     fixed: `You write the words under a World or a Chapter for Gremly, a warm, shame-free companion app.
 
 ${CARE_RULES}
 
 ${RULES}
-
+${lifeMap ? `\n${LIFE_MAP_RULES}\n` : ''}
 ${PRIVATE_RULES}
 
 ${WRITING_RULES}
@@ -90,6 +92,7 @@ ${STATED_RULES}`,
 
 export function wordsRewritePrompt(person) {
   return {
+    // the rewrite reads only its own records: never the background
     fixed: `${wordsSystemPrompt(person).fixed}
 
 ONCE AGAIN
@@ -136,6 +139,7 @@ export function renderWords({
   today,
   ended = false,
   others = [],
+  lifeMap = [],
 }) {
   const refs = new Map();
   const records = new Map();
@@ -192,7 +196,7 @@ export function renderWords({
         'p',
         { type: 'person', id: p.id },
         { names: [p.name, ...otherNames].filter(Boolean), exact: ['person'], private: isPrivate },
-        `${isPrivate ? '[private] ' : ''}${p.name || '(no name given yet)'}${otherNames.length ? `, also called ${otherNames.join(', ')}` : ''}${p.relationship ? `, ${p.relationship}, as they said` : ''}`,
+        `${isPrivate ? '[private] ' : ''}${p.name || '(no name given yet)'}${otherNames.length ? `, also called ${otherNames.join(', ')}` : ''}${p.relationship ? `, ${whoSaid(p)}` : ''}`,
       );
       personRef.set(p.id, ref);
       peopleLines.push(records.get(ref).label);
@@ -263,6 +267,8 @@ export function renderWords({
     L.push('', 'THE WORDS UNDER THEIR OTHER WORLDS AND CHAPTERS (which | their words):');
     for (const o of others) L.push(`${o.which} | ${trim(o.words, 300)}`);
   }
+  // Gremly's read of the whole of their life: background, never a record
+  if (lifeMap.length) L.push('', lifeMapSection(lifeMap));
   return { text: L.join('\n'), refs, records };
 }
 
@@ -373,7 +379,7 @@ export function glanceRecords({ items, facts, peopleOf }) {
  * Write the words for one World or Chapter, through the check. Writes nothing.
  * @returns { outcome, text, refs, model, check, input_chars, skipped }
  */
-export async function writeLine(env, { userId, person, target, today, filed = null, others = [] }) {
+export async function writeLine(env, { userId, person, target, today, filed = null, others = [], lifeMap = [] }) {
   // what was cleared from their list is part of what fills it, as such
   const all =
     filed || (await loadFiled(env, userId, { table: target.table, id: target.row.id }, { cleared: true }));
@@ -392,17 +398,17 @@ export async function writeLine(env, { userId, person, target, today, filed = nu
     peopleOf: got.peopleOf,
     today,
     others,
+    lifeMap,
   });
   const [primary, fallback] = [modelFor(env, 'words'), modelFor(env, 'wordsFallback')];
   const { output, model } = await jsonCall(env, {
     primary,
     fallback,
-    system: wordsSystemPrompt(person),
+    system: wordsSystemPrompt(person, { lifeMap: lifeMap.length > 0 }),
     user: text,
     schema: SENTENCE_SCHEMA,
     maxTokens: 2000,
-    thinking: 'low',
-    effort: 'low',
+    ...effortFor(env, 'words'),
   });
   const [wrote, other] = model === fallback.model ? [fallback, primary] : [primary, fallback];
   const check = await runCheck({
@@ -516,10 +522,11 @@ export async function writeWords(
   userId,
   { targets = null, reason = 'by_hand', dryRun = false } = {},
 ) {
-  const [all, person, today] = await Promise.all([
+  const [all, person, today, lifeMap] = await Promise.all([
     wordsTargets(env, userId),
     personIdentity(env, userId),
     personToday(env, userId),
+    loadLifeMapLines(env, db(env), userId, 'words'),
   ]);
   const want = targets?.length ? new Set(targets.map((t) => `${t.table}:${t.id}`)) : null;
   const list = all.filter((t) => !want || want.has(targetKey(t)));
@@ -536,6 +543,7 @@ export async function writeWords(
         target: t,
         today,
         others: wordsOthers(t, all, said),
+        lifeMap,
       });
       // the words the screen now shows: Gremly's, unless the person wrote theirs
       if (t.row.card_subtitle_source !== 'user') said.set(targetKey(t), result.text || null);

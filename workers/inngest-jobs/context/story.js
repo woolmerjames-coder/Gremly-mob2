@@ -23,7 +23,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { STATED_RULES, SENTENCE_SCHEMA } from '../../shared/check/stated.js';
 import { runCheck, checkRunRow } from '../../shared/check/run.js';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-16a';
+export const STORY_PROMPT_VERSION = 'story-2026-10-18a';
 
 function trim(text, n) {
   const s = String(text || '')

@@ -16,6 +16,7 @@ import { jsonCall, modelFor } from '../context/llm';
 import { addDays } from '../context/db';
 import { SENTENCE_SCHEMA, STATED_RULES, runCheck, problemList } from '../../shared/check/index.js';
 import { upNextWords } from '../../shared/upNext.js';
+import { whoSaid } from '../../shared/whoSaid.js';
 
 export const BRIEF_PROMPT_VERSION = 'brief-2026-10-13a';
 
@@ -126,7 +127,7 @@ function lifeLines(g, add, hold) {
           return hold(
             ref,
             { names: [person.name].filter(Boolean), exact: ['person'] },
-            `${ref} | ${person.name || '(no name given yet)'} | ${person.relationship ? `${person.relationship}, as they said` : 'who they are is not known'}`,
+            `${ref} | ${person.name || '(no name given yet)'} | ${whoSaid(person, 'who they are is not known')}`,
             'someone in their life',
           );
         })

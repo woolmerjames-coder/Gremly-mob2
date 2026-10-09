@@ -20,7 +20,8 @@
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, weekdayName, personIdentity } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, loadLifeMapLines } from './lifeMap';
 import { invalidateChatCache } from './cache';
 import { ITEM_TABLE, readFactPeople, readItemMarks, markItems, itemOf, loadFiled } from './filed';
 import { personToday } from './filing';
@@ -34,7 +35,7 @@ import {
 } from '../../shared/check/index.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 
-export const MEMORY_VERSION = 'memory-2026-10-07i';
+export const MEMORY_VERSION = 'memory-2026-10-18a';
 
 /** What a memory records as its writer. */
 export const MEMORY_SOURCE = 'memory';
@@ -59,14 +60,14 @@ const RULES = `THE MEMORY
 - Its title is shown above your words. Do not repeat it.
 - Rest what you say on the records given, and say nothing they do not hold. When they are too thin to say anything true and particular, return empty text.`;
 
-export function memorySystemPrompt(person) {
+export function memorySystemPrompt(person, { lifeMap = false } = {}) {
   return {
     fixed: `You write the memory of a Chapter of someone's life for Gremly, a warm, shame-free companion app.
 
 ${CARE_RULES}
 
 ${RULES}
-
+${lifeMap ? `\n${LIFE_MAP_RULES}\n` : ''}
 ${PRIVATE_RULES}
 
 ${WRITING_RULES}
@@ -133,7 +134,7 @@ export async function loadMemoryRecords(env, userId, chapter) {
  * @param p { person, chapter, world, got: { items, facts, peopleOf }, today }
  * @returns { outcome, text, ids, model, check, problems, input_chars }
  */
-export async function memoryLine(env, { person, chapter, world = null, got, today }) {
+export async function memoryLine(env, { person, chapter, world = null, got, today, lifeMap = [] }) {
   if (!got.items.length && !got.facts.length)
     return {
       outcome: 'empty',
@@ -158,17 +159,17 @@ export async function memoryLine(env, { person, chapter, world = null, got, toda
     peopleOf: got.peopleOf,
     today,
     ended: true,
+    lifeMap,
   });
   const [primary, fallback] = [modelFor(env, 'memory'), modelFor(env, 'memoryFallback')];
   const { output, model } = await jsonCall(env, {
     primary,
     fallback,
-    system: memorySystemPrompt(person),
+    system: memorySystemPrompt(person, { lifeMap: lifeMap.length > 0 }),
     user: input,
     schema: SENTENCE_SCHEMA,
     maxTokens: 4000,
-    thinking: 'low',
-    effort: 'medium',
+    ...effortFor(env, 'memory', { effort: 'medium', thinking: 'low' }),
   });
   const [wrote, other] = model === fallback.model ? [fallback, primary] : [primary, fallback];
   const check = await runCheck({
@@ -235,12 +236,13 @@ export async function writeMemory(env, userId, chapterId, { dryRun = false } = {
         `worlds?id=eq.${chapter.primary_world_id}&owner_id=eq.${userId}&select=id,name,display_name`,
       )) || []
     : [];
-  const [person, today, got] = await Promise.all([
+  const [person, today, got, lifeMap] = await Promise.all([
     personIdentity(env, userId),
     personToday(env, userId),
     loadMemoryRecords(env, userId, chapter),
+    loadLifeMapLines(env, d, userId, 'memory'),
   ]);
-  const result = await memoryLine(env, { person, chapter, world: world || null, got, today });
+  const result = await memoryLine(env, { person, chapter, world: world || null, got, today, lifeMap });
   if (dryRun) return { ...result, memory: result.text, field: null, was: chapter.epigraph || null };
 
   const at = new Date().toISOString();

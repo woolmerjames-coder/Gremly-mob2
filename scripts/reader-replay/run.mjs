@@ -196,6 +196,25 @@ function STAGE_FOUR_F() {
       },
     },
     {
+      id: 'pet-at-the-vet',
+      look: 'Their dog is taken to the vet: an animal\'s care is not a person\'s health, so nothing is marked about health.',
+      runAt: '2026-10-20T03:00:00Z',
+      records: [noteRecord({ id: 'n-vet', subtype: 'journal', title: 'Sunday', body: 'Took Pip to the vet for her jabs this morning, she was very brave. Long walk on the heath after.', created_at: '2026-10-19T23:00:00Z' })],
+      check: ({ facts }) => [
+        { name: 'something is kept', ok: facts.length > 0, detail: said(facts) },
+        { name: 'nothing marked about health', ok: facts.every((f) => !f.health), detail: facts.map((f) => `${f.health ? '[health] ' : ''}${f.statement}`).join(' / ') },
+      ],
+    },
+    {
+      id: 'parent-at-the-doctor',
+      look: 'They take their dad to the doctor about his knee: a person\'s care is about health, so it is marked.',
+      runAt: '2026-10-20T03:00:00Z',
+      records: [noteRecord({ id: 'n-doc', subtype: 'journal', title: 'Sunday', body: 'Took Dad to the doctor about his knee this morning. They want to scan it next week.', created_at: '2026-10-19T23:00:00Z' })],
+      check: ({ facts }) => [
+        { name: 'what happened to his knee is marked about health', ok: facts.some((f) => f.health), detail: facts.map((f) => `${f.health ? '[health] ' : ''}${f.statement}`).join(' / ') },
+      ],
+    },
+    {
       id: 'own-project',
       look: 'Someone building an app of their own keeps its work in Gremly: their project is part of their life, and its launch is kept.',
       runAt: '2026-10-20T03:00:00Z',

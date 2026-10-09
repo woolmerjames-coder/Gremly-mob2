@@ -15,7 +15,7 @@ import { jsonCall, modelFor } from './llm';
 import { FACT_KINDS, KIND_RULES, validKind } from '../../shared/factKinds.js';
 import { FACT_TIMINGS, TIMING_RULES, validTiming } from '../../shared/factTiming.js';
 
-export const KINDS_PROMPT_VERSION = 'kinds-2026-10-13b';
+export const KINDS_PROMPT_VERSION = 'kinds-2026-10-18a';
 
 /** Facts sent in one call. */
 export const KINDS_PER_CALL = 100;

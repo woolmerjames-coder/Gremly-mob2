@@ -25,7 +25,7 @@ import { db } from '../db.js';
 import { invalidateChatCache } from '../cache.js';
 import { memoryDb } from './memoryDb.js';
 
-jest.mock('../llm.js', () => ({ jsonCall: jest.fn(), modelFor: (env, job) => ({ model: job }) }));
+jest.mock('../llm.js', () => ({ ...jest.requireActual('../llm.js'), jsonCall: jest.fn(), modelFor: (env, job) => ({ model: job }) }));
 jest.mock('../db.js', () => ({
   ...jest.requireActual('../db.js'),
   db: jest.fn(),

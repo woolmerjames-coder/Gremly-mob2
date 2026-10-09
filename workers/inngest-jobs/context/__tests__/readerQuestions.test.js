@@ -20,7 +20,7 @@ jest.mock('../db', () => ({
   personIdentity: jest.fn(async () => ({ first_name: 'Noor', identity: {} })),
   userTimezone: jest.fn(async () => 'America/New_York'),
 }));
-jest.mock('../llm', () => ({ jsonCall: jest.fn(), modelFor: () => 'model' }));
+jest.mock('../llm', () => ({ ...jest.requireActual('../llm'), jsonCall: jest.fn(), modelFor: () => 'model' }));
 jest.mock('../../../shared/day.js', () => ({
   ...jest.requireActual('../../../shared/day.js'),
   personNow: async () => ({ today: '2026-11-12', dayEndHour: 3 }),

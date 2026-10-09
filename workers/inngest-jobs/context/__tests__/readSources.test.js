@@ -15,7 +15,7 @@ jest.mock('../db', () => ({
   db: jest.fn(),
   personIdentity: jest.fn(async () => ({ first_name: 'Alex', identity: {} })),
 }));
-jest.mock('../llm', () => ({ jsonCall: jest.fn(), modelFor: () => 'model' }));
+jest.mock('../llm', () => ({ ...jest.requireActual('../llm'), jsonCall: jest.fn(), modelFor: () => 'model' }));
 jest.mock('../../../shared/day.js', () => ({
   ...jest.requireActual('../../../shared/day.js'),
   personNow: async () => ({ today: '2026-10-07', dayEndHour: 3 }),

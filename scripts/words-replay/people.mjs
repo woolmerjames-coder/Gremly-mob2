@@ -333,3 +333,68 @@ export const ROSA = {
     { table: 'worlds', kind: 'world', name: 'Friends', row: FRIENDS, filed: () => rosaFiledOf([sundays, ...ROSA_ITEMS.friends]) },
   ],
 };
+
+/**
+ * Gremly's read of each made up person's life, as the weekly pass writes the
+ * Life Map (user_life_map.life_map), for --life-map: given to the writers as
+ * background (context/lifeMap.js). Alex's holds the sore knee as the weekly
+ * pass might, so the replay sees whether the words keep off it.
+ */
+const thread = (name, importance, attention, status, last_activity, summary, recent_update = null) => ({
+  name,
+  importance,
+  attention,
+  status,
+  lifecycle: 'active',
+  last_activity,
+  summary,
+  recent_update,
+});
+export const LIFE_MAPS = {
+  Alex: {
+    domains: [
+      {
+        name: 'Teaching',
+        threads: [
+          thread('Year 11 and the science department', 'high', 'front_of_mind', 'busy', '2026-10-06', 'Alex teaches science at a secondary school and is in the thick of Year 11 mocks this half term, setting and marking papers. A new head of science starts in January.', 'Alex has been setting the chemistry mock and marking physics papers.'),
+        ],
+      },
+      {
+        name: 'Home and family',
+        threads: [
+          thread('Life with Jo', 'high', 'front_of_mind', 'warm', '2026-10-05', 'Alex lives with their partner Jo. They are going to Lisbon together over half term, and Alex wants to plan a surprise for Jo’s 40th in the spring. Jo came to the finish of the Leeds half.'),
+        ],
+      },
+      {
+        name: 'Running',
+        threads: [
+          thread('Training for a marathon', 'medium', 'active', 'building', '2026-10-01', 'Running matters a lot to Alex: they run with the Tuesday run club, ran the Leeds half in a best time in September and want to run the Manchester marathon in April.'),
+          thread('A sore knee', 'medium', 'background', 'ongoing', '2026-09-28', 'Alex’s knee has been sore after long runs.'),
+        ],
+      },
+      {
+        name: 'The allotment',
+        threads: [
+          thread('The plot at Moorside', 'medium', 'background', 'steady', '2026-10-03', 'Alex keeps a plot at the Moorside allotments next to Pat, who will water the greenhouse while they are away. It is a calm, practical part of their week.'),
+        ],
+      },
+    ],
+  },
+  Ines: {
+    domains: [
+      {
+        name: 'Health',
+        threads: [thread('Getting her back right', 'high', 'active', 'improving', '2026-09-22', 'Ines spent late summer on physio for her back and is walking further without pain.')],
+      },
+      { name: 'Home', threads: [thread('Her neighbourhood', 'medium', 'background', 'steady', '2026-09-08', 'Ines likes walking to the market near her home.')] },
+    ],
+  },
+  Maya: {
+    domains: [
+      {
+        name: 'Biscuit',
+        threads: [thread('Life with Biscuit', 'high', 'front_of_mind', 'settled', '2026-08-31', 'Maya adopted Biscuit from a rescue in July; her friend Tasha helped on the first night, and the summer was about settling Biscuit in.')],
+      },
+    ],
+  },
+};

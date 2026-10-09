@@ -24,7 +24,8 @@
 
 import { CARE_RULES, WRITING_RULES, PRIVATE_RULES, personBlock } from '../careRules';
 import { db, personIdentity, weekdayName } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, lifeMapSection, loadLifeMapLines } from './lifeMap';
 import { invalidateChatCache } from './cache';
 import { whenTrue } from '../../shared/factTiming.js';
 import { SENTENCE_SCHEMA, STATED_RULES } from '../../shared/check/stated.js';
@@ -32,8 +33,9 @@ import { runCheck, checkRunRow, problemWords } from '../../shared/check/run.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { personWordsOn } from '../../shared/lifePack.js';
 import { personToday } from './filing';
+import { whoSaid } from '../../shared/whoSaid.js';
 
-export const PERSON_WORDS_VERSION = 'person-words-2026-10-16b';
+export const PERSON_WORDS_VERSION = 'person-words-2026-10-18b';
 export const PERSON_WORDS_MOMENT =
   'kept with them, seen at a glance on any day until it is next written';
 
@@ -52,14 +54,14 @@ const RULES = `THE LINE
 - The line is seen at a glance and others may see it. Nothing private or about health is given to you, and the line never speaks of any of it, in any words.`;
 
 /** The writer's rules, for one person's line. */
-export function personWordsPrompt(person) {
+export function personWordsPrompt(person, { lifeMap = false } = {}) {
   return {
     fixed: `You write the line Gremly keeps about someone in a person's life, for Gremly, a warm, shame-free companion app.
 
 ${CARE_RULES}
 
 ${RULES}
-
+${lifeMap ? `\n${LIFE_MAP_RULES}\n` : ''}
 ${PRIVATE_RULES}
 
 ${WRITING_RULES}
@@ -96,7 +98,7 @@ function trim(text, n) {
  * health. Pure.
  * @returns {{ text, records: Map, ids: Map, facts: number }}
  */
-export function renderPersonWords({ someone, note, facts, today }) {
+export function renderPersonWords({ someone, note, facts, today, lifeMap = [] }) {
   const records = new Map();
   const ids = new Map();
   const add = (prefix, record, id) => {
@@ -108,7 +110,7 @@ export function renderPersonWords({ someone, note, facts, today }) {
   add(
     'p',
     {
-      label: `the someone: ${trim(someone.name, 60) || '(no name given yet)'}${someone.relationship ? `, their ${trim(someone.relationship, 60)}, as they said` : ', who they are to them is not recorded'}`,
+      label: `the someone: ${trim(someone.name, 60) || '(no name given yet)'}${someone.relationship ? `, their ${whoSaid({ ...someone, relationship: trim(someone.relationship, 60) })}` : ', who they are to them is not recorded'}`,
       names: [someone.name].filter(Boolean),
       exact: ['person'],
     },
@@ -133,7 +135,7 @@ GREMLY'S NOTE ON THEM FROM THE WEEK, ITS OWN READING AND NEVER EVIDENCE:
 ${trim(note, 800)}
 
 RECORDS:
-${[...records.values()].map((r) => r.label).join('\n')}`;
+${[...records.values()].map((r) => r.label).join('\n')}${lifeMap.length ? `\n\n${lifeMapSection(lifeMap)}` : ''}`;
   return { text, records, ids, facts: facts.length };
 }
 
@@ -179,7 +181,7 @@ export async function notedPeople(env, userId, { run = null } = {}) {
   const factIds = [...new Set([...wanted.flatMap((w) => w.factIds), ...[...tiedTo.values()].flat()])];
   const [people, facts] = await Promise.all([
     d.select(
-      `life_people?user_id=eq.${userId}&id=in.(${personIds.join(',')})&merged_into=is.null&hidden_at=is.null&select=id,name,relationship,words`,
+      `life_people?user_id=eq.${userId}&id=in.(${personIds.join(',')})&merged_into=is.null&hidden_at=is.null&select=id,name,relationship,relationship_by,words`,
     ),
     factIds.length
       ? d.select(
@@ -212,19 +214,18 @@ export async function notedPeople(env, userId, { run = null } = {}) {
 }
 
 /** One person's line, through the check. Writes nothing. */
-export async function personLine(env, { person, someone, note, facts, today }) {
+export async function personLine(env, { person, someone, note, facts, today, lifeMap = [] }) {
   if (!facts.length) return { outcome: 'empty', text: null, ids: [], skipped: 'nothing open to rest on' };
-  const { text, records, ids } = renderPersonWords({ someone, note, facts, today });
+  const { text, records, ids } = renderPersonWords({ someone, note, facts, today, lifeMap });
   const [primary, fallback] = [modelFor(env, 'words'), modelFor(env, 'wordsFallback')];
   const { output, model } = await jsonCall(env, {
     primary,
     fallback,
-    system: personWordsPrompt(person),
+    system: personWordsPrompt(person, { lifeMap: lifeMap.length > 0 }),
     user: text,
     schema: SENTENCE_SCHEMA,
     maxTokens: 2000,
-    thinking: 'low',
-    effort: 'low',
+    ...effortFor(env, 'person_words'),
   });
   const [wrote, other] = model === fallback.model ? [fallback, primary] : [primary, fallback];
   const check = await runCheck({
@@ -277,10 +278,11 @@ export async function personLine(env, { person, someone, note, facts, today }) {
  */
 export async function writePersonWords(env, userId, { dryRun = false, run = null } = {}) {
   if (!personWordsOn(env)) return { skipped: 'PERSON_WORDS is off' };
-  const [noted, person, today] = await Promise.all([
+  const [noted, person, today, lifeMap] = await Promise.all([
     notedPeople(env, userId, { run }),
     personIdentity(env, userId),
     personToday(env, userId),
+    loadLifeMapLines(env, db(env), userId, 'person_words'),
   ]);
   const d = db(env);
   const lines = [];
@@ -288,7 +290,7 @@ export async function writePersonWords(env, userId, { dryRun = false, run = null
   const details = [];
   for (const p of noted.people) {
     try {
-      const result = await personLine(env, { person, today, ...p });
+      const result = await personLine(env, { person, today, lifeMap, ...p });
       if (result.check) {
         counts.checked += result.check.counts.checked;
         counts.sent_back += result.check.counts.sent_back;

@@ -38,6 +38,7 @@ import { jsonCall, modelFor } from './llm';
 import { runCheck, problemWords } from '../../shared/check/run.js';
 import { SENTENCE_SCHEMA } from '../../shared/check/stated.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
+import { whoSaid } from '../../shared/whoSaid.js';
 import { rewriteSystemPrompt as dailyRewritePrompt } from './daily';
 import { writeWords, wordsRewritePrompt } from './words';
 import { personWordsRewritePrompt } from './personWords';
@@ -178,7 +179,7 @@ export function restingRecords({ facts = [], people = [], items = [], said, adde
   for (const p of people)
     add(
       {
-        label: `person: ${p.name || 'unnamed'}${p.relationship ? `, their ${p.relationship}` : ', who they are to them is not recorded'}`,
+        label: `person: ${p.name || 'unnamed'}${p.relationship ? `, their ${whoSaid(p)}` : ', who they are to them is not recorded'}`,
         names: [p.name].filter(Boolean),
         exact: ['person'],
       },
@@ -214,7 +215,7 @@ async function readResting(d, userId, rows) {
         )
       : [],
     personIds.length
-      ? d.select(`life_people?user_id=eq.${userId}&id=in.(${personIds.join(',')})&select=id,name,relationship`)
+      ? d.select(`life_people?user_id=eq.${userId}&id=in.(${personIds.join(',')})&select=id,name,relationship,relationship_by`)
       : [],
     ...[...byTable.entries()].map(([table, ids]) => {
       const how = ITEM_READ[table];

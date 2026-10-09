@@ -36,7 +36,8 @@
 
 import { whoSaid } from '../../shared/whoSaid.js';
 import { db, addDays, personIdentity } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, lifeMapSection, loadLifeMapLines } from './lifeMap';
 import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { loadPeople, mergePeople } from './people';
 import { invalidateChatCache } from './cache';
@@ -214,7 +215,7 @@ const SET_SCHEMA = {
 };
 
 /** The writer's request, and the refs it may answer with. Pure. */
-export function questionSetRequest({ candidates, person, today }) {
+export function questionSetRequest({ candidates, person, today, lifeMap = [] }) {
   const refs = new Map();
   const lines = candidates.map((c, i) => {
     const ref = `c${i + 1}`;
@@ -245,14 +246,14 @@ ${factLines(c.facts)}`;
 ${CARE_RULES}
 
 ${ASK_RULES}
-
+${lifeMap.length ? `\n${LIFE_MAP_RULES}\n` : ''}
 ${WRITING_RULES}`,
       varying: personBlock(person),
     },
     user: `TODAY: ${today}.
 
 WHAT COULD BE ASKED ABOUT (ref | what is not known, then what Gremly holds: each record as name | who they are, what Gremly thinks where it thinks something, and the facts):
-${lines.join('\n\n')}`,
+${lines.join('\n\n')}${lifeMap.length ? `\n\n${lifeMapSection(lifeMap)}` : ''}`,
     refs,
   };
 }
@@ -525,8 +526,8 @@ async function liveOpen(d, userId, opened, { unsure, today, close }) {
  * nothing; the replay calls it as the worker does.
  * @returns {{ asked: [{ c, question, choices }], model, why, problems } | { skipped, model, why, problems }}
  */
-export async function askQuestionSet(env, { candidates, person, today }) {
-  const { system, user, refs } = questionSetRequest({ candidates, person, today });
+export async function askQuestionSet(env, { candidates, person, today, lifeMap = [] }) {
+  const { system, user, refs } = questionSetRequest({ candidates, person, today, lifeMap });
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'personQuestion'),
     fallback: modelFor(env, 'personQuestionFallback'),
@@ -534,8 +535,7 @@ export async function askQuestionSet(env, { candidates, person, today }) {
     user,
     schema: SET_SCHEMA,
     maxTokens: 4000,
-    effort: 'low',
-    thinking: 'low',
+    ...effortFor(env, 'people_questions'),
   });
   const why = trim(output?.why, 300);
   const asked = [];
@@ -576,8 +576,11 @@ export async function writeQuestionSet(
   if (loaded.waiting) return { written: false, skipped: 'a set is waiting', waiting: loaded.waiting, closed };
   const { candidates } = loaded;
   if (!candidates.length) return { written: false, skipped: 'nothing to ask about', closed };
-  const person = await personIdentity(env, userId);
-  const asked = await askQuestionSet(env, { candidates, person, today });
+  const [person, lifeMap] = await Promise.all([
+    personIdentity(env, userId),
+    loadLifeMapLines(env, db(env), userId, 'people_questions'),
+  ]);
+  const asked = await askQuestionSet(env, { candidates, person, today, lifeMap });
   const out = {
     candidates: candidates.length,
     model: asked.model,

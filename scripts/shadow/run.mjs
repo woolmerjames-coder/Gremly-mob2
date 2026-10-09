@@ -17,11 +17,11 @@
  *   scripts/shadow/run.sh people-fill --user <uuid> [--at ISO]
  *   scripts/shadow/run.sh filing --user <uuid> [--limit n] [--at ISO]
  *   scripts/shadow/run.sh words --user <uuid>
- *   scripts/shadow/run.sh memories --user <uuid> [--chapter <uuid>] [--limit n]
+ *   scripts/shadow/run.sh memories --user <uuid> [--chapter <uuid>] [--limit n] [--any-closed]
  *   scripts/shadow/run.sh first-worlds --user <uuid>
  *   scripts/shadow/run.sh up-next --user <uuid>
  *   scripts/shadow/run.sh people-check --user <uuid> [--limit n]
- *   scripts/shadow/run.sh person-question --user <uuid>
+ *   scripts/shadow/run.sh person-question --user <uuid> [--even-if-waiting]
  *   scripts/shadow/run.sh not-sure --user <uuid> --week-end YYYY-MM-DD --replies <file> [--at ISO]
  *   scripts/shadow/run.sh chapter-questions --user <uuid>
  *   scripts/shadow/run.sh ask --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--sizes compact,full]
@@ -91,6 +91,7 @@ import { jsonCall, modelFor, anthropicJsonResult } from '../../workers/inngest-j
 import * as stage5Summary from '../../workers/inngest-jobs/summaryFromPass';
 import * as stage5Writer from '../../workers/inngest-jobs/summaryPlanWriter';
 import * as stage6People from '../../workers/inngest-jobs/context/personWords.js';
+import * as lifeMapMod from '../../workers/inngest-jobs/context/lifeMap.js';
 // a namespace import, so a tree without what Gremly is not sure of still bundles
 import * as unsureMod from '../../workers/inngest-jobs/context/unsure.js';
 
@@ -160,8 +161,9 @@ async function pendingSchema() {
 const record = { reads: [], writes: [], calls: [], usage: [], effects: [] };
 const env = {
   ...workerVars(join(ROOT, 'workers/inngest-jobs/wrangler.toml')),
-  // a model to try in place of the one that ships, as CONTEXT_MODEL_<JOB>=provider:model
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_') || k.startsWith('CONTEXT_EFFORT_'))),
+  // a model to try in place of the one that ships, as CONTEXT_MODEL_<JOB>=provider:model,
+  // how hard a writer thinks (CONTEXT_EFFORT_<JOB>), and LIFE_MAP_BACKGROUND
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CONTEXT_MODEL_') || k.startsWith('CONTEXT_EFFORT_') || k === 'LIFE_MAP_BACKGROUND')),
   SUPABASE_URL,
   SUPABASE_SERVICE_KEY: KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -793,7 +795,12 @@ const JOBS = {
       userId,
       run: async () => {
         if (typeof stage4bMemory.writeMemory !== 'function') fail('This tree has no memory writer.');
-        const ids = flag('--chapter') ? [flag('--chapter')] : await stage4bMemory.chaptersWantingMemory(env, userId);
+        // --any-closed: the latest closed Chapters, memory or not (a side by side run)
+        const ids = flag('--chapter')
+          ? [flag('--chapter')]
+          : args.includes('--any-closed')
+            ? ((await db(env).select(`chapters?owner_id=eq.${userId}&phase=eq.closed&select=id&order=closed_at.desc.nullslast&limit=${Number(flag('--limit') || 20)}`)) || []).map((c) => c.id)
+            : await stage4bMemory.chaptersWantingMemory(env, userId);
         const out = [];
         for (const id of ids.slice(0, Number(flag('--limit') || 20))) {
           const [c] = await db(env).select(`chapters?id=eq.${id}&select=title,epigraph`);
@@ -911,6 +918,22 @@ const JOBS = {
         // the week's set since 18 Oct; a tree before it asks one question
         if (typeof stage4cPeople.writeQuestionSet === 'function') {
           const { candidates } = await stage4cPeople.loadAskCandidates(env, userId);
+          // the set it would ask now, even while one waits (a side by side run)
+          if (args.includes('--even-if-waiting')) {
+            const today = await filing.personToday(env, userId);
+            const [person, lifeMap] = await Promise.all([
+              personIdentity(env, userId),
+              lifeMapMod.loadLifeMapLines(env, db(env), userId, 'people_questions'),
+            ]);
+            const asked = candidates.length ? await stage4cPeople.askQuestionSet(env, { candidates, person, today, lifeMap }) : { skipped: 'nothing to ask about', problems: [] };
+            return {
+              written: false,
+              skipped: asked.skipped || null,
+              why: asked.why || null,
+              rows: (asked.asked || []).map(({ c, question, choices }) => ({ question, choices, proposed_change: { type: c.type } })),
+              candidates: candidates.map((c) => ({ type: c.type, weight: c.weight })),
+            };
+          }
           const out = await stage4cPeople.writeQuestionSet(env, userId, { dryRun: true });
           return {
             ...out,

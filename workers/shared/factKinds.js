@@ -38,4 +38,4 @@ export const KIND_RULES = `KINDS
   situation: how something in their life stands for a stretch of time.
   self: who the person is and how they see themselves.
 - The kind is the sort of statement, never the area of life it is about. When more than one could fit, choose the one the statement is mainly saying.
-- Mark health when the fact concerns anyone's body or mind, their health or their care. It decides how Gremly writes about the fact, never whether it is kept.`;
+- Mark health when the fact concerns a person's body or mind, their health or their care: the person's own, or that of someone in their life. An animal's care is not a person's health. It decides how Gremly writes about the fact, never whether it is kept.`;

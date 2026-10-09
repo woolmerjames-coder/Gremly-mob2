@@ -24,7 +24,7 @@ jest.mock('../db', () => ({
   personIdentity: jest.fn(async () => ({ first_name: 'Noor', identity: {} })),
   userTimezone: jest.fn(async () => 'America/New_York'),
 }));
-jest.mock('../llm', () => ({
+jest.mock('../llm', () => ({ ...jest.requireActual('../llm'),
   jsonCall: jest.fn(),
   modelFor: () => ({ provider: 'openai', model: 'm' }),
 }));

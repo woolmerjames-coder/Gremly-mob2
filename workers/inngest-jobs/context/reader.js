@@ -22,7 +22,8 @@ import {
   personIdentity,
   weekdayName,
 } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, lifeMapSection, loadLifeMapLines } from './lifeMap';
 import { minutesIn } from '../../shared/calendar.js';
 import { personDay, personNow } from '../../shared/day.js';
 import {
@@ -61,7 +62,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-18b';
+export const READER_PROMPT_VERSION = 'reader-2026-10-18c';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -190,7 +191,7 @@ export const READER_SCHEMA = {
   required: ['new_facts', 'fact_updates', 'confirmations', 'questions', 'calendar', 'same_people'],
 };
 
-function readerSystemPrompt(today, person) {
+function readerSystemPrompt(today, person, { lifeMap = false } = {}) {
   return `You keep a ledger of facts about one person's life for Gremly, a companion app. You are shown records the person made in the app, in the order they happened, and the facts the ledger already holds. Decide what the new records tell you.
 
 TODAY'S DATE: ${today}
@@ -198,7 +199,7 @@ TODAY'S DATE: ${today}
 ${personBlock(person)}
 
 ${CARE_RULES}
-
+${lifeMap ? `\n${LIFE_MAP_RULES}\n` : ''}
 WHAT BELONGS IN THE LEDGER
 - Facts a thoughtful friend would want to remember to understand what is going on in this person's life: plans and trips, commitments and deadlines, events that happened, people who matter and what is happening with them, ongoing situations, goals, routines they keep, and things they say they want or prefer.
 - The day an occasion in their life falls on, and whose occasion it is, belongs in the ledger whenever the person gives it, however much in passing, and above all when they put Gremly right about it. A plan made around an occasion never stands in for the occasion's own day: each is a fact of its own.
@@ -773,6 +774,7 @@ export function readerRequest({
   waiting = [],
   tz,
   dayEndHour = 0,
+  lifeMap = [],
 }) {
   const { lines: peopleRows, ref: personRef } = peopleLines(people);
   const factRef = new Map();
@@ -828,8 +830,8 @@ QUESTIONS ALREADY WAITING:
 ${waiting.length ? waiting.map((q) => `- ${trim(q.question, 200)}`).join('\n') : '(none)'}
 
 RECORDS, OLDEST FIRST (ref | when it happened | record):
-${recordLines.join('\n')}`;
-  return { system: readerSystemPrompt(today, person), user, recRef, factRef, personRef };
+${recordLines.join('\n')}${lifeMap.length ? `\n\n${lifeMapSection(lifeMap)}` : ''}`;
+  return { system: readerSystemPrompt(today, person, { lifeMap: lifeMap.length > 0 }), user, recRef, factRef, personRef };
 }
 
 /**
@@ -847,7 +849,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
   const runId = chunkRunId(baseRunId, chunk);
   await rollbackRun(d, userId, runId);
   const fromRecords = [...new Set(chunk.flatMap((r) => r.factIds || []))];
-  const [openFacts, person, people, waiting] = await Promise.all([
+  const [openFacts, person, people, waiting, lifeMap] = await Promise.all([
     loadOpenFacts(env, userId, chunk[0].at, fromRecords),
     personIdentity(env, userId),
     loadPeople(d, userId),
@@ -863,6 +865,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
         // unknown: a catch up then asks nothing (blank is better than a pile)
         return null;
       }),
+    loadLifeMapLines(env, d, userId, 'reader'),
   ]);
   const { system, user, recRef, factRef, personRef } = readerRequest({
     today,
@@ -873,6 +876,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
     waiting: waiting || [],
     tz,
     dayEndHour,
+    lifeMap,
   });
 
   const { output, model } = await jsonCall(env, {
@@ -882,8 +886,7 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
     user,
     schema: READER_SCHEMA,
     maxTokens: 8000,
-    effort: 'low',
-    thinking: 'low',
+    ...effortFor(env, 'reader'),
   });
 
   const counts = {

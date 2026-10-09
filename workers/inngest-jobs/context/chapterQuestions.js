@@ -30,7 +30,8 @@
  */
 
 import { db, addDays, personIdentity, localDate, localDateTime } from './db';
-import { jsonCall, modelFor } from './llm';
+import { jsonCall, modelFor, effortFor } from './llm';
+import { LIFE_MAP_RULES, lifeMapSection, loadLifeMapLines } from './lifeMap';
 import { CARE_RULES, PRIVATE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { readItems, readItemMarks, markItems } from './filed';
 import { personToday } from './filing';
@@ -43,7 +44,7 @@ import {
 } from '../../shared/questionRules.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 
-export const CHAPTER_QUESTIONS_VERSION = 'chapter-questions-2026-10-18d';
+export const CHAPTER_QUESTIONS_VERSION = 'chapter-questions-2026-10-18e';
 
 /** Close questions written in a day at most. */
 const MOST_CLOSE_A_DAY = 3;
@@ -288,7 +289,7 @@ const CLOSE_SCHEMA = {
 };
 
 /** The close (or welcome back) writer's request, and its refs. Pure. */
-export function closeRequest({ chapters, records, worlds, person, today, welcome = false }) {
+export function closeRequest({ chapters, records, worlds, person, today, welcome = false, lifeMap = [] }) {
   const refs = new Map();
   const worldOf = new Map((worlds || []).map((w) => [w.id, w]));
   const blocks = chapters.map((c, i) => {
@@ -309,7 +310,7 @@ ${CARE_RULES}
 
 ${PRIVATE_RULES}
 
-${CLOSE_RULES}${welcome ? `\n\n${WELCOME_RULES}` : ''}
+${CLOSE_RULES}${welcome ? `\n\n${WELCOME_RULES}` : ''}${lifeMap.length ? `\n\n${LIFE_MAP_RULES}` : ''}
 
 ${WRITING_RULES}`,
       varying: personBlock(person),
@@ -317,7 +318,7 @@ ${WRITING_RULES}`,
     user: `TODAY: ${today}.
 
 CHAPTERS (ref | title | dates | World, then its records):
-${blocks.join('\n\n')}`,
+${blocks.join('\n\n')}${lifeMap.length ? `\n\n${lifeMapSection(lifeMap)}` : ''}`,
     refs,
   };
 }
@@ -378,10 +379,11 @@ export function closeRows({ output, refs, userId, runId, kind = 'close_chapter',
 export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {}) {
   const write = !dryRun && chapterQuestionsOn(env);
   const d = db(env);
-  const [today, absence, person] = await Promise.all([
+  const [today, absence, person, lifeMap] = await Promise.all([
     personToday(env, userId),
     d.rpc('absence_snapshot', { p_user: userId }),
     personIdentity(env, userId),
+    loadLifeMapLines(env, d, userId, 'chapter_questions'),
   ]);
   const state = awayState(absence);
   const out = { today, written: write, away: state.away, welcome_back: state.welcomeBack };
@@ -451,6 +453,7 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
       userId,
       runId,
       setId,
+      lifeMap,
     });
     await insert(rows, { counted: false });
     return { ...out, welcome: { set_id: setId, rows, problems, model } };
@@ -480,6 +483,7 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
       today,
       userId,
       runId,
+      lifeMap,
     });
     await insert(rows);
     out.close = { rows, problems, model };
@@ -494,9 +498,9 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
  */
 export async function askClose(
   env,
-  { chapters, records, worlds, person, today, welcome = false, userId, runId, setId = null },
+  { chapters, records, worlds, person, today, welcome = false, userId, runId, setId = null, lifeMap = [] },
 ) {
-  const req = closeRequest({ chapters, records, worlds, person, today, welcome });
+  const req = closeRequest({ chapters, records, worlds, person, today, welcome, lifeMap });
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'chapterQuestion'),
     fallback: modelFor(env, 'chapterQuestionFallback'),
@@ -504,8 +508,7 @@ export async function askClose(
     user: req.user,
     schema: CLOSE_SCHEMA,
     maxTokens: welcome ? 3000 : 2000,
-    effort: 'low',
-    thinking: 'low',
+    ...effortFor(env, 'chapter_questions'),
   });
   return {
     ...closeRows({

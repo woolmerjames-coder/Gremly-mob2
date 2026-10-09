@@ -281,7 +281,17 @@ export function installFetchGuard({
     if (MODEL_HOSTS.includes(host)) {
       const started = Date.now();
       const res = await realFetch(input, init);
-      record.calls.push({ host, status: res.status, ms: Date.now() - started });
+      const call = { host, status: res.status, ms: Date.now() - started };
+      // SHADOW_KEEP_PROMPTS=1 keeps what each call was asked and answered, for
+      // a judge to read later; it holds real words, so it stays in SHADOW_OUT
+      if (process.env.SHADOW_KEEP_PROMPTS === '1') {
+        call.request = parseBody(init);
+        call.response = await res
+          .clone()
+          .text()
+          .catch(() => null);
+      }
+      record.calls.push(call);
       return res;
     }
     // any other host: Inngest, push, cortex, the calendar worker. Stubbed.

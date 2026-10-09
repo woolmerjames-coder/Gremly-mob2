@@ -24,7 +24,7 @@ jest.mock('../../../shared/db.js', () => ({
   userTimezone: async () => 'Europe/London',
   personIdentity: async () => ({ first_name: 'Alex', pronouns: null, identity: {} }),
 }));
-jest.mock('../llm.js', () => ({ jsonCall: jest.fn(), modelFor: (env, job) => ({ model: job }) }));
+jest.mock('../llm.js', () => ({ ...jest.requireActual('../llm.js'), jsonCall: jest.fn(), modelFor: (env, job) => ({ model: job }) }));
 jest.mock('../filing.js', () => ({ personToday: async () => '2026-10-07' }));
 
 const TODAY = '2026-10-07';

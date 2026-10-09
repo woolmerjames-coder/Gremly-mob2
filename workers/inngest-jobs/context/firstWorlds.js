@@ -31,7 +31,7 @@ import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 import { GREMLY_CATALOG, GREMLY_SLUGS, PLAIN_GREMLY } from '../../shared/gremlys.js';
 import { whoSaid } from '../../shared/whoSaid.js';
 
-export const FIRST_WORLDS_VERSION = 'first-worlds-2026-10-07c';
+export const FIRST_WORLDS_VERSION = 'first-worlds-2026-10-18a';
 
 /** What a World made here records as its source. */
 export const FIRST_WORLDS_SOURCE = 'first_worlds';

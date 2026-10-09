@@ -55,7 +55,7 @@ import {
 import { loadUpNext } from '../../shared/upNext.js';
 import { whoSaid } from '../../shared/whoSaid.js';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-18a';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-18b';
 
 function trim(text, n) {
   const s = String(text || '')

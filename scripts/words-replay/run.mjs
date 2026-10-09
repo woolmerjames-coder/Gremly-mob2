@@ -2,8 +2,8 @@
  * The words and memory replay (workers/inngest-jobs/context/words.js and
  * memory.js, data fabric stage 4b), with made up people (people.mjs).
  *
- *   scripts/words-replay/run.sh words  [--models luna,flash] [--repeat n]
- *   scripts/words-replay/run.sh memory [--models sonnet,luna,flash] [--repeat n]
+ *   scripts/words-replay/run.sh words  [--models luna,flash] [--repeat n] [--life-map]
+ *   scripts/words-replay/run.sh memory [--models sonnet,luna,flash] [--repeat n] [--life-map]
  *   scripts/words-replay/run.sh set    [--models luna,flash] [--repeat n] [--no-others]
  *
  * words: the line under each of Alex's four Worlds and two open Chapters,
@@ -23,7 +23,9 @@
  * hinted at; resting on the records alone; particular to them. For a memory:
  * to the person, looking back; no tally of what was left undone or fell
  * short; no condition, treatment or medication named; resting on the records
- * alone; its meaning only from their own words.
+ * alone; its meaning only from their own words. Both are asked whether the
+ * line shows it understands what that part of their life is to them (18 Oct),
+ * and --life-map gives each writer the person's made up Life Map as background.
  *
  * The bar (proposed with stage 4b): every judged question held on 95 in 100
  * lines that stand, none naming anything private on a line seen at a glance,
@@ -47,7 +49,8 @@ import {
 import { memoryLine, MEMORY_VERSION } from '../../workers/inngest-jobs/context/memory.js';
 import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
-import { ALEX, MEMORIES, ROSA, TODAY, alexFiled } from './people.mjs';
+import { ALEX, MEMORIES, ROSA, TODAY, alexFiled, LIFE_MAPS } from './people.mjs';
+import { lifeMapLines } from '../../workers/inngest-jobs/context/lifeMap.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -67,6 +70,9 @@ const models = (flag('--models') || 'luna,flash')
   .split(',')
   .filter((m) => MODELS[m]);
 const BAR = { held: 0.95, leftOut: 0.1 };
+// --life-map: each writer is given the person's made up Life Map as background (context/lifeMap.js)
+const withMap = args.includes('--life-map');
+const mapOf = (person) => (withMap ? lifeMapLines(LIFE_MAPS[person?.first_name]) : []);
 
 const REPLAY_SUPABASE_URL = 'https://words-replay.invalid';
 const bucket = new AsyncLocalStorage();
@@ -112,6 +118,7 @@ const QUESTIONS = {
     no_private: 'Does it keep off anything about health and anything a record marks private, neither naming nor hinting at it?',
     grounded: 'Does everything it says come from the records given?',
     particular: 'Is it particular to this person, rather than words that could sit under anyone\'s?',
+    understands: 'Does it show it understands what this part of their life is for them and why it matters to them, as the records show it, rather than only listing what is in it?',
     no_records: 'Does it speak of their life, never of their records, notes, todos, lists or what was written down?',
   },
   memory: {
@@ -121,6 +128,7 @@ const QUESTIONS = {
     no_records: 'Does it speak of their life, never of their records, notes, todos or lists?',
     grounded: 'Does everything it says come from the records given?',
     own_meaning: 'Does any meaning or feeling it gives come from the person\'s own words in the records, rather than being supplied for them?',
+    understands: 'Does it show what this Chapter was in their life and why it mattered to them, as the records show it, rather than only listing what happened?',
   },
 }[mode === 'set' ? 'words' : mode];
 if (mode === 'set')
@@ -165,7 +173,7 @@ function jobs() {
       key: `${t.kind}:${t.name}`,
       what: `the ${t.kind === 'world' ? 'World' : 'Chapter'} ${t.name}`,
       person: ALEX.person,
-      run: (env) => writeLine(env, { userId: 'replay', person: ALEX.person, target: t, today: TODAY, filed: alexFiled(t) }),
+      run: (env) => writeLine(env, { userId: 'replay', person: ALEX.person, target: t, today: TODAY, filed: alexFiled(t), lifeMap: mapOf(ALEX.person) }),
       records: () => {
         const f = alexFiled(t);
         return renderWords({ kind: t.kind, target: t.row, world: t.world, ...f, today: TODAY }).text;
@@ -175,7 +183,7 @@ function jobs() {
     key: m.key,
     what: `the Chapter ${m.chapter.title}, which has ended`,
     person: m.person,
-    run: (env) => memoryLine(env, { person: m.person, chapter: m.chapter, world: m.world, got: m.got(), today: TODAY }),
+    run: (env) => memoryLine(env, { person: m.person, chapter: m.chapter, world: m.world, got: m.got(), today: TODAY, lifeMap: mapOf(m.person) }),
     records: () => renderWords({ kind: 'chapter', target: m.chapter, world: m.world, ...m.got(), today: TODAY, ended: true }).text,
   }));
 }
@@ -265,7 +273,7 @@ const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : 'n/a');
 const L = [
   `# ${mode === 'words' ? 'Words' : 'Memory'} replay, ${new Date().toISOString().slice(0, 16)}`,
   '',
-  `Prompt ${mode === 'words' ? WORDS_WRITER_VERSION : MEMORY_VERSION}, ${repeat} runs of each per model.`,
+  `Prompt ${mode === 'words' ? WORDS_WRITER_VERSION : MEMORY_VERSION}, ${repeat} runs of each per model${withMap ? ', each writer given the Life Map as background' : ''}.`,
   '',
   `| Model | Passed at once | Sent back and kept | Left out | ${Object.keys(QUESTIONS).join(' | ')} | Cost a line | Meets the bar |`,
   `| --- | --- | --- | --- | ${Object.keys(QUESTIONS).map(() => '---').join(' | ')} | --- | --- |`,
@@ -302,7 +310,7 @@ for (const r of runs) {
 }
 mkdirSync(join(HERE, 'out'), { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-writeFileSync(join(HERE, 'out', `${mode}-${stamp}.md`), L.join('\n'));
-writeFileSync(join(HERE, 'out', `${mode}-${stamp}.json`), JSON.stringify(runs, null, 2));
+writeFileSync(join(HERE, 'out', `${mode}${withMap ? '-map' : ''}-${stamp}.md`), L.join('\n'));
+writeFileSync(join(HERE, 'out', `${mode}${withMap ? '-map' : ''}-${stamp}.json`), JSON.stringify(runs, null, 2));
 console.log(L.slice(0, 10).join('\n'));
-console.log(`report: out/${mode}-${stamp}.md`);
+console.log(`report: out/${mode}${withMap ? '-map' : ''}-${stamp}.md`);
