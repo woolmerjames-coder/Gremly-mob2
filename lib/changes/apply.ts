@@ -27,6 +27,7 @@ import { applyLinks, copyLinks, hasLinks } from './links';
 import { doneWords, type NameLookup } from './words';
 import { applyWeekChange } from './week';
 import { applyEase } from './ease';
+import { applyPlace, isPlaceChange, placeDoneWords } from './places';
 
 export interface ApplyOptions {
   source: ChangeSource;
@@ -37,7 +38,15 @@ export interface ApplyOptions {
 }
 
 export type Outcome =
-  | { cid: string; ok: true; summary: string; revert: () => Promise<void>; createdId?: string }
+  | {
+      cid: string;
+      ok: true;
+      summary: string;
+      revert: () => Promise<void>;
+      createdId?: string;
+      /** What each of the change's own rows made, by row: the todo of each step of a milestone */
+      createdParts?: Record<string, string>;
+    }
   | { cid: string; ok: false; reason: 'stale' | 'gone' | 'failed'; message: string };
 
 type Item = Record<string, any>;
@@ -234,13 +243,31 @@ function carried(from: ItemType, to: ItemType, item: Item): Record<string, unkno
 async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
   const type = change.type as ItemType;
   const s = store();
-  const ok = (revert: () => Promise<void>, createdId?: string): Outcome => ({
+  const ok = (
+    revert: () => Promise<void>,
+    createdId?: string,
+    createdParts?: Record<string, string>,
+  ): Outcome => ({
     cid: change.cid,
     ok: true,
     summary: doneWords(change, { names: nameLookup() }),
     revert,
     ...(createdId ? { createdId } : {}),
+    ...(createdParts && Object.keys(createdParts).length ? { createdParts } : {}),
   });
+
+  // a World or a Chapter itself, made with the Worlds screens' own actions
+  if (isPlaceChange(change)) {
+    const r = await applyPlace(change);
+    if (!r.ok) return { cid: change.cid, ok: false, reason: r.reason, message: r.message };
+    return {
+      cid: change.cid,
+      ok: true,
+      summary: placeDoneWords(change),
+      revert: r.revert,
+      ...(r.createdId ? { createdId: r.createdId } : {}),
+    };
+  }
 
   switch (change.op) {
     case 'add': {
@@ -249,8 +276,17 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
       const created = await actions(type).create(createColumns(type, rest));
       const id = created?.id as string | undefined;
       if (!id) throw new Error('It was not saved.');
-      const undoLinks =
-        worlds || chapters ? await applyLinks(type, id, { worlds, chapters }) : null;
+      let undoLinks: (() => Promise<void>) | null = null;
+      try {
+        undoLinks = worlds || chapters ? await applyLinks(type, id, { worlds, chapters }) : null;
+      } catch (err) {
+        // not put where the card said, so it is not kept at all: a row that
+        // says it could not be saved leaves nothing behind
+        await actions(type)
+          .remove(id)
+          .catch((e: unknown) => console.warn('[changes] could not take it away again', e));
+        throw err;
+      }
       return ok(async () => {
         if (undoLinks) await undoLinks();
         await actions(type).remove(id);
@@ -322,12 +358,13 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
     case 'later':
     case 'habit_days':
     case 'week_shape':
+    case 'priority':
     case 'intention':
     case 'milestone':
     case 'weekly_day': {
       const r = await applyWeekChange(change);
       if (!r.ok) return { cid: change.cid, ...r };
-      return ok(r.revert, r.createdId);
+      return ok(r.revert, r.createdId, r.createdParts);
     }
     // a habit paused, given a lighter version, or set back to usual
     case 'ease': {

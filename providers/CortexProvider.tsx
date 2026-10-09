@@ -45,21 +45,14 @@ export const useCortex = () => {
   const repo = useRepo();
 
   /**
-   * Phase 10.4: Resolve decision context with space defaults and user tone prefs
-   * Enriches base context with:
-   * - spaceDefaults from spaces.defaults_json (if activeSpaceId present)
-   * - userPrefsTone from cortex_preferences.tone (if userId present)
+   * Phase 10.4: Resolve decision context with the user's tone preference:
+   * userPrefsTone from cortex_preferences.tone (if userId present). Space
+   * defaults went with Spaces (Stage 4 of the Worlds rebuild).
    */
   const resolveDecisionContext = async (ctx: CortexContext): Promise<CortexContext> => {
     const enriched = { ...ctx };
 
     try {
-      // Fetch space defaults if activeSpaceId is present
-      if (ctx.activeSpaceId) {
-        const spaceDefaults = await repo.getSpaceDefaults(ctx.activeSpaceId);
-        enriched.spaceDefaults = spaceDefaults;
-      }
-
       // Fetch user tone preference from cortex_preferences
       if (ctx.userId) {
         const prefs = await repo.getCortexPrefs(ctx.userId);

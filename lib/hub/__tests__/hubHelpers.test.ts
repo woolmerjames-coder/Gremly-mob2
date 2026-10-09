@@ -383,10 +383,6 @@ describe('formatReasonLabel', () => {
     expect(formatReasonLabel('idea_stale', 7)).toBe('Idea · 7 days ago');
     expect(formatReasonLabel('idea_stale', 14)).toBe('Idea · 14 days ago');
   });
-
-  it('formats no_space_assigned correctly', () => {
-    expect(formatReasonLabel('no_space_assigned', 3)).toBe('No space · 3 days ago');
-  });
 });
 
 // =============================================================================

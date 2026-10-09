@@ -57,6 +57,17 @@ describe('homeChipsFor', () => {
     expect(keys('morning', { wrap: true, planned: false })[0]).toBe('plan_day');
   });
 
+  it('puts Answer some Gremly questions first, with its count, only while it shows', () => {
+    const chips = homeChipsFor('morning', { wrap: true, planned: false, questions: 3 });
+    expect(chips.map((c) => c.key)).toEqual(['questions', 'plan_day', 'this_week', 'think']);
+    expect(chips[0]).toMatchObject({ label: 'Answer some Gremly questions', count: 3 });
+    expect(
+      homeChipsFor('evening', { wrap: true, planned: true, questions: 0 }).map((c) => c.key),
+    ).toEqual(['wrap_up', 'tomorrow', 'think']);
+    // it opens the questions, so it sends nothing to Gremly
+    expect(chipPrompt('questions')).toBeNull();
+  });
+
   it('marks the wrap up in the evening colour', () => {
     expect(homeChipsFor('evening', { wrap: true, planned: false })[0]).toMatchObject({
       label: 'Wrap up today',

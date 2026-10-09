@@ -54,8 +54,14 @@ jest.mock('../../story/storyApi', () => ({
   markQuestionAsked: (...a: unknown[]) => mockAsked(...a),
 }));
 const mockInsert = jest.fn();
+const mockUpsert = jest.fn();
 jest.mock('../../supabase/client', () => ({
-  supabase: { from: (table: string) => ({ insert: (row: unknown) => mockInsert(table, row) }) },
+  supabase: {
+    from: (table: string) => ({
+      insert: (row: unknown) => mockInsert(table, row),
+      upsert: (rows: unknown, opts: unknown) => mockUpsert(table, rows, opts),
+    }),
+  },
 }));
 const mockCompleted = jest.fn();
 jest.mock('../../sweep/engine', () => ({
@@ -252,6 +258,7 @@ beforeEach(() => {
   mockWrapWords.mockResolvedValue(null);
   mockCompleted.mockResolvedValue({ streak: 5 });
   mockInsert.mockResolvedValue({ error: null });
+  mockUpsert.mockResolvedValue({ error: null });
   mockFetchQuestions.mockResolvedValue([]);
   mockFetchCheckIns.mockResolvedValue([]);
   mockAnswerCheckIn.mockResolvedValue(true);
@@ -624,6 +631,17 @@ describe('the wrap up: habits', () => {
     expect(t.messages.map((m) => m.content)).toContain(
       'No worries about No coffee, tomorrow is a fresh one.',
     );
+  });
+
+  it('keeps a habit that did not hold with the day, apart from the habits done', async () => {
+    const t = await clearNight();
+    await act(() => t.hook.result.current.habits.save(t.card('sweep-habits'), [], { h3: 'not' }));
+    expect(mockUpsert).toHaveBeenCalledWith(
+      'habit_not_held',
+      [{ owner_id: 'u1', habit_id: 'h3', day: DAY }],
+      { onConflict: 'owner_id,habit_id,day', ignoreDuplicates: true },
+    );
+    expect(mockInsert).not.toHaveBeenCalledWith('habit_progress', expect.anything());
   });
 });
 
@@ -1016,6 +1034,29 @@ describe("the wrap up: Gremly's questions", () => {
     expect(t.said()).toContainEqual(['brief-text', WRAP_COPY.answered]);
     // no more questions: the close
     expect(currentWrap()?.step).toBe('close');
+  });
+
+  it('a question about a Chapter carries its kind, and answered on its card the next one follows, once', async () => {
+    const fence = {
+      ...Q1,
+      kind: 'close_chapter',
+      question: 'Is the fence done now?',
+      record_table: 'chapters',
+      record_id: 'c3',
+    };
+    mockFetchQuestions.mockResolvedValue([fence, Q2]);
+    const t = await clearNight();
+    await toQuestions(t);
+    const asked = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(asked).toMatchObject({ question_id: 'q1', question_kind: 'close_chapter' });
+    // the card made the change and marked it answered itself (ChatAskCard)
+    await act(() => t.hook.result.current.answeredByCard(asked));
+    expect(mockAnswer).not.toHaveBeenCalled();
+    expect(t.last().content).toBe(Q2.question);
+    // answered again on the card after its Undo: the wrap up does not move on twice
+    await act(() => t.hook.result.current.answeredByCard(asked));
+    expect(t.last().content).toBe(Q2.question);
+    expect(currentWrap()?.step).toBe('questions');
   });
 
   it('a skipped question waits a few days, and the next one is asked', async () => {

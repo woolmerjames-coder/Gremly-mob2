@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase/client';
+import { callForgetMe } from '../lib/cortex/CortexClient';
 
 interface UserProfile {
   profileText: string | null;
@@ -254,17 +255,25 @@ export const useUserProfileStore = create<UserProfileStore>((set, get) => ({
       } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Delete profile and all overrides
-      await Promise.all([
-        supabase.from('user_profiles').delete().eq('user_id', user.id),
-        supabase.from('user_profile_overrides').delete().eq('user_id', user.id),
-      ]);
+      // Gremly forgets what he learned about them: the ledger, the story, the
+      // Life Map, the profile he wrote and his words on Worlds and Chapters
+      // (workers/cortex/context/forget.js). Their name and time zone stay.
+      const res = await callForgetMe();
+      if (!res.ok) throw new Error(res.error || 'forget failed');
 
-      set({
-        profile: null,
+      set((state) => ({
+        profile: state.profile
+          ? {
+              ...state.profile,
+              profileText: null,
+              facts: [],
+              generatedAt: null,
+              overridesApplied: 0,
+            }
+          : null,
         overrides: [],
         isLoading: false,
-      });
+      }));
     } catch (err) {
       console.error('[UserProfileStore] Forget everything error:', err);
       set({ error: 'Failed to reset profile', isLoading: false });

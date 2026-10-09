@@ -15,6 +15,7 @@ import { recentCorrections } from './corrections';
 import { CARE_RULES, personBlock } from '../careRules';
 import { invalidateChatCache } from './cache';
 import { personNow } from '../../shared/day.js';
+import { QUESTIONS_ONLY_KINDS } from '../../shared/questionRules.js';
 
 function trim(text, n) {
   const s = String(text || '').replace(/\s+/g, ' ').trim();
@@ -68,13 +69,17 @@ export async function reviewQuestions(env, userId, tz, { shadow }) {
   const d = db(env);
   // their day: after midnight it is still yesterday until their day ends
   const { today } = await personNow(env, userId, tz);
-  const questions = await d.select(
-    `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,question,status,created_at,fact:life_facts(statement,state,about_date)&order=created_at.asc&limit=40`,
-  );
+  // a tidy up waits for the person's tap on Ask Gremly's questions and is
+  // never retired here: its plans are past by design (data fabric stage 4f)
+  const questions = (
+    await d.select(
+      `gremly_questions?user_id=eq.${userId}&status=in.(open,asked)&select=id,kind,question,status,created_at,fact:life_facts(statement,state,about_date)&order=created_at.asc&limit=40`,
+    )
+  ).filter((q) => !QUESTIONS_ONLY_KINDS.includes(q.kind));
   if (!questions.length) return { checked: 0 };
   const yearAgo = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
   const [facts, corrections, person] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&or=(state.in.(current,planned,unconfirmed),about_date.gte.${yearAgo})&select=id,statement,about_date,state,state_reason,observed_at&order=about_date.desc.nullslast&limit=300`),
+    d.select(`life_facts_now?user_id=eq.${userId}&or=(state.in.(current,planned,unconfirmed),about_date.gte.${yearAgo})&select=id,statement,about_date,state,state_reason,observed_at&order=about_date.desc.nullslast&limit=300`),
     recentCorrections(env, userId, 365),
     personIdentity(env, userId),
   ]);

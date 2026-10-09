@@ -1,6 +1,6 @@
 /**
  * Hub Screen - Polished UI with sleek cards and segmented tabs
- * Central hub showing recent activity, spaces, and sorting tray
+ * Central hub showing recent activity and sorting tray
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -35,9 +35,7 @@ import {
 
 import { useAuth } from '../../providers/AuthProvider';
 import SegmentedTabs from '../../components/SegmentedTabs';
-import ScopeSelector, { type ScopeOption } from '../../components/ScopeSelector';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
-import { AllItemsTable } from '../../components/hub';
 import TimelineView from '../../components/hub/TimelineView';
 import PeopleView from '../../components/hub/PeopleView';
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
@@ -52,7 +50,7 @@ import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { JournalHubView } from '../../components/journal/JournalHubView';
 import type { JournalEntry } from '../../lib/journal/entry';
-import type { AppRecord, Space, Person, Tag, Todo, Habit, Note } from '../../lib/types';
+import type { AppRecord, Person, Tag, Todo, Habit, Note } from '../../lib/types';
 import { SheetManager } from 'react-native-actions-sheet';
 import Chip from '../../components/ui/Chip';
 import EmptyState from '../../components/EmptyState';
@@ -75,7 +73,6 @@ import {
   useDiscoveredPeople,
   useDiscoveredLists,
   useUnsortedItems,
-  useActiveSpaces,
   usePopularTags,
   useAllActiveItemsHub,
   filterUnsortedForReview,
@@ -90,13 +87,12 @@ type Tab = 'Habits' | 'To-Dos' | 'Journal' | 'Notes' | 'Lists' | 'People';
  * - "So you don't forget..." (needs-attention)
  * - Recent Journals rail
  * - Popular Tags
- * - Browse by Space
  * - Archived drawer
  */
 const HUB_V1 = true;
 
 // Hub V1 Filter Types
-type HubV1TypeFilter = 'todo' | 'habit' | 'note' | 'space';
+type HubV1TypeFilter = 'todo' | 'habit' | 'note';
 type HubV1TimeRange = 'week' | 'month' | '3months' | 'all';
 type HubV1StatusFilter = 'active' | 'completed' | 'all';
 type HubV1View = 'timeline' | 'journals' | 'people';
@@ -168,7 +164,6 @@ export default function HubScreen() {
   const storeHabits = useHubHabits();
   const storeJournals = useHubJournals();
   const storeNotes = useHubNotes();
-  const storeSpaces = useActiveSpaces();
   const storeTags = usePopularTags();
   const storeUnsortedItems = useUnsortedItems();
   const discoveredPeople = useDiscoveredPeople();
@@ -188,7 +183,6 @@ export default function HubScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>('Habits');
-  const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -199,7 +193,7 @@ export default function HubScreen() {
 
   // Hub V1 filter state
   const [hubV1Types, setHubV1Types] = useState<Set<HubV1TypeFilter>>(
-    new Set(['todo', 'habit', 'note', 'space']),
+    new Set(['todo', 'habit', 'note']),
   );
   const [hubV1TimeRange, setHubV1TimeRange] = useState<HubV1TimeRange>('all');
   const [hubV1Status, setHubV1Status] = useState<HubV1StatusFilter>('active');
@@ -263,15 +257,7 @@ export default function HubScreen() {
     return [];
   }, [tab, storeHabits, storeTodos, storeJournals, storeNotes, notesSubfilter]);
 
-  // Apply scope filtering
-  const scopedItems = useMemo((): AppRecord[] => {
-    if (scope.type === 'everywhere') return items;
-    if (scope.type === 'unassigned') return items.filter((item) => !item.space_id);
-    if (scope.type === 'space' && scope.spaceId) {
-      return items.filter((item) => item.space_id === scope.spaceId);
-    }
-    return items;
-  }, [items, scope]);
+  const scopedItems = items;
 
   // Hub V1 items - derived from store with filters
   const hubV1Items = useMemo((): AppRecord[] => {
@@ -312,9 +298,6 @@ export default function HubScreen() {
     hubV1TimeRange,
     hubV1Status,
   ]);
-
-  // Use store spaces
-  const spaces = storeSpaces;
 
   // Use store tags (convert PopularTag[] to Tag[] for compatibility)
   const tags = useMemo(() => {
@@ -367,74 +350,59 @@ export default function HubScreen() {
   // const isVisible = useCallback((item: AppRecord) => !item.archived, []); // Not used after tab-based filtering
 
   // Convert AppRecord to HubItem
-  const toHubItem = useCallback(
-    (item: AppRecord): HubItem => {
-      let kind: 'habit' | 'todo' | 'note' = 'note';
-      if (item.type === 'habit') kind = 'habit';
-      else if (item.type === 'todo') kind = 'todo';
-      else kind = 'note';
+  const toHubItem = useCallback((item: AppRecord): HubItem => {
+    let kind: 'habit' | 'todo' | 'note' = 'note';
+    if (item.type === 'habit') kind = 'habit';
+    else if (item.type === 'todo') kind = 'todo';
+    else kind = 'note';
 
-      let title =
-        item.type === 'habit' || item.type === 'todo'
-          ? 'name' in item
-            ? item.name
-            : ''
-          : item.title || '';
-      let note: string | undefined;
+    let title =
+      item.type === 'habit' || item.type === 'todo'
+        ? 'name' in item
+          ? item.name
+          : ''
+        : item.title || '';
+    let note: string | undefined;
 
-      // For long text notes, condense title and keep original as note
-      if (item.type === 'note' && item.body && item.body.length > 60) {
-        title = suggestShortTitle(item.body);
-        note = item.body;
-      } else if (item.type === 'note' && item.body) {
-        title = item.body;
-      }
+    // For long text notes, condense title and keep original as note
+    if (item.type === 'note' && item.body && item.body.length > 60) {
+      title = suggestShortTitle(item.body);
+      note = item.body;
+    } else if (item.type === 'note' && item.body) {
+      title = item.body;
+    }
 
-      if (!title.trim()) {
-        title = 'Untitled';
-      }
+    if (!title.trim()) {
+      title = 'Untitled';
+    }
 
-      const date = item.updated_at || item.created_at;
-      const dateFormatted = date
-        ? getDateService().formatDateForDisplay(getDateService().dayOf(date) ?? date.split('T')[0])
-        : undefined;
+    const date = item.updated_at || item.created_at;
+    const dateFormatted = date
+      ? getDateService().formatDateForDisplay(getDateService().dayOf(date) ?? date.split('T')[0])
+      : undefined;
 
-      // Get tags for this item from the item's tags field (store data)
-      const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
-      const tags = itemTagsArray.map((tagName) => ({
-        id: tagName,
-        name: tagName,
-        color: colors.deepTeal,
-        owner_id: '',
-        created_at: '',
-        updated_at: '',
-      })) as Tag[];
+    // Get tags for this item from the item's tags field (store data)
+    const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
+    const tags = itemTagsArray.map((tagName) => ({
+      id: tagName,
+      name: tagName,
+      color: colors.deepTeal,
+      owner_id: '',
+      created_at: '',
+      updated_at: '',
+    })) as Tag[];
 
-      // Get space name and determine if we should show space chip
-      // Only show space chip when scope is "Everywhere" and item has a space
-      const showSpaceChip = scope.type === 'everywhere';
-      let spaceName: string | undefined;
-      if (showSpaceChip && item.space_id) {
-        const space = spaces.find((s) => s.id === item.space_id);
-        spaceName = space?.name;
-      }
-
-      return {
-        id: item.id,
-        kind,
-        title,
-        note,
-        date: dateFormatted,
-        placedBy: item.ai_placed ? 'ai' : 'user',
-        tags,
-        spaceName,
-        showSpaceChip,
-        spaceId: item.space_id, // Add space_id for navigation
-        private: item.type === 'note' ? ((item as any).private ?? false) : undefined, // Phase L7: Private mode
-      };
-    },
-    [scope.type, spaces],
-  );
+    return {
+      id: item.id,
+      kind,
+      title,
+      note,
+      date: dateFormatted,
+      placedBy: item.ai_placed ? 'ai' : 'user',
+      tags,
+      private: item.type === 'note' ? ((item as any).private ?? false) : undefined, // Phase L7: Private mode
+    };
+  }, []);
 
   // Reset notes subfilter when switching away from Notes tab
   useEffect(() => {
@@ -508,15 +476,14 @@ export default function HubScreen() {
     if (__DEV__) {
       console.log('[HubUnsorted] In-page needs sorting calculation:', {
         currentTab: tab,
-        currentScope: scope.type,
         totalItemsInView: items.length,
         unsortedInView: result.length,
-        filters: { tab, scope: scope.type, search, tagNames: mergedTagNames },
+        filters: { tab, search, tagNames: mergedTagNames },
       });
     }
 
     return result;
-  }, [items, tab, scope, search, mergedTagNames]);
+  }, [items, tab, search, mergedTagNames]);
 
   // For the review sheet, use global unsorted items (all types, all scopes)
   const unsortedItems = useMemo(() => {
@@ -551,12 +518,10 @@ export default function HubScreen() {
     (item: HubItem) => {
       const record = scopedItems.find((r) => r.id === item.id);
       if (record) {
-        // Get current spaceId from scope
-        const spaceId = scope.type === 'space' ? scope.spaceId : undefined;
-        overlayController.openEdit({ record, spaceId });
+        overlayController.openEdit({ record });
       }
     },
-    [scopedItems, scope, overlayController],
+    [scopedItems, overlayController],
   );
 
   const handleSearchItemPress = useCallback(
@@ -1204,7 +1169,6 @@ export default function HubScreen() {
                         overlayController.openEdit({ record: item as Note });
                       }
                     }}
-                    onSpacePress={(spaceId) => navigation.navigate('SpaceHome', { spaceId })}
                   />
                 </View>
               )}
@@ -1231,11 +1195,6 @@ export default function HubScreen() {
             <Text style={[typeStyles.h1, { marginHorizontal: spacing.md, marginTop: spacing.sm }]}>
               Hub
             </Text>
-
-            {/* Scope Selector */}
-            <View style={{ marginTop: spacing.md, marginHorizontal: spacing.md }}>
-              <ScopeSelector selectedScope={scope} spaces={spaces} onChange={setScope} />
-            </View>
 
             {/* Tabs */}
             <View style={{ marginTop: spacing.md }}>
@@ -1307,7 +1266,6 @@ export default function HubScreen() {
                       bannerCount: unsortedCount,
                       sheetItemsAvailable: unsortedItems.length,
                       currentTab: tab,
-                      currentScope: scope.type,
                     });
                   }
                   // Store is always up-to-date, no reload needed
@@ -1489,7 +1447,6 @@ export default function HubScreen() {
           <HubItemCard
             item={item}
             onPress={() => handleItemPress(item)}
-            onSpacePress={(spaceId) => navigation.navigate('SpaceHome', { spaceId })}
             testID={`item-${item.id}`}
           />
         )}
@@ -1497,15 +1454,7 @@ export default function HubScreen() {
           !isEmpty && !error && tab !== 'People' && tab !== 'Lists' ? (
             <TouchableOpacity
               style={styles.addBtn}
-              onPress={() => {
-                const spaceId =
-                  scope.type === 'space'
-                    ? scope.spaceId
-                    : scope.type === 'unassigned'
-                      ? null
-                      : undefined;
-                overlayController.openCreate({ spaceId });
-              }}
+              onPress={() => overlayController.openCreate({})}
               testID="add-more-btn"
             >
               <Text style={styles.addText}>Add More</Text>

@@ -14,6 +14,8 @@ export {
   itemTitle,
   normDay,
   normTime,
+  placeBefore,
+  placeTitle,
   scheduleLabel,
   scheduleOf,
 } from '../../workers/shared/changes/check';
@@ -27,11 +29,23 @@ export type {
   WeekCheckContext,
   WeekShape,
 } from '../../workers/shared/changes/check';
-export { EASE_OPS, fieldDef, OPS, TYPES, WEEK_OPS } from '../../workers/shared/changes/fields';
+export {
+  EASE_OPS,
+  fieldDef,
+  NAME_LIMIT,
+  OPS,
+  PLACE_OPS,
+  PLACE_TYPES,
+  TYPES,
+  WEEK_LIMITS,
+  WEEK_OPS,
+} from '../../workers/shared/changes/fields';
 export type {
   ChangeOp,
   EaseOp,
   FieldDef,
   ItemType,
+  PlaceOp,
+  PlaceType,
   WeekOp,
 } from '../../workers/shared/changes/fields';

@@ -1,5 +1,5 @@
 // Types for check.js, for the app's TypeScript.
-import type { ChangeOp, EaseOp, ItemType, WeekOp } from './fields';
+import type { ChangeOp, EaseOp, ItemType, PlaceOp, PlaceType, WeekOp } from './fields';
 import type { WeekHours } from '../week';
 
 export interface Schedule {
@@ -45,8 +45,8 @@ export interface Milestone {
 /** One checked change, as the card shows it and the app applies it. */
 export interface Change {
   cid: string;
-  op: ChangeOp | WeekOp | EaseOp;
-  type: ItemType | null;
+  op: ChangeOp | WeekOp | EaseOp | PlaceOp;
+  type: ItemType | PlaceType | null;
   id: string | null;
   /** The item's name as it reads now, or the new name for an add */
   title: string;
@@ -57,7 +57,7 @@ export interface Change {
   plan?: PlanChange;
   /** week_shape: the busy days and hours it sets */
   shape?: WeekShape;
-  /** week_shape, intention and milestone: the first day of the week it is for */
+  /** week_shape, priority, intention and milestone: the first day of the week it is for */
   week_start?: string;
   /** week_shape: the first day its busy days were stated for; busy days before it stay as they are */
   from?: string;
@@ -65,6 +65,9 @@ export interface Change {
   milestone?: Milestone;
   /** ease: the pause, lighter version or return to usual, and the days it runs */
   ease?: EaseChange;
+  /** merge: the World this one moves into, and its name */
+  into?: string;
+  into_title?: string;
 }
 /** A habit's pause, lighter version or return to usual, over a stretch of days. */
 export interface EaseChange {
@@ -86,6 +89,11 @@ export interface WeekCheckContext {
   /** The week has a review, which keeps its shape and its check ins */
   has_review?: boolean;
   intention?: { id?: string | null; text: string } | null;
+  /**
+   * What matters most to them this week as it stands, each in its own words.
+   * Null from an app build that cannot keep a new one, which is then never offered one.
+   */
+  priorities?: string[] | null;
   /** 0 Sunday to 6 Saturday */
   weekly_day?: number;
 }
@@ -96,6 +104,15 @@ export interface CheckContext {
   chapters?: string[];
   groups?: Array<'main' | 'asked'>;
   week?: WeekCheckContext | null;
+  /** Worlds and Chapters: theirs as they stand, for a change to one of them */
+  places?: {
+    worlds: Array<{ id: string; name: string; hidden?: boolean }>;
+    chapters?: Array<{ id: string; title: string }>;
+  } | null;
+  /** The World or Chapter a change is about, as its row */
+  place?: Record<string, any> | null;
+  /** The items a new Chapter may gather, as "todo:<id>", "habit:<id>" and "note:<id>" */
+  itemKeys?: Set<string> | string[];
   /** For ease: their weekly day and their habit_adaptations rows */
   ease?: {
     weekly_day?: number;
@@ -135,3 +152,16 @@ export declare function checkCard(
   raws: Array<Record<string, any>>,
   ctxFor?: (raw: Record<string, any>) => CheckContext,
 ): { changes: Change[]; dropped: Array<{ cid: string; reason: string }> };
+export declare function placeTitle(
+  type: string,
+  row: Record<string, any> | null | undefined,
+): string;
+export declare function placeBefore(
+  type: string,
+  row: Record<string, any> | null | undefined,
+  field: string,
+): any;
+export declare function checkPlaceChange(
+  raw: Record<string, any>,
+  ctx?: CheckContext,
+): { ok: true; change: Change } | { ok: false; reason: string };

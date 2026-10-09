@@ -35,6 +35,14 @@ export function db(env) {
     select: (path) => call('GET', path),
     insert: (table, rows) => call('POST', table, rows, 'return=representation'),
     insertQuiet: (table, rows) => call('POST', table, rows, 'return=minimal'),
+    /** Insert, leaving any row that is already there (by the onConflict columns) as it is. */
+    insertIgnore: (table, rows, onConflict) =>
+      call(
+        'POST',
+        `${table}?on_conflict=${onConflict}`,
+        rows,
+        'resolution=ignore-duplicates,return=minimal',
+      ),
     upsert: (table, rows, onConflict) =>
       call(
         'POST',

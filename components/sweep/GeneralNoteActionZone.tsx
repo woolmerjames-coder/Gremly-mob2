@@ -7,7 +7,6 @@ import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { ActionPill } from './ActionPill';
 import { ContextHeader } from './ContextHeader';
-import { SpaceButton } from './SpaceButton';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 
 type ResurfaceTiming = 'nextweek' | '2weeks' | 'pick';
@@ -21,10 +20,6 @@ type GeneralNoteActionZoneProps = {
   onSelectResurfaceTiming: (timing: ResurfaceTiming | null) => void;
   confirmedResurfaceDate: string | null;
   onRequestResurfaceDatePicker: () => void;
-  selectedSpaceId: string | null;
-  selectedSpaceName: string | null;
-  onRequestSpacePicker: () => void;
-  onClearSpace: () => void;
 };
 
 const RESURFACE_PILLS: { key: ResurfaceTiming; label: string }[] = [
@@ -42,10 +37,6 @@ export function GeneralNoteActionZone({
   onSelectResurfaceTiming,
   confirmedResurfaceDate,
   onRequestResurfaceDatePicker,
-  selectedSpaceId,
-  selectedSpaceName,
-  onRequestSpacePicker,
-  onClearSpace,
 }: GeneralNoteActionZoneProps) {
   return (
     <View style={styles.container}>
@@ -111,12 +102,6 @@ export function GeneralNoteActionZone({
           })}
         </Animated.View>
       )}
-
-      <SpaceButton
-        active={selectedSpaceId !== null}
-        spaceName={selectedSpaceName}
-        onPress={selectedSpaceId !== null ? onClearSpace : onRequestSpacePicker}
-      />
     </View>
   );
 }

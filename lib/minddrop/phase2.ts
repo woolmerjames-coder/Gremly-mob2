@@ -13,7 +13,6 @@ import { validateEnrichmentResult, verifyAIDate } from './phase2Validation';
 import { eventBus } from '../events/EventBus';
 import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/CortexClient';
 import { parseFrequencyString } from '../habits/frequencyUtils';
-import { extractSpacePattern, findSpaceByName } from './spacePatterns';
 import { supabase } from '../supabase/client';
 import { calculateBuffers } from '../planning';
 import { getSessionToken } from '../cortex/getSessionToken';
@@ -829,32 +828,6 @@ export async function runPhase2Streaming(
               updatePayload.mood = result.mood;
             }
 
-            // Extract space pattern if not already assigned
-            if (!updatePayload.space_id && !entity.space_id) {
-              const spaceResult = extractSpacePattern(text);
-              if (spaceResult.spaceName) {
-                // Fetch user's spaces
-                const userId = entity.user_id;
-                if (userId) {
-                  const { data: userSpaces } = await supabase
-                    .from('spaces')
-                    .select('id, name, owner_id')
-                    .eq('owner_id', userId);
-
-                  if (userSpaces && userSpaces.length > 0) {
-                    const matchedSpace = findSpaceByName(spaceResult.spaceName, userSpaces);
-                    if (matchedSpace) {
-                      updatePayload.space_id = matchedSpace.id;
-                      console.log('[Phase2] Resolved space from pattern', {
-                        hint: spaceResult.spaceName,
-                        spaceId: matchedSpace.id,
-                      });
-                    }
-                  }
-                }
-              }
-            }
-
             await repo.update({ id: entityId, patch: updatePayload });
 
             logTiming('final_save_complete', t0);
@@ -875,7 +848,6 @@ export async function runPhase2Streaming(
               // Canonical habit frequency fields
               cadence: updatePayload.cadence,
               target_per_period: updatePayload.target_per_period,
-              space_id: updatePayload.space_id,
               // AI-extracted mood for journals
               mood: result.mood ?? null,
             });

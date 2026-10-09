@@ -158,16 +158,16 @@ describe('EventBus', () => {
 
       eventBus.emit('drop:reaction_ready', {
         localId: 'drop-1',
-        message: 'Nice one! Bella time!',
-        rawReaction: 'Bella time!',
+        message: 'Nice one! Pepper time!',
+        rawReaction: 'Pepper time!',
         followUp: null,
       });
 
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler).toHaveBeenCalledWith({
         localId: 'drop-1',
-        message: 'Nice one! Bella time!',
-        rawReaction: 'Bella time!',
+        message: 'Nice one! Pepper time!',
+        rawReaction: 'Pepper time!',
         followUp: null,
       });
     });

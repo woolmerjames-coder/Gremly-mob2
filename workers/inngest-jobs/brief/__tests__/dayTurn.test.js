@@ -36,7 +36,7 @@ const BODY = {
     {
       id: 'deck',
       kind: 'todo',
-      title: 'Send the Sage Future deck',
+      title: 'Send the Orbit Future deck',
       due_day: '2026-10-03',
       due_time: null,
       minutes: 60,

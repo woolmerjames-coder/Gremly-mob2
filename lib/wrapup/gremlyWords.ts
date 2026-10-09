@@ -285,7 +285,10 @@ export function chosenQuestions(
     const choices = (Array.isArray(a.choices) ? a.choices : []).filter(
       (c): c is string => typeof c === 'string' && !!c.trim(),
     );
-    out.push({ ...q, question, choices: choices.length ? choices : q.choices });
+    // a question about someone keeps the answers its writer gave, or none,
+    // when only their own words can answer it (context/peopleQuestions.js)
+    const own = q.kind === 'person' || !choices.length;
+    out.push({ ...q, question, choices: own ? q.choices : choices });
     if (out.length >= 2) break;
   }
   return out;

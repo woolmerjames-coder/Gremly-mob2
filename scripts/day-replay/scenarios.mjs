@@ -32,7 +32,7 @@ const ALEX_ITEMS = [
 ];
 
 
-const VET_VISIT = { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', due_day: '2026-10-09', minutes: 60, note: 'upcoming' };
+const VET_VISIT = { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', due_day: '2026-10-09', minutes: 60, note: 'upcoming' };
 
 const SAT_ITEMS = [
   { id: 'taxes', kind: 'todo', title: 'Do taxes', due_day: '2026-10-03', minutes: 60, note: 'due today' },
@@ -40,13 +40,42 @@ const SAT_ITEMS = [
   { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-05', minutes: 60, note: 'upcoming' },
   { id: 'gift', kind: 'todo', title: 'Find a present for Sam', due_day: '2026-10-05', minutes: 45, note: 'upcoming' },
   { id: 'qbr', kind: 'todo', title: 'Schedule the QBR', due_day: '2026-10-08', minutes: 20, note: 'upcoming' },
-  { id: 'vet', kind: 'todo', title: 'Book the vet for Bella', due_day: '2026-10-09', minutes: 15, note: 'upcoming' },
+  { id: 'vet', kind: 'todo', title: 'Book the vet for Pepper', due_day: '2026-10-09', minutes: 15, note: 'upcoming' },
   { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
 ];
 
 // a reply that tells them nothing changes, instead of taking in what they said
 const NO_CHANGE_TALK =
   "(doesn'?t|does not|won'?t) change|changes? nothing|no changes?\\b|nothing (needs|has) to (change|move)|nothing needs (changing|moving)|(items|plans) (need|as they are)|need changing";
+
+// a reply that says Gremly cannot tell where something it holds came from
+const NO_SOURCE_TALK =
+  "can(no|['’])?t (tell|say|see|find)|not sure (where|how)|no (record|idea)|nothing (on record|in (your|my) records)|(do not|don['’]?t) (know|have) (where|how|anything|any|a record)";
+
+// a reply that says they told Gremly something, when nothing on record shows they did
+const YOU_SAID_TALK = 'you (told|said|mentioned|wrote|added|saved)';
+
+// Gremly's question about a move at work, and the fact it was written about:
+// their own answer to an earlier question, with the day and their words
+const LISBON_QUESTION = 'Did the move to the Lisbon office get confirmed, or are you still waiting to hear?';
+const LISBON_ASKED = [
+  {
+    question: LISBON_QUESTION,
+    fact: {
+      statement: 'Alex said work is busy but good, and that a move to the Lisbon office might be coming.',
+      about_date: '2026-09-29',
+      state: 'current',
+      private: false,
+      said_by: 'user',
+      source_table: 'user_corrections',
+      source_kind: 'question',
+      source_question: 'How is work going these days?',
+      source_quote: 'Busy but good. Might be moving to the Lisbon office in the new year, we will see',
+      // Tuesday 29 September, late evening in Los Angeles
+      observed_at: '2026-09-30T05:10:00Z',
+    },
+  },
+];
 
 // a Monday morning with a long list due today (built on 5 October, made-up items)
 const MONDAY_ITEMS = [
@@ -197,9 +226,9 @@ export const SCENARIOS = [
     look: 'Takes the prep todo off the list, nothing else.',
     today: '2026-10-01',
     at: '20:30',
-    text: "the vet appointment got cancelled, Bella's fine",
+    text: "the vet appointment got cancelled, Pepper's fine",
     items: [
-      { id: 'sample', kind: 'todo', title: "Get a sample for Bella's vet appointment", due_day: '2026-10-02', minutes: 10, note: 'upcoming' },
+      { id: 'sample', kind: 'todo', title: "Get a sample for Pepper's vet appointment", due_day: '2026-10-02', minutes: 10, note: 'upcoming' },
       { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'upcoming' },
     ],
     meetings: [],
@@ -309,10 +338,50 @@ export const SCENARIOS = [
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
-        item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     },
+    items: [...SAT_ITEMS, VET_VISIT],
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, changes: [{ kinds: ['move_day'], id: 'vetvisit', day: '2026-10-12' }], maxChanges: 1 },
+  },
+  {
+    id: 'wrap-answer-fixes-item-with-source',
+    title: "The wrap up's question answered, the item is wrong, and where the question came from is on record",
+    // The usual case in the app: most of Gremly's questions are written about a fact,
+    // so where the question came from is beside the answer. The card must not go missing for it.
+    look: 'As without the source: takes the answer in, and puts the vet visit on Monday on the card. Says nothing about where the question came from.',
+    today: '2026-10-03',
+    at: '20:50',
+    text: 'Monday',
+    wrap: {
+      step: 'questions',
+      decisions: [],
+      answering: {
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
+      },
+    },
+    asked: [
+      {
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        fact: {
+          statement: "Alex wrote that Pepper's vet visit had been moved to Monday 12 October.",
+          about_date: '2026-10-12',
+          state: 'planned',
+          private: false,
+          said_by: 'user',
+          source_table: 'notes',
+          source_kind: 'journal',
+          source_question: null,
+          source_quote: 'Vet rang, Pepper is now Monday the 12th',
+          observed_at: '2026-10-01T18:00:00Z',
+        },
+      },
+    ],
     items: [...SAT_ITEMS, VET_VISIT],
     meetings: [],
     record: { travel: null, blocks: [] },
@@ -330,8 +399,8 @@ export const SCENARIOS = [
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
-        item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     },
     items: [...SAT_ITEMS, VET_VISIT],
@@ -368,18 +437,132 @@ export const SCENARIOS = [
     },
   },
   {
+    id: 'wrap-asks-how-gremly-knows',
+    title: "The wrap up's question met with how did you know",
+    // No memories here on purpose: a lookup finds nothing, as it does for a fact
+    // since corrected or replaced, and what Gremly was told with the message
+    // still has to be believed.
+    look: 'Tells them where it came from: their own answer on Tuesday 29 September when Gremly asked how work was going, close to their words. Never says it cannot tell. Nothing on the card.',
+    today: '2026-10-03',
+    at: '20:55',
+    text: 'How did you know about the Lisbon move?',
+    wrap: { step: 'questions', decisions: [], answering: { question: LISBON_QUESTION } },
+    asked: LISBON_ASKED,
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    // the day they said it is named (a warning when it is not)
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [NO_SOURCE_TALK], mentions: ['29'] },
+  },
+  {
+    id: 'wrap-answer-with-source',
+    title: "The wrap up's question answered, with where the question came from on record",
+    look: 'Takes the answer in as before: a warm line, nothing about where the question came from, nothing on the card.',
+    today: '2026-10-03',
+    at: '20:55',
+    text: 'Still waiting, should hear next week',
+    wrap: { step: 'questions', decisions: [], answering: { question: LISBON_QUESTION } },
+    asked: LISBON_ASKED,
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [NO_CHANGE_TALK] },
+  },
+  {
+    id: 'brief-asks-how-gremly-knows',
+    title: "The brief's question met with where did you get that",
+    look: 'Tells them where it came from: their journal on Saturday 12 September, close to their words. Never says it cannot tell. Nothing on the card.',
+    today: '2026-10-03',
+    at: '08:10',
+    text: 'Where did you get the half marathon from?',
+    question: 'Is the half marathon on 25 October still the plan?',
+    asked: [
+      {
+        question: 'Is the half marathon on 25 October still the plan?',
+        fact: {
+          statement: 'Alex signed up for the Bay half marathon on 25 October.',
+          about_date: '2026-10-25',
+          state: 'planned',
+          private: false,
+          said_by: 'user',
+          source_table: 'notes',
+          source_kind: 'journal',
+          source_question: null,
+          source_quote: 'Signed up for the Bay half today. 25 October, no backing out now',
+          observed_at: '2026-09-12T19:30:00Z',
+        },
+      },
+    ],
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [NO_SOURCE_TALK], mentions: ['12'] },
+  },
+  {
+    id: 'asks-how-gremly-knows-recall',
+    title: 'How do you know, about something Gremly said earlier in the thread',
+    look: 'Looks it up, then tells them where it came from: a todo they added on Sunday 27 September. Never says it cannot tell. Nothing on the card.',
+    today: '2026-10-03',
+    at: '09:20',
+    text: "How do you know it's Jo's birthday on Friday?",
+    history: [
+      { role: 'assistant', content: "Morning Alex. With Jo's birthday dinner on Friday, today is a good day to sort the booking." },
+    ],
+    memories: [
+      {
+        source: 'fact',
+        id: '20000000-0000-4000-8000-000000000001',
+        title: 'Jo',
+        body: "Jo's birthday dinner is on Friday 9 October.",
+        about_date: '2026-10-09',
+        state: 'planned',
+        private: false,
+        rank: 0.4,
+        said_by: 'app_record',
+        source_table: 'todos',
+        source_kind: null,
+        source_question: null,
+        source_quote: "Book Jo's birthday dinner for Friday 9th",
+        observed_at: '2026-09-27T17:05:00Z',
+      },
+    ],
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, tools: ['recall'], notSaidLike: [NO_SOURCE_TALK], mentions: ['27'] },
+  },
+  {
+    id: 'asks-how-gremly-knows-nothing-on-record',
+    title: 'How do you know, about something no record shows',
+    look: 'Looks, finds nothing, and says so plainly without defending it or making up where it came from. Nothing on the card.',
+    today: '2026-10-03',
+    at: '09:20',
+    text: 'What interview? How do you know about an interview?',
+    history: [{ role: 'assistant', content: 'Morning Alex. Hope the interview went well yesterday.' }],
+    memories: [],
+    items: SAT_ITEMS,
+    meetings: [],
+    record: { travel: null, blocks: [] },
+    plan: null,
+    expect: { aboutDay: true, maxChanges: 0, notSaidLike: [YOU_SAID_TALK] },
+  },
+  {
     id: 'present-before-anniversary',
     title: 'A present for a date: due before it, never on it',
     look: 'Gremly asked when the anniversary is; the answer gives the present a day before the 10th, or Gremly asks when it should be ready. Never the 10th itself.',
     today: '2026-10-02',
     at: '18:30',
     history: [
-      { role: 'user', content: "I need to sort Dave's anniversary present" },
+      { role: 'user', content: "I need to sort Theo's anniversary present" },
       { role: 'assistant', content: "It's on your list already. When is your anniversary?" },
     ],
     text: "it's on the 10th",
     items: [
-      { id: 'gift', kind: 'todo', title: 'Get Dave an anniversary present', minutes: 60, note: 'no day' },
+      { id: 'gift', kind: 'todo', title: 'Get Theo an anniversary present', minutes: 60, note: 'no day' },
       { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'due today' },
     ],
     meetings: [],
@@ -499,6 +682,8 @@ export const SCENARIOS = [
       },
       day_frame: { away: { label: 'San Diego anniversary trip', through: '2026-10-04' } },
       voice_note: 'Keep things warm, unhurried, and supportive of them enjoying the trip.',
+      // Up next among their Chapters (data fabric stage 4b): there to know, never asked for
+      up_next: { title: 'San Diego anniversary trip', world: 'Sam', date: '2026-10-04', which: 'ends', days_until: 1 },
     },
     expect: {
       aboutDay: true,
@@ -668,13 +853,13 @@ export const SCENARIOS = [
   {
     id: 'wrap-undo-later',
     title: 'During the wrap up: one they sent to a later night, wanted tomorrow',
-    look: 'Book the vet for Bella, set to come back on Monday, gets tomorrow (Sunday 4 October) as its day.',
+    look: 'Book the vet for Pepper, set to come back on Monday, gets tomorrow (Sunday 4 October) as its day.',
     today: '2026-10-03',
     at: '21:15',
     text: 'Bring the vet one back for tomorrow instead',
     wrap: {
       step: 'journal',
-      decisions: [{ id: 'vet', type: 'todo', title: 'Book the vet for Bella', outcome: 'to come back on Monday', was: 'was due Friday 9 October' }],
+      decisions: [{ id: 'vet', type: 'todo', title: 'Book the vet for Pepper', outcome: 'to come back on Monday', was: 'was due Friday 9 October' }],
     },
     items: SAT_ITEMS,
     meetings: [],

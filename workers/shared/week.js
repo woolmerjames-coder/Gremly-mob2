@@ -21,6 +21,13 @@ export const PROMOTED_AFTER = 2;
 /** A Later comes back within this many days. */
 export const LATER_MAX_DAYS = 28;
 
+/**
+ * From this many minutes into their day it is evening, and a review opened
+ * then plans from the next day: today is as good as over, and what is still
+ * on it is today's own. Five in the afternoon, where the app's evening begins.
+ */
+export const EVENING_FROM = 17 * 60;
+
 /** The weekly pipe starts this many hours before their weekly slot: the synthesis, then the read. */
 export const PIPE_LEAD_HOURS = 3;
 
@@ -122,16 +129,41 @@ export function cycleOf(today, weeklyDay) {
 }
 
 /**
+ * The first day a review opened now plans from: today, or tomorrow once it is
+ * evening for them.
+ * @param {string} today their day
+ * @param {number} minutes how far into their day it is. After midnight, until
+ *   their day ends, it runs on past 24 hours, so the small hours are evening.
+ */
+export function planFrom(today, minutes) {
+  return Number.isFinite(minutes) && minutes >= EVENING_FROM ? addDays(today, 1) : today;
+}
+
+/**
  * What a review started on a day plans, and whether it uses the read made for
  * the weekly day or a fresh one.
  * - The weekly day, or either of the two days after: the rest of the new week,
  *   with the read made for the weekly day.
  * - The day before the weekly day: next week, brought forward, on a fresh read.
  * - Any other day: the rest of this week, on a fresh read (the one extra a week).
+ *
+ * A review that would plan from today plans from tomorrow instead when it is
+ * opened in the evening (from, which planFrom gives). Today is then not one of
+ * its days, and what is on today stays today's own.
+ * @param {string} today
+ * @param {number} weeklyDay
+ * @param {string|null} [from] the first day it plans from when that is not
+ *   today. Only tomorrow is taken, and only inside the days it would plan.
  * @returns {{kind: 'weekly'|'extra'|'brought_forward', promoted: boolean, fresh: boolean,
  *   week_start: string, span_start: string, span_end: string}}
  */
-export function reviewOn(today, weeklyDay) {
+export function reviewOn(today, weeklyDay, from) {
+  const on = reviewByDate(today, weeklyDay);
+  const tomorrow = from === addDays(today, 1) && from > on.span_start && from <= on.span_end;
+  return tomorrow ? { ...on, span_start: from } : on;
+}
+
+function reviewByDate(today, weeklyDay) {
   const c = cycleOf(today, weeklyDay);
   if (c.since <= PROMOTED_AFTER) {
     return {
@@ -170,16 +202,18 @@ export function reviewOn(today, weeklyDay) {
  * started in its own window and opened again on a later day of the same week
  * is still that review, with the read it began with: it is not begun again as
  * the week's one extra, and it does not use the extra up. It plans from today,
- * since the days before are gone.
+ * since the days before are gone, or from tomorrow when it is opened in the
+ * evening (from, as reviewOn takes it).
  * @param {string} today
  * @param {number} weeklyDay
  * @param {{week_start?: string, status?: string, kind?: string}|null} row the
  *   row of the week reviewOn gives for today
+ * @param {string|null} [from] the first day it plans from when that is not today
  * @returns {{kind: 'weekly'|'extra'|'brought_forward', promoted: boolean, fresh: boolean,
  *   resumed?: boolean, week_start: string, span_start: string, span_end: string}}
  */
-export function reviewWith(today, weeklyDay, row) {
-  const on = reviewOn(today, weeklyDay);
+export function reviewWith(today, weeklyDay, row, from) {
+  const on = reviewOn(today, weeklyDay, from);
   if (
     on.kind === 'extra' &&
     row?.status === 'started' &&

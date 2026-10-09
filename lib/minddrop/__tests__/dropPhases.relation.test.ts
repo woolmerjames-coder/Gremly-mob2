@@ -40,7 +40,7 @@ const complete = {
   entity: {
     id: 't1',
     type: 'todo',
-    title: 'Arrange a Pet Sitter for Bella',
+    title: 'Arrange a Pet Sitter for Pepper',
     due_day: null,
     due_time: null,
   },

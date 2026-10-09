@@ -648,7 +648,7 @@ test('decideCard: a change with no value is a view card that asks; dated notes e
     {
       id: 'nnnn0000-0000',
       type: 'note',
-      title: 'Bella vet appointment',
+      title: 'Pepper vet appointment',
       due_day: null,
       due_time: null,
     },
@@ -666,7 +666,7 @@ test('decideCard: a change with no value is a view card that asks; dated notes e
   expect(moved.kind).toBe('edit');
   expect(moved.change).toEqual({ field: 'due_day', from: null, to: '2026-10-02' });
   const line = buildEntityMatchInput({ todayStr: 'x', message: 'm', candidates: note });
-  expect(line).toContain('[note] Bella vet appointment (note, no day set)');
+  expect(line).toContain('[note] Pepper vet appointment (note, no day set)');
 });
 
 test('a card that asks something takes over the reply mode; a plain mention leaves triage alone', () => {
@@ -712,7 +712,7 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
       {
         id: 'nnnn0000-0000',
         type: 'note',
-        title: 'Bella vet appointment',
+        title: 'Pepper vet appointment',
         due_day: null,
         due_time: null,
       },
@@ -756,7 +756,7 @@ test('the pill can move a dated note, and skips fields a note does not have', ()
 });
 
 test('the last card and what became of it reach the reply prompt', () => {
-  const base = { id: 'n1', type: 'note', title: 'Bella Vet Appointment' };
+  const base = { id: 'n1', type: 'note', title: 'Pepper Vet Appointment' };
   expect(recentCardPromptSection(null)).toBe('');
   expect(recentCardPromptSection({ ...base, status: 'declined' })).toContain(
     'not the one they meant',
@@ -764,7 +764,7 @@ test('the last card and what became of it reach the reply prompt', () => {
   const done = recentCardPromptSection({
     ...base,
     status: 'applied',
-    summary: 'Done. Bella Vet Appointment is now Fri 2 Oct.',
+    summary: 'Done. Pepper Vet Appointment is now Fri 2 Oct.',
   });
   expect(done).toContain('=== LAST CARD ===');
   expect(done).toContain('tapped Yes');
@@ -792,8 +792,8 @@ test('details shared about a note become an add to the note in the pill, never a
       {
         entity_id: 'mmmm0000',
         field: 'body_add',
-        value: 'Mexico City, Puerto Escondido and Zipolite, with Dave',
-        evidence: 'mexico city, puerto escondido and then zipolite. i will be with dave',
+        value: 'Mexico City, Sagres and Zipolite, with Theo',
+        evidence: 'mexico city, puerto escondido and then zipolite. i will be with theo',
       },
       {
         entity_id: 'mmmm0000',
@@ -803,7 +803,7 @@ test('details shared about a note become an add to the note in the pill, never a
       },
     ],
     tracked,
-    ['Yes I was thinking Mexico City, Puerto Escondido and then Zipolite. I will be with Dave'],
+    ['Yes I was thinking Mexico City, Sagres and then Zipolite. I will be with Theo'],
   );
   expect(items).toHaveLength(1);
   expect(items[0]).toMatchObject({
@@ -830,7 +830,7 @@ test('what needs attention: due this week first, then the most recently overdue 
     { id: 'b', type: 'todo', title: 'Older one', due_day: '2026-06-01' },
     { id: 'c', type: 'todo', title: 'Tomorrow', due_day: '2026-09-30' },
     { id: 'd', type: 'todo', title: 'Next month', due_day: '2026-10-20' },
-    { id: 'e', type: 'note', title: 'Bella vet', due_day: '2026-10-02' },
+    { id: 'e', type: 'note', title: 'Pepper vet', due_day: '2026-10-02' },
     { id: 'f', type: 'note', title: 'Old event', due_day: '2026-09-01' },
     { id: 'g', type: 'habit', title: 'Run', frequency: 'daily', due_day: '2026-09-29' },
     { id: 'h', type: 'todo', title: 'No day' },
@@ -869,7 +869,7 @@ test('what needs attention: due this week first, then the most recently overdue 
   );
   expect(sec).toContain('Overdue or coming up this week:');
   expect(sec).not.toMatch(/Overdue or coming up this week:[\s\S]*"Old one"/); // not listed twice
-  expect(sec).toContain('- note "Bella vet", Friday 2 October');
+  expect(sec).toContain('- note "Pepper vet", Friday 2 October');
   // nothing matched and nothing due: the block still tells the reply no card goes with it
   expect(theirItemsPromptSection({ related: [], attention: [] }, '2026-09-29')).toContain(
     'No card goes with this reply',
@@ -1208,7 +1208,7 @@ test('existing means card, new means pill: one late card from the changes the ex
       entity_title: 'Clarify Mexico trip plans',
       field: 'body_add',
       from: null,
-      to: 'Puerto Escondido',
+      to: 'Sagres',
     },
   ];
   // the one about what the message was about wins; else the first
@@ -1216,7 +1216,7 @@ test('existing means card, new means pill: one late card from the changes the ex
     kind: 'edit',
     late: true,
     entity: { id: 'mmmm0000-0000', type: 'note', title: 'Clarify Mexico trip plans' },
-    change: { field: 'body_add', to: 'Puerto Escondido' },
+    change: { field: 'body_add', to: 'Sagres' },
   });
   expect(lateCardFrom(edits, tracked, {})).toMatchObject({
     entity: { id: 'wwww0000-0000', due_day: '2026-07-27' },
@@ -1242,22 +1242,22 @@ test('after "not that one", the others the model considered are the choice, one 
     {
       id: 's1000000-0000',
       type: 'todo',
-      title: 'Send Out Sage Future Deck',
+      title: 'Send Out Orbit Future Deck',
       due_day: '2026-10-01',
     },
     {
       id: 's2000000-0000',
       type: 'todo',
-      title: 'Create Two Sage Case Studies',
+      title: 'Create Two Orbit Case Studies',
       due_day: '2026-07-16',
     },
-    { id: 's3000000-0000', type: 'note', title: 'Sage Future On April 28' },
+    { id: 's3000000-0000', type: 'note', title: 'Orbit Future On April 28' },
     { id: 'zzzz0000-0000', type: 'todo', title: 'Buy milk' },
   ];
   const declined = {
     id: 's1000000-0000',
     type: 'todo',
-    title: 'Send Out Sage Future Deck',
+    title: 'Send Out Orbit Future Deck',
     status: 'declined',
     turns_ago: 0,
   };
@@ -1413,7 +1413,7 @@ test('matchEntity resolves the anchor as it is now, and says when it is gone', a
     message: 'hello',
     todayStr: 'x',
     items,
-    anchor: { id: '1234abcd-0000', type: 'todo', title: 'Walk Bella' },
+    anchor: { id: '1234abcd-0000', type: 'todo', title: 'Walk Pepper' },
   });
   expect(gone.anchor).toMatchObject({ id: '1234abcd-0000', gone: true });
   delete globalThis.fetch;
@@ -1433,21 +1433,21 @@ test('an anchor the list fetch did not reach is looked up on its own', async () 
       choices: [{ message: { content: '{"refers":false,"about":[],"confidence":0}' } }],
     });
   };
-  globalThis.fetch = serve({ id: 'ffff6666-0000', name: 'Walk Bella', due_day: '2026-09-30' });
+  globalThis.fetch = serve({ id: 'ffff6666-0000', name: 'Walk Pepper', due_day: '2026-09-30' });
   const found = await matchEntity({
     env,
     userId: 'u',
     message: 'hello',
     todayStr: 'x',
     todayIso: '2026-09-29',
-    anchor: { id: 'ffff6666-0000', type: 'todo', title: 'Walk Bella' },
+    anchor: { id: 'ffff6666-0000', type: 'todo', title: 'Walk Pepper' },
   });
   expect(
     seen.some((u) => u.includes('todos?id=eq.ffff6666-0000&owner_id=eq.u&completed_at=is.null')),
   ).toBe(true);
   expect(found.anchor).toMatchObject({
     id: 'ffff6666-0000',
-    title: 'Walk Bella',
+    title: 'Walk Pepper',
     due_day: '2026-09-30',
   });
   // it joins the list the extraction reuses
@@ -1460,20 +1460,20 @@ test('an anchor the list fetch did not reach is looked up on its own', async () 
     message: 'hello',
     todayStr: 'x',
     todayIso: '2026-09-29',
-    anchor: { id: 'ffff6666-0000', type: 'todo', title: 'Walk Bella' },
+    anchor: { id: 'ffff6666-0000', type: 'todo', title: 'Walk Pepper' },
   });
   expect(gone.anchor).toMatchObject({ gone: true });
   delete globalThis.fetch;
 });
 
 test('the reply knows what the chat is about and never calls that item news', () => {
-  const walk = { id: 'ffff6666-0000', type: 'todo', title: 'Walk Bella', due_day: '2026-09-29' };
+  const walk = { id: 'ffff6666-0000', type: 'todo', title: 'Walk Pepper', due_day: '2026-09-29' };
   const sec = anchorPromptSection(walk, '2026-09-29');
   expect(sec).toContain('=== WHAT THIS CHAT IS ABOUT ===');
-  expect(sec).toContain('todo "Walk Bella"');
+  expect(sec).toContain('todo "Walk Pepper"');
   expect(sec).toContain('never tell them it is on their list');
   expect(sec).toContain('follow them');
-  expect(sec).toContain('- todo "Walk Bella", due today');
+  expect(sec).toContain('- todo "Walk Pepper", due today');
   // a card that took the turn over keeps its reply short: only what they know
   const short = anchorPromptSection(walk, '2026-09-29', { mode: 'entity_card' });
   expect(short).toContain('never tell them it is on their list');
@@ -1503,7 +1503,7 @@ test('the reply knows what the chat is about and never calls that item news', ()
     '2026-09-29',
     { mode: 'update', anchor: walk },
   );
-  expect(theirs).toContain('This chat was opened about their todo "Walk Bella"');
+  expect(theirs).toContain('This chat was opened about their todo "Walk Pepper"');
   expect(theirs).toContain('(the item this chat was opened about)');
   const plain = theirItemsPromptSection({ related: [walk], attention: [] }, '2026-09-29', {
     mode: 'update',
@@ -1517,7 +1517,7 @@ test('a card names the item as it is set now, and the change, in words', () => {
   const vet = {
     id: 'v1',
     type: 'note',
-    title: 'Bella Vet Appointment',
+    title: 'Pepper Vet Appointment',
     due_day: '2026-10-02',
     due_time: '15:00',
   };
@@ -1528,7 +1528,7 @@ test('a card names the item as it is set now, and the change, in words', () => {
   };
   const sec = entityCardPromptSection(timeCard, { todayIso: '2026-09-29' });
   // the reply knows the day a time change is on
-  expect(sec).toContain('note "Bella Vet Appointment" (Friday 2 October at 15:00)');
+  expect(sec).toContain('note "Pepper Vet Appointment" (Friday 2 October at 15:00)');
   expect(sec).toContain('change its time to 16:00 on Friday 2 October');
   const todo = { id: 't1', type: 'todo', title: 'Call Kim and Andrew', due_day: '2026-09-29' };
   const move = entityCardPromptSection(
@@ -1560,7 +1560,7 @@ test('a card names the item as it is set now, and the change, in words', () => {
 });
 
 test('a last card that only showed the item is not waiting on a tap', () => {
-  const base = { id: 'v1', type: 'note', title: 'Bella Vet Appointment', status: 'pending' };
+  const base = { id: 'v1', type: 'note', title: 'Pepper Vet Appointment', status: 'pending' };
   // older apps send only the status: as before
   expect(recentCardPromptSection(base)).toContain('waiting on their tap');
   expect(recentCardPromptSection({ ...base, card: { kind: 'edit' } })).toContain(
@@ -1727,7 +1727,7 @@ test('what the reply is told about their items is built in one place, in order',
     match: { related: [cands[0]], attention: [] },
     card,
     recent: { ...cands[1], status: 'applied' },
-    anchor: { id: 'zz', type: 'todo', title: 'Walk Bella' },
+    anchor: { id: 'zz', type: 'todo', title: 'Walk Pepper' },
     mode: 'update',
     todayIso: '2026-09-29',
   });
@@ -1752,7 +1752,7 @@ test('a late card is offered only when the check says their words asked for it',
   const card = {
     kind: 'edit',
     late: true,
-    entity: { id: 'v1', type: 'note', title: 'Bella Vet Appointment', due_day: '2026-10-02' },
+    entity: { id: 'v1', type: 'note', title: 'Pepper Vet Appointment', due_day: '2026-10-02' },
     change: { field: 'body_add', from: null, to: 'I am busy tomorrow' },
   };
   let sent = null;
@@ -1772,7 +1772,7 @@ test('a late card is offered only when the check says their words asked for it',
   const input = sent.messages[1].content;
   expect(sent.messages[0].content).toBe(LATE_CARD_CHECK_PROMPT);
   expect(input).toContain('LATEST MESSAGE:\nI am busy tomorrow');
-  expect(input).toContain('THEIR ITEM: their note "Bella Vet Appointment" (Friday 2 October)');
+  expect(input).toContain('THEIR ITEM: their note "Pepper Vet Appointment" (Friday 2 October)');
   expect(input).toContain('PROPOSED CHANGE: add to it: I am busy tomorrow');
   expect(input).toContain('User: hi');
   globalThis.fetch = answer('{"offer":true}');
@@ -1883,7 +1883,7 @@ test('the matcher is told a change they said yes to has been made, so a follow u
     status: 'applied',
     card: {
       kind: 'edit',
-      change: { field: 'body_add', from: null, to: "Dave's parents are in from the 22nd" },
+      change: { field: 'body_add', from: null, to: "Theo's parents are in from the 22nd" },
     },
   };
   const input = buildEntityMatchInput({
@@ -1894,7 +1894,7 @@ test('the matcher is told a change they said yes to has been made, so a follow u
     candidates: candidatesFor('Did you do it?', items, recent),
   });
   expect(input).toContain(
-    "[shown on the card in the last reply, where they said yes to add to it: Dave's parents are in from the 22nd, which has been made]",
+    "[shown on the card in the last reply, where they said yes to add to it: Theo's parents are in from the 22nd, which has been made]",
   );
   expect(ENTITY_MATCH_SYSTEM_PROMPT).toContain(
     'that change has been made, so a message that only follows up on it asks for nothing new',

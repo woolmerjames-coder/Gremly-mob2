@@ -2,8 +2,11 @@
  * Gremly's questions in the evening wrap up.
  *
  * Only questions Gremly already has open are asked: never one about
- * something private, one asked in the last few days or already in today's
- * thread, or one tied to an item the Sweep just decided. Among those Gremly
+ * something private or about health, one held until a later day, one asked in
+ * the last few days or already in today's thread, or one tied to an item the
+ * Sweep just decided. These are the rules every place that asks keeps to,
+ * held in workers/shared/questionRules.js; a test holds the numbers here to
+ * them. Among those Gremly
  * chooses what is worth asking tonight, checked against everything the Sweep
  * settled, and gives each its answers to tap (gremlyWords.ts, step 10 of the
  * agent plan). When he cannot be reached, the oldest two are asked as they
@@ -16,6 +19,8 @@ import { WRAP_COPY } from './words';
 
 export interface WrapQuestion {
   id: string;
+  /** What it asks about: a fact, a Chapter, or someone in their life ('person') */
+  kind?: string | null;
   question: string;
   choices: string[];
   created_at: string;
@@ -23,8 +28,15 @@ export interface WrapQuestion {
   /** The item it is about, when it has one */
   record_table: string | null;
   record_id: string | null;
-  /** About something they marked private: never asked here */
+  /** About something they marked private, or about health: never asked here */
   private: boolean;
+  /** Not asked before this day (YYYY-MM-DD), or null */
+  hold_until?: string | null;
+  /**
+   * How much the answer matters (data fabric stage 4f): 'needs' comes first;
+   * none is read as 'helps'
+   */
+  weight?: 'needs' | 'helps' | null;
   /**
    * A milestone's check in from their weekly review, asked as a question on
    * its day (lib/wrapup/checkIns.ts). It is not one of Gremly's questions: its
@@ -34,6 +46,8 @@ export interface WrapQuestion {
 }
 
 export const MOST_QUESTIONS = 2;
+/** The kinds only Ask Gremly's questions ask (workers/shared/questionRules.js QUESTIONS_ONLY_KINDS). */
+export const QUESTIONS_ONLY_KINDS: readonly string[] = ['tidy'];
 /** A question skipped or asked this recently waits (the brief's rule, context/daily.js). */
 export const ASKED_WAIT_DAYS = 3;
 
@@ -42,14 +56,22 @@ export async function fetchWrapQuestions(): Promise<WrapQuestion[]> {
   const { data, error } = await supabase
     .from('gremly_questions')
     .select(
-      'id,question,choices,created_at,asked_at,record_table,record_id,fact:life_facts(private)',
+      'id,kind,question,choices,weight,created_at,asked_at,hold_until,record_table,record_id,fact:life_facts(private,health)',
     )
     .in('status', ['open', 'asked'])
+    // those that need an answer first, so none is cut off behind older ones (stage 4f)
+    .order('weight', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: true })
     .limit(20);
   if (error) throw error;
-  return ((data ?? []) as Record<string, any>[]).map((q) => ({
+  // a welcome back's questions travel together, as the brief asks them, never one by one
+  // here; a tidy up waits for Ask Gremly's questions (stage 4f)
+  const rows = ((data ?? []) as Record<string, any>[]).filter(
+    (q) => q.kind !== 'while_away' && !QUESTIONS_ONLY_KINDS.includes(q.kind),
+  );
+  return rows.map((q) => ({
     id: q.id,
+    kind: q.kind ?? null,
     question: String(q.question || '').trim(),
     choices: Array.isArray(q.choices)
       ? q.choices.filter((c: unknown) => typeof c === 'string')
@@ -58,7 +80,12 @@ export async function fetchWrapQuestions(): Promise<WrapQuestion[]> {
     asked_at: q.asked_at ?? null,
     record_table: q.record_table ?? null,
     record_id: q.record_id ?? null,
-    private: !!(Array.isArray(q.fact) ? q.fact[0]?.private : q.fact?.private),
+    private: (() => {
+      const f = Array.isArray(q.fact) ? q.fact[0] : q.fact;
+      return !!(f?.private || f?.health);
+    })(),
+    hold_until: typeof q.hold_until === 'string' ? q.hold_until.slice(0, 10) : null,
+    weight: q.weight === 'needs' || q.weight === 'helps' ? q.weight : null,
   }));
 }
 
@@ -78,20 +105,26 @@ export interface PickContext {
 }
 
 /**
- * The questions that may be asked tonight at all, oldest first: never one
- * about something private, one already asked today or lately, or one tied to
- * an item the Sweep just decided. Gremly chooses among these (gremlyWords.ts).
- * Pure.
+ * The questions that may be asked tonight at all, those that need an answer
+ * first and then oldest first: never one
+ * about something private or about health, one held until a later day, one
+ * already asked today or lately, or one tied to an item the Sweep just
+ * decided. Gremly chooses among these (gremlyWords.ts). Pure.
  */
-export function askableQuestions(open: WrapQuestion[], ctx: PickContext): WrapQuestion[] {
+export function askableQuestions<Q extends WrapQuestion>(open: Q[], ctx: PickContext): Q[] {
   const askedSince = addDays(ctx.day, -ASKED_WAIT_DAYS);
   return open
     .filter((q) => q.question && !q.private)
+    .filter((q) => !q.hold_until || q.hold_until <= ctx.day)
     .filter((q) => !ctx.askedToday.has(q.id))
     .filter((q) => !q.asked_at || q.asked_at.slice(0, 10) < askedSince)
     .filter((q) => !q.record_id || !ctx.decidedIds.has(q.record_id))
     .slice()
-    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    .sort(
+      (a, b) =>
+        Number(b.weight === 'needs') - Number(a.weight === 'needs') ||
+        a.created_at.localeCompare(b.created_at),
+    );
 }
 
 /** The questions to ask tonight by rule, in order: the oldest two that may be asked. Pure. */

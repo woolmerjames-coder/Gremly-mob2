@@ -381,10 +381,10 @@ describe('handleClassified — drop:reaction_ready emission', () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          smart_title: 'Walk Bella',
+          smart_title: 'Walk Pepper',
           card_note: 'Good pup time',
-          confirmation_message: 'Bella time!',
-          speech_message: 'Nice one! Bella time!',
+          confirmation_message: 'Pepper time!',
+          speech_message: 'Nice one! Pepper time!',
         }),
     });
 
@@ -394,7 +394,7 @@ describe('handleClassified — drop:reaction_ready emission', () => {
     const drop = makeDrop({
       phase: 'classified',
       bucket: 'todo',
-      text: 'Walk the dog Bella',
+      text: 'Walk the dog Pepper',
       needsClarification: false,
     });
     await handleClassified(drop);
@@ -402,8 +402,8 @@ describe('handleClassified — drop:reaction_ready emission', () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith({
       localId: 'test-drop-1',
-      message: 'Nice one! Bella time!',
-      rawReaction: 'Bella time!',
+      message: 'Nice one! Pepper time!',
+      rawReaction: 'Pepper time!',
       followUp: null,
     });
   });

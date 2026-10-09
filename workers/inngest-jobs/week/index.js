@@ -11,7 +11,9 @@
  *   the work spreads over each person's own hour and no longer leaves in one
  *   fan out on Sunday at 11:00 UTC.
  * - weekly-pipe (one person): their weekly synthesis for the seven days ending
- *   on their weekly day, then their read, made ahead for everyone the pipe
+ *   on their weekly day, what is left of the Sunday classifier, then their
+ *   read, then the words under their Worlds and Chapters and the memories of
+ *   closed Chapters (data fabric stage 4b). The read is made ahead for everyone the pipe
  *   runs for (the rule that kept it to people who had finished a review in the
  *   last four weeks is still here, switched off: READ_AHEAD_NEEDS_REVIEW).
  * - POST /api/week-read (from cortex, for the app): the read for a review
@@ -140,9 +142,13 @@ export function readEffort(_on) {
  *
  * @param {object} env
  * @param {string} userId
- * @param {{today?: string, ahead?: boolean, needsReview?: boolean, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ * @param {{today?: string, first?: string, ahead?: boolean, needsReview?: boolean, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
  *   today is the app's day, or the weekly day the pipe is for; it is taken
  *   when it is within a day of the person's day as worked out here.
+ *   first is the first day the review plans from as the app has it: tomorrow
+ *   for a review opened in the evening (workers/shared/week.js reviewOn takes
+ *   nothing else). The app says so, and the read and the spread follow, so
+ *   all three plan the same days.
  *   needsReview turns the four week rule on or off for one call (it is
  *   READ_AHEAD_NEEDS_REVIEW when not given)
  * @returns {Promise<{on: object, review: object|null, read: object|null, skipped?: string}>}
@@ -155,7 +161,7 @@ export async function prepareWeekRead(env, userId, p = {}) {
   const mine = await personToday(env, userId, tz, at);
   const today = isDay(p.today) && Math.abs(daysBetween(mine, p.today)) <= 1 ? p.today : mine;
   const row = await rowOf(d, userId, reviewOn(today, settings.weekly_day).week_start);
-  const on = reviewWith(today, settings.weekly_day, row);
+  const on = reviewWith(today, settings.weekly_day, row, p.first);
   if (readServes(on, row)) return { on, review: row, read: null };
 
   if (p.ahead) {
@@ -279,7 +285,8 @@ export async function ensureWeekRead(env, userId, p = {}) {
  *
  * @param {object} env
  * @param {string} userId
- * @param {{today?: string, board?: object, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ * @param {{today?: string, first?: string, board?: object, at?: Date, deps?: {run?: Function, gather?: Function}}} [p]
+ *   first is the first day being planned as the app's board has it (prepareWeekRead)
  * @returns {Promise<{on: object, spread: object}>}
  */
 export async function ensureWeekSpread(env, userId, p = {}) {
@@ -289,7 +296,7 @@ export async function ensureWeekSpread(env, userId, p = {}) {
   const mine = await personToday(env, userId, tz, at);
   const today = isDay(p.today) && Math.abs(daysBetween(mine, p.today)) <= 1 ? p.today : mine;
   const row = await rowOf(d, userId, reviewOn(today, settings.weekly_day).week_start);
-  const on = reviewWith(today, settings.weekly_day, row);
+  const on = reviewWith(today, settings.weekly_day, row, p.first);
   if (!row || !row.read || typeof row.read !== 'object') {
     throw new Error('there is no review with a read to spread');
   }
@@ -338,7 +345,15 @@ export async function ensureWeekSpread(env, userId, p = {}) {
   return { on, spread };
 }
 
-export function createWeekFunctions(inngest, { synthesis }) {
+/** Whether the Sunday classifier still runs in the weekly pipe (WEEKLY_CLASSIFIER, on unless "off"). */
+export function classifierInPipe(env) {
+  return String(env?.WEEKLY_CLASSIFIER || 'on').toLowerCase() !== 'off';
+}
+
+export function createWeekFunctions(
+  inngest,
+  { synthesis, classifier = null, words = null, memories = null, people = null, review = null },
+) {
   const dispatch = inngest.createFunction(
     { id: 'weekly-pipe-dispatch', name: 'Weekly pipe: start the pipes due now' },
     [{ cron: '0 * * * *' }, { event: 'app/week.pipe.dispatch' }],
@@ -385,35 +400,126 @@ export function createWeekFunctions(inngest, { synthesis }) {
       } catch (err) {
         synth = { error: String(err?.message || err).slice(0, 200) };
       }
-      // Making the read and keeping it are two steps, so a save that fails is
-      // tried again without paying for the read a second time.
-      const ahead = await step.run('read-ahead', async () => {
-        if (synth?.error) {
+      // What is left of the Sunday classifier runs here, after the synthesis,
+      // until stage 5 (data fabric stage 4b): it no longer has a schedule of
+      // its own, so it never runs before the synthesis on another day.
+      // its place here is behind WEEKLY_CLASSIFIER (wrangler.toml), "on" until
+      // the Chapter questions take over its suggestions (data fabric stage 5)
+      let classified = null;
+      if (classifier && classifierInPipe(env)) {
+        try {
+          const c = await step.invoke('classifier', {
+            function: classifier,
+            data: { user_id: userId },
+            timeout: '30m',
+          });
+          classified = { counts: c?.classifier_counts || null };
+        } catch (err) {
+          classified = { error: String(err?.message || err).slice(0, 200) };
           console.warn(
-            `[ALERT][WeekPipe] the weekly synthesis did not finish for ${userId} on ${day}: ${synth.error}`,
+            `[ALERT][WeekPipe] the classifier did not finish for ${userId} on ${day}: ${classified.error}`,
           );
         }
-        const r = await prepareWeekRead(env, userId, { today: day, ahead: true });
-        return { on: r.on, read: r.read, skipped: r.skipped || null };
-      });
-      const kept = ahead.read
-        ? await step.run('keep-read', async () => {
-            const k = await keepWeekRead(env, userId, ahead.on, ahead.read);
-            return { made: k.made };
-          })
-        : null;
-      let skipped = ahead.skipped;
-      if (!skipped && !ahead.read) skipped = 'the week has its read';
+      }
+      // Making the read and keeping it are two steps, so a save that fails is
+      // tried again without paying for the read a second time. A read that
+      // fails is raised and does not cost them their words and memories.
+      let ahead = null;
+      let kept = null;
+      let readError = null;
+      try {
+        ahead = await step.run('read-ahead', async () => {
+          if (synth?.error) {
+            console.warn(
+              `[ALERT][WeekPipe] the weekly synthesis did not finish for ${userId} on ${day}: ${synth.error}`,
+            );
+          }
+          const r = await prepareWeekRead(env, userId, { today: day, ahead: true });
+          return { on: r.on, read: r.read, skipped: r.skipped || null };
+        });
+        kept = ahead.read
+          ? await step.run('keep-read', async () => {
+              const k = await keepWeekRead(env, userId, ahead.on, ahead.read);
+              return { made: k.made };
+            })
+          : null;
+      } catch (err) {
+        readError = String(err?.message || err).slice(0, 200);
+        console.warn(
+          `[ALERT][WeekPipe] the read did not finish for ${userId} on ${day}: ${readError}`,
+        );
+      }
+      let skipped = ahead?.skipped || null;
+      if (!readError && !skipped && !ahead?.read) skipped = 'the week has its read';
       if (!skipped && kept && !kept.made) skipped = 'another read was kept first';
+      // Then the words under each World and open Chapter, from what the week
+      // filed, and a memory for each closed Chapter that has none (data fabric
+      // stage 4b), then the people records checked and one question about
+      // someone, when one is worth asking (stage 4c), then the ledger looked
+      // over for what only they can settle (stage 4f). After the read, so the
+      // read never waits on them.
+      const after = {};
+      for (const [name, fn] of [
+        ['words', words],
+        ['memories', memories],
+        ['people', people],
+        // what only they can settle, put as questions (data fabric stage 4f)
+        ['review', review],
+      ]) {
+        if (!fn) continue;
+        try {
+          const r = await step.invoke(name, {
+            function: fn,
+            data: { user_id: userId, reason: 'weekly' },
+            timeout: '30m',
+          });
+          after[name] =
+            name === 'words'
+              ? {
+                  written: r?.written ?? null,
+                  left_out: r?.left_out ?? null,
+                  failed: r?.failed ?? null,
+                  // the line about each person the weekly pass noted (stage 6)
+                  people: r?.people
+                    ? {
+                        written: r.people.written ?? null,
+                        left_out: r.people.left_out ?? null,
+                        skipped: r.people.skipped ?? r.people.error ?? null,
+                      }
+                    : null,
+                }
+              : name === 'memories'
+                ? { chapters: r?.chapters ?? null }
+                : name === 'review'
+                  ? {
+                      written: r?.written ?? null,
+                      found: r?.found ?? null,
+                      shadow: r?.shadow ?? null,
+                    }
+                  : {
+                      checked: r?.checked?.checked ?? null,
+                      who_cleared: r?.checked?.who_cleared ?? null,
+                      asked: r?.asked?.written ?? null,
+                    };
+        } catch (err) {
+          after[name] = { error: String(err?.message || err).slice(0, 200) };
+          console.warn(
+            `[ALERT][WeekPipe] the ${name} did not finish for ${userId} on ${day}: ${after[name].error}`,
+          );
+        }
+      }
       return {
         user_id: userId,
         day,
         synthesis: synth,
+        classifier: classified,
+        ...after,
         read: {
           made: !!kept?.made,
           skipped: skipped || null,
-          week_start: ahead.on.week_start,
-          kind: ahead.on.kind,
+          error: readError,
+          week_start: ahead?.on?.week_start ?? null,
+          kind: ahead?.on?.kind ?? null,
         },
       };
     },
@@ -423,7 +529,7 @@ export function createWeekFunctions(inngest, { synthesis }) {
 }
 
 /**
- * POST /api/week-read { user_id, date } (admin key checked upstream). Making a
+ * POST /api/week-read { user_id, date, first } (admin key checked upstream). Making a
  * read takes most of a minute, so the work is also handed to the worker's own
  * lifetime (ctx.waitUntil): if the phone stops waiting, the work carries on
  * for as long as the worker is allowed to, and a read that gets finished is
@@ -434,7 +540,7 @@ export async function handleWeekReadApi(request, env, corsResponse, ctx) {
     const body = await request.json().catch(() => ({}));
     const userId = typeof body.user_id === 'string' ? body.user_id : null;
     if (!userId || !UUID.test(userId)) return corsResponse({ error: 'user_id is required' }, 400);
-    const work = ensureWeekRead(env, userId, { today: body.date });
+    const work = ensureWeekRead(env, userId, { today: body.date, first: body.first });
     ctx?.waitUntil?.(work.catch(() => undefined));
     const r = await work;
     return corsResponse({ made: r.made, on: r.on, review: r.review });
@@ -445,7 +551,7 @@ export async function handleWeekReadApi(request, env, corsResponse, ctx) {
 }
 
 /**
- * POST /api/week-spread { user_id, date, board } (admin key checked
+ * POST /api/week-spread { user_id, date, first, board } (admin key checked
  * upstream). A spread takes about twenty seconds, so like the read its work is
  * handed to the worker's own lifetime: one that gets finished is kept on the
  * week's row whether or not the phone is still waiting.
@@ -455,7 +561,11 @@ export async function handleWeekSpreadApi(request, env, corsResponse, ctx) {
     const body = await request.json().catch(() => ({}));
     const userId = typeof body.user_id === 'string' ? body.user_id : null;
     if (!userId || !UUID.test(userId)) return corsResponse({ error: 'user_id is required' }, 400);
-    const work = ensureWeekSpread(env, userId, { today: body.date, board: body.board });
+    const work = ensureWeekSpread(env, userId, {
+      today: body.date,
+      first: body.first,
+      board: body.board,
+    });
     ctx?.waitUntil?.(work.catch(() => undefined));
     const r = await work;
     return corsResponse({ on: r.on, spread: r.spread });

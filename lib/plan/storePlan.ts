@@ -12,7 +12,7 @@
  */
 
 import { useGremlyStore } from '../store/useGremlyStore';
-import { selectHabitsDueToday, selectTodosDueToday } from '../store/selectors';
+import { selectDayTodos, selectHabitsDueToday, selectTodosDueToday } from '../store/selectors';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { getTimeBlockBoundaries } from '../capacity/capacityHelpers';
 import { readDco } from '../brief/dco';
@@ -104,7 +104,8 @@ export function poolForDay(day: string): Candidate[] {
     occurred_day: string;
     count?: number;
   }[];
-  const todosDue = todosDueOn(s.todos, day);
+  // the steps left on a closed Chapter stay with it, as on Today
+  const todosDue = todosDueOn(selectDayTodos(s as any), day);
   const habitsOn = habitsOnDay(s.habits, day, s.habitAdaptations);
   const pool = buildCandidatePool({
     today: day,

@@ -97,6 +97,8 @@ export interface JournalQuote {
   day_of_week: string;
   text: string;
   source: 'journal' | 'drop_note';
+  /** The note it was read from, so the weekly pass's moments can be found (stage 5). */
+  note_id?: string;
 }
 
 export interface EvidenceFacts {
@@ -130,7 +132,7 @@ export interface EntitiesBlock {
   other_people: Array<{
     name: string;
     relationship?: string; // 'partner', 'mother', 'son', etc. when known from profile or observations
-    source: 'user_profile' | 'observations';
+    source: 'user_profile' | 'observations' | 'people_record';
   }>;
 }
 
@@ -141,6 +143,13 @@ export interface HardFacts {
    * trips, dates and outcomes beyond the week's own records.
    */
   ledger_context?: string | null;
+  /**
+   * The week counted by code for the weekly pass (context/weekCounts.js): days
+   * answered and planned, wrap ups and what they decided, moves, what was due
+   * against what got done, habits held. Present when the summary is written
+   * from the weekly pass (data fabric stage 5).
+   */
+  week_counts?: Record<string, unknown> | null;
   user: {
     user_id: string;
     tenure_days: number;
@@ -210,6 +219,8 @@ export interface PriorSurfacedAnchor {
 }
 
 export interface SummaryBrief {
+  /** Where the brief came from: the analyst (the old path) or the weekly pass's plan (stage 5). */
+  source?: 'analyst' | 'plan';
   user_id: string;
   week_shape: WeekShapeBrief | null;
   observations: AnalystObservationFull[];
@@ -225,6 +236,8 @@ export interface HeroBody {
   stat_strip: { value: string; label: string; source: SourceRef }[];
   sources: SourceRef[];
   image_hint?: string; // tone-matched scenic/textural keywords for Unsplash banner; resolved to image_url by the worker
+  /** The opening fell back to the plan's character and the week's figures, with no words of its own (stage 7). */
+  fallback?: boolean;
 }
 
 /**
@@ -339,6 +352,18 @@ export interface AdaptiveSummaryContent {
   classification: string;
   through_line: string;
   cards: Card[];
+  /**
+   * What the deck showed, saved so next week's plan can move on from it
+   * (data fabric stage 5): the week's character, then each planned card kept.
+   */
+  shown?: Array<{ about: string; refs: string[] }>;
+  /** The weekly pass the deck was written from (stage 5). */
+  pass?: {
+    run_id: string;
+    model: string | null;
+    prompt_version: string | null;
+    writer_version: string;
+  };
   metadata: {
     deck_size: number;
     card_shapes: CardShape[];

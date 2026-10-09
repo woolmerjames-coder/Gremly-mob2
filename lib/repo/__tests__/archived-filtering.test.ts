@@ -3,9 +3,7 @@
  *
  * Verifies that archived items are excluded from various repository queries.
  * These tests ensure the filtering behavior is consistent across:
- * - listBySpace
  * - search
- * - searchInSpace
  * - listDueToday
  * - listTodayMerged
  *
@@ -88,89 +86,6 @@ describe('Archived Filtering', () => {
   }
 
   // =========================================================================
-  // listBySpace - Archived Filtering
-  // =========================================================================
-
-  describe('listBySpace archived filtering', () => {
-    it('excludes archived todos from space results', async () => {
-      // Setup: Create 2 todos in space
-      const activeTodo = await createTodo({ name: 'Active Todo' });
-      const archivedTodo = await createTodo({ name: 'Archived Todo' });
-
-      // Archive one todo
-      await archiveTodo(archivedTodo.id);
-
-      // Call listBySpace
-      const results = await repo.listBySpace(testSpaceId);
-
-      // Assert: Only active todo returned
-      expect(results).toHaveLength(1);
-      expect(results[0].id).toBe(activeTodo.id);
-      expect(results.find((r) => r.id === archivedTodo.id)).toBeUndefined();
-    });
-
-    it('excludes archived habits from space results', async () => {
-      // Setup: Create 2 habits in space
-      const activeHabit = await createHabit({ name: 'Active Habit' });
-      const archivedHabit = await createHabit({ name: 'Archived Habit' });
-
-      // Archive one habit
-      await archiveHabit(archivedHabit.id);
-
-      // Call listBySpace
-      const results = await repo.listBySpace(testSpaceId);
-
-      // Assert: Only active habit returned
-      const habits = results.filter((r) => r.type === 'habit');
-      expect(habits).toHaveLength(1);
-      expect(habits[0].id).toBe(activeHabit.id);
-      expect(results.find((r) => r.id === archivedHabit.id)).toBeUndefined();
-    });
-
-    it('excludes archived notes from space results', async () => {
-      // Setup: Create 2 notes in space
-      const activeNote = await createNote({ title: 'Active Note' });
-      const archivedNote = await createNote({ title: 'Archived Note' });
-
-      // Archive one note
-      await archiveNote(archivedNote.id);
-
-      // Call listBySpace
-      const results = await repo.listBySpace(testSpaceId);
-
-      // Assert: Only active note returned
-      const notes = results.filter((r) => r.type === 'note');
-      expect(notes).toHaveLength(1);
-      expect(notes[0].id).toBe(activeNote.id);
-      expect(results.find((r) => r.id === archivedNote.id)).toBeUndefined();
-    });
-
-    it('excludes all archived item types from mixed space results', async () => {
-      // Setup: Create one of each type, archive one of each
-      const activeTodo = await createTodo({ name: 'Active Todo' });
-      const archivedTodo = await createTodo({ name: 'Archived Todo' });
-      const activeHabit = await createHabit({ name: 'Active Habit' });
-      const archivedHabit = await createHabit({ name: 'Archived Habit' });
-      const activeNote = await createNote({ title: 'Active Note' });
-      const archivedNote = await createNote({ title: 'Archived Note' });
-
-      // Archive items
-      await archiveTodo(archivedTodo.id);
-      await archiveHabit(archivedHabit.id);
-      await archiveNote(archivedNote.id);
-
-      // Call listBySpace
-      const results = await repo.listBySpace(testSpaceId);
-
-      // Assert: Only 3 active items returned
-      expect(results).toHaveLength(3);
-      expect(results.map((r) => r.id).sort()).toEqual(
-        [activeTodo.id, activeHabit.id, activeNote.id].sort(),
-      );
-    });
-  });
-
-  // =========================================================================
   // search - Archived Filtering
   // =========================================================================
 
@@ -246,57 +161,6 @@ describe('Archived Filtering', () => {
       // Assert: Only active todo found
       expect(results).toHaveLength(1);
       expect(results[0].id).toBe(activeTodo.id);
-    });
-  });
-
-  // =========================================================================
-  // searchInSpace - Archived Filtering
-  // =========================================================================
-
-  describe('searchInSpace archived filtering', () => {
-    it('excludes archived items when searching within a space', async () => {
-      // Setup: Create active + archived todo with same searchable name in same space
-      const activeTodo = await createTodo({
-        name: 'unique search term',
-        space_id: testSpaceId,
-      });
-      const archivedTodo = await createTodo({
-        name: 'unique search term archived',
-        space_id: testSpaceId,
-      });
-
-      // Archive one
-      await archiveTodo(archivedTodo.id);
-
-      // Search in space
-      const { items } = await repo.searchInSpace(testSpaceId, 'unique search term');
-
-      // Assert: Only active item returned
-      expect(items).toHaveLength(1);
-      expect(items[0].id).toBe(activeTodo.id);
-    });
-
-    it('excludes archived items from different entity types in space search', async () => {
-      // Setup: Create active and archived items of each type
-      const activeTodo = await createTodo({
-        name: 'workspace query',
-        space_id: testSpaceId,
-      });
-      const archivedNote = await createNote({
-        title: 'workspace query note',
-        space_id: testSpaceId,
-      });
-
-      // Archive the note
-      await archiveNote(archivedNote.id);
-
-      // Search in space
-      const { items } = await repo.searchInSpace(testSpaceId, 'workspace query');
-
-      // Assert: Only active todo returned
-      expect(items).toHaveLength(1);
-      expect(items[0].id).toBe(activeTodo.id);
-      expect(items[0].type).toBe('todo');
     });
   });
 
@@ -473,7 +337,7 @@ describe('Archived Filtering', () => {
       await repo.update({ id: note.id, patch: { archived: null } as any });
 
       // Should still appear in results (null treated as not archived)
-      const results = await repo.listBySpace(testSpaceId);
+      const results = await repo.search('Legacy Note');
       const notes = results.filter((r) => r.type === 'note');
       expect(notes.find((n) => n.id === note.id)).toBeDefined();
     });
@@ -484,40 +348,15 @@ describe('Archived Filtering', () => {
       await archiveTodo(todo.id);
 
       // Verify it's not in results
-      let results = await repo.listBySpace(testSpaceId);
+      let results = await repo.search('Will Be Restored');
       expect(results.find((r) => r.id === todo.id)).toBeUndefined();
 
       // Restore it
       await repo.restoreItem(todo.id, 'todo');
 
       // Verify it's now visible
-      results = await repo.listBySpace(testSpaceId);
+      results = await repo.search('Will Be Restored');
       expect(results.find((r) => r.id === todo.id)).toBeDefined();
-    });
-
-    it('does not affect items in different spaces', async () => {
-      const otherSpaceId = 'space-other-123';
-
-      // Create todos in different spaces
-      const todoInTargetSpace = await createTodo({
-        name: 'Target Space Todo',
-        space_id: testSpaceId,
-      });
-      const todoInOtherSpace = await createTodo({
-        name: 'Other Space Todo',
-        space_id: otherSpaceId,
-      });
-
-      // Archive todo in other space
-      await archiveTodo(todoInOtherSpace.id);
-
-      // listBySpace for target space should still return its todo
-      const results = await repo.listBySpace(testSpaceId);
-      expect(results.find((r) => r.id === todoInTargetSpace.id)).toBeDefined();
-
-      // listBySpace for other space should return nothing (archived)
-      const otherResults = await repo.listBySpace(otherSpaceId);
-      expect(otherResults.find((r) => r.id === todoInOtherSpace.id)).toBeUndefined();
     });
   });
 });

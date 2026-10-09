@@ -58,8 +58,6 @@ jest.mock('../../../lib/store/selectors', () => ({
         logSubtype: null,
         isNew: false,
         resurfacingDate: null,
-        spaceName: null,
-        spaceId: null,
         gremlyResponse: 'Test gremly response',
       },
     })),
@@ -73,7 +71,6 @@ jest.mock('../../../lib/store/selectors', () => ({
       },
     })),
   }),
-  useActiveSpaces: () => [],
   useSkipBudget: () => ({ used: 0, remaining: 3, total: 3, canSkip: true }),
 }));
 

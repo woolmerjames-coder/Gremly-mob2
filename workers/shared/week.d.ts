@@ -40,9 +40,12 @@ export declare function cycleOf(
   today: string,
   weeklyDay: number | null | undefined,
 ): { since: number; start: string; week_start: string; week_end: string; next: string };
+export declare const EVENING_FROM: number;
+export declare function planFrom(today: string, minutes: number): string;
 export declare function reviewOn(
   today: string,
   weeklyDay: number | null | undefined,
+  from?: string | null,
 ): {
   kind: ReviewKind;
   promoted: boolean;
@@ -55,6 +58,7 @@ export declare function reviewWith(
   today: string,
   weeklyDay: number | null | undefined,
   row: { week_start?: string; status?: string | null; kind?: string | null } | null | undefined,
+  from?: string | null,
 ): {
   kind: ReviewKind;
   promoted: boolean;

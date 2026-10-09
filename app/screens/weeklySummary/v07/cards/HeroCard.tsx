@@ -47,8 +47,8 @@ export function HeroCard({ card, level }: HeroCardProps) {
       {/* 4 — Headline */}
       {card.headline ? <Text style={styles.headline}>{card.headline}</Text> : null}
 
-      {/* 5 — Subtitle */}
-      <Text style={styles.subtitle}>{body.subtitle}</Text>
+      {/* 5 — Subtitle (none when the opening fell back to the week's character) */}
+      {body.subtitle ? <Text style={styles.subtitle}>{body.subtitle}</Text> : null}
 
       {/* 6 — Mood arc */}
       <View style={styles.moodRow}>

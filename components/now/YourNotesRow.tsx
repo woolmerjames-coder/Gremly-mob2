@@ -9,7 +9,6 @@
  *
  * Changes from v1:
  * - Replaced emoji icons with Lucide icons
- * - Added Space chip to show which Space a note belongs to
  */
 
 import React from 'react';
@@ -36,10 +35,6 @@ const ICON_COLORS = {
 // Divider color
 const DIVIDER_COLOR = '#E8E6E1';
 
-// Space chip colors
-const SPACE_CHIP_BG = 'rgba(46, 85, 64, 0.08)';
-const SPACE_CHIP_TEXT = MOSS_GREEN;
-
 // Row height
 const ROW_HEIGHT = 68;
 
@@ -49,7 +44,6 @@ const ROW_HEIGHT = 68;
 interface YourNotesRowProps {
   log: LogItem;
   onPress: (log: LogItem) => void;
-  spaceName?: string;
   isFirst?: boolean;
 }
 
@@ -125,7 +119,7 @@ function buildSubtitle(log: LogItem): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
-export function YourNotesRow({ log, onPress, spaceName, isFirst = false }: YourNotesRowProps) {
+export function YourNotesRow({ log, onPress, isFirst = false }: YourNotesRowProps) {
   const tokens = useTokens();
 
   const iconColor = ICON_COLORS[log.logSubtype] || ICON_COLORS.general;
@@ -190,7 +184,7 @@ export function YourNotesRow({ log, onPress, spaceName, isFirst = false }: YourN
             )}
           </Box>
 
-          {/* Subtitle row with optional Space chip */}
+          {/* Subtitle row */}
           <View style={styles.subtitleRow}>
             <Text
               numberOfLines={1}
@@ -204,17 +198,6 @@ export function YourNotesRow({ log, onPress, spaceName, isFirst = false }: YourN
             >
               {subtitle}
             </Text>
-
-            {spaceName && (
-              <>
-                <Text style={styles.subtitleDot}>·</Text>
-                <View style={styles.spaceChip}>
-                  <Text style={styles.spaceChipText} numberOfLines={1}>
-                    {spaceName}
-                  </Text>
-                </View>
-              </>
-            )}
           </View>
         </Box>
       </TouchableOpacity>
@@ -275,23 +258,6 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 12,
     lineHeight: 16,
-  },
-  subtitleDot: {
-    fontSize: 12,
-    color: '#999999',
-    marginHorizontal: 6,
-  },
-  spaceChip: {
-    backgroundColor: SPACE_CHIP_BG,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    maxWidth: 120,
-  },
-  spaceChipText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: SPACE_CHIP_TEXT,
   },
 });
 

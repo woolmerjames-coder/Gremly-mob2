@@ -328,7 +328,7 @@ describe('other changes', () => {
 
   it("reads a change to today's plan", () => {
     const plan = (p) => checkChange({ op: 'plan', plan: p }, ctx(null)).ok;
-    expect(plan({ kind: 'add_block', title: 'Pick up Bella', start: 900 })).toBe(true);
+    expect(plan({ kind: 'add_block', title: 'Pick up Pepper', start: 900 })).toBe(true);
     expect(plan({ kind: 'add_block', title: '', start: 900 })).toBe(false);
     expect(plan({ kind: 'plan_move', id: 't1', start: 2000 })).toBe(false);
   });
@@ -645,6 +645,71 @@ describe("the week's own changes", () => {
       expect(intend('').reason).toBe('bad_value:intention');
       expect(intend('x'.repeat(201)).reason).toBe('bad_value:intention');
       expect(intend('Protect my mornings').reason).toBe('no_change');
+    });
+  });
+
+  describe('something added to what matters most', () => {
+    const add = (text, w = { ...week, priorities: ['Finish the grant'] }) =>
+      weekChange({ op: 'priority', priority: text }, null, w);
+
+    it('is added beside what is there, for the week it belongs to', () => {
+      expect(add('  The stock audit  ')).toEqual({
+        ok: true,
+        change: {
+          cid: null,
+          op: 'priority',
+          type: null,
+          id: null,
+          title: 'The stock audit',
+          week_start: '2026-09-28',
+          fields: { text: 'The stock audit' },
+          // what mattered most when it was offered
+          before: { priorities: ['Finish the grant'] },
+        },
+      });
+      // the first one of a week that has none
+      expect(add('The stock audit', { ...week, priorities: [] }).change.before).toEqual({
+        priorities: [],
+      });
+    });
+
+    it('is a few words, and not one they already have', () => {
+      expect(add('').reason).toBe('bad_value:priority');
+      expect(add(7).reason).toBe('bad_value:priority');
+      expect(add('x'.repeat(121)).reason).toBe('bad_value:priority');
+      // the same words, however they are capitalised
+      expect(add('finish the GRANT').reason).toBe('no_change');
+    });
+
+    it('is not one more than a week keeps', () => {
+      const full = { ...week, priorities: ['One', 'Two', 'Three'] };
+      expect(add('A fourth', full).reason).toBe('priorities_full');
+    });
+
+    it('needs a review to be kept on, and an app build that can keep it', () => {
+      expect(add('The audit', { ...week, priorities: [], has_review: false }).reason).toBe(
+        'no_review',
+      );
+      // a build that does not say what matters most now is never handed one
+      expect(add('The audit', week).reason).toBe('no_priorities');
+      expect(add('The audit', { ...week, priorities: null }).reason).toBe('no_priorities');
+    });
+
+    it('can be checked again as it stands, and a card holds one', () => {
+      const first = add('The stock audit').change;
+      expect(weekChange(first, null, { ...week, priorities: ['Finish the grant'] })).toEqual({
+        ok: true,
+        change: first,
+      });
+      const r = checkCard(
+        [
+          { op: 'priority', priority: 'The stock audit' },
+          { op: 'priority', priority: 'The move' },
+        ],
+        () => weekCtx(null, { ...week, priorities: [] }),
+      );
+      expect(r.changes.map((c) => c.title)).toEqual(['The stock audit']);
+      expect(r.dropped).toEqual([{ cid: 'c2', reason: 'conflict' }]);
     });
   });
 

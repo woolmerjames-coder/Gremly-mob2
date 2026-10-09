@@ -8,8 +8,10 @@ import { renderHook, act } from '@testing-library/react-native';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../useChatCard';
 import { applyChanges } from '../../changes/apply';
 import type { SpaceChatMessage } from '../../types';
+import { sayNoToChapters } from '../../worlds/saidNo';
 
 jest.mock('../../changes/apply', () => ({ applyChanges: jest.fn() }));
+jest.mock('../../worlds/saidNo', () => ({ sayNoToChapters: jest.fn() }));
 jest.mock('../../brief/useDayTurn', () => ({
   cardOutcomeWords: (meta: { status: string }) =>
     meta.status === 'open' ? null : `(card ${meta.status})`,
@@ -103,6 +105,54 @@ describe('the card in a chat', () => {
     });
   });
 
+  it('sets up the steps of a milestone still ticked, and keeps the todo each made', async () => {
+    const talk = {
+      cid: 'c3',
+      op: 'milestone',
+      type: null,
+      id: null,
+      title: 'Conference talk',
+      milestone: {
+        goal: 'Conference talk',
+        date: '2026-10-20',
+        steps: [
+          { title: 'Draft the outline', by: '2026-10-08', kind: 'todo' },
+          { title: 'Rehearse once', by: '2026-10-16', kind: 'todo' },
+        ],
+      },
+    };
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [
+        { cid: 'c3', ok: true, summary: '', revert: jest.fn(), createdParts: { 'c3.2': 'made-2' } },
+      ],
+      revertAll: jest.fn(),
+    });
+    const { deps, hook } = setup();
+    const message = {
+      id: 'm9',
+      role: 'system',
+      content: '',
+      metadata_json: { ...chatCardMeta([...card, talk], []), status: 'open' },
+    } as unknown as SpaceChatMessage;
+    await act(() => hook.result.current.apply(message, ['c1', 'c2', 'c3.1']));
+    expect((applyChanges as jest.Mock).mock.calls[0][0]).toEqual([
+      {
+        ...talk,
+        milestone: {
+          ...talk.milestone,
+          steps: [{ title: 'Rehearse once', by: '2026-10-16', kind: 'todo', row: 'c3.2' }],
+        },
+      },
+    ]);
+    expect(deps.patchMessageMetadata).toHaveBeenCalledWith('m9', {
+      status: 'applied',
+      unticked: ['c1', 'c2', 'c3.1'],
+      applied: ['c3'],
+      failed: [],
+      created: { 'c3.2': 'made-2' },
+    });
+  });
+
   it('says so when a row could not be saved', async () => {
     (applyChanges as jest.Mock).mockResolvedValue({
       outcomes: [{ cid: 'c1', ok: false, reason: 'stale', message: 'edited since' }],
@@ -124,6 +174,71 @@ describe('the card in a chat', () => {
   });
 });
 
+describe('a Chapter Gremly offered', () => {
+  const trip = {
+    cid: 'c4',
+    op: 'add',
+    type: 'chapter',
+    id: null,
+    title: 'Lisbon trip',
+    fields: { name: 'Lisbon trip', world: 'w1', end_day: '2026-11-02' },
+  };
+  const offer = (status = 'open') =>
+    ({
+      id: 'm9',
+      role: 'system',
+      content: '',
+      metadata_json: { ...chatCardMeta([card[0], trip], []), status },
+    }) as unknown as SpaceChatMessage;
+
+  it('is a no when the card is set aside', async () => {
+    const { hook } = setup();
+    await act(() => hook.result.current.dismiss(offer()));
+    expect(sayNoToChapters).toHaveBeenCalledWith([card[0], trip]);
+  });
+
+  it('is a no when its row is left unticked, and only that row', async () => {
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [{ cid: 'c1', ok: true, summary: '', revert: jest.fn() }],
+      revertAll: jest.fn(),
+    });
+    const { hook } = setup();
+    await act(() => hook.result.current.apply(offer(), ['c4']));
+    expect(sayNoToChapters).toHaveBeenCalledWith([trip]);
+  });
+
+  it('is a no when its start is undone, and not before', async () => {
+    const revert = jest.fn(async () => {});
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [
+        { cid: 'c1', ok: true, summary: '', revert },
+        { cid: 'c4', ok: true, summary: '', revert, createdId: 'ch9' },
+      ],
+      revertAll: revert,
+    });
+    const { hook } = setup();
+    await act(() => hook.result.current.apply(offer(), []));
+    expect(sayNoToChapters).toHaveBeenCalledWith([]);
+    await act(() => hook.result.current.undo(offer('applied')));
+    expect(sayNoToChapters).toHaveBeenLastCalledWith([card[0], trip]);
+  });
+
+  it('is not a no when the undo could not put it back', async () => {
+    const revert = jest.fn(async () => {
+      throw new Error('offline');
+    });
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [{ cid: 'c4', ok: true, summary: '', revert }],
+      revertAll: revert,
+    });
+    const { hook } = setup();
+    await act(() => hook.result.current.apply(offer(), []));
+    await act(() => hook.result.current.undo(offer('applied')));
+    expect(sayNoToChapters).toHaveBeenCalledTimes(1);
+    expect(sayNoToChapters).toHaveBeenCalledWith([]);
+  });
+});
+
 describe('what Gremly is told', () => {
   it('the conversation, with what each card came to', () => {
     const history = chatHistoryOf([
@@ -142,6 +257,29 @@ describe('what Gremly is told', () => {
       { role: 'user', content: 'Move the vet to Friday' },
       { role: 'assistant', content: 'Want me to?' },
       { role: 'user', content: '(card applied)' },
+    ]);
+  });
+
+  it('what they kept from a reply, and where; a Save button not used says nothing', () => {
+    const keep = (saved: unknown) => ({
+      id: 'k',
+      role: 'system',
+      content: '',
+      metadata_json: {
+        type: 'keep-offer',
+        kind: 'list',
+        title: 'Packing',
+        lines: ['Passport'],
+        place: null,
+        saved,
+      },
+    });
+    const history = chatHistoryOf([
+      keep(null),
+      keep({ id: 'n1', place: { type: 'chapter', id: 'ch1', name: 'Lisbon trip' } }),
+    ] as unknown as SpaceChatMessage[]);
+    expect(history).toEqual([
+      { role: 'user', content: "(They saved “Packing” from Gremly's reply to Lisbon trip.)" },
     ]);
   });
 

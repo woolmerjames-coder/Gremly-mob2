@@ -8,11 +8,12 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => {
   const React = require('react');
   return {
     NavigationRouteContext: React.createContext(undefined),
-    useNavigation: () => ({ navigate: jest.fn(), setParams: jest.fn() }),
+    useNavigation: () => ({ navigate: mockNavigate, setParams: jest.fn() }),
     // outside a screen, the real hook throws; nothing here may call it
     useRoute: () => {
       throw new Error(
@@ -21,6 +22,13 @@ jest.mock('@react-navigation/native', () => {
     },
   };
 });
+
+// Gremly's questions waiting on Ask Gremly (data fabric stage 4f); none unless a test says
+const mockAskQuestions = jest.fn(async (): Promise<any[]> => []);
+jest.mock('../../../lib/questions/askQuestions', () => ({
+  ...jest.requireActual('../../../lib/questions/askQuestions'),
+  fetchAskQuestions: () => mockAskQuestions(),
+}));
 
 // the app's insets, as the root SafeAreaProvider gives them on a phone with a notch
 jest.mock('react-native-safe-area-context', () => {
@@ -131,7 +139,7 @@ import AskGremlyScreen from '../AskGremlyScreen';
 import { ITEM_STARTERS } from '../../../lib/chat/itemStarters';
 
 const item = (over: Record<string, unknown> = {}) => ({
-  anchor: { id: 't1', type: 'todo' as const, title: 'Walk Bella' },
+  anchor: { id: 't1', type: 'todo' as const, title: 'Walk Pepper' },
   label: 'Todo',
   initialPrompt: null,
   starters: ITEM_STARTERS.todo,
@@ -142,6 +150,8 @@ const item = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockChat.messages = [];
+  // the config resets every mock's answers between tests
+  mockAskQuestions.mockResolvedValue([]);
 });
 
 describe('an item chat outside any screen', () => {
@@ -150,10 +160,10 @@ describe('an item chat outside any screen', () => {
     const opened = item();
     const { getByTestId, getByText, findByTestId } = render(<AskGremlyScreen item={opened} />);
     expect(getByTestId('item-chat-header')).toBeTruthy();
-    expect(getByText('Walk Bella')).toBeTruthy();
+    expect(getByText('Walk Pepper')).toBeTruthy();
     expect(getByText('Todo')).toBeTruthy();
     await findByTestId('chat-about-opener');
-    expect(getByTestId('bubble').props.children).toMatch(/Walk Bella/);
+    expect(getByTestId('bubble').props.children).toMatch(/Walk Pepper/);
     expect(getByTestId('item-starter-break_down')).toBeTruthy();
     expect(mockFindItemChat).toHaveBeenCalledWith('u1', 't1');
     expect(opened.onClose).not.toHaveBeenCalled();
@@ -172,9 +182,9 @@ describe('an item chat outside any screen', () => {
   });
 
   it('carries on the chat the item already has', async () => {
-    mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Bella' });
+    mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Pepper' });
     render(<AskGremlyScreen item={item()} />);
-    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
+    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'), { timeout: 5000 });
   });
 
   it("a new note chat holds the starters' places, then shows the ones drawn from the note", async () => {
@@ -221,7 +231,7 @@ describe('an item chat outside any screen', () => {
     mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Japan Trip Plan' });
     const loadStarters = jest.fn(async () => []);
     render(<AskGremlyScreen item={item({ loadStarters })} />);
-    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
+    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'), { timeout: 5000 });
     expect(loadStarters).not.toHaveBeenCalled();
   });
 
@@ -231,7 +241,7 @@ describe('an item chat outside any screen', () => {
     await findByTestId('item-starter-break_down');
     fireEvent.press(getByTestId('item-starter-break_down'));
     fireEvent.press(getByTestId('item-starter-break_down'));
-    await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1), { timeout: 5000 });
   });
 
   describe('a row on a change card', () => {
@@ -245,16 +255,16 @@ describe('an item chat outside any screen', () => {
         status: 'open',
         changes: [],
         card: [
-          { cid: 'c1', op: 'change', type: 'todo', id: 't1', title: 'Walk Bella', fields: {} },
+          { cid: 'c1', op: 'change', type: 'todo', id: 't1', title: 'Walk Pepper', fields: {} },
           { cid: 'c2', op: 'change', type: 'todo', id: 't2', title: 'Call the vet', fields: {} },
         ],
       },
     };
     beforeEach(() => {
-      mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Bella' });
+      mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Pepper' });
       mockChat.messages = [card];
       mockStoreState.todos = [
-        { id: 't1', name: 'Walk Bella' },
+        { id: 't1', name: 'Walk Pepper' },
         { id: 't2', name: 'Call the vet' },
       ];
       mockStoreState.notes = [];
@@ -283,6 +293,21 @@ describe('an item chat outside any screen', () => {
     });
   });
 
+  it("a page's chat as a sheet over its page: Gremly, on it, a close, and no room for the clock", async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    const opened = item({
+      anchor: { id: 'c1', type: 'chapter', title: 'Lisbon trip' },
+      label: 'Chapter',
+      sheet: { top: 120 },
+    });
+    const { getByTestId, getByText, findByTestId } = render(<AskGremlyScreen item={opened} />);
+    await findByTestId('chat-about-opener');
+    expect(getByText('Gremly, on Lisbon trip')).toBeTruthy();
+    expect(StyleSheet.flatten(getByTestId('safe-area').props.style).paddingTop).toBeUndefined();
+    fireEvent.press(getByTestId('item-chat-close'));
+    expect(opened.onClose).toHaveBeenCalled();
+  });
+
   it('close goes back to the item', () => {
     mockFindItemChat.mockResolvedValue(null);
     const opened = item();
@@ -301,6 +326,50 @@ describe("Chat's fresh home in the Gremly home", () => {
     expect(getByTestId('chat-home-foot')).toBeTruthy();
     expect(getByTestId('home-chips')).toBeTruthy();
     // what waits in the app goes with the greeting request
-    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', { briefUnread: false, toDecide: 0 });
+    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', {
+      briefUnread: false,
+      toDecide: 0,
+      questions: null,
+    });
+  });
+
+  it('offers Answer some Gremly questions first while they wait, tells the greeting, and opens them', async () => {
+    const { callGeneralGreeting } = require('../../../lib/cortex/CortexClient');
+    callGeneralGreeting.mockClear();
+    callGeneralGreeting.mockResolvedValueOnce(
+      "Morning. I've got a couple of things I'm not sure about.",
+    );
+    const q = (id: string, weight: string | null) => ({
+      id,
+      kind: 'fact',
+      question: `Question ${id}?`,
+      choices: [],
+      created_at: '2026-09-01T10:00:00Z',
+      asked_at: null,
+      record_table: null,
+      record_id: null,
+      private: false,
+      weight,
+      topic: null,
+      why: null,
+      tidy: null,
+    });
+    mockAskQuestions.mockResolvedValueOnce([q('a', 'needs'), q('b', null)]);
+    // the questions arriving renders the home again, which subscribes to the app's state afresh
+    const { AppState } = require('react-native');
+    jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() } as any);
+    const { findByText, findByTestId } = render(<AskGremlyScreen embedded />);
+    expect(
+      await findByText("Morning. I've got a couple of things I'm not sure about."),
+    ).toBeTruthy();
+    // one needs an answer, so the way in shows, with how many wait
+    expect(callGeneralGreeting).toHaveBeenCalledWith('u1', {
+      briefUnread: false,
+      toDecide: 0,
+      questions: { count: 2, needs: 1 },
+    });
+    const chip = await findByTestId('home-chip-questions');
+    fireEvent.press(chip);
+    expect(mockNavigate).toHaveBeenCalledWith('GremlyQuestions');
   });
 });

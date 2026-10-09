@@ -17,6 +17,7 @@ jest.mock('lucide-react-native', () => {
   const icon = (name: string) => () => <View testID={`icon-${name}`} />;
   return {
     AlignJustify: icon('align-justify'),
+    Check: icon('check'),
     Plus: icon('plus'),
     ChevronRight: icon('chevron'),
     ChevronLeft: icon('chevron-left'),
@@ -119,6 +120,7 @@ const getAllByTextOf = (root: Parameters<typeof within>[0], text: string) =>
 function sheet(over: Partial<WeekBoardProps> = {}) {
   const spies = {
     onMove: jest.fn(),
+    onTick: jest.fn(),
     onToggleHabit: jest.fn(),
     onEaseHabit: jest.fn(),
     onDone: jest.fn(),
@@ -372,6 +374,93 @@ describe('Later', () => {
     });
     fireEvent.press(getByTestId('week-board-tab-later'));
     expect(getByText('Nothing is waiting in Later.')).toBeTruthy();
+  });
+});
+
+describe('a todo’s done tick', () => {
+  /** The board without the todos that are done: what the review hands the sheet once a tick is saved. */
+  const without = (...ids: string[]) =>
+    madeUpBoard({ todos: TODOS.filter((t) => !ids.includes(t.id)) });
+
+  it('is on every todo, on its day and in Later', () => {
+    const { getByTestId } = sheet();
+    // Monday holds the reports
+    expect(getByTestId('week-board-tick-reports').props.accessibilityState.checked).toBe(false);
+    expect(getByTestId('week-board-tick-reports').props.accessibilityLabel).toBe(
+      'Mark as done: Gather the grades',
+    );
+    fireEvent.press(getByTestId('week-board-day-' + TUE));
+    expect(getByTestId('week-board-tick-marking')).toBeTruthy();
+    fireEvent.press(getByTestId('week-board-tab-later'));
+    expect(getByTestId('week-board-tick-present')).toBeTruthy();
+    expect(getByTestId('week-board-tick-desk')).toBeTruthy();
+  });
+
+  it('says the todo is done, and keeps it in sight on its day with the tick filled', () => {
+    const view = sheet();
+    fireEvent.press(view.getByTestId('week-board-tick-reports'));
+    expect(view.onTick).toHaveBeenLastCalledWith('reports', true);
+    // a tick is not a move
+    expect(view.onMove).not.toHaveBeenCalled();
+    // saved: the board no longer holds it, and the sheet still shows it where it was
+    view.rerender(<WeekBoard {...view.props} board={without('reports')} />);
+    expect(view.queryByTestId('week-board-todo-reports')).toBeNull();
+    expect(view.getByTestId('week-board-done-reports')).toBeTruthy();
+    expect(view.getByTestId('week-board-tick-reports').props.accessibilityState.checked).toBe(true);
+    expect(view.getByTestId('week-board-tick-reports').props.accessibilityLabel).toBe(
+      'Mark as not done: Gather the grades',
+    );
+    // the day is not empty while it shows one done there
+    expect(view.queryByText('Nothing on this day yet.')).toBeNull();
+    // it is shown on its own day only
+    fireEvent.press(view.getByTestId('week-board-day-' + TUE));
+    expect(view.queryByTestId('week-board-done-reports')).toBeNull();
+  });
+
+  it('takes the tick back on a second tap', () => {
+    const view = sheet();
+    fireEvent.press(view.getByTestId('week-board-tick-reports'));
+    view.rerender(<WeekBoard {...view.props} board={without('reports')} />);
+    fireEvent.press(view.getByTestId('week-board-tick-reports'));
+    expect(view.onTick).toHaveBeenLastCalledWith('reports', false);
+    // open again: the board holds it, and it is drawn once, as open
+    view.rerender(<WeekBoard {...view.props} board={madeUpBoard()} />);
+    expect(view.getByTestId('week-board-todo-reports')).toBeTruthy();
+    expect(view.queryByTestId('week-board-done-reports')).toBeNull();
+    expect(view.getByTestId('week-board-tick-reports').props.accessibilityState.checked).toBe(
+      false,
+    );
+  });
+
+  it('shows a todo as open again when its tick could not be saved', () => {
+    const view = sheet();
+    fireEvent.press(view.getByTestId('week-board-tick-reports'));
+    // nothing changed: the board still holds it
+    view.rerender(<WeekBoard {...view.props} board={madeUpBoard()} />);
+    expect(view.getByTestId('week-board-todo-reports')).toBeTruthy();
+    expect(view.queryByTestId('week-board-done-reports')).toBeNull();
+  });
+
+  it('keeps one ticked in Later in sight there, under Done', () => {
+    const view = sheet();
+    fireEvent.press(view.getByTestId('week-board-tab-later'));
+    fireEvent.press(view.getByTestId('week-board-tick-desk'));
+    expect(view.onTick).toHaveBeenLastCalledWith('desk', true);
+    view.rerender(<WeekBoard {...view.props} board={without('desk')} />);
+    expect(view.queryByTestId('week-board-later-desk')).toBeNull();
+    expect(
+      within(view.getByTestId('week-board-later-done')).getByText('Look at standing desks'),
+    ).toBeTruthy();
+    fireEvent.press(view.getByTestId('week-board-tick-desk'));
+    expect(view.onTick).toHaveBeenLastCalledWith('desk', false);
+  });
+
+  it('starts afresh each time the sheet is opened', () => {
+    const view = sheet();
+    fireEvent.press(view.getByTestId('week-board-tick-reports'));
+    view.rerender(<WeekBoard {...view.props} board={without('reports')} visible={false} />);
+    view.rerender(<WeekBoard {...view.props} board={without('reports')} />);
+    expect(view.queryByTestId('week-board-done-reports')).toBeNull();
   });
 });
 

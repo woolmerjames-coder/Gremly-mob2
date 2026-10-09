@@ -18,7 +18,7 @@ function reads(asked = []) {
     const q = u.searchParams;
     let rows = [];
     if (u.pathname.endsWith('/notes') && q.get('subtype') === 'eq.event') {
-      rows = [{ title: 'Dinner with Jen', event_time: '19:00', target_date: q.get('target_date') }];
+      rows = [{ title: 'Dinner with Mira', event_time: '19:00', target_date: q.get('target_date') }];
     }
     return { ok: true, json: async () => rows, text: async () => JSON.stringify(rows) };
   });
@@ -42,7 +42,7 @@ test('after midnight it reads their day, and that day’s calendar has all passe
     (u) => u.pathname.endsWith('/notes') && u.searchParams.get('subtype') === 'eq.event',
   );
   expect(events.searchParams.get('target_date')).toBe('eq.2026-10-03');
-  expect(text).toContain('Events done: "Dinner with Jen" (19:00)');
+  expect(text).toContain('Events done: "Dinner with Mira" (19:00)');
   expect(text).not.toContain('Still ahead');
 });
 
@@ -54,5 +54,34 @@ test('with no day given it reads the calendar’s date, as before', async () => 
   const habits = asked.find((u) => u.pathname.endsWith('/habit_progress'));
   expect(habits.searchParams.get('occurred_day')).toBe('eq.2026-10-04');
   // 7pm on the Sunday is still ahead at 1:46am
-  expect(text).toContain('Still ahead: "Dinner with Jen" (19:00)');
+  expect(text).toContain('Still ahead: "Dinner with Mira" (19:00)');
+});
+
+test('what they did today counts by when it was done, whatever its status says', async () => {
+  jest.useFakeTimers().setSystemTime(Date.parse('2026-10-04T20:00:00Z'));
+  const asked = [];
+  jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+    const u = new URL(url);
+    asked.push(u);
+    const q = u.searchParams;
+    let rows = [];
+    // most done todos keep the status active; completed_at is what says they are done
+    if (u.pathname.endsWith('/todos') && q.get('completed_at'))
+      rows = [{ title: 'Post the parcel', completed_at: '2026-10-04T17:00:00Z' }];
+    if (u.pathname.endsWith('/todos') && q.get('created_at'))
+      rows = [
+        { title: 'Call the plumber', status: 'active', completed_at: '2026-10-04T18:00:00Z' },
+        { title: 'Buy stamps', status: 'active', completed_at: null },
+      ];
+    return { ok: true, json: async () => rows, text: async () => JSON.stringify(rows) };
+  });
+  const text = await buildTodayActivity('u1', TZ, ENV);
+
+  const done = asked.find(
+    (u) => u.pathname.endsWith('/todos') && u.searchParams.get('completed_at'),
+  );
+  expect(done.searchParams.get('status')).toBeNull();
+  expect(text).toContain('Completed today: "Post the parcel"');
+  expect(text).toContain('New today: "Buy stamps"');
+  expect(text).not.toContain('"Call the plumber"');
 });

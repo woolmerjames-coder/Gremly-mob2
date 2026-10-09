@@ -116,7 +116,6 @@
  * - Preset action support (break_down, research, think_through, whats_blocking, etc.)
  * - Sweep context support (times_moved, days_unscheduled, is_overdue)
  * - Save detection in responses (notes, checklists)
- * - Space promotion detection for complex tasks
  * - Streaming and non-streaming support
  *
  * v5.0 (2026-02-16):
@@ -164,11 +163,22 @@ import {
   getLifeMapForChat,
   lastUserText,
 } from './context/chatProjection.js';
-import { checkForCorrection } from './context/corrections.js';
+import { checkTurn } from './context/corrections.js';
+import { fetchPageDetail, pageAnchorFrom } from './context/pageDetail.js';
+import { rememberChapterNo } from './context/saidNo.js';
+import { judgeKeep } from './context/keep.js';
+import { guessChapter } from './context/chapterGuess.js';
 import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
+import {
+  titleReactionPrompt,
+  titleReactionUser,
+  reclassifyPrompt as reclassifySystemPrompt,
+  detailsPrompt,
+  runningSummaryPrompt,
+} from './minddropPrompts.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
 import { weekReadResponse } from './weekRead.js';
@@ -247,6 +257,9 @@ import {
   evidenceGrounded,
   NO_EXTRACTION_MODES,
 } from './chatPrompts.js';
+import { forgetPerson } from './context/forget.js';
+import { fileDrop, filingReply } from '../inngest-jobs/context/filing.js';
+import { invalidateChatCache } from '../shared/chatCache.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -2130,7 +2143,6 @@ async function getDailyFocusForChat(userId, env, timezone = 'UTC', day = null) {
     const dco = rows?.[0]?.dco;
     if (!dco) return null;
     return {
-      lifeMoment: dco.life_moment || null,
       briefHeadline: dco.brief_headline || null,
       namedAnchors: dco.named_anchors || [],
       todayFocus: dco.today_focus || [],
@@ -2182,7 +2194,6 @@ async function fetchPlannerProjection(userId, timezone, env) {
     if (dco) {
       if (dco.day_type) parts.push(`Day type: ${dco.day_type}`);
       if (dco.tone) parts.push(`Today's tone: ${dco.tone}`);
-      if (dco.life_moment) parts.push(`Life moment: ${dco.life_moment}`);
       // fix: lead_story was rendering as [object Object] — it is {domain, thread, detail, why_today}, not a string
       if (dco.lead_story) {
         const ls = dco.lead_story;
@@ -2283,6 +2294,30 @@ function truncateAtSentence(text, maxChars) {
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** The World or Chapter a chat is on, as checkTurn takes it, or null. */
+function pageScopeOf(body) {
+  const page = pageAnchorFrom(body?.anchorEntity);
+  return page ? { kind: page.type, id: page.id } : null;
+}
+
+/**
+ * The Save button under a reply worth keeping (Worlds rebuild, stage 2,
+ * context/keep.js), for an app build that can show it, in Ask Gremly, a
+ * World's or a Chapter's chat or the box on Worlds. Null when there is none.
+ */
+function keepCheck(env, body, userId, reply, card = false) {
+  if (!userId || body?.worldsCard !== true || body?.chatSurface === 'brief' || !reply)
+    return Promise.resolve(null);
+  return judgeKeep({
+    env,
+    userId,
+    message: lastUserText(body),
+    reply,
+    page: pageAnchorFrom(body?.anchorEntity),
+    card,
+  }).catch(() => null);
+}
+
 /**
  * One Ask Gremly message answered by the agent (agent/chat.js): status lines
  * while it works, then its reply and its card on the chat's stream, then what
@@ -2312,6 +2347,8 @@ async function answerWithAgent({
     preload,
     // their week, from an app build that can show the weekly review's button
     week: body.week && typeof body.week === 'object' ? body.week : null,
+    // their Worlds and Chapters, for an app build that can apply changes to them (Worlds rebuild, stage 2)
+    worlds: body.worldsCard === true,
     onStatus: (line) => {
       send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
     },
@@ -2326,12 +2363,16 @@ async function answerWithAgent({
   }
   const reply = turn.reply;
   const latency = Date.now() - t0;
+  // whether the reply is worth a Save button, read while it goes out
+  const keepP = keepCheck(env, body, userId, reply, (turn.card || []).length > 0);
   await send({ delta: reply, done: false });
+  const keep = await keepP;
   await send({
     done: true,
     full_content: reply,
     save_suggestion: null,
     entity_card: null,
+    ...(keep ? { keep } : {}),
     // the agent offers anything new on its card, so no Save items pill follows
     extraction: 'skipped',
     agent: {
@@ -2402,22 +2443,21 @@ async function answerWithAgent({
         ),
       );
     }
-    // when they say Gremly has something about their life wrong, the context
-    // pipeline applies it straight away; only this message is checked
-    const recent = [...said, { role: 'assistant', content: reply }].slice(-20);
-    ctx.waitUntil(
-      checkForCorrection({
-        conversationText: recent
-          .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
-          .join('\n\n'),
-        latest: said.filter((m) => m.role === 'user').at(-1)?.content,
-        chatId: body.chatId,
-        userId,
-        env,
-        surface: 'chat',
-      }).catch((e) => console.warn('[GeneralChat:Agent] Correction check failed:', e?.message)),
-    );
   }
+  // when they say Gremly has something about their life wrong, the context
+  // pipeline applies it straight away; every message is checked, once
+  checkTurn({
+    env,
+    ctx,
+    messages,
+    reply,
+    chatId: body.chatId,
+    userId,
+    surface: 'chat',
+    // a correction said in a World's or Chapter's own chat reaches that page's words
+    scope: pageScopeOf(body),
+    tag: 'GeneralChat:Agent',
+  });
   return true;
 }
 
@@ -2449,25 +2489,7 @@ async function generateRunningSummary(
     `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
   ].join('\n');
 
-  const priorContext = previousSummary
-    ? `\nPRIOR SUMMARY (build on this — preserve important context from earlier in the conversation, update with new developments):\n${previousSummary}`
-    : '';
-
-  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 3-6 sentences.${priorContext}
-
-Capture:
-- What was discussed or explored — cover ALL major topics, not just the most recent ones
-- Any decisions made, conclusions reached, or plans formed
-- Emotional tone or signals the user expressed
-- Open questions or unresolved threads
-- Specific names, dates, numbers, and actionable details mentioned
-
-CRITICAL: If a PRIOR SUMMARY exists, treat it as established fact about earlier parts of the conversation. Your job is to MERGE the prior summary with the new messages — preserving all key details from the prior summary while adding new developments. Never discard important context from the prior summary just because it's older. The final summary should cover the ENTIRE conversation arc.
-
-CONVERSATION (most recent messages):
-${turns}
-
-SUMMARY:`;
+  const prompt = runningSummaryPrompt({ today, spaceName, previousSummary, turns });
 
   try {
     const res = await helperFetch('running_summary', {
@@ -3377,6 +3399,11 @@ const cortexHandler = {
         'week-read',
         'week-spread',
         'notification-test',
+        'forget-me',
+        'chapter-memory',
+        'worlds-changed',
+        'chapter-said-no',
+        'chapter-guess',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -3401,7 +3428,12 @@ const cortexHandler = {
           return unauthorizedResponse();
         }
       }
-      setAiUsage({ userId: authenticatedUserId || body.userId || body.user_id || null });
+      // Open routes (drop classification and enrichment, filing) need no session,
+      // but the app sends one on them too. A valid one names the person in the
+      // usage log only, so cost per person counts drops. Nothing else reads it.
+      const usageUserId =
+        authenticatedUserId || (needsAuth ? null : await extractAuthenticatedUserId(request, env));
+      setAiUsage({ userId: usageUserId || body.userId || body.user_id || null });
 
       // =========================
       // Timezone resolution (single source of truth per request)
@@ -4074,7 +4106,6 @@ When you have enough to propose something concrete, propose it. When the convers
 === CONTEXT AWARENESS ===
 You receive context about the user's existing habits, life situation, and capacity. Use it naturally — don't dump all context at once, weave it in where relevant:
 - If they have many daily habits, lean toward suggesting weekly or 2-3x/week for the new one.
-- If they have a Space that matches the habit domain, mention it as a natural home for the habit.
 - If their life context is relevant (major transition, busy period, etc.), factor it into your suggestions.
 - If they have a habit that conflicts with or complements what they're building, reference it.
 
@@ -4190,6 +4221,14 @@ After the user confirms and locks in a habit, check the existing habits listed i
               // sent by app builds that know them
               briefUnread: body.brief_unread === true,
               toDecide: Number(body.to_decide) || 0,
+              // while Answer some Gremly questions shows (data fabric stage 4f)
+              questions:
+                body.questions_waiting && typeof body.questions_waiting === 'object'
+                  ? {
+                      count: Math.max(0, Math.min(99, Number(body.questions_waiting.count) || 0)),
+                      needs: Math.max(0, Math.min(99, Number(body.questions_waiting.needs) || 0)),
+                    }
+                  : null,
             }),
           });
 
@@ -4291,18 +4330,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
             .map((h) => {
               let desc = `- "${h.name}" (${h.subtype === 'break_habit' ? 'break' : 'build'})`;
               if (h.frequency) desc += ` — ${h.frequency}`;
-              if (h.space_name) desc += ` [${h.space_name}]`;
               return desc;
             })
             .join('\n');
           contextParts.push(`\n=== EXISTING HABITS ===\n${habitList}`);
         } else {
           contextParts.push('\n=== EXISTING HABITS ===\nNone yet — this is their first habit.');
-        }
-
-        if (context.spaces && context.spaces.length > 0) {
-          const spaceList = context.spaces.map((s) => `- "${s.name}"`).join('\n');
-          contextParts.push(`\n=== USER'S SPACES ===\n${spaceList}`);
         }
 
         if (context.prefill) {
@@ -4320,16 +4353,7 @@ After the user confirms and locks in a habit, check the existing habits listed i
         let preParse = null;
         try {
           const lifeMap = await getLifeMapForChat(authenticatedUserId, env);
-          const theirDay = await personNow(env, authenticatedUserId, userTimezone).catch(
-            () => null,
-          );
-          const dailyFocus = await getDailyFocusForChat(
-            authenticatedUserId,
-            env,
-            userTimezone,
-            theirDay?.today,
-          );
-          const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
+          const compressedLifeMap = compressLifeMapForHabits(lifeMap);
 
           preParse = await habitPreParse(
             lastUserMsg,
@@ -4810,7 +4834,6 @@ After the user confirms and locks in a habit, check the existing habits listed i
         if (entity.frequency) entityContextParts.push(`Frequency: ${entity.frequency}`);
         if (entity.time_estimate)
           entityContextParts.push(`Time estimate: ${entity.time_estimate} minutes`);
-        if (entity.space_name) entityContextParts.push(`Space: ${entity.space_name}`);
         if (entity.days_since_created !== undefined)
           entityContextParts.push(`Created: ${entity.days_since_created} days ago`);
         if (entity.times_swept)
@@ -5707,9 +5730,6 @@ Almost never suggest creating a Space. Only if ALL true:
                 // Use cleaned content (without suggestion block) for display
                 fullContent = cleanContent;
 
-                // Detect space promotion suggestion
-                const promotion = detectSpacePromotion(fullContent, messages.length);
-
                 const latency = Date.now() - t0;
                 // Strip SAVE comment and markdown images before sending to client
                 const displayContent = fullContent
@@ -5722,7 +5742,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   full_content: displayContent,
                   saveable,
                   save_suggestion,
-                  promotion,
                   latency_ms: latency,
                   sources: sources,
                   images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
@@ -5735,7 +5754,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   latency_ms: latency,
                   content_length: fullContent.length,
                   has_saveable: saveable?.detected,
-                  has_promotion: promotion?.suggested,
                   used_search: !!searchQuery,
                   images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
                 });
@@ -6045,14 +6063,10 @@ Almost never suggest creating a Space. Only if ALL true:
             .replace(/<!--SAVE:.*$/s, '')
             .trim();
 
-          // Detect space promotion suggestion
-          const promotion = detectSpacePromotion(content, messages.length);
-
           console.log('[EntityChat] Complete', {
             latency_ms: latency,
             content_length: content.length,
             has_saveable: saveable?.detected,
-            has_promotion: promotion?.suggested,
             used_search: !!searchQuery,
           });
 
@@ -6101,7 +6115,6 @@ Almost never suggest creating a Space. Only if ALL true:
             content,
             saveable,
             save_suggestion,
-            promotion,
             latency_ms: latency,
             sources,
             search_query: searchQuery,
@@ -6302,23 +6315,17 @@ Return ONLY valid JSON:
       }
 
       /**
-       * Compress Life Map + Daily Focus into a short context string for habit builder.
+       * Compress the Life Map into a short context string for habit builder.
        * Used by pre-parse (under 500 chars) and could be used by other lightweight contexts.
        *
        * Pulls:
-       * 1. Life moment from daily focus (NOT from Life Map — it doesn't have current_moment)
-       * 2. Active domain names from Life Map
-       * 3. High-importance active thread summaries (first sentence only)
+       * 1. Active domain names from Life Map
+       * 2. High-importance active thread summaries (first sentence only)
        */
-      function compressLifeMapForHabits(lifeMap, dailyFocus) {
+      function compressLifeMapForHabits(lifeMap) {
         const parts = [];
 
-        // 1. Life moment from daily focus
-        if (dailyFocus?.lifeMoment) {
-          parts.push(dailyFocus.lifeMoment);
-        }
-
-        // 2. Active domain names
+        // 1. Active domain names
         if (lifeMap?.domains) {
           const activeDomains = lifeMap.domains
             .filter((d) => d.attention !== 'background')
@@ -6327,7 +6334,7 @@ Return ONLY valid JSON:
             parts.push('Active domains: ' + activeDomains.join(', '));
           }
 
-          // 3. High-importance active thread summaries (first sentence only)
+          // 2. High-importance active thread summaries (first sentence only)
           const highThreads = [];
           for (const domain of lifeMap.domains) {
             if (domain.attention === 'background') continue;
@@ -6695,38 +6702,6 @@ Return ONLY valid JSON:
           type: isChecklist ? 'checklist' : 'note',
           checklist_items: checklistItems,
           has_save_suggestion: false,
-        };
-      }
-
-      // Helper: Detect space promotion suggestion
-      function detectSpacePromotion(content, messageCount) {
-        if (!content) return { suggested: false };
-
-        const lower = content.toLowerCase();
-
-        // Check if AI suggested a space
-        const spacePatterns = [
-          'create a space',
-          'set up a space',
-          'make a space',
-          'becoming a project',
-          'becoming a solid project',
-          'want me to set up a space',
-          'want me to create a space',
-        ];
-
-        const aiSuggested = spacePatterns.some((pattern) => lower.includes(pattern));
-
-        // Only surface promotion if AI explicitly suggested it
-        // Don't auto-suggest based on message count alone
-        if (!aiSuggested) {
-          return { suggested: false };
-        }
-
-        return {
-          suggested: true,
-          reason: 'AI detected this may work better as a Space with multiple tracked items.',
-          source: 'ai_suggested',
         };
       }
 
@@ -7597,6 +7572,21 @@ ${assistantMessage.substring(0, 2000)}
       }
 
       // =========================
+      // === FORGET EVERYTHING ===
+      // On What Gremly knows, after they said yes: Gremly forgets what he
+      // learned about the signed in person (context/forget.js).
+      // =========================
+      if (type === 'forget-me') {
+        try {
+          const forgotten = await forgetPerson(env, authenticatedUserId);
+          return j({ ok: true, forgotten });
+        } catch (err) {
+          console.error('[forget-me] failed:', err);
+          return j({ error: 'could not forget' }, 500);
+        }
+      }
+
+      // =========================
       // === NOT RIGHT (context pipeline) ===
       // The person marked something Gremly wrote about their life as wrong: a
       // line in the brief, a World or Chapter card, their story, an answer to
@@ -7631,10 +7621,65 @@ ${assistantMessage.substring(0, 2000)}
             target_id: typeof body.target_id === 'string' ? body.target_id.slice(0, 64) : null,
             // Not right sheet choice (wrong, changed, done, private); answers send surface 'question' and the question id.
             kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind) ? body.kind : null,
+            // Some of them on a tidy up: the facts they ticked, by id (data fabric stage 4f)
+            pick: Array.isArray(body.pick)
+              ? body.pick.filter((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 50)
+              : undefined,
           }),
         }).catch(() => null);
         if (!res?.ok) return j({ error: 'could not send the correction' }, 502);
         return j(await res.json().catch(() => ({ ok: true })));
+      }
+
+      // =========================
+      // === WORLDS AND CHAPTERS (data fabric stage 4b) ===
+      // chapter-memory: the Worlds build asks for a Chapter's memory as the
+      // person closes it, and shows what comes back.
+      // worlds-changed: the person renamed, moved, merged, closed or reopened
+      // a World or a Chapter, or changed its dates. Chat's cache is cleared
+      // here, so the next message knows, and fresh words are asked for.
+      // =========================
+      if (type === 'chapter-memory' || type === 'worlds-changed') {
+        const id = typeof body.id === 'string' && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : null;
+        const table = type === 'chapter-memory' ? 'chapters' : body.table;
+        if (!id || !['worlds', 'chapters'].includes(table))
+          return j({ error: 'id and table are required' }, 400);
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        if (type === 'worlds-changed') await invalidateChatCache(env, authenticatedUserId);
+        const res = await fetchInngestWorker(
+          env,
+          type === 'chapter-memory' ? '/api/chapter-memory' : '/api/words-fresh',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+            body: JSON.stringify(
+              type === 'chapter-memory'
+                ? { user_id: authenticatedUserId, chapter_id: id }
+                : { user_id: authenticatedUserId, table, id },
+            ),
+          },
+        ).catch(() => null);
+        if (!res) return j({ error: 'could not reach the pipeline' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : res.status);
+      }
+
+      // chapter-said-no: a Chapter Gremly offered in chat that they said no to
+      // (Worlds rebuild, stage 2), kept so it is never offered again
+      if (type === 'chapter-said-no') {
+        return j(await rememberChapterNo(env, authenticatedUserId, body.chapters));
+      }
+
+      // chapter-guess: Gremly fills in a Chapter started by hand from its one
+      // line (Worlds rebuild, stage 3); nothing is made until they start it
+      if (type === 'chapter-guess') {
+        return j(
+          await guessChapter(env, authenticatedUserId, {
+            line: body.line,
+            // their day, which the app sends; the guess falls back to today in UTC
+            today: body.today,
+          }),
+        );
       }
 
       // =========================
@@ -7780,6 +7825,8 @@ ${assistantMessage.substring(0, 2000)}
                 user_id: authenticatedUserId,
                 // the app's day; inngest-jobs takes it when it is a real day near the person's own
                 date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+                // the first day it plans from: tomorrow for a review opened in the evening
+                first: typeof body.first === 'string' ? body.first.slice(0, 10) : null,
               }),
             }).catch((err) => {
               console.error('[WeekRead] could not reach inngest-jobs', err?.message || err);
@@ -7815,6 +7862,8 @@ ${assistantMessage.substring(0, 2000)}
               body: JSON.stringify({
                 user_id: authenticatedUserId,
                 date: typeof body.date === 'string' ? body.date.slice(0, 10) : null,
+                // the first day being planned as the app's board has it
+                first: typeof body.first === 'string' ? body.first.slice(0, 10) : null,
                 // ids and days only; inngest-jobs reads it again and leaves out anything else
                 board: body.board && typeof body.board === 'object' ? body.board : null,
               }),
@@ -8980,88 +9029,7 @@ SELECTED BUCKET: ${selectedBucket || 'not specified'}
 SELECTED SUBTYPE: ${selectedSubtype || 'not specified'}
 CURRENT DATE: ${currentDate}`;
 
-        const reclassifyPrompt = `You finalize a productivity item after the user clarified their intent.
-
-=== BUCKET RULE ===
-
-If SELECTED BUCKET is provided (not "not specified"), use it exactly. Do not override the user's selection.
-The bucket in your output MUST match SELECTED BUCKET.
-If SELECTED SUBTYPE is provided, use it exactly for the subtype field.
-
-=== YOUR TASK ===
-
-The user dropped their original input and clarified by selecting an option.
-
-Generate:
-1. A smart title (3-7 words)
-2. A confirmation message (4-10 words)
-3. Date fields if applicable
-
-=== TITLE PRINCIPLES ===
-
-Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN or HOW OFTEN.
-
-1. Reflect user's actual words — don't invent actions or details not provided
-2. Strip temporal info — dates, times, time-of-day (morning, evening), days of week (these go in metadata)
-3. Strip frequency info — "daily", "3x/week", "every morning" (tracked separately for habits)
-4. Strip mood words — "stressed", "anxious", "excited" (captured as mood metadata for journals)
-5. No meta-language — don't start with "Reflect on", "Journal about", "Remember to", "Track"
-6. Preserve question framing for ideas/journals — the question IS the content
-7. Title case, 3-7 words
-
-=== CONFIRMATION MESSAGE (4-10 words) ===
-
-PERSONA: You're their upbeat, playful friend. You're genuinely happy they shared this and you react with warmth and a little humor. You don't do earnest speeches or therapize, but you're never dismissive either. You react like a friend who thinks what they're doing is cool — quick, fun, maybe a little cheeky.
-
-PROCESS — follow these two steps every time:
-1. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
-2. Pick an angle on that detail: a light observation, a playful consequence, a quick aside, or a question that shows you caught it. The angle should feel like it took you half a second to think of, not half an hour.
-
-TONE BY BUCKET:
-- TODOS: Playful. React to the real-world thing, not "the task."
-- HABITS: Playful belief. Root for the specific behavior, not the abstract concept of self-improvement.
-- JOURNALS: Shorthand empathy. Like a friend who gets it without turning it into A Moment.
-- IDEAS: Genuine curiosity about the specific idea.
-- GENERAL LOGS: React to the interesting detail. Name the specific thing.
-
-VOICE:
-- Texting a friend, not writing a greeting card
-- Short. Offhand. Like you dashed it off
-- No exclamation marks
-- Cheeky when there's an opening, warm when there isn't
-
-HARD BANS — never do these:
-- The "That [noun phrase] really [verb/adjective]" structure. This is therapist-speak.
-- The "[Gerund] [abstract noun] with [abstract noun]" structure. This is a motivational poster.
-- Restating or paraphrasing the title. If your reaction just says what the title already says in different words, you failed.
-- Therapy words: "valid", "stands out", "is familiar", "is important", "takes courage"
-- Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of", "got it"
-- Ending with ", huh?" or ", right?" — it's a crutch, not wit.
-
-THE TEST: Read your reaction back. Does it sound like something a real person would actually text? If it sounds like a notification, a therapist, or a poster on a dentist's wall — rewrite it.
-
-=== DATE HANDLING ===
-
-Only set dates that appear in the ORIGINAL INPUT. Never invent dates.
-
-If the original input contains a date:
-- target_date: When something IS or HAPPENS (event date, deadline, birthday)
-- scheduled_date: When the user will DO the action
-- date_type_ambiguous: true if you cannot determine which from the clarification
-
-If no date in input, all date fields are null.
-
-=== OUTPUT FORMAT (JSON) ===
-
-{
-  "bucket": "todo" | "habit" | "log",
-  "subtype": "journal" | "idea" | "general" | "event" | null,
-  "smart_title": "Title From Their Words",
-  "confirmation_message": "4-8 words max 50 chars",
-  "target_date": "YYYY-MM-DD" | null,
-  "scheduled_date": "YYYY-MM-DD" | null,
-  "date_type_ambiguous": boolean
-}`;
+        const reclassifyPrompt = reclassifySystemPrompt();
 
         const t0 = Date.now();
 
@@ -9789,133 +9757,12 @@ Rules:
           timeZone: userTimezone,
         }).format(new Date());
 
-        const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
-
-Today is ${currentDate} (${dayOfWeek}).
-
-=== SMART TITLE (2-8 words) ===
-
-Produce a clean, concise version of what the user actually said. The title should read like a thought the user would recognize as their own, not a label a system generated.
-
-Title principles:
-
-1. Preserve the user's phrasing. Start from their actual words and clean them up rather than extracting a subject label. The title should sound like something the user would have written in their own notes, not a category heading a system would generate.
-
-2. Title case. Capitalize the first letter of each significant word. Keep articles, prepositions, and conjunctions lowercase unless they are the first word.
-
-3. Sound natural. If the input is very short or reads like a command, rephrase it into how someone would naturally say it out loud. But NEVER add details, locations, people, reasons, or context the user did not include. You can restructure their words into a more natural phrase. You cannot invent information that was not in the input. If someone gives you two words, you can rephrase those two words more naturally but you cannot add a third concept they never mentioned.
-
-4. Strip temporal information. Dates, times, days of week, and scheduling words belong in metadata, not titles. They go stale.
-
-5. Strip frequency information. For habits, frequency is tracked separately. The title is just the activity.
-
-6. No meta-language. Don't start with "Remember to", "Need to", "Track", "Reflect on". The title is the thing itself.
-
-7. For journals, lead with what happened or what it's about. Not the act of journaling.
-
-8. Preserve question framing. If the input is a question, keep the question words. The question IS the content.
-
-9. No mood words in titles. Emotional descriptors are captured as mood metadata.
-
-=== CARD NOTE (4-8 words) ===
-
-A friend's quick take on what was dropped. This appears as a
-subtitle on the card in the user's list.
-
-Rules:
-- Same personality as the reaction: cheeky, warm, offhand
-- Written ABOUT the item, not to the user
-- Must reference something specific from the input
-- Must be DIFFERENT from both the title and the reaction
-- Sentence case. Capitalize first word and proper nouns only.
-- Never headline-style. Never a label or category.
-- Never inspirational or motivational
-- No task-management words
-
-=== REACTION (5-12 words, max 70 characters) ===
-
-WHAT THIS IS: You're Gremly, a small green creature who lives in a productivity app. When someone drops a thought, task, or idea into MindDrop, you react in a speech bubble above the input. React specifically to what the user said.
-
-PROCESS - follow these two steps every time:
-
-1. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
-2. React to that detail. A quick take, a playful observation, a one-liner that shows you caught what they said.
-
-TONE BY BUCKET:
-
-- TODOS: React to the real-world thing.
-- HABITS: Root for the specific behavior, not the abstract concept of self-improvement.
-- JOURNALS: Shorthand empathy. One sentence that shows you get it. Don't therapize.
-- IDEAS: Genuine curiosity about the specific idea. Ask a quick question or make an observation.
-- EVENTS: Acknowledge the thing happening.
-- GENERAL: React to whatever's interesting. Name the specific thing.
-
-VOICE:
-
-- Texting a friend, not writing a greeting card
-- Short and offhand — like you thought of it in half a second
-- One exclamation mark is fine when it fits. Zero is also fine. Never two.
-- Cheeky when there's an opening, warm when there isn't
-
-HARD BANS — never do these:
-
-- Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of"
-- Therapy-speak: "valid", "stands out", "is familiar", "is important", "takes courage"
-- The "That [noun] really [verb]" structure
-- "[Gerund] [abstract noun] with [abstract noun]"
-- Restating or paraphrasing the title in different words
-- Ending with ANY trailing filler word — "huh", "right", "yeah", "no", "eh", "tho", "though" — with or without commas, question marks, or periods. This applies regardless of punctuation.
-- Starting with "Ooh" or "Oh" — these are overused openers
-
-THE QUALITY TEST: Could this reaction ONLY be about this specific drop? If you could swap it onto a different drop and it would still make sense, it's too generic. Rewrite.
-
-VARIETY:
-You will sometimes receive a list of your recent reactions along with a structural summary. Use BOTH to avoid repetition:
-
-- Don't reuse the same sentence structures as recent reactions
-- If the structural summary shows three statements, try a question or exclamation
-- If endings are all nouns, try ending with a verb or adjective
-- Your job is to make each reaction feel like a fresh thought, not a template
-
-=== OUTPUT FORMAT ===
-
-Return ONLY valid JSON:
-
-{
-  "smart_title": "Title Case Title",
-  "card_note": "Warm Card Annotation",
-  "confirmation_message": "5-12 word reaction, max 70 chars"
-}`;
+        const phase15aSystemPrompt = titleReactionPrompt({ currentDate, dayOfWeek });
 
         const t0 = Date.now();
 
-        const userMessage = (() => {
-          let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
-          if (recentReactions.length > 0) {
-            // Classify each recent reaction's structure for variety guidance
-            const structures = recentReactions.map((r) => {
-              const trimmed = r.replace(/[.?!,]+$/, '').trim();
-              const isQuestion = r.endsWith('?');
-              const isExclamation = r.endsWith('!');
-              const lastWord = trimmed.split(/\s+/).pop() || '';
-              const endingType = /(?:ing|ed|es|s)$/i.test(lastWord)
-                ? 'verb'
-                : /ly$/i.test(lastWord)
-                  ? 'adverb'
-                  : 'noun';
-              const type = isQuestion ? 'question' : isExclamation ? 'exclamation' : 'statement';
-              return { type, endingType };
-            });
-
-            const typeList = structures.map((s) => s.type).join(', ');
-            const endingList = structures.map((s) => s.endingType).join(', ');
-
-            msg += `\n\nRECENT REACTIONS (do NOT reuse sentence structures, endings, or patterns):`;
-            msg += `\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
-            msg += `\nSTRUCTURAL SUMMARY: Last ${structures.length} types: ${typeList}. Last endings: ${endingList}.`;
-          }
-          return msg;
-        })();
+        // their recent reactions, so this one is built differently (minddropPrompts.js)
+        const userMessage = titleReactionUser({ text, bucket, subtype, recentReactions });
 
         const result = await aiClassify({
           mode: 'realtime',
@@ -10137,551 +9984,10 @@ Return ONLY valid JSON:
           userSelectedDate: body.userSelectedDate || null,
         });
 
-        // Helper: Generate dynamic date examples based on actual current date
-        function generateDateExamples(dateStr, todayDayName, timezone) {
-          const dayNames = [
-            'Sunday',
-            'Monday',
-            'Tuesday',
-            'Wednesday',
-            'Thursday',
-            'Friday',
-            'Saturday',
-          ];
-          const todayIndex = dayNames.findIndex(
-            (d) => d.toLowerCase() === todayDayName.toLowerCase(),
-          );
-          if (todayIndex === -1) {
-            console.log('[DateExamples:Error] Invalid day name', { todayDayName, todayIndex });
-            return '';
-          }
-
-          // Parse date string — use noon to avoid DST/timezone boundary shifts
-          const [year, month, day] = dateStr.split('-').map(Number);
-          const baseMs = new Date(year, month - 1, day, 12, 0, 0).getTime();
-
-          // Verify the parsed date matches the day of week
-          const parsedDayOfWeek = new Date(year, month - 1, day, 12, 0, 0).getDay();
-          if (parsedDayOfWeek !== todayIndex) {
-            console.log('[DateExamples:Mismatch]', {
-              dateStr,
-              todayDayName,
-              expectedDayIndex: todayIndex,
-              actualDayIndex: parsedDayOfWeek,
-              actualDayName: dayNames[parsedDayOfWeek],
-            });
-          }
-
-          // Generate examples for each day of the week, ordered Sunday-Saturday
-          const examples = [];
-          const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
-          for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-            const dayName = dayNames[dayIndex];
-            // Calculate days until this day from today
-            let daysUntil = dayIndex - todayIndex;
-            if (daysUntil <= 0) daysUntil += 7; // Same day or past = next week
-
-            const targetMs = baseMs + daysUntil * 86400000;
-            const targetDateStr = fmt.format(new Date(targetMs));
-
-            if (dayIndex === todayIndex) {
-              examples.push(
-                `- "${dayName}" = ${targetDateStr} (NEXT ${dayName}, 7 days from now - NOT today!)`,
-              );
-            } else if (daysUntil === 1) {
-              examples.push(`- "${dayName}" = ${targetDateStr} (tomorrow)`);
-            } else {
-              examples.push(`- "${dayName}" = ${targetDateStr} (in ${daysUntil} days)`);
-            }
-          }
-
-          console.log('[DateExamples:Generated]', {
-            inputDate: dateStr,
-            inputDayName: todayDayName,
-            todayIndex,
-            examples: examples.join(' | '),
-          });
-
-          // Verification log: check Friday is correct
-          const fridayIndex = 5;
-          let daysToFri = fridayIndex - todayIndex;
-          if (daysToFri <= 0) daysToFri += 7;
-          const fridayMs = baseMs + daysToFri * 86400000;
-          const computedFriday = fmt.format(new Date(fridayMs));
-          console.log('[DateExamples:Verify]', {
-            todayDate: dateStr,
-            computedFriday,
-            daysToFri,
-            timezone,
-          });
-
-          return examples.join('\n');
-        }
-
-        const dateExamples = generateDateExamples(currentDate, dayOfWeek, timezone);
-
-        const phase2Prompt = `You extract core, durable metadata for Gremly, a calm productivity app.
-Your goal is to capture only information that is intrinsic to the item.
-Do NOT include planning or scheduling logic.
-
-=== DATE CONTEXT ===
-Today is ${currentDate} (${dayOfWeek}).
-User timezone: ${timezone}.
-${
-  userSelectedDate
-    ? `
-=== USER-SELECTED DATE ===
-The user has explicitly chosen ${userSelectedDate} as the date for this item.
-Use ${userSelectedDate} as the target_date/scheduled_date UNLESS the input text explicitly mentions a DIFFERENT specific date.
-If the input contains NO date or time references, use ${userSelectedDate}.
-If the input says "today", still use ${currentDate}, not the selected date.
-`
-    : ''
-}
-=== DATE CALCULATION RULES ===
-You MUST calculate dates correctly. Do the math.
-
-**For "tomorrow":**
-- Add 1 day to today's date
-
-**For named days (Monday, Tuesday, etc.):**
-- Calculate the NEXT occurrence of that day
-- CRITICAL: If today IS that day, the next occurrence is 7 DAYS FROM NOW (next week)
-- Named days NEVER mean today - they always mean the NEXT future occurrence
-
-**TODAY IS ${dayOfWeek.toUpperCase()} (${currentDate}). Date mapping for this week:**
-${dateExamples}
-
-**CRITICAL RULES:**
-1. Do NOT return today's date unless the input explicitly says "today"
-2. If the named day matches today, add 7 days (next week)
-3. Named days ALWAYS refer to FUTURE dates, never today
-
-**Output format:** YYYY-MM-DD
-
-=== ITEM TYPE ===
-Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ''}
-
-=== EXTRACTION RULES ===
-If unsure, return null.
-Do NOT invent or over-infer.
-
---------------------------------
-FOR TODOS & BUILD HABITS (start_habit):
---------------------------------
-1. time_estimate_minutes
-Estimate in 5-minute increments from 5 to 240 minutes.
-Use factor-based reasoning, not category lookup.
-
-=== ESTIMATION FRAMEWORK ===
-
-Think through these factors for EVERY task:
-
-**FACTOR 1: What's the core action?**
-Estimate the minimum time if everything went perfectly.
-- Send a text: 1-2 min
-- Make a phone call: 10-15 min
-- Walk somewhere: depends on distance
-- Write something: depends on length/complexity
-- Physical task: depends on scope
-
-**FACTOR 2: Do I need to leave my current location?**
-- Staying put (home/desk): no addition
-- Leaving the house: +15-20 min minimum (getting ready, keys, shoes, return, settle back in)
-- Going somewhere specific: add realistic travel time (round trip)
-
-**FACTOR 3: Are other people or animals involved?**
-- Solo task: you control the pace
-- Another person: +10-15 min (coordination, waiting, social dynamics, conversations run long)
-- Animal (dog walk, vet): +10-15 min (unpredictability, their pace not yours)
-- Group/meeting: +15-20 min (gathering, small talk, herding cats)
-
-**FACTOR 4: Physical world or digital?**
-- Digital: more predictable, usually faster
-- Physical: more variables, more can go wrong, round UP
-
-**FACTOR 5: Is this bounded or open-ended?**
-- Bounded ("pay bill", "send email"): clearer end point, estimate tighter
-- Open-ended ("clean garage", "work on project"): no natural stopping point, estimate higher
-
-**FACTOR 6: What commonly goes wrong?**
-- Can't find something: +5-10 min
-- Technical issues: +5-10 min
-- Waiting (on hold, in line): +10-15 min
-- Unexpected conversation: +10 min
-
-=== THE PROCESS ===
-
-1. Identify the core action and base time
-2. Apply each relevant factor
-3. Add up the total
-4. Round UP to nearest 5 minutes
-5. When uncertain between two estimates, choose the higher one
-
-=== EXAMPLES WITH REASONING ===
-
-**"Walk Bella" (dog walk)**
-- Core: walking (20-25 min)
-- Leave house: yes (+10 min prep/return)
-- Animal involved: yes (+10 min for sniffing, unpredictability)
-- Physical: yes (round up)
-→ Total: 40-45 min → **45 min**
-
-**"Call mom"**
-- Core: phone conversation (15 min)
-- Leave house: no
-- Other person: yes (+15 min, mom calls run long)
-- Digital: yes
-→ Total: 30 min → **30 min**
-
-**"Buy groceries"**
-- Core: shopping (20 min in store)
-- Leave house: yes (+10 min)
-- Travel: yes (+20 min round trip)
-- Physical: yes (round up)
-- Can go wrong: lines, can't find items (+10 min)
-→ Total: 60 min → **60 min**
-
-**"Pay electric bill"**
-- Core: online payment (3-5 min)
-- Leave house: no
-- Solo: yes
-- Digital: yes
-- Bounded: yes
-→ Total: 5-10 min → **10 min**
-
-**"Dentist appointment"**
-- Core: appointment (30-45 min)
-- Leave house: yes (+10 min)
-- Travel: yes (+30 min round trip)
-- Other people: yes (waiting room +15 min)
-- Physical: yes
-→ Total: 85-100 min → **90 min**
-
-**"Write quarterly report"**
-- Core: writing/analysis (60-90 min)
-- Leave house: no
-- Solo: yes
-- Digital: yes
-- Open-ended: somewhat (scope can expand)
-- Deep focus required: yes (add buffer for getting into flow)
-→ Total: 90-120 min → **90 min** (or 120 if complex)
-
-**"Text Sarah about dinner"**
-- Core: typing a message (1-2 min)
-- Everything else: no
-→ Total: 5 min → **5 min**
-
-=== RANGE ANCHORS ===
-
-- Minimum: 5 min (truly instant digital tasks)
-- Maximum: 240 min (4 hours, major project blocks)
-- Most common range: 15-60 min
-
-=== CRITICAL RULES ===
-
-- ALWAYS round UP, never down
-- When uncertain, choose the higher estimate
-- "Quick" tasks that involve leaving the house are never under 30 min
-- Tasks involving other people are rarely under 20 min
-- If the user specifies a duration ("30 min run"), honor their estimate
-- Don't be afraid to estimate 45, 50, 55 min — use the full range
-
-NOTE: If the subtype is "break_habit", SKIP time estimation entirely — return time_estimate_minutes: null. Break habits are about NOT doing something, so they don't have a duration.
-
-2. time_window
-Only if explicitly mentioned:
-"morning" | "day" | "evening" | null
-
-3. energy_type
-Choose ONE (strict enum):
-- deep_focus (thinking, writing, coding, planning, creating, designing)
-- administrative (email, forms, scheduling, logistics, booking, paying)
-- physical (exercise, errands, movement, cleaning, walking, running)
-- social (calls, meetings, conversations, interviews)
-- quick (very small tasks under 10 min, low cognitive effort)
-
-Default to "administrative" if unclear.
-
-4. priority_kind (TODOS ONLY)
-Classify the todo's state as ONE of:
-- action: a concrete undone task where the user is the blocker; they could do it now if they chose to.
-- blocker: the task cannot proceed because of an external dependency such as waiting on a specific person to respond, an approval to land, an external system to deliver, or a delivery to arrive. There is typically "waiting on" language.
-- waiting: a milder form of blocker where the user is passively awaiting something but could still work around it; distinct from blocker which implies a hard stop.
-- decision: a choice the user has to make that has not yet been made.
-- momentum: a todo that represents ongoing forward motion rather than a single discrete task.
-
-CRITICAL RULES:
-- Emotional language in the text such as stuck, frustrated, overwhelmed, or scattered does NOT qualify a todo as blocker. Those are emotional signals attached to the drop, not task-state flags.
-- When uncertain between action and blocker, choose action.
-- When uncertain between action and momentum, choose action.
-- Only return blocker when there is explicit evidence of an external dependency.
-
---------------------------------
-DATE INTELLIGENCE (TODOS ONLY):
---------------------------------
-
-Dates in user input can mean TWO different things:
-
-**TARGET DATE** — When something IS or is DUE (external, immovable)
-- Deadlines: "due April 15", "by Friday", "before the 10th", "before EOW", "by end of week"
-- Events: "dentist Tuesday 2pm", "wedding June 15", "mom's birthday March 5"
-- Expiration: "passport expires June", "lease ends March 1"
-
-Signals: "due", "by", "before", "deadline", "expires", "is on", "appointment", "EOW", "EOM", "end of week", "end of month"
-
-**SCHEDULED DATE** — When user plans to DO the work (internal, movable)
-- Action + time: "call mom tomorrow", "go to gym Monday"
-- Planning: "work on taxes Saturday", "start running next week"
-- Intent: "do this tonight", "handle it tomorrow morning"
-
-Signals: Action verb + time reference, "do", "work on", "handle", "start"
-
-**CRITICAL: Deadline language OVERRIDES action pattern.**
-If the time reference includes "before", "by", "due", "until", "EOW", "EOM" — it's a DEADLINE (target_date), NOT a scheduled_date.
-- "book flights before EOW" → target_date only (deadline), scheduled_date: null
-- "finish report by Friday" → target_date only (deadline), scheduled_date: null
-- "call mom tomorrow" → scheduled_date only (no deadline language)
-
-**AMBIGUOUS** — Could be either (flag for clarification)
-- "dentist Tuesday" — appointment they have? or need to book?
-- "passport June" — trip date? or expiration?
-- Noun + date with no context
-
-**RULES:**
-1. If clear deadline language → target_date only
-2. If clear action + time → scheduled_date only  
-3. If both exist → set both (e.g., "work on taxes Saturday, due April 15")
-4. If ambiguous → set target_date (safer default) and flag date_type_ambiguous
-
-**OUTPUT FIELDS:**
-- target_date: YYYY-MM-DD or null (when something IS or is DUE)
-- scheduled_date: YYYY-MM-DD or null (when user will DO the work)
-- date_type_ambiguous: boolean (true if unclear which type)
-
-**EXAMPLES:**
-
-"taxes due April 15" → target_date: "2026-04-15", scheduled_date: null
-"call mom tomorrow" → target_date: null, scheduled_date: "2026-01-28"
-"dentist Tuesday 2pm" → target_date: "2026-02-03", scheduled_date: null (appointment)
-"work on report, due Friday" → target_date: "2026-01-31", scheduled_date: null (can add scheduled later)
-"go to gym Monday" → target_date: null, scheduled_date: "2026-02-03"
-"passport June" → target_date: "2026-06-01", date_type_ambiguous: true
-"book flights before EOW" → target_date: end of current week (e.g., "2026-01-31" if today is Tue), scheduled_date: null
-"finish report by end of week" → target_date: Friday of current week, scheduled_date: null
-"submit by EOM" → target_date: last day of current month, scheduled_date: null
-
-**EVENT + SCHEDULING ACTION (both dates exist):**
-When input mentions WHEN something IS and WHEN to DO something about it:
-- "Haircut appointment is Tuesday, book tomorrow" →
-  - target_date: next Tuesday (when appointment IS)
-  - scheduled_date: tomorrow (when to BOOK it)
-- "Meeting is Friday, prep Thursday" →
-  - target_date: Friday (when meeting IS)
-  - scheduled_date: Thursday (when to PREP)
-- "Conference in June, register by March 1" →
-  - target_date: June (when conference IS)
-  - scheduled_date: March 1 (when to REGISTER)
-
-CRITICAL: These are TWO DIFFERENT dates. Extract BOTH correctly.
-
---------------------------------
-FOR HABITS ONLY:
---------------------------------
-4. extracted_frequency
-Examples: daily, 2x/week, 3x/week, weekly
-
-5. extracted_days
-Array of numbers if mentioned (0=Sun … 6=Sat), else null
-
-6. extracted_start_date
-YYYY-MM-DD if mentioned, else null
-
---------------------------------
-FOR LOGS (EVENT SUBTYPE):
---------------------------------
-
-**EVENT-SPECIFIC EXTRACTION:**
-
-When subtype is "event", extract clean event information.
-
-1. smart_title
-Create a clean, concise event name by REMOVING dates and times from the title.
-- "QBR with London team on Feb 12" → "QBR with London Team"
-- "dentist appointment tuesday 2pm" → "Dentist Appointment"
-- "company offsite feb 20-22" → "Company Offsite"
-- "Sarah's wedding June 15" → "Sarah's Wedding"
-- "team lunch friday noon" → "Team Lunch"
-
-Rules:
-- Title case the result
-- Strip all date/time references from the title itself
-- Keep location and people references
-- Keep the essence of what the event IS
-
-2. target_date (event start date)
-Extract the event date in YYYY-MM-DD format.
-- "feb 12" → "2026-02-12" (assume current year if not specified)
-- "next tuesday" → resolve to actual date using date calculation rules above
-- "march 10th" → "2026-03-10"
-- "on the 15th" → current or next month's 15th
-- If no date mentioned but a USER-SELECTED DATE was provided in the date context above → use that date
-- If no date mentioned and no user-selected date → null
-
-3. end_date (for multi-day events)
-Extract end date in YYYY-MM-DD format for multi-day events.
-- "feb 20-22" → end_date: "2026-02-22"
-- "monday through wednesday" → resolve both dates
-- "conference june 10-12" → end_date: "2026-06-12"
-- If single day or no range mentioned → null
-
-4. event_time
-Extract time if mentioned, in HH:mm format (24-hour).
-- "at 2pm" → "14:00"
-- "morning meeting" → "09:00"
-- "lunch at noon" → "12:00"
-- "dinner at 7" → "19:00"
-- "10:30am" → "10:30"
-- If no time mentioned → null
-
---------------------------------
-FOR LOGS (OTHER SUBTYPES):
---------------------------------
-
-**DATE EXTRACTION FOR LOGS:**
-
-Logs can contain dates that represent EVENTS or REFERENCE INFORMATION.
-ALWAYS extract dates when present, regardless of log subtype.
-
-When the input describes an event, appointment, or scheduled occurrence:
-- Extract the date as target_date
-- Extract time if mentioned as event_time
-
-Signals to extract dates for logs:
-- Existence verbs + date: "is Tuesday", "is on March 5", "is next week"
-- Status updates: "moved to Thursday", "scheduled for Friday"
-- Event references: "appointment", "meeting", "birthday", "trip"
-
-Examples:
-- "Dentist appointment is Tuesday" → target_date: next Tuesday's date
-- "Mom's birthday March 5" → target_date: "YYYY-03-05"
-- "Meeting moved to Thursday 2pm" → target_date: next Thursday, event_time: "14:00"
-- "Conference in June" → target_date: "YYYY-06-01"
-
-Named days (Monday, Tuesday, etc.) → calculate next occurrence from current date.
-
-IMPORTANT: Do NOT skip date extraction just because bucket is "log".
-If a date is mentioned, extract it.
-
-7. mood (JOURNAL ONLY)
-Choose up to 3:
-great, good, okay, low, tired,
-anxious, overwhelmed, frustrated,
-scattered, grateful, hopeful,
-focused, calm
-
-8. target_date (ALL LOG SUBTYPES)
-Extract ANY date mentioned, in YYYY-MM-DD format.
-This is when an event IS or HAPPENS — reference information.
-If no date mentioned but a USER-SELECTED DATE was provided in the date context above → use that date.
-If no date mentioned and no user-selected date → null.
-
-9. event_time (ALL LOG SUBTYPES)
-Extract time if mentioned, in HH:mm format (24-hour).
-
---------------------------------
-TAGS (ALL TYPES):
---------------------------------
-8. tags
-- 2–4 lowercase, hyphenated
-- Category + topic
-- No filler words
-- No people names (people go in the people array instead)
-
---------------------------------
-PEOPLE EXTRACTION:
---------------------------------
-9. people
-Extract names of people mentioned in the text. Include:
-- Explicit names: "John", "Sarah", "Dr. Smith", "Dave"
-- Relationship words: "mom", "dad", "sister", "brother", "boss", "wife", "husband"
-- Possessive patterns: 
-  - "Dave's birthday" → extract "Dave"
-  - "dad's anniversary" → extract "dad"
-  - "mom's birthday" → extract "mom"
-  - "Sarah's wedding" → extract "Sarah"
-- Referenced people: "the one Sarah recommended" → extract "Sarah"
-- Birthday/event context: "birthday April 27" with name in context → extract that name
-
-Return as array of strings, max 10 people.
-
-=== OUTPUT ===
-Return ONLY valid JSON.
-
-For TODOS:
-{
-  "tags": ["tag1", "tag2"],
-  "time_estimate_minutes": number | null,
-  "time_window": "morning" | "day" | "evening" | null,
-  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
-  "priority_kind": "action" | "blocker" | "waiting" | "decision" | "momentum",
-  "target_date": "YYYY-MM-DD" | null,
-  "scheduled_date": "YYYY-MM-DD" | null,
-  "date_type_ambiguous": boolean,
-  "people": ["name1", "name2"] | []
-}
-
-For HABITS (start_habit / build):
-{
-  "tags": ["tag1", "tag2"],
-  "time_estimate_minutes": number | null,
-  "time_window": "morning" | "day" | "evening" | null,
-  "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
-  "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
-  "extracted_days": [0, 1, 2] | null,
-  "extracted_start_date": "YYYY-MM-DD" | null,
-  "people": ["name1", "name2"] | []
-}
-
-For HABITS (break_habit):
-{
-  "tags": ["tag1", "tag2"],
-  "time_window": "morning" | "day" | "evening" | null,
-  "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
-  "extracted_days": [0, 1, 2] | null,
-  "extracted_start_date": "YYYY-MM-DD" | null,
-  "people": ["name1", "name2"] | []
-}
-
-For LOGS (journal):
-{
-  "tags": ["tag1", "tag2"],
-  "mood": ["anxious", "grateful"] | null,
-  "target_date": "YYYY-MM-DD" | null,
-  "event_time": "HH:mm" | null,
-  "people": ["name1", "name2"] | []
-}
-
-For LOGS (idea/general):
-{
-  "tags": ["tag1", "tag2"],
-  "target_date": "YYYY-MM-DD" | null,
-  "event_time": "HH:mm" | null,
-  "people": ["name1", "name2"] | []
-}
-
-For LOGS (event):
-{
-  "smart_title": "Clean Event Name",
-  "tags": ["tag1", "tag2"],
-  "target_date": "YYYY-MM-DD" | null,
-  "end_date": "YYYY-MM-DD" | null,
-  "event_time": "HH:mm" | null,
-  "people": ["name1", "name2"] | []
-}`;
+        const phase2Prompt = detailsPrompt({ currentDate, dayOfWeek, timezone, userSelectedDate, bucket, subtype });
 
         console.log('[Phase2:PromptCheck]', {
-          hasUserSelectedDateBlock: phase2Prompt.includes('USER-SELECTED DATE'),
+          hasUserSelectedDateBlock: Boolean(userSelectedDate),
           userSelectedDate: userSelectedDate,
           promptLength: phase2Prompt.length,
         });
@@ -11059,16 +10365,19 @@ Return ONLY valid JSON, no explanation:
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
-      // ASSIGN WORLDS (Phase 3.2) - Link a drop to Worlds, Chapters, Life Contexts
+      // ASSIGN WORLDS: file a new drop into a World or Chapter
       // ═══════════════════════════════════════════════════════════════════════════
       //
-      // Structured-output path: json_object mode (responseFormat: 'json').
-      // aiClassify does not support json_schema / OpenAI structured outputs.
-      // Output shape is described in the system prompt via prose only.
+      // Filing runs by one set of rules for every drop (data fabric stage 4a,
+      // workers/inngest-jobs/context/filing.js, shared with the backfill): a
+      // Chapter only when Gremly is sure, otherwise the World, otherwise
+      // nowhere; never over what the person placed themselves.
       //
       // Trigger: POST / with { type: 'assign-worlds', entity_id, entity_type, text, ... }
       // Auth: JWT required (authenticatedUserId from Bearer token)
       // Rate limit: 60/min under tag 'assign-worlds'
+      // Reply: the old counts (world_links, chapter_links, context_links) for
+      // older app builds, and filed: { by, world, chapter, starts_something }.
       // ═══════════════════════════════════════════════════════════════════════════
 
       if (type === 'assign-worlds') {
@@ -11102,357 +10411,58 @@ Return ONLY valid JSON, no explanation:
           });
         }
 
-        const text = rawText.substring(0, 4000);
-        const uid = authenticatedUserId;
-
-        const supabaseHeaders = {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
+        const drop = {
+          id: entityId,
+          entity_type: entityType,
+          text: rawText.substring(0, 4000),
+          title: typeof body.smart_title === 'string' ? body.smart_title.slice(0, 200) : null,
+          date:
+            typeof body.extracted_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.extracted_date)
+              ? body.extracted_date.slice(0, 10)
+              : null,
+          tags: Array.isArray(body.tags) ? body.tags.filter((t) => typeof t === 'string') : [],
+          people: Array.isArray(body.people) ? body.people.filter((t) => typeof t === 'string') : [],
         };
-
-        // Load active graph in parallel
-        let worlds = [];
-        let chapters = [];
-        let lifeContexts = [];
-        let userPinnedWorldIds = new Set();
-
-        try {
-          const [worldsRes, chaptersRes, ctxRes] = await Promise.all([
-            fetch(
-              `${env.SUPABASE_URL}/rest/v1/worlds?owner_id=eq.${uid}&phase=in.(candidate,active,evolving)&select=id,name,description`,
-              { headers: supabaseHeaders },
-            ),
-            fetch(
-              `${env.SUPABASE_URL}/rest/v1/chapters?owner_id=eq.${uid}&phase=in.(suggested,upcoming,active,closed)&select=id,title,description,primary_world_id,phase,start_date,end_date`,
-              { headers: supabaseHeaders },
-            ),
-            fetch(
-              `${env.SUPABASE_URL}/rest/v1/life_contexts?owner_id=eq.${uid}&active=is.true&select=id,name,kind,description`,
-              { headers: supabaseHeaders },
-            ),
-          ]);
-
-          if (!worldsRes.ok || !chaptersRes.ok || !ctxRes.ok) {
-            throw new Error('graph_load_failed');
-          }
-
-          [worlds, chapters, lifeContexts] = await Promise.all([
-            worldsRes.json(),
-            chaptersRes.json(),
-            ctxRes.json(),
-          ]);
-        } catch (err) {
-          console.log('[AssignWorlds] Graph load failed', {
-            error: err.message,
-            uid: uid.slice(0, 8),
-          });
-          return j({
-            world_links: 0,
-            chapter_links: 0,
-            context_links: 0,
-            reason: null,
-            skipped: true,
-            skipped_reason: 'graph_load_failed',
-          });
-        }
-
-        // Fetch user-pinned world assignments for this entity (fail-open on error)
-        try {
-          const userLinksRes = await fetch(
-            `${env.SUPABASE_URL}/rest/v1/drop_world_links?drop_id=eq.${entityId}&drop_type=eq.${entityType}&assigned_by=eq.user&select=world_id`,
-            { headers: supabaseHeaders },
-          );
-          if (userLinksRes.ok) {
-            const userLinks = await userLinksRes.json();
-            userPinnedWorldIds = new Set(
-              (Array.isArray(userLinks) ? userLinks : []).map((r) => r.world_id),
-            );
-          }
-        } catch (err) {
-          console.log('[AssignWorlds] User-pinned worlds fetch failed (fail-open)', {
-            error: err.message,
-          });
-        }
-
-        // Short-circuit if graph is empty
-        if (worlds.length === 0 && chapters.length === 0 && lifeContexts.length === 0) {
-          return j({
-            world_links: 0,
-            chapter_links: 0,
-            context_links: 0,
-            reason: null,
-            skipped: true,
-            skipped_reason: 'empty_graph',
-          });
-        }
-
-        // Build prompts
-        const assignWorldsSystemPrompt = `You assign a single Gremly drop to the user's existing graph of Worlds, Chapters, and Life Contexts.
-
-A World is a long-lived identity area in the user's life, a domain where the user reflects, plans, builds habits, or engages over time.
-
-A Chapter is a bounded arc within one or more Worlds, with a defined start and sometimes an end.
-
-A Life Context is a structural part of the user's life that constrains or shapes how they spend time, but is not itself a growth area.
-
-Your only job is to decide which of the user's existing Worlds, Chapters, and Life Contexts this drop belongs to, and with what confidence. You never propose new entities. You assign only to entities present in the provided lists.
-
-A drop may belong to zero, one, or many Worlds. The same applies to Chapters and Life Contexts. Multi-label is normal and expected.
-
-A drop belongs to a World when its content is semantically a signal about that World's identity area.
-
-A drop belongs to a Chapter when its content is semantically about the chapter's subject matter. If the chapter has a start_date and end_date, weigh whether the drop's effective date sits within or near that window. Closed chapters may still receive drops when the drop is retroactively about the chapter's arc.
-
-A drop belongs to a Life Context when its content is a signal that occurred within that constraint, rather than being an expression of growth inside it.
-
-Relevance score is a continuous value between 0 and 1 representing your confidence that the drop is genuinely about that entity. Use higher scores for clear, primary relevance and lower scores for tangential relevance. Do not emit a link at all when your confidence is below 0.3.
-
-Empty arrays are valid output. When the drop does not fit any existing entity, produce an output with all link arrays empty. Do not force a drop into the nearest available entity.
-
-You never propose new Worlds, Chapters, or Life Contexts. You assign only to entities that appear in the provided lists.
-
-Provide one short sentence describing your overall judgement for this drop.
-
-Never propose structural changes (rename, merge, split, emerge, absorb, close) to any World, Chapter, or Life Context where the source field equals user. You may still assign drops to them.
-
-Respond with a single JSON object containing exactly these four fields. world_links is an array of objects, each with a world_id string and a relevance_score number between 0 and 1. chapter_links is an array of objects, each with a chapter_id string and a relevance_score number between 0 and 1. context_links is an array of objects, each with a context_id string and a relevance_score number between 0 and 1. reason is a string containing your one-sentence judgement. Return only the JSON object with no surrounding text or markdown fences.`;
-
-        // Build the drop payload from only the fields that were provided
-        const dropPayload = { text, entity_type: entityType };
-        if (body.bucket) dropPayload.bucket = body.bucket;
-        if (body.subtype) dropPayload.subtype = body.subtype;
-        if (body.smart_title) dropPayload.smart_title = body.smart_title;
-        if (Array.isArray(body.tags) && body.tags.length > 0) dropPayload.tags = body.tags;
-        if (Array.isArray(body.people) && body.people.length > 0) dropPayload.people = body.people;
-        if (body.extracted_date) dropPayload.extracted_date = body.extracted_date;
-
-        const userPrompt = [
-          'drop:',
-          JSON.stringify(dropPayload),
-          '',
-          'active_worlds:',
-          JSON.stringify(
-            worlds.map((w) => ({ id: w.id, name: w.name, description: w.description })),
-          ),
-          '',
-          'active_chapters:',
-          JSON.stringify(
-            chapters.map((c) => ({
-              id: c.id,
-              title: c.title,
-              description: c.description,
-              primary_world_id: c.primary_world_id,
-              phase: c.phase,
-              start_date: c.start_date,
-              end_date: c.end_date,
-            })),
-          ),
-          '',
-          'active_life_contexts:',
-          JSON.stringify(
-            lifeContexts.map((lc) => ({
-              id: lc.id,
-              name: lc.name,
-              kind: lc.kind,
-              description: lc.description,
-            })),
-          ),
-        ].join('\n');
 
         const t0 = Date.now();
-
-        const result = await aiClassify({
-          mode: 'realtime',
-          ...getProviders('mini', env),
-          env,
-          systemPrompt: assignWorldsSystemPrompt,
-          messages: [{ role: 'user', content: userPrompt }],
-          temperature: 0.1,
-          maxOutputTokens: 500,
-          responseFormat: 'json',
-          endpoint: 'assign-worlds',
-        });
-
-        const latency = Date.now() - t0;
-
-        if (!result.parsed) {
-          console.log('[AssignWorlds] Parse failure', {
-            latency_ms: latency,
-            uid: uid.slice(0, 8),
-          });
-          return j({
-            world_links: 0,
-            chapter_links: 0,
-            context_links: 0,
-            reason: null,
-            skipped: true,
-            skipped_reason: 'parse_failure',
-          });
-        }
-
-        const parsed = result.parsed;
-
-        // Validate and filter output
-        const validWorldIds = new Set(worlds.map((w) => w.id));
-        const validChapterIds = new Set(chapters.map((c) => c.id));
-        const validContextIds = new Set(lifeContexts.map((lc) => lc.id));
-
-        const rawWorldLinks = Array.isArray(parsed.world_links) ? parsed.world_links : [];
-        const rawChapterLinks = Array.isArray(parsed.chapter_links) ? parsed.chapter_links : [];
-        const rawContextLinks = Array.isArray(parsed.context_links) ? parsed.context_links : [];
-
-        function isValidScore(s) {
-          return typeof s === 'number' && isFinite(s) && s >= 0 && s <= 1;
-        }
-
-        const validWorldLinks = rawWorldLinks.filter(
-          (l) => validWorldIds.has(l.world_id) && isValidScore(l.relevance_score),
-        );
-        // Exclude user-pinned worlds — classifier must not overwrite assigned_by='user' rows
-        const classifierWorldLinks = validWorldLinks.filter(
-          (l) => !userPinnedWorldIds.has(l.world_id),
-        );
-        const validChapterLinks = rawChapterLinks.filter(
-          (l) => validChapterIds.has(l.chapter_id) && isValidScore(l.relevance_score),
-        );
-        const validContextLinks = rawContextLinks.filter(
-          (l) => validContextIds.has(l.context_id) && isValidScore(l.relevance_score),
-        );
-
-        const discarded =
-          rawWorldLinks.length -
-          validWorldLinks.length +
-          (rawChapterLinks.length - validChapterLinks.length) +
-          (rawContextLinks.length - validContextLinks.length);
-        if (discarded > 0) {
-          console.log('[AssignWorlds] Discarded invalid links', {
-            discarded,
-            uid: uid.slice(0, 8),
-          });
-        }
-
-        const reasonRaw = typeof parsed.reason === 'string' ? parsed.reason : null;
-        const reason = reasonRaw ? reasonRaw.substring(0, 500) : null;
-
-        // Upsert to each link table independently
-        const upsertHeaders = {
-          ...supabaseHeaders,
-          Prefer: 'resolution=merge-duplicates,return=minimal',
-        };
-
-        let upsertedWorlds = 0;
-        let upsertedChapters = 0;
-        let upsertedContexts = 0;
-
-        if (classifierWorldLinks.length > 0) {
-          try {
-            const rows = classifierWorldLinks.map((l) => ({
-              drop_id: entityId,
-              drop_type: entityType,
-              world_id: l.world_id,
-              owner_id: uid,
-              relevance_score: l.relevance_score,
-              assigned_by: 'classifier',
-              reason,
-            }));
-            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_world_links`, {
-              method: 'POST',
-              headers: upsertHeaders,
-              body: JSON.stringify(rows),
-            });
-            if (res.ok) {
-              upsertedWorlds = rows.length;
-            } else {
-              const errText = await res.text().catch(() => '');
-              console.log('[AssignWorlds] drop_world_links upsert failed', {
-                status: res.status,
-                error: errText.substring(0, 200),
-              });
-            }
-          } catch (err) {
-            console.log('[AssignWorlds] drop_world_links upsert error', { error: err.message });
-          }
-        }
-
-        if (validChapterLinks.length > 0) {
-          try {
-            const rows = validChapterLinks.map((l) => ({
-              drop_id: entityId,
-              drop_type: entityType,
-              chapter_id: l.chapter_id,
-              owner_id: uid,
-              relevance_score: l.relevance_score,
-              assigned_by: 'classifier',
-              reason,
-            }));
-            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_chapter_links`, {
-              method: 'POST',
-              headers: upsertHeaders,
-              body: JSON.stringify(rows),
-            });
-            if (res.ok) {
-              upsertedChapters = rows.length;
-            } else {
-              const errText = await res.text().catch(() => '');
-              console.log('[AssignWorlds] drop_chapter_links upsert failed', {
-                status: res.status,
-                error: errText.substring(0, 200),
-              });
-            }
-          } catch (err) {
-            console.log('[AssignWorlds] drop_chapter_links upsert error', { error: err.message });
-          }
-        }
-
-        if (validContextLinks.length > 0) {
-          try {
-            const rows = validContextLinks.map((l) => ({
-              drop_id: entityId,
-              drop_type: entityType,
-              context_id: l.context_id,
-              owner_id: uid,
-              relevance_score: l.relevance_score,
-              assigned_by: 'classifier',
-              reason,
-            }));
-            const res = await fetch(`${env.SUPABASE_URL}/rest/v1/drop_context_links`, {
-              method: 'POST',
-              headers: upsertHeaders,
-              body: JSON.stringify(rows),
-            });
-            if (res.ok) {
-              upsertedContexts = rows.length;
-            } else {
-              const errText = await res.text().catch(() => '');
-              console.log('[AssignWorlds] drop_context_links upsert failed', {
-                status: res.status,
-                error: errText.substring(0, 200),
-              });
-            }
-          } catch (err) {
-            console.log('[AssignWorlds] drop_context_links upsert error', { error: err.message });
-          }
-        }
+        // the pipeline's model calls read the Google key by its pipeline name
+        const filingEnv = { ...env, GEMINI_API_KEY: env.GEMINI_API_KEY || env.GOOGLE_API_KEY };
+        const filed = await fileDrop(filingEnv, { userId: authenticatedUserId, drop });
 
         console.log('[AssignWorlds]', {
           entity_id: entityId.slice(0, 8),
           entity_type: entityType,
-          world_links: upsertedWorlds,
-          chapter_links: upsertedChapters,
-          context_links: upsertedContexts,
-          wasFallback: result.wasFallback,
-          latency_ms: latency,
-          uid: uid.slice(0, 8),
+          by: filed.by,
+          world: filed.world ? filed.world.id.slice(0, 8) : null,
+          chapter: filed.chapter ? filed.chapter.id.slice(0, 8) : null,
+          starts_something: filed.starts_something,
+          skipped_reason: filed.skipped_reason,
+          model: filed.model || null,
+          latency_ms: Date.now() - t0,
+          uid: authenticatedUserId.slice(0, 8),
         });
 
-        return j({
-          world_links: upsertedWorlds,
-          chapter_links: upsertedChapters,
-          context_links: upsertedContexts,
-          reason,
-          skipped: false,
-        });
+        // a drop with no Worlds to go into: first Worlds may be due (data fabric
+        // stage 4b). The inngest worker decides; the reply never waits on it
+        if (filed.skipped_reason === 'empty_graph' && env.INNGEST_ADMIN_KEY)
+          ctx.waitUntil(
+            fetchInngestWorker(env, '/api/first-worlds', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+              body: JSON.stringify({ user_id: authenticatedUserId }),
+            })
+              .then(async (res) => {
+                if (!res.ok)
+                  console.warn(
+                    `[AssignWorlds] first Worlds could not be asked for: ${res.status} ${(await res.text()).slice(0, 200)}`,
+                  );
+              })
+              .catch((err) =>
+                console.warn(`[AssignWorlds] first Worlds could not be asked for: ${err.message}`),
+              ),
+          );
+
+        return j(filingReply(filed));
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
@@ -12684,6 +11694,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const previousExchange = extractPreviousExchange(messages);
             // the item this chat was opened about ("Talk it through"), sent with every turn
             const anchorEntity = anchorFrom(body.anchorEntity);
+            // or the World or Chapter page it was opened from, and what is on it (Worlds rebuild, stage 2)
+            const pageAnchor = pageAnchorFrom(body.anchorEntity);
+            const pageDetailPromise =
+              authenticatedUserId && pageAnchor
+                ? fetchPageDetail(env, authenticatedUserId, pageAnchor, todayIsoIn(userTimezone))
+                : Promise.resolve('');
             // and what that item holds, read alongside triage and the matcher
             const anchorDetailPromise =
               authenticatedUserId && anchorEntity
@@ -12776,6 +11792,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   sessionContext: sessionContextStr,
                   week: contextKeep.week,
                   found: agentFound,
+                  // the World or Chapter page this chat is on, with what is on it
+                  page: pageDetailPromise,
+                  // its mode and how personal it is, as the quick lane's writer is told them
+                  triage: triageFromClassifier,
                   today: await theirDayRead,
                   dayEndHour: (await theirNowRead)?.dayEndHour,
                 },
@@ -12841,6 +11861,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               // a habit's count this week is made in it
               weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
+            // a World's or a Chapter's own chat: what is on its page
+            if (pageAnchor) {
+              const pageText = await pageDetailPromise;
+              if (pageText) genConfig.systemPrompt += `\n\n${pageText}`;
+            }
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
             if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
@@ -13153,6 +12178,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               const save_suggestion = smartSuggestion || null;
 
               const latency = Date.now() - t0;
+              // the Save button under a reply worth keeping (Worlds rebuild, stage 2)
+              const keep = await keepCheck(env, body, authenticatedUserId, fullContent);
               await writer.write(
                 encoder.encode(
                   `data: ${JSON.stringify({
@@ -13160,6 +12187,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     full_content: fullContent,
                     save_suggestion,
                     entity_card: entityCard || null,
+                    ...(keep ? { keep } : {}),
                     // whether the Save items pill and a late card may follow, so the
                     // app knows to wait for them (it watches for this turn's marker)
                     extraction:
@@ -13187,6 +12215,23 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 model: askWriter.model,
                 latency_ms: latency,
                 content_length: fullContent.length,
+              });
+
+              // Corrections: when they say Gremly has something about their
+              // life wrong, the context pipeline applies it straight away.
+              // Every message is checked once, on its own turn, whatever the
+              // reply's mode and whether or not anything is extracted from it.
+              checkTurn({
+                env,
+                ctx,
+                messages,
+                reply: fullContent,
+                chatId: body.chatId,
+                userId: authenticatedUserId,
+                surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
+                // a correction said in a World's or Chapter's own chat reaches that page's words
+                scope: pageScopeOf(body),
+                tag: 'GeneralChat',
               });
 
               // Running summary (fire-and-forget)
@@ -13339,21 +12384,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     const conversationText = recentMsgs
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
-
-                    // Corrections: when they say Gremly has something about their
-                    // life wrong, the context pipeline applies it straight away.
-                    // Only this turn's message is checked (each one once).
-                    const correctionCheck = checkForCorrection({
-                      conversationText,
-                      latest: recentMsgs.filter((m) => m.role === 'user').at(-1)?.content,
-                      chatId: body.chatId,
-                      userId: authenticatedUserId,
-                      env,
-                      surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
-                    }).catch((e) => {
-                      console.warn('[GeneralChat] Correction check failed:', e?.message);
-                      return { sent: 0 };
-                    });
 
                     const todayStr = new Intl.DateTimeFormat('en-US', {
                       weekday: 'long',
@@ -13534,118 +12564,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         items: (extractResult.extractions || []).length,
                         title: extractResult.chat_summary?.title,
                       });
-
-                      // ── Persist event extractions to user_temporal_anchors (fire-and-forget) ──
-                      try {
-                        // A date to keep needs the person's own words behind it: when the
-                        // extraction carries evidence, an event without it is not kept.
-                        const eventExtractions = (extractResult.extractions || []).filter(
-                          (e) =>
-                            e.type === 'event' &&
-                            e.title &&
-                            (!('evidence' in e) || String(e.evidence || '').trim().length > 0),
-                        );
-                        if (eventExtractions.length > 0 && authenticatedUserId) {
-                          const confidenceRank = { exact: 3, approximate: 2, unknown: 1 };
-                          const supaHeaders = {
-                            apikey: env.SUPABASE_SERVICE_KEY,
-                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                            'Content-Type': 'application/json',
-                            Prefer: 'return=minimal',
-                          };
-
-                          // Fetch existing active anchors for dedup
-                          const existingRes = await fetch(
-                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${authenticatedUserId}&status=eq.active&select=id,title,date_confidence`,
-                            { headers: supaHeaders },
-                          );
-                          const existingAnchors = existingRes.ok ? await existingRes.json() : [];
-
-                          let savedCount = 0;
-                          for (const evt of eventExtractions) {
-                            const evtTitleLower = evt.title.toLowerCase();
-
-                            // Find duplicate: either title contains the other (case-insensitive)
-                            const match = existingAnchors.find((a) => {
-                              const aTitleLower = a.title.toLowerCase();
-                              return (
-                                aTitleLower.includes(evtTitleLower) ||
-                                evtTitleLower.includes(aTitleLower)
-                              );
-                            });
-
-                            if (match) {
-                              // Only update if new extraction has higher confidence
-                              const existingRank = confidenceRank[match.date_confidence] || 0;
-                              const newRank = confidenceRank[evt.date_confidence] || 0;
-                              if (newRank > existingRank) {
-                                const patchBody = {
-                                  resolved_date: evt.resolved_date || null,
-                                  date_confidence: evt.date_confidence || 'unknown',
-                                  date_range_start: evt.date_range_start || null,
-                                  date_range_end: evt.date_range_end || null,
-                                  date_text: evt.date_text || null,
-                                  updated_at: new Date().toISOString(),
-                                };
-                                if (evt.date_confidence === 'exact') {
-                                  patchBody.resolved_at = new Date().toISOString();
-                                }
-                                await fetch(
-                                  `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?id=eq.${match.id}`,
-                                  {
-                                    method: 'PATCH',
-                                    headers: supaHeaders,
-                                    body: JSON.stringify(patchBody),
-                                  },
-                                );
-                                savedCount++;
-                              }
-                            } else {
-                              // Insert new anchor
-                              const nowIso = new Date().toISOString();
-                              await fetch(`${env.SUPABASE_URL}/rest/v1/user_temporal_anchors`, {
-                                method: 'POST',
-                                headers: supaHeaders,
-                                body: JSON.stringify({
-                                  user_id: authenticatedUserId,
-                                  title: evt.title,
-                                  description: evt.body || null,
-                                  category: 'event',
-                                  date_text: evt.date_text || null,
-                                  resolved_date: evt.resolved_date || null,
-                                  date_confidence: evt.date_confidence || 'unknown',
-                                  date_range_start: evt.date_range_start || null,
-                                  date_range_end: evt.date_range_end || null,
-                                  source_chat_id: body.chatId || null,
-                                  source_message:
-                                    (evt.evidence || lastUserMsg || '').slice(0, 500) || null,
-                                  space_id: body.spaceId || null,
-                                  created_at: nowIso,
-                                  updated_at: nowIso,
-                                }),
-                              });
-                              savedCount++;
-                            }
-                          }
-                          if (savedCount > 0) {
-                            console.log('[GeneralChat] Temporal anchors saved', {
-                              count: savedCount,
-                            });
-                          }
-                        }
-                      } catch (anchorErr) {
-                        console.warn(
-                          '[GeneralChat] Temporal anchor persistence failed:',
-                          anchorErr.message,
-                        );
-                      }
-                    }
-                    const corrected = await correctionCheck;
-                    if (corrected?.sent) {
-                      console.log(
-                        '[GeneralChat] Correction sent to the context pipeline',
-                        corrected,
-                      );
                     }
                   } catch (err) {
                     console.warn('[GeneralChat] Extraction failed:', err.message);
@@ -15295,6 +14213,20 @@ function runScopedChatStream(
           latency_ms: latency,
           content_length: fullContent.length,
           used_search: !!searchQuery,
+        });
+
+        // Corrections, as in Ask Gremly: every message is checked once, and
+        // what they say about this World or Chapter reaches its lines too
+        checkTurn({
+          env,
+          ctx,
+          messages,
+          reply: fullContent,
+          chatId: body.chatId,
+          userId: authenticatedUserId,
+          surface: 'chat',
+          scope: { kind: scopeType, id: body.scopeId },
+          tag,
         });
 
         // Running summary (non-blocking)

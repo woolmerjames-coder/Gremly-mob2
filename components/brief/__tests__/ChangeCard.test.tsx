@@ -309,3 +309,99 @@ describe('the card in the thread', () => {
     expect(undo).toHaveBeenCalledWith(message);
   });
 });
+
+describe('a milestone on a card', () => {
+  const { useGremlyStore } = require('../../../lib/store/useGremlyStore');
+  const card = (extra: Partial<BriefChangesMeta> = {}): BriefChangesMeta =>
+    ({
+      type: 'brief-changes',
+      status: 'open',
+      changes: [],
+      card: [
+        { cid: 'c1', op: 'later', type: 'todo', id: 'idea', title: 'Old idea' },
+        {
+          cid: 'c2',
+          op: 'milestone',
+          type: null,
+          id: null,
+          title: 'Conference talk',
+          milestone: {
+            goal: 'Conference talk',
+            date: '2026-10-20',
+            steps: [
+              { title: 'Draft the outline', by: '2026-10-08', minutes: 45, kind: 'todo' },
+              { title: 'How is the draft going?', by: '2026-10-12', kind: 'check_in' },
+              { title: 'Rehearse once', by: '2026-10-16', kind: 'todo' },
+            ],
+          },
+        },
+      ],
+      ...extra,
+    }) as BriefChangesMeta;
+
+  beforeEach(() => {
+    useGremlyStore.setState({
+      todos: [
+        { id: 'idea', name: 'Old idea' },
+        { id: 'made-1', name: 'Draft the outline' },
+        { id: 'made-3', name: 'Rehearse once' },
+      ],
+      habits: [],
+      notes: [],
+    });
+  });
+  afterEach(() => useGremlyStore.setState({ todos: [], habits: [], notes: [] }));
+
+  it('lists each step as a row of its own, under what they are steps towards', () => {
+    const r = render(<ChangeCard meta={card()} onApply={jest.fn()} />);
+    expect(r.getAllByText('Steps towards Conference talk, Tue 20 Oct')).toHaveLength(1);
+    expect(r.getByText('Draft the outline, by Thu 8 Oct')).toBeTruthy();
+    expect(r.getByText('Check in on Mon 12 Oct: How is the draft going?')).toBeTruthy();
+    expect(r.getByText('Rehearse once, by Fri 16 Oct')).toBeTruthy();
+    // four rows to tick: the todo put off, and the three steps
+    expect(r.getByText('Accept all')).toBeTruthy();
+    expect(r.queryByTestId('change-c2')).toBeNull();
+  });
+
+  it('leaves out a step that is unticked, and sets up the rest', () => {
+    const onApply = jest.fn();
+    const r = render(<ChangeCard meta={card()} onApply={onApply} />);
+    fireEvent.press(r.getByTestId('change-c2.2'));
+    expect(r.getByTestId('change-c2.2').props.accessibilityState.checked).toBe(false);
+    expect(r.getByText('Apply 3')).toBeTruthy();
+    fireEvent.press(r.getByTestId('changes-apply'));
+    expect(onApply).toHaveBeenCalledWith(['c2.2']);
+  });
+
+  it('after Apply, shows the steps set up, and a step to do opens the todo it made', () => {
+    const onOpenItem = jest.fn();
+    const applied = card({
+      status: 'applied',
+      applied: ['c1', 'c2'],
+      unticked: ['c2.2'],
+      created: { 'c2.1': 'made-1', 'c2.3': 'made-3' },
+    });
+    const r = render(<ChangeCard meta={applied} onOpenItem={onOpenItem} />);
+    expect(r.getAllByText('Steps towards Conference talk, Tue 20 Oct')).toHaveLength(1);
+    expect(r.queryByText('Check in on Mon 12 Oct: How is the draft going?')).toBeNull();
+    fireEvent.press(r.getByTestId('change-open-c2.3'));
+    expect(onOpenItem).toHaveBeenCalledWith({ id: 'made-3', type: 'todo', title: 'Rehearse once' });
+  });
+
+  it('after Apply, shows none of the steps of a milestone left out whole', () => {
+    const applied = card({
+      status: 'applied',
+      applied: ['c1'],
+      unticked: ['c2.1', 'c2.2', 'c2.3'],
+    });
+    const r = render(<ChangeCard meta={applied} />);
+    expect(r.queryByText('Steps towards Conference talk, Tue 20 Oct')).toBeNull();
+    expect(r.queryByText('Rehearse once, by Fri 16 Oct')).toBeNull();
+  });
+
+  it('says so on every step when the milestone could not be saved', () => {
+    const applied = card({ status: 'applied', applied: ['c1'], failed: ['c2'], unticked: [] });
+    const r = render(<ChangeCard meta={applied} />);
+    expect(r.getByText('Rehearse once, by Fri 16 Oct (could not be saved)')).toBeTruthy();
+  });
+});

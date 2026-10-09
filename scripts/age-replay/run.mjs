@@ -1,4 +1,4 @@
-// The What got me here writer, replayed on real days, so James can read the
+// The What got me here writer, replayed on made up days, so James can read the
 // lines before the prompt ships (a replay comes before any prompt change).
 // Reads days.json beside this file (or --days path), runs the writer --runs
 // times at the production temperature, checks each line against the rules,
@@ -28,11 +28,13 @@ if (!keys.openai) {
 configureModels({ OPENAI_API_KEY: keys.openai, HELPER_MODEL: model, HELPER_FALLBACK_MODEL: model, MODEL_AGE_WORDS: model });
 
 // The rules, as checks. Praise words and counts are what the prompt forbids;
-// the private check is for this account's days and flags the topics the
-// care rules call private.
+// the private check looks for the words of the made up days' private item
+// (private_words in days.json), which the line must leave out.
 const PRAISE = /\b(well done|great|amazing|proud|brilliant|impressive|good job|nice work|awesome|fantastic|incredible|wonderful)\b/i;
 const COUNT = /\b\d+\s+(drops?|things?|items?|todos?)\b/i;
-const PRIVATE = /\b(alcohol|drink|drinking|sober|therap|medic|anxiety|depress)\w*/i;
+const PRIVATE = (fixture.private_words || []).length
+  ? new RegExp(`\\b(${fixture.private_words.join('|')})\\w*`, 'i')
+  : null;
 function check(line) {
   const words = line.split(/\s+/).filter(Boolean).length;
   return [
@@ -42,7 +44,7 @@ function check(line) {
     { name: 'no praise word', ok: !PRAISE.test(line) },
     { name: 'no count of drops', ok: !COUNT.test(line) },
     { name: 'no close of its own', ok: !/made of that/i.test(line) },
-    { name: 'nothing private', ok: !PRIVATE.test(line) },
+    { name: 'nothing private', ok: !PRIVATE || !PRIVATE.test(line) },
     { name: 'to them, not about Gremly', ok: !/\bI\s+(feel|felt|am|was)\b/.test(line) },
     { name: 'as you, not their name', ok: !(fixture.person?.first_name && new RegExp('\\b' + fixture.person.first_name + '\\b').test(line)) },
   ];

@@ -14,10 +14,15 @@ import {
   OPS,
   TYPES as FIELD_TYPES,
   GROUPS,
+  PLACE_OPS,
+  PLACE_OP_WORDS,
+  PLACE_TYPES,
   PLAN_KINDS,
   STEP_KINDS,
   WEEK_OPS,
 } from '../../../shared/changes/fields.js';
+import { GREMLY_SLUGS } from '../../../shared/gremlys.js';
+import { checkPlaces, itemKeysFor, readPlaces } from '../places.js';
 import { checkCard, normTime } from '../../../shared/changes/check.js';
 import { DAY_KINDS } from '../../../shared/week.js';
 import { EASE_MODES, rowOfEase } from '../../../shared/habitWeek.js';
@@ -36,6 +41,10 @@ const WEEK_OP_NAMES = Object.keys(WEEK_OPS);
 // app build that can apply it, which says so by sending what is eased now
 // (proposeEaseChanges, proposeWeekEaseChanges)
 const EASE_OP_NAMES = Object.keys(EASE_OPS);
+// Worlds and Chapters themselves: only for an app build that can apply those
+// changes, which says so with its request (proposePlaceChanges)
+const PLACE_OP_NAMES = Object.keys(PLACE_OPS);
+const PLACE_TYPE_NAMES = Object.keys(PLACE_TYPES);
 
 /** The field list in words, for the tool's description, from fields.js. */
 export function fieldListWords() {
@@ -48,6 +57,23 @@ export function fieldListWords() {
     })
     .join('\n');
 }
+
+/** Worlds and Chapters, their fields and operations in words, from fields.js. */
+export function placeFieldListWords() {
+  const opWords = { ...PLACE_OPS, ...PLACE_OP_WORDS };
+  return Object.entries(PLACE_TYPES)
+    .map(([type, spec]) => {
+      const fields = Object.entries(spec.fields)
+        .map(([name, def]) => `${name}${def.group === 'asked' ? '*' : ''} (${def.about})`)
+        .join(', ');
+      const ops = spec.ops.map((op) => (opWords[op] ? `${op} (${opWords[op]})` : op)).join(', ');
+      return `${type}: ${fields}. Operations: ${ops}.`;
+    })
+    .join('\n');
+}
+
+const PLACES_DESCRIPTION = `Their Worlds and Chapters change on the card too, as the kinds world and chapter, named by the ids in what you know. Nothing here deletes a World or a Chapter. A new Chapter goes in one of their Worlds, and can gather items of theirs that belong in it. merge names the World it goes into as into.
+${placeFieldListWords()}`;
 
 const DESCRIPTION = `Put changes to the person's items on a card for them to accept with a tap. Nothing changes until they do. Each call puts a new card in place of the last one, so include every change you want on it. Each change is checked against the item as it is now; the result says which changes are on the card and why any were dropped, so you can fix one and propose it again, or tell the person. Only say Gremly is offering a change that is on the card.
 Rules:
@@ -72,7 +98,23 @@ const WORDS = obj({
   remove: arr(str('a word'), 'to take away'),
 });
 
-const FIELDS = obj({
+const PLACE_FIELDS = {
+  world: str('for a Chapter, the id of the World it belongs in'),
+  items: arr(
+    obj(
+      {
+        type: strEnum(['todo', 'habit', 'note'], 'the kind of item'),
+        id: str('its id'),
+      },
+      ['type', 'id'],
+    ),
+    'for a new Chapter, the items of theirs that belong in it',
+  ),
+  words: str('for a World or a Chapter, a line in their own words about it'),
+  gremly: strEnum(GREMLY_SLUGS, 'for a World or a Chapter, the Gremly outfit it wears'),
+};
+
+const FIELDS_SPEC = {
   name: str('the new name or title'),
   text: str('new text that replaces what the item says'),
   text_add: str('text to add to what the item says'),
@@ -134,6 +176,14 @@ const FIELDS = obj({
   tags: WORDS,
   pinned: bool('pinned to the top'),
   favourite: bool('a favourite'),
+};
+const FIELDS = obj(FIELDS_SPEC);
+// with Worlds and Chapters: a Chapter's name, dates, World, items, words and outfit too
+const FIELDS_WITH_PLACES = obj({
+  ...FIELDS_SPEC,
+  start_day: day('the day a habit starts, or the first day of a Chapter'),
+  end_day: day('the day a habit or an event ends, or the date of a Chapter or its last day'),
+  ...PLACE_FIELDS,
 });
 
 const PLAN = obj(
@@ -243,19 +293,20 @@ function easeField(week) {
   );
 }
 
-function changeSchema({ plan, week, ease }) {
+function changeSchema({ plan, week, ease, places }) {
   const ops = [
     ...AGENT_OPS,
     ...(plan ? ['plan'] : []),
     ...(week ? WEEK_OP_NAMES : []),
     ...(ease ? EASE_OP_NAMES : []),
+    ...(places ? PLACE_OP_NAMES : []),
   ];
   const props = {
     op: strEnum(ops, 'what the change does'),
     type: strEnum(
-      ['todo', 'habit', 'note'],
+      ['todo', 'habit', 'note', ...(places ? PLACE_TYPE_NAMES : [])],
       week
-        ? "the kind of item; left out for plan and for the week's shape, intention, milestone and weekly day"
+        ? "the kind of item; left out for plan and for the week's shape, priority, intention, milestone and weekly day"
         : plan
           ? 'the kind of item; left out for plan'
           : 'the kind of item',
@@ -268,13 +319,17 @@ function changeSchema({ plan, week, ease }) {
         ? 'for log and unlog; for habit_days, every day the habit is planned on in the week'
         : 'for log and unlog',
     ),
-    fields: FIELDS,
+    fields: places ? FIELDS_WITH_PLACES : FIELDS,
     clear: arr(str('a field name'), 'fields to empty'),
   };
+  if (places) props.into = str('for merge, the id of the World it goes into');
   if (plan) props.plan = PLAN;
   if (week) {
     props.back_on = day('for later, the day the todo comes back to them');
     props.shape = SHAPE;
+    props.priority = str(
+      'for priority, the thing that matters most to them this week, in a few of their own words',
+    );
     props.intention = str('for intention, their intention for the week, one short line');
     props.milestone = MILESTONE;
     props.weekday = int('for weekly_day, the day of the week, 0 Sunday to 6 Saturday');
@@ -296,6 +351,7 @@ Their week changes too, with these operations. The days they act on, the week's 
 - later puts a todo off for now: it leaves its day and comes back to them on back_on, a day still to come and within four weeks. Choose a day when there is likely to be room or before it matters, and bring several back on different days.
 - habit_days sets the days a habit is planned on in the week. Give every day it should be on as days, because the list takes the place of the days it was on; an empty list takes it off the week. Moving a habit to another day of this week, or off one of its days, is habit_days: it changes where the habit sits in this week and leaves how often it repeats as it is. A habit's schedule changes only when they say the routine itself is different from now on.
 - week_shape sets which days of the week are busy and the hours they have free for their own things. busy_days is every busy day, in place of the ones before. hours is in half hours, for a normal day, a busy day and a day off, and only the ones that change.
+- priority adds one thing to what matters most to them this week, beside the ones already there. It is what the week is for, in a few of their words, and it needs no item behind it.
 - intention sets their intention for the week: one short line in the first person, in their words when they gave them.
 - milestone sets up something big with a date more than a week away: what it is for, its date, and two to four steps in order, each with the day to finish it by, and whether it is a todo for them to do or a check_in, a moment Gremly asks how it is going. Only for something that has a date.
 - weekly_day moves the day of the week their weekly review happens on, given as weekday.`;
@@ -344,6 +400,10 @@ const HINTS = {
   no_review:
     'their week has no review to keep that on yet; offer_week puts the button to plan their week under your reply',
   bad_shape: 'the shape needs busy_days, hours or both',
+  no_priorities:
+    'their app cannot keep a new priority from here yet; say what you understood, and that what matters most is chosen on its card in the review',
+  priorities_full:
+    'the week already holds as many things as it keeps as mattering most; say so, and ask which one this should take the place of before offering anything',
   bad_milestone: 'a milestone needs what it is for and the date it is for',
   milestone_not_ahead: 'a milestone is for a date still to come',
   milestone_needs_steps: 'a milestone needs at least one step',
@@ -361,6 +421,16 @@ const HINTS = {
   ease_too_far: 'a pause or a lighter version ends within four weeks of today',
   ease_breaking: 'a habit they are breaking is not paused or made lighter',
   days_breaking: 'a habit they are breaking is never planned on days',
+  needs_world: 'a new Chapter goes in one of their Worlds; give its world by id',
+  unknown_world: 'that World is not one of theirs; their Worlds and their ids are in what you know',
+  hidden_world: 'that World is hidden; it can be brought back first if they want it',
+  world_exists: 'they already have a World with that name',
+  end_before_start: "a Chapter's last day comes on or after its first day",
+  bad_merge: 'merge needs into, the id of another of their Worlds',
+  no_place:
+    'no World or Chapter of theirs has that id; their Worlds and Chapters and their ids are in what you know',
+  not_open: 'only a Chapter that is open can be closed',
+  unknown_item: 'one of those items is not one of theirs; look it up with find_items',
 };
 
 // what a week change's own value has to be, when it could not be read
@@ -369,6 +439,7 @@ const WEEK_VALUES = {
   until: 'ease.until is a day, YYYY-MM-DD',
   back_on: 'back_on is a day, YYYY-MM-DD',
   hours: 'hours are in half hours, from none up to sixteen',
+  priority: 'a priority is a few words, one short line',
   intention: 'the intention is one short line',
   weekday: 'weekday is a whole number, 0 Sunday to 6 Saturday',
 };
@@ -394,6 +465,8 @@ function hint(reason) {
       return 'one of the list item ids is not on that list; read it with get_item';
     case 'unknown_reminder':
       return 'one of the reminder ids is not on that item; read it with get_item';
+    case 'add_only':
+      return `${field} is set only when a Chapter starts; to put an item into a Chapter that exists, change the item's chapters`;
     default:
       return reason;
   }
@@ -508,6 +581,7 @@ export function toWeekChange(c, i) {
   if (c.op === 'later') out.back_on = c.back_on;
   if (c.op === 'habit_days') out.days = c.days;
   if (c.op === 'week_shape') out.shape = c.shape;
+  if (c.op === 'priority') out.priority = c.priority;
   if (c.op === 'intention') out.intention = c.intention;
   if (c.op === 'milestone') out.milestone = c.milestone;
   if (c.op === 'weekly_day') out.weekday = c.weekday;
@@ -527,6 +601,7 @@ export function toModelChange(c, i) {
   const out = { cid: `c${i + 1}`, op: c?.op, type: c?.type };
   if (c?.id) out.id = c.id;
   if (c?.to) out.to = c.to;
+  if (c?.into) out.into = c.into;
   if (Array.isArray(c?.days)) out.days = c.days;
   const given = c?.fields && typeof c.fields === 'object' ? { ...c.fields } : {};
   const fields = {};
@@ -612,6 +687,8 @@ function weekWords(c, ctx) {
       }
       return `week_shape: ${parts.join('; ')}`;
     }
+    case 'priority':
+      return `priority: “${trim(c.fields.text, 120)}” added to what matters most this week`;
     case 'intention':
       return `intention: “${trim(c.fields.text, 120)}”`;
     case 'milestone': {
@@ -665,8 +742,9 @@ export function easeCheckOf(week) {
 
 /**
  * The person's week as the week's changes are checked against it
- * (checkWeekChange): the days they act on, the shape and the intention as they
- * stand, and the weekly day, from what the thread sent (ctx.week).
+ * (checkWeekChange): the days they act on, the shape, what matters most and
+ * the intention as they stand, and the weekly day, from what the thread sent
+ * (ctx.week).
  */
 export function weekCheckOf(week) {
   if (!week) return null;
@@ -678,6 +756,8 @@ export function weekCheckOf(week) {
     busy_days: week.busy_days || [],
     has_review: !!week.has_review,
     intention: week.intention || null,
+    // null from an app build that cannot keep a new priority: it is never offered one
+    priorities: Array.isArray(week.priorities) ? week.priorities : null,
     weekly_day: week.weekly_day,
   };
 }
@@ -714,14 +794,33 @@ async function plannedDays(ctx, raws) {
  * propose_changes, with the plan on screen and today's set times when plan is
  * true, and the week's own changes when week is true.
  */
-function makeProposeChanges({ plan, week = false, ease = false }) {
-  const about = week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION;
+/** A World or Chapter change as the model reads it back. */
+function placeChangeWords(c, ctx, names) {
+  const f = c.fields || {};
+  const what = [];
+  if (c.op !== 'add' && 'name' in f) what.push(`named “${trim(f.name, 60)}”`);
+  if ('world' in f) what.push(`in ${names.get(f.world) || 'that World'}`);
+  if ('start_day' in f)
+    what.push(f.start_day ? `first day ${dayWords(f.start_day, ctx.today)}` : 'first day cleared');
+  if ('end_day' in f)
+    what.push(f.end_day ? `date ${dayWords(f.end_day, ctx.today)}` : 'date cleared');
+  if (Array.isArray(f.items) && f.items.length)
+    what.push(`gathering ${f.items.length} of their items`);
+  if ('words' in f) what.push(f.words ? `words “${trim(f.words, 80)}”` : 'words cleared');
+  if ('gremly' in f) what.push(f.gremly ? `outfit ${f.gremly}` : "wearing its World's outfit");
+  if (c.op === 'merge') what.push(`into ${c.into_title || names.get(c.into) || 'that World'}`);
+  return `${c.op} ${c.type} “${trim(c.title, 60)}”${what.length ? `: ${what.join('; ')}` : ''}`;
+}
+
+function makeProposeChanges({ plan, week = false, ease = false, places = false }) {
+  const base = week ? WEEK_DESCRIPTION : plan ? DAY_DESCRIPTION : DESCRIPTION;
+  const about = places ? `${base}\n${PLACES_DESCRIPTION}` : base;
   return {
     name: 'propose_changes',
     description: about,
     parameters: obj(
       {
-        changes: arr(changeSchema({ plan, week, ease }), 'the changes, one per item'),
+        changes: arr(changeSchema({ plan, week, ease, places }), 'the changes, one per item'),
         ...WITH_CARD,
       },
       ['changes'],
@@ -751,7 +850,22 @@ function makeProposeChanges({ plan, week = false, ease = false }) {
         return r.raw;
       });
       const kept = raws.filter(Boolean);
-      const lw = await worldsAndChapters(ctx);
+      const isPlace = (r) => PLACE_TYPE_NAMES.includes(r?.type);
+      // Worlds and Chapters, and the items a new Chapter gathers, when this build can take them
+      const [lw, pl, itemKeys] = await Promise.all([
+        worldsAndChapters(ctx),
+        places ? readPlaces(ctx) : Promise.resolve(null),
+        places
+          ? itemKeysFor(
+              ctx,
+              kept.flatMap((r) =>
+                isPlace(r) && Array.isArray(r.fields?.items) ? r.fields.items : [],
+              ),
+            )
+          : Promise.resolve(new Set()),
+      ]);
+      const placeRows = new Map(pl ? [...pl.worlds, ...pl.chapters].map((r) => [r.id, r]) : []);
+      const placeCheck = pl ? checkPlaces(pl) : null;
       // each item named once, read fresh
       const wanted = new Map();
       for (const r of kept) {
@@ -775,14 +889,24 @@ function makeProposeChanges({ plan, week = false, ease = false }) {
       }
       const weekCheck = week ? weekCheckOf(ctx.week) : null;
       const easeCheck = ease ? easeCheckOf(ctx.week) : null;
-      const { changes, dropped } = checkCard(kept, (raw) => ({
-        today: ctx.today,
-        item: raw.id && raw.op !== 'plan' ? (loaded.get(`${raw.type}:${raw.id}`) ?? null) : null,
-        worlds: lw.worlds.map((w) => w.id),
-        chapters: lw.chapters.map((c) => c.id),
-        week: weekCheck,
-        ease: easeCheck,
-      }));
+      const { changes, dropped } = checkCard(kept, (raw) =>
+        isPlace(raw)
+          ? {
+              today: ctx.today,
+              places: placeCheck,
+              place: raw.id ? (placeRows.get(raw.id) ?? null) : null,
+              itemKeys,
+            }
+          : {
+              today: ctx.today,
+              item:
+                raw.id && raw.op !== 'plan' ? (loaded.get(`${raw.type}:${raw.id}`) ?? null) : null,
+              worlds: lw.worlds.map((w) => w.id),
+              chapters: lw.chapters.map((c) => c.id),
+              week: weekCheck,
+              ease: easeCheck,
+            },
+      );
       // one row per item: a change that already moves an item in or out of
       // today's plan (a new time or day, done, skipped, stopped, paused) covers it
       const covering = new Set(changes.filter((c) => coversPlan(c, ctx.today)).map((c) => c.id));
@@ -817,6 +941,10 @@ function makeProposeChanges({ plan, week = false, ease = false }) {
           }
           if (EASE_OP_NAMES.includes(c.op)) {
             lines.push(`- ${c.cid} ${easeChangeWords(c, ctx)}`);
+            continue;
+          }
+          if (PLACE_TYPE_NAMES.includes(c.type)) {
+            lines.push(`- ${c.cid} ${placeChangeWords(c, ctx, byId)}`);
             continue;
           }
           const what = [
@@ -858,3 +986,13 @@ export const proposeEaseChanges = makeProposeChanges({ plan: false, ease: true }
 
 /** Today's thread with their week, for such a build: the week's changes and a habit's ease. */
 export const proposeWeekEaseChanges = makeProposeChanges({ plan: true, week: true, ease: true });
+
+/** Chat, for an app build that can apply changes to Worlds and Chapters (Worlds rebuild, stage 2). */
+export const proposePlaceChanges = makeProposeChanges({ plan: false, places: true });
+
+/** Chat, for a build that can apply those and a habit's ease. */
+export const proposeEasePlaceChanges = makeProposeChanges({
+  plan: false,
+  ease: true,
+  places: true,
+});

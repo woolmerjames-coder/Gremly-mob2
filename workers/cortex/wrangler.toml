@@ -13,6 +13,11 @@ service = "gremly-inngest-jobs"
 
 [vars]
 INNGEST_WORKER_URL = "https://gremly-inngest-jobs.woolmerjames.workers.dev"
+# The line about each person in the life pack chat reads (workers/shared/
+# lifePack.js, data fabric stage 6): "on" once life_people has its words
+# fields (supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql),
+# with inngest-jobs' PERSON_WORDS. "off" stops it.
+PERSON_WORDS = "on"
 # Mind Drop one call classifier (classify-v3). Chosen by the model audit in
 # docs/2026-09-29-minddrop-model-audit.md: Gemini 3.8 Flash, GPT-6 Luna backup.
 # Questions are worded by Claude Sonnet when ANTHROPIC_API_KEY is set.
@@ -36,6 +41,8 @@ MINDDROP_RELATE_ENABLED = "true"
 #   CHAT_MODEL_ASK            Ask Gremly's writer on its own (default CHAT_MODEL); an OpenAI
 #                             model goes through openaiChat.js
 #   CHAT_EFFORT_ASK           how much an OpenAI writer thinks before it writes (default none)
+#   CHAT_LIFE                 compact: Ask Gremly and today's thread read the screen's worth of
+#                             their life the brief reads, not all of it (default all of it)
 #   HELPER_MODEL              the small model behind triage, loading message, summaries,
 #                             extraction, habit pre parse and so on (default gpt-4.1-mini)
 #   MODEL_<JOB>               one helper job on its own, for example MODEL_TRIAGE_MODE or
@@ -86,6 +93,23 @@ CHAT_MODEL = "gemini-3-flash-preview"
 # like Luna at eight times the cost. A writer that fails to start is tried once
 # on CHAT_MODEL. To go back: remove this line.
 CHAT_MODEL_ASK = "gpt-6-luna"
+# The writer thinks a little before it writes (data fabric stage 4e, the Ask
+# Gremly replay, scripts/ask-replay: twelve first messages to a made up person,
+# four runs, a judge from each model family). At low thinking it said fewer
+# untrue things (9 against 13 in 96 readings), never read their life back to
+# them (with no thinking it did 5 times), asked after what had just happened
+# more often, and brought up what a friend would as often, for about a
+# hundredth of a cent and a second more a reply. Gemini 3.8 Flash brought up a
+# little more but said untrue things three to four times as often, at twenty
+# times the cost. To go back: remove this line.
+CHAT_EFFORT_ASK = "low"
+# How much of their life Ask Gremly and today's thread read
+# (shared/lifePack.js chatLifeSize): all of it when unset. In shadow on two
+# real days the busier account's context came to about 66,000 characters
+# against 30,000 for the brief's screen's worth; judged blind in pairs, all of
+# it was picked as often (17 of 32) and said fewer untrue things (14 against
+# 19). "compact" goes back to the screen's worth.
+# CHAT_LIFE = "compact"
 HELPER_MODEL = "gpt-6-luna"
 HELPER_FALLBACK_MODEL = "gemini-3.8-flash"
 MODEL_TRIAGE = "gpt-6-luna"
@@ -97,6 +121,11 @@ MODEL_TRIAGE_SIGNALS = "gpt-4.1-mini"
 # (scripts/chat-replay/loading.sh). To go back: "gpt-4.1-mini".
 MODEL_LOADING_MESSAGE = "gpt-6-luna"
 TRIAGE_ONE_CALL = "on"
+# The stop switch for the old Worlds fields (workers/shared/worldsFields.js):
+# "keep" files into suggested rows and life contexts as before; "stop", once
+# the Worlds build says the old screens are gone, stops filing from doing so.
+# Filing itself runs on the pipeline's filing model (context/llm.js).
+WORLDS_OLD_FIELDS = "keep"
 # Today's thread on the agent (agent plan step 7), on Luna by James's choice:
 # the day turn's replay suite (11 messages) passed 20 of 22 runs at 5.4s typical
 # and about 0.06 cents a message, against 5 of 11 for today's day turn on Luna.

@@ -203,14 +203,21 @@ export function notQuiteMsgs(part: DayPart): WeekMsg[] {
   ];
 }
 
-/** One of the needs you cards, opened to talk through: Gremly's question and the reasons to tap. */
-export function talkMsgs(title: string, question: string): WeekMsg[] {
+/**
+ * One of the needs you cards, opened to talk through: Gremly's question and
+ * the answers to tap. The answers are the card's own, written with its
+ * question, so each fits what was asked. A read made before a card had
+ * answers of its own, or one that came back with fewer than two, has the
+ * general reasons instead.
+ */
+export function talkMsgs(title: string, question: string, answers: string[] = []): WeekMsg[] {
+  const labels = answers.length >= 2 ? answers : TALK_REASONS;
   return [
     tapped(talkOpener(title), 'week_talk', 'week_talk'),
     offer(
       question,
       'week_reasons',
-      TALK_REASONS.map((label, i) => ({
+      labels.map((label, i) => ({
         id: `week_reason_${i}`,
         label,
         action: 'week_reason' as const,

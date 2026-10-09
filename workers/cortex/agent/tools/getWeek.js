@@ -3,6 +3,8 @@
 // Each day with the todos on it and the habits planned for it, whether it is
 // one of their busy days, the hours they have free on that kind of day and the
 // room left, and the todos put off for later with the day each comes back.
+// Each day also says what is on their connected calendar, so that what they
+// mention can be seen to be there already and is never added a second time.
 //
 // The days come from the person's week on the tools' context (ctx.week, built
 // from what today's thread sent: agent/brief.js weekFrameOf). While a review
@@ -15,11 +17,12 @@
 // ============================================================================
 
 import { DAY_KINDS, dayKind, dayRoom, minutesOf, spanDays } from '../../../shared/week.js';
+import { meetingsFrom, syncedOn, syncedRange } from '../../../shared/calendar.js';
 import { pausedOn, rowOfEase } from '../../../shared/habitWeek.js';
 import { obj } from './schema.js';
-import { dayWords, trim } from './words.js';
+import { clock, dayWords, trim } from './words.js';
 
-const DESCRIPTION = `Read the person's week as their week board has it: each day with the todos on it and the habits planned for it, with their ids, whether it is one of their busy days, the hours they have free on that kind of day and the room left once what is on the day is counted, and the todos put off for later with the day each comes back. The counting is done for you, so never add up a day's minutes yourself. Use it before saying what the days of the week hold or how full one is, and before proposing to move things between days, put something off, or change the days a habit is on. During the weekly review it reads the days being planned as they stand in the review.`;
+const DESCRIPTION = `Read the person's week as their week board has it: each day with the todos on it and the habits planned for it, with their ids, what is on their calendar that day, whether it is one of their busy days, the hours they have free on that kind of day and the room left once what is on the day is counted, and the todos put off for later with the day each comes back. The counting is done for you, so never add up a day's minutes yourself. Use it before saying what the days of the week hold or how full one is, before proposing to move things between days, put something off, or change the days a habit is on, and before adding anything new to a day, since what is on their calendar is theirs already. During the weekly review it reads the days being planned as they stand in the review.`;
 
 const KIND_WORDS = { normal_day: 'normal day', busy_day: 'busy day', weekend_day: 'day off' };
 
@@ -108,6 +111,24 @@ export function boardOf({ days, today, todos, habits, plans, week }) {
   return { days: board, later };
 }
 
+/**
+ * What is on their connected calendar on each day, from one read of the days
+ * (workers/shared/calendar.js syncedRange): timed entries in local minutes
+ * and whole day ones, cancelled ones left out. Pure, for tests.
+ * @returns {{day: string, meetings: {title: string, start: number, end: number}[], all_day: string[]}[]}
+ */
+export function calendarOf(days, synced, tz) {
+  if (!synced) return [];
+  return days.map((day) => {
+    const { meetings, allDay } = meetingsFrom({ synced: syncedOn(synced, day, tz), tz });
+    return {
+      day,
+      meetings: meetings.map((m) => ({ title: m.title || 'Busy', start: m.start, end: m.end })),
+      all_day: allDay.map((e) => e.title || 'Untitled'),
+    };
+  });
+}
+
 export const getWeek = {
   name: 'get_week',
   description: DESCRIPTION,
@@ -134,7 +155,7 @@ export const getWeek = {
     for (let i = 0; i < named.length; i += IDS_PER_READ) {
       batches.push(named.slice(i, i + IDS_PER_READ));
     }
-    const [onDays, putOff, byName, habits, plans] = await Promise.all([
+    const [onDays, putOff, byName, habits, plans, synced] = await Promise.all([
       d.select(
         `${open}&due_day=gte.${first}&due_day=lte.${last}&select=${cols}&order=due_day.asc&limit=300`,
       ),
@@ -152,6 +173,12 @@ export const getWeek = {
       d.select(
         `habit_plans?owner_id=eq.${u}&planned_date=gte.${first}&planned_date=lte.${last}&select=habit_id,planned_date&limit=500`,
       ),
+      // Their connected calendar on those days. A calendar that cannot be
+      // read leaves the days without it, and the week is still told.
+      syncedRange(d, u, ctx.timezone, first, last).catch((err) => {
+        console.warn('[get_week] the calendar could not be read', String(err?.message || err));
+        return null;
+      }),
     ]);
     const todos = [
       ...new Map(
@@ -165,6 +192,7 @@ export const getWeek = {
       working: !!week.under_way,
       hours: week.hours || null,
       ...boardOf({ days, today: ctx.today, todos, habits: habits || [], plans: plans || [], week }),
+      calendar: calendarOf(days, synced, ctx.timezone),
     };
   },
 
@@ -197,6 +225,15 @@ export const getWeek = {
       lines.push(
         `${dayWords(day.day, ctx.today)}${day.past ? ' (gone)' : ''}, ${KIND_WORDS[day.kind]}, ${room}`,
       );
+      const cal = (r.calendar || []).find((c) => c.day === day.day);
+      if (cal && (cal.meetings.length || cal.all_day.length)) {
+        lines.push(
+          `  On their calendar: ${[
+            ...cal.all_day.map((t) => `all day ${trim(t, 60)}`),
+            ...cal.meetings.map((m) => `${clock(m.start)} to ${clock(m.end)} ${trim(m.title, 60)}`),
+          ].join('; ')}`,
+        );
+      }
       lines.push(
         day.todos.length
           ? `  Todos: ${day.todos.map((t) => `${trim(t.title, 60)} (id ${t.id}), ${t.minutes} min`).join('; ')}`

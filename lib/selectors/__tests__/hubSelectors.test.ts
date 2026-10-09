@@ -353,17 +353,23 @@ describe('selectNeedsAttentionItems - unorganized items', () => {
     expect(result).toHaveLength(0);
   });
 
-  it('does NOT flag item with space (even if no tags)', () => {
-    const todo = makeTodo({
+  it('treats an item still in a Space like any other', () => {
+    const inSpace = makeTodo({
       created_at: '2025-12-01T10:00:00.000Z', // 13 days ago
       due_day: '2025-12-20',
       space_id: 'space-123',
       tags: null,
     });
+    const plain = makeTodo({
+      created_at: '2025-12-01T10:00:00.000Z',
+      due_day: '2025-12-20',
+      space_id: null,
+      tags: null,
+    });
 
-    const result = selectNeedsAttentionItems([todo], [], defaultOpts);
-
-    expect(result).toHaveLength(0);
+    expect(selectNeedsAttentionItems([inSpace], [], defaultOpts)).toHaveLength(
+      selectNeedsAttentionItems([plain], [], defaultOpts).length,
+    );
   });
 
   it('does NOT flag unorganized item that is only 6 days old', () => {

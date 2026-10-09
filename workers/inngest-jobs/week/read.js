@@ -5,10 +5,11 @@
  * effort; at low it took a habit's name for a count). Code gathers what Gremly
  * knows about the person, works out every count and total, and gives each item
  * a short id. The model writes the challenge and its evidence, what they are
- * coming off and what is coming up, priority options, intention drafts, a
- * guess at their free hours, busy days, milestones, what needs them and habit
- * days. Code then turns the short ids back into real ones, drops anything it
- * does not know, checks every date and number and takes the dashes out.
+ * coming off and what is coming up, priority options, each with a line that
+ * could be the week's intention, a guess at their free hours, busy days,
+ * milestones, what needs them and habit days. Code then turns the short ids
+ * back into real ones, drops anything it does not know, checks every date and
+ * number and takes the dashes out.
  *
  *   gatherRead (reads)  →  renderRead (pure)  →  the model  →  checkRead (pure)
  *
@@ -40,15 +41,28 @@ import {
 } from '../../shared/week.js';
 import { gremlyPut, habitAllowance, habitOpenDays } from '../../shared/weekBoard.js';
 import { easesFrom, pauseSpans } from '../../shared/habitWeek.js';
+import { upNext, upNextWords } from '../../shared/upNext.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
 import { STEP_KINDS, WEEK_LIMITS, NAME_LIMIT } from '../../shared/changes/fields.js';
 
-export const WEEK_READ_VERSION = 'week-read-2026-10-07a';
+export const WEEK_READ_VERSION = 'week-read-2026-10-09d';
+
+/**
+ * The read from the weekly pass (data fabric stage 5), held behind a switch
+ * until the weekly review's build has agreed it: with WEEK_READ_FROM_PASS on,
+ * the read is also given the dated facts ahead that Gremly holds and its note
+ * on their last week, and reads Gremly's notes on each World and Chapter
+ * without the old priorities. Off, the read is as it was. The week replay
+ * (scripts/week-replay) is run with it on before it is turned on.
+ */
+export function readFromPass(env) {
+  return String(env?.WEEK_READ_FROM_PASS || '').toLowerCase() === 'on';
+}
 
 /** The most open todos the read lists; the figures still count every one. */
 export const TODO_LIST_MAX = 120;
 const DATED_MAX = 60;
-const MEETINGS_A_DAY = 12;
+const ENTRIES_A_DAY = 12;
 
 /** What the read may hold of each kind. */
 export const READ_LIMITS = {
@@ -58,6 +72,7 @@ export const READ_LIMITS = {
   picks: 3,
   intentions: 3,
   milestones: 4,
+  answers: 4,
   needs_you: 4,
 };
 
@@ -78,6 +93,26 @@ export function lengthWords(min) {
   return [h ? plural(h, 'hour', 'hours') : '', m || !h ? plural(m, 'minute', 'minutes') : '']
     .filter(Boolean)
     .join(' ');
+}
+
+/** "2.5 hours", "1 hour", "0.5 hours": minutes to the nearest half hour, the way the review speaks of time. */
+export function hoursWords(min) {
+  const h = Math.round(min / 30) / 2;
+  return `${h} ${h === 1 ? 'hour' : 'hours'}`;
+}
+
+/**
+ * What already sits on each day being planned: how many open todos have that
+ * day, and the minutes they add up to, a todo with no length counted as the
+ * board counts it (minutesOf).
+ * @param {object[]} todos every open todo, listed or not
+ * @param {string[]} days the days being planned
+ */
+export function dayLoads(todos, days) {
+  return days.map((day) => {
+    const on = todos.filter((t) => t.due_day === day);
+    return { day, todos: on.length, minutes: on.reduce((n, t) => n + minutesOf(t), 0) };
+  });
 }
 
 /** The day this many calendar months before a day, kept inside the shorter month. */
@@ -394,12 +429,32 @@ export async function gatherRead(env, userId, p) {
     ),
   ]);
 
+  // from the weekly pass, with the switch on: the dated facts ahead that
+  // Gremly holds (never one private or about health) and its note on the week
+  const fromPass = readFromPass(env);
+  const [factsAhead, passes] = fromPass
+    ? await Promise.all([
+        d.select(
+          `life_facts_now?user_id=eq.${userId}&state=in.(planned,current)&private=is.false&health=is.false&about_date=gte.${today}&about_date=lte.${horizon}&select=statement,about_date,about_date_end,state&order=about_date.asc&limit=60`,
+        ),
+        d.select(
+          `synthesis_runs?user_id=eq.${userId}&kind=in.(weekly,catch_up,first_look)&status=eq.applied&period_end=lte.${today}&select=period_end,week_note:output->>week_note&order=period_end.desc,created_at.desc&limit=1`,
+        ),
+      ])
+    : [[], []];
+
   // the connected calendar on each day being planned
   const calendarDays = spanDays(first, last).map((day) => {
     const { meetings, allDay } = meetingsFrom({ synced: syncedOn(range, day, tz), tz });
     return {
       day,
-      meetings: meetings.map((m) => ({ title: m.title || 'Busy', start: m.start, end: m.end })),
+      // each timed entry with its id, so the read can name one as a moment that is coming up
+      meetings: meetings.map((m) => ({
+        id: m.id,
+        title: m.title || 'Busy',
+        start: m.start,
+        end: m.end,
+      })),
       all_day: allDay.map((e) => e.title || 'Untitled'),
     };
   });
@@ -444,8 +499,26 @@ export async function gatherRead(env, userId, p) {
       )
       .filter((h) => !h.end_date || h.end_date >= today),
     dated: datedThings({ notes, quick, allDayAhead, chapters, today, horizon }),
+    // the open Chapter with the nearest date, worked out in code (shared/upNext.js)
+    up_next: upNext(chapters || [], today),
     calendar: { connected: (tokens || []).length > 0, days: calendarDays },
     last_review: await lastReviewOf(d, userId, lastReviews?.[0], p.week_start),
+    ...(fromPass
+      ? {
+          from_pass: true,
+          facts_ahead: (factsAhead || [])
+            .filter((f) => isDay(f.about_date))
+            .map((f) => ({
+              date: f.about_date,
+              end: isDay(f.about_date_end) ? f.about_date_end : null,
+              statement: f.statement,
+              state: f.state,
+            })),
+          week_note: passes?.[0]?.week_note
+            ? { week_ending: passes[0].period_end, note: passes[0].week_note }
+            : null,
+        }
+      : {}),
   };
 }
 
@@ -551,14 +624,24 @@ function clockOf(hhmm) {
   return Number.isInteger(h) && Number.isInteger(m) ? clockTime(h * 60 + m) : '';
 }
 
-function calendarLines(calendar) {
+/**
+ * What is on their calendar on the days being planned. The lines call it
+ * entries and booked time, never meetings: a calendar holds a life as well as
+ * a working week, and what the model is told is what it says back. Each timed
+ * entry has a short id, kept in refs, so a moment that is coming up can be
+ * one of them.
+ */
+function calendarLines(calendar, today, refs) {
   if (!calendar?.connected)
-    return ['THE CALENDAR: none is connected, so their meetings are not known.'];
-  const L = ['THE CALENDAR ON THE DAYS BEING PLANNED (booked time worked out exactly):'];
-  let meetings = 0;
+    return ['THE CALENDAR: none is connected, so what is on their calendar is not known.'];
+  const L = [
+    'THE CALENDAR ON THE DAYS BEING PLANNED (each entry: id, time, what it is called; booked time worked out exactly):',
+  ];
+  let entries = 0;
   let booked = 0;
+  let n = 0;
   for (const c of calendar.days || []) {
-    meetings += c.meetings?.length || 0;
+    entries += c.meetings?.length || 0;
     booked += bookedMinutes(c.meetings);
     const name = `${weekdayName(c.day)} ${c.day}`;
     const whole = c.all_day?.length
@@ -568,17 +651,23 @@ function calendarLines(calendar) {
       L.push(`${name}: nothing booked.${whole}`);
       continue;
     }
-    const shown = c.meetings
-      .slice(0, MEETINGS_A_DAY)
-      .map((m) => `${clockTime(m.start)} to ${clockTime(m.end)} ${trim(m.title, 50)}`);
+    const shown = c.meetings.slice(0, ENTRIES_A_DAY).map((m) => {
+      n += 1;
+      const ref = `c${n}`;
+      // one that has gone by today is no moment still to come
+      if (c.day >= today) {
+        refs.set(ref, { type: 'synced_event', id: m.id || null, title: m.title, date: c.day });
+      }
+      return `${ref} ${clockTime(m.start)} to ${clockTime(m.end)} ${trim(m.title, 50)}`;
+    });
     const more =
-      c.meetings.length > MEETINGS_A_DAY ? `; and ${c.meetings.length - MEETINGS_A_DAY} more` : '';
+      c.meetings.length > ENTRIES_A_DAY ? `; and ${c.meetings.length - ENTRIES_A_DAY} more` : '';
     L.push(
-      `${name}: ${plural(c.meetings.length, 'meeting', 'meetings')}, ${lengthWords(bookedMinutes(c.meetings))} booked: ${shown.join('; ')}${more}.${whole}`,
+      `${name}: ${plural(c.meetings.length, 'entry', 'entries')}, ${lengthWords(bookedMinutes(c.meetings))} booked: ${shown.join('; ')}${more}.${whole}`,
     );
   }
   L.push(
-    `Across those days: ${plural(meetings, 'meeting', 'meetings')}, ${lengthWords(booked)} booked.`,
+    `Across those days: ${plural(entries, 'entry', 'entries')}, ${lengthWords(booked)} booked.`,
   );
   return L;
 }
@@ -629,7 +718,8 @@ function weekGoneLines(g) {
  * The read's input, in the order it was tested in, with a short id for every
  * todo, habit and dated thing.
  * @returns {{text: string, figures: object, listed: number,
- *   refs: {todos: Map<string, string>, habits: Map<string, object>, dated: Map<string, object>}}}
+ *   refs: {todos: Map<string, string>, habits: Map<string, object>, dated: Map<string, object>,
+ *   calendar: Map<string, object>}}}
  */
 /**
  * @param {object} g what was gathered
@@ -641,7 +731,7 @@ export function renderRead(g, o = {}) {
   const today = g.today;
   const days = spanDays(g.first, g.last);
   const theirs = o.theirs || theirDays(g);
-  const refs = { todos: new Map(), habits: new Map(), dated: new Map() };
+  const refs = { todos: new Map(), habits: new Map(), dated: new Map(), calendar: new Map() };
 
   const figures = figuresOf(g.todos, today, days);
   const listed = todosToList(g.todos, today);
@@ -665,21 +755,51 @@ export function renderRead(g, o = {}) {
       .join('; '),
   );
 
-  L.push('', 'WORLDS, THE PARTS OF THEIR LIFE (name | how active | summary | priorities):');
+  // from the weekly pass (readFromPass): Gremly's notes on each, without the old priorities
+  const pass = !!g.from_pass;
+  L.push(
+    '',
+    pass
+      ? "WORLDS, THE PARTS OF THEIR LIFE (name | how active | Gremly's notes):"
+      : 'WORLDS, THE PARTS OF THEIR LIFE (name | how active | summary | priorities):',
+  );
   if (!g.worlds?.length) L.push('(none yet)');
   for (const w of g.worlds || []) {
     L.push(
-      `${trim(w.name, 60)} | ${w.phase} | ${trim(w.summary, 260) || 'no summary'} | ${(w.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
+      pass
+        ? `${trim(w.name, 60)} | ${w.phase} | ${trim(w.summary, 360) || 'no notes yet'}`
+        : `${trim(w.name, 60)} | ${w.phase} | ${trim(w.summary, 260) || 'no summary'} | ${(w.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
     );
   }
 
-  L.push('', 'CHAPTERS (title | phase | dates | summary | priorities):');
+  L.push(
+    '',
+    pass
+      ? "CHAPTERS (title | phase | dates | Gremly's notes):"
+      : 'CHAPTERS (title | phase | dates | summary | priorities):',
+  );
   if (!g.chapters?.length) L.push('(none)');
   for (const c of g.chapters || []) {
     L.push(
-      `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 260) || 'no summary'} | ${(c.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
+      pass
+        ? `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 360) || 'no notes yet'}`
+        : `${trim(c.title, 80)} | ${c.phase} | ${c.start_date || 'no start'} to ${c.end_date || 'no end set'} | ${trim(c.summary, 260) || 'no summary'} | ${(c.priorities || []).map((k) => trim(k, 90)).join('; ') || 'none named'}`,
     );
   }
+  if (pass) {
+    L.push('', 'WHAT GREMLY KNOWS IS AHEAD, THE NEXT SIX WEEKS (date | what):');
+    if (!g.facts_ahead?.length) L.push('(nothing dated)');
+    for (const f of g.facts_ahead || [])
+      L.push(`${f.date}${f.end ? ` to ${f.end}` : ''} | ${trim(f.statement, 200)}`);
+    L.push(
+      '',
+      g.week_note
+        ? `GREMLY'S NOTE ON THE WEEK ENDING ${g.week_note.week_ending}: ${trim(g.week_note.note, 700)}`
+        : "GREMLY'S NOTE ON THEIR LAST WEEK: (none yet)",
+    );
+  }
+  const next = upNextWords(g.up_next);
+  if (next) L.push(`UP NEXT AMONG THEIR CHAPTERS, WORKED OUT IN CODE: ${next}.`);
 
   // dated things ahead: what Gremly holds, whole days on their calendar, and todos due by a date
   const horizon = addDays(today, LOOK_AHEAD_DAYS);
@@ -724,7 +844,7 @@ export function renderRead(g, o = {}) {
     );
   }
 
-  L.push('', ...calendarLines(g.calendar));
+  L.push('', ...calendarLines(g.calendar, today, refs.calendar));
 
   L.push('', 'HABITS (id | name: how it is going):');
   if (!g.habits?.length) L.push('(none)');
@@ -746,6 +866,22 @@ export function renderRead(g, o = {}) {
       ? `FIGURES (worked out exactly, use these rather than adding up yourself): ${plural(figures.open, 'open todo', 'open todos')} adding up to about ${plural(figures.hours, 'hour', 'hours')}. ${figures.old} of them were added more than three months ago. ${figures.moved} have been moved to another day ten times or more. ${figures.gone} have a day or a date that has already gone by. ${figures.dated} have a day or a date on the days being planned.${capped}`
       : 'FIGURES (worked out exactly): they have no open todos.',
   );
+  // What already sits on each day being planned. A single day can be the
+  // challenge, and its load is then quoted from here, not added up by the
+  // model (9 October: two runs in six quoted a day's total of their own).
+  const loads = dayLoads(g.todos, days);
+  if (loads.some((x) => x.todos)) {
+    L.push(
+      `ON EACH DAY BEING PLANNED (the todos that have that day, worked out exactly, one with no length counted as half an hour): ${loads
+        .map(
+          (x) =>
+            `${weekdayName(x.day)} ${x.day}: ${
+              x.todos ? `${plural(x.todos, 'todo', 'todos')}, ${hoursWords(x.minutes)}` : 'none'
+            }`,
+        )
+        .join('; ')}.`,
+    );
+  }
 
   L.push('', 'OPEN TODOS (id | title | length | added | moved | dates):');
   if (!listed.length) L.push('(none)');
@@ -775,22 +911,22 @@ export function readSystem(person) {
     fixed: `You are Gremly, a small companion who helps one person run their week. It is the weekly review: you read everything you know about them and prepare the opening of a short conversation that plans the coming week. They will see your read as cards and answer by tapping or typing.
 
 What to produce:
-The challenge is the single thing most likely to make this week go wrong, said plainly to them in one short headline, with a why that names the real facts behind it. Choose it by weighing what is dated this week and soon, what has been hanging longest, how much open work there is against the time they have, and what they said they care about. It must be specific to this person and this week.
+The challenge is the single thing most likely to make this week go wrong, said plainly to them in one short headline, with a why that names the real facts behind it. Choose it by weighing what is dated this week and soon, what has been hanging longest, how much open work there is against the time they have, and what they said they care about. It must be specific to this person and this week. How much is on their list as a whole is the challenge only when nothing more particular is. When one dated thing, one piece of work or one stretch of days is where the week is most likely to go wrong, that is the challenge, and the size of the list is at most part of its why.
 Evidence is two to four figures that prove the challenge, each a short number or count with a few words of label, all taken from the data. A date is not a figure, though the number of days until it can be.
 Coming off is one sentence about the week they just had, from what the data shows.
-Coming up lists up to eight dated moments in the next six weeks that should shape this week, in date order, each said briefly and without its date, which has a field of its own. When a moment is one of the dated things in the data, give its id with it.
-Priority options are up to five things that could matter most this week, each tied to the todo ids it covers when there are any. Mark at most three as your picks. Favour hard dates, things that unblock bigger goals, and things they named as priorities.
-Intention drafts are three short first person lines they could adopt as their intention for the week, each of ten words or fewer and each in a different spirit.
+Coming up lists up to eight dated moments in the next six weeks that should shape this week, in date order, each said briefly and without its date, which has a field of its own. What is on their calendar belongs here too when it is a moment in their life: something that matters to them beyond an ordinary day, as far as you can judge from what you know of them. An entry that is part of their routine does not. When a moment is one of the dated things or one of the calendar entries in the data, give its id with it.
+Priority options are up to five things that could matter most this week, each tied to the todo ids it covers when there are any. Mark at most three as your picks. Favour hard dates, things that unblock bigger goals, and things they named as priorities. With each give an intention: one short first person line of ten words or fewer that they could hold onto all week if this is what their week is for. It says how they mean to go about the week, in their own voice, and does not repeat the priority as a task to do.
 Free hours guess is how many hours on a normal day, a busy day and a day off they likely have for their own things outside work and fixed commitments, in half hour steps, with a short reason. When they set their free hours in their last review, start from those. When there is no calendar, guess from what you know of their life and say that it is a guess they can change.
 Busy days are the days being planned that look heavy from the calendar or dated things, each given as its date. Leave it empty when nothing shows it.
-Milestones are for big deliverables or moments more than a week away that need steps before them. Each one leads up to one dated thing in the data, which you name by its id. For each, give two to four steps in order, each with a date to finish by, rough minutes, and whether it is a todo to do or a check in Gremly should hold during an evening wrap up to see how it is going. Each step is something new to add to their list, never a todo they already have, and at least one step of every milestone is a todo to do. Only include goals the data supports.
-Needs you holds up to four things that are blocking them, chosen from what has been moved the most or hanging the longest and what matters most. Group todos that are really one problem. For each say in a few words why it seems stuck and one question that would unstick it.
+Milestones are for events and deliverables more than a week away that need preparing for: something that takes several pieces of work on the days before it. A dated thing that is itself one piece of work is a todo, however far off it is, and never gets a milestone. Each one leads up to one dated thing in the data, which you name by its id. For each, give two to four steps in order, each with a date to finish by, rough minutes, and whether it is a todo to do or a check in Gremly should hold during an evening wrap up to see how it is going. Each step is something new to add to their list, never a todo they already have, and at least one step of every milestone is a todo to do. Only include goals the data supports.
+Needs you holds up to four things that are blocking them, chosen from what has been moved the most or hanging the longest and what matters most. Group todos that are really one problem. Its title is in the todos' own words: the name of the todo when it is about one, and the words their names share when it groups several, never a name of your own for them. For each say in a few words why it seems stuck and one question that would unstick it. With the question give two to four answers they might tap, each a few words in their own voice, and each a different answer to that question and to no other.
 Habit days suggests which of the days being planned each habit they are actually trying to keep should go on, spread so it fits the week and builds back from where they are rather than their full target, and never on more days than they aim for. Leave out habits that look abandoned for months unless something in the data says they want them back.
 
 Rules:
 Some todos are on a day they chose themselves. Those days are their own decisions and are not yours to change: take them as given when you weigh how much the week already holds.
-Use only facts in the data. Never invent meetings, people or dates. Never speak of the data or of what you were given: write as someone who knows them.
-Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at. In your own words never name a condition, a treatment or therapy of any kind, a medication, a medical test or a medical speciality, even when one of their own items names it: speak of that item only in general terms, by when it is and what it asks of their week. This holds for every line you write, about what they did last week and their habits as much as about what is ahead. Read your words once more as a stranger glancing at the screen would: that stranger should not be able to tell what this person's health involves.
+Use only facts in the data. Never invent calendar entries, people or dates. Never speak of the data or of what you were given: write as someone who knows them.
+What is on their calendar is entries of every kind, and you cannot take any of them for a meeting. Speak of what is on their calendar, or of the time that is booked, and of one entry as what its own name says it is. Never count them or describe them as meetings.
+Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at. In your own words never name a condition, a treatment or therapy of any kind, a medication, a medical test or a medical speciality, even when one of their own items names it: speak of that item only in general terms, by when it is and what it asks of their week. This holds for every line you write, about what they did last week and their habits as much as about what is ahead, and it comes before the rule that a needs you title is in the todos' own words. Read your words once more as a stranger glancing at the screen would: that stranger should not be able to tell what this person's health involves.
 The days being planned may be the rest of this week rather than a whole week. Plan only those days, and judge how much fits by how many are left.
 Write to them as you, warmly and briefly, in plain words. No dashes used as punctuation. In the sentences they will read, say a date or a time the way a person would in a message to a friend. The form the data gives a date in is for the fields that ask for a date, and only for those.
 Use ids exactly as given, and only where an id is asked for: never write an id in your words.`,
@@ -819,7 +955,9 @@ export const READ_SCHEMA = obj({
   coming_off: text('one sentence about the week they just had'),
   coming_up: list(
     obj({
-      about: text('the id of the dated thing it is, or empty when it is not one of them'),
+      about: text(
+        'the id of the dated thing or the calendar entry it is, or empty when it is neither',
+      ),
       when: text(`its date, ${A_DAY}`),
       what: text('the moment itself, said briefly'),
     }),
@@ -834,10 +972,12 @@ export const READ_SCHEMA = obj({
         { type: 'string' },
         'the ids of the todos it covers, none when it covers none',
       ),
+      intention: text(
+        'one first person line of ten words or fewer to hold onto if this is what the week is for',
+      ),
     }),
     'up to five',
   ),
-  intention_drafts: list({ type: 'string' }, 'three'),
   free_hours_guess: obj({
     normal_day: { type: 'number', description: 'hours, in half hour steps' },
     busy_day: { type: 'number', description: 'hours, in half hour steps' },
@@ -859,14 +999,18 @@ export const READ_SCHEMA = obj({
         'two to four, in order',
       ),
     }),
-    'none when nothing dated is more than a week away and needs steps',
+    'none when nothing dated is more than a week away and needs preparing for',
   ),
   needs_you: list(
     obj({
       item_ids: list({ type: 'string' }, 'the ids of the todos it is about'),
-      title: text('what it is, in a few words'),
+      title: text("what it is, in the todos' own words"),
       stuck_because: text('why it seems stuck, in a few words'),
       question: text('one question that would unstick it'),
+      answers: list(
+        { type: 'string' },
+        'two to four answers to that question they might tap, a few words each',
+      ),
     }),
     'up to four',
   ),
@@ -890,6 +1034,27 @@ function said(v, max) {
 }
 
 const asList = (v) => (Array.isArray(v) ? v : []);
+
+/** The longest answer a needs you card can show as one to tap. */
+const ANSWER_MAX = 48;
+
+/**
+ * The answers to tap under a needs you question: each said once, short
+ * enough to be tapped, and no more than a card has room for. One too long to
+ * tap is left out whole, since half an answer is not theirs to give.
+ */
+function checkAnswers(raw, drop) {
+  const answers = [];
+  for (const a of asList(raw)) {
+    const words = said(a, 200);
+    if (!words) drop('needs_you_answer', 'empty');
+    else if (words.length > ANSWER_MAX) drop('needs_you_answer', 'too_long');
+    else if (answers.includes(words)) drop('needs_you_answer', 'twice');
+    else if (answers.length >= READ_LIMITS.answers) drop('needs_you_answer', 'too_many');
+    else answers.push(words);
+  }
+  return answers;
+}
 
 /** A milestone's steps: each a real step between today and the date it leads up to. */
 function checkSteps(raw, today, date, drop) {
@@ -963,15 +1128,20 @@ export function checkRead(output, g, r) {
   read.coming_up = [];
   for (const c of asList(o.coming_up)) {
     const what = said(c?.what, 140);
-    // a moment that is one of their dated things takes its date from that thing
+    // a moment that is one of their dated things, or one of the entries on
+    // their calendar, takes its date from that
     const named = String(c?.about ?? '').trim();
-    const about = named ? r.refs.dated.get(named) : null;
+    const about = named ? r.refs.dated.get(named) || r.refs.calendar?.get(named) : null;
     if (named && !about) drop('coming_up', 'unknown_id');
     const when = about ? about.date : normDay(c?.when);
     if (!what) drop('coming_up', 'empty');
     else if (!when || when < today || when > horizon) drop('coming_up', 'date_outside');
     else
-      read.coming_up.push({ when, what, item: about ? { type: about.type, id: about.id } : null });
+      read.coming_up.push({
+        when,
+        what,
+        item: about?.id ? { type: about.type, id: about.id } : null,
+      });
   }
   read.coming_up.sort((a, b) => a.when.localeCompare(b.when));
   if (read.coming_up.length > READ_LIMITS.coming_up) {
@@ -995,20 +1165,31 @@ export function checkRead(output, g, r) {
     const pick = p?.gremly_pick === true && picks < READ_LIMITS.picks;
     if (p?.gremly_pick === true && !pick) drop('priority_pick', 'too_many');
     if (pick) picks += 1;
+    // the line to hold onto if this is what their week is for: the one the
+    // intention card suggests once they have chosen it
+    const intention = said(p?.intention, WEEK_LIMITS.intention);
+    if (!intention) drop('intention', 'empty');
     read.priority_options.push({
       text: words,
       why: said(p?.why, 200),
       gremly_pick: pick,
       item_ids: todoIds(p?.item_ids, 'priority_item'),
+      intention,
     });
   }
 
+  // An app build from before each priority had a line of its own shows three
+  // drafts to choose from: it is given the lines of Gremly's picks, then the
+  // others', each once.
   read.intention_drafts = [];
-  for (const line of asList(o.intention_drafts)) {
-    const words = said(line, WEEK_LIMITS.intention);
-    if (!words) drop('intention', 'empty');
-    else if (read.intention_drafts.length >= READ_LIMITS.intentions) drop('intention', 'too_many');
-    else read.intention_drafts.push(words);
+  const byPick = [...read.priority_options].sort(
+    (a, b) => Number(b.gremly_pick) - Number(a.gremly_pick),
+  );
+  for (const p of byPick) {
+    if (read.intention_drafts.length >= READ_LIMITS.intentions) break;
+    if (p.intention && !read.intention_drafts.includes(p.intention)) {
+      read.intention_drafts.push(p.intention);
+    }
   }
 
   const f = o.free_hours_guess && typeof o.free_hours_guess === 'object' ? o.free_hours_guess : {};
@@ -1069,6 +1250,7 @@ export function checkRead(output, g, r) {
         title,
         stuck_because: said(n?.stuck_because, 200),
         question: said(n?.question, 200),
+        answers: checkAnswers(n?.answers, drop),
       });
   }
 

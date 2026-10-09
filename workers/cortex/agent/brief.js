@@ -20,6 +20,13 @@
 // When the agent cannot finish, the day turn answers instead, exactly as it
 // did before this step, so the thread always gets an answer.
 //
+// A question of Gremly's that is in play (the brief's open one, or the one the
+// wrap up says a message answers) comes with where it came from: the fact it
+// was written about and how Gremly knows that fact (questionSource), so a
+// person who asks how Gremly knew is told, truthfully. What to do with it is
+// said with it, and nowhere else: on a turn with no such question, the agent
+// is sent word for word what it was sent before any of this.
+//
 // Once the answer is sent, the message reaches Gremly's memory as a chat
 // message does: a correction goes to the context pipeline straight away
 // (learnFromTurn), and the ledger reader reads the rest within the hour.
@@ -51,9 +58,18 @@ import { runAgent } from './run.js';
 import { toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION, isLate } from './prompt.js';
 import { dayEndHourOf } from '../../shared/day.js';
+import { sourceWords } from '../../shared/factSource.js';
+import { upNextWords } from '../../shared/upNext.js';
+import {
+  JUST_HAPPENED_RULE,
+  chatLifeSize,
+  loadLifePack,
+  lifePackText,
+  personWordsOn,
+} from '../../shared/lifePack.js';
 import { checkForCorrection } from '../context/corrections.js';
 
-export const BRIEF_AGENT_VERSION = `brief-2026-10-08b/${AGENT_PROMPT_VERSION}`;
+export const BRIEF_AGENT_VERSION = `brief-2026-10-14a/${AGENT_PROMPT_VERSION}`;
 
 // the planning day ends here when nothing earlier ends it, as in the day turn
 const DAY_END = 22 * 60;
@@ -178,7 +194,8 @@ export function briefPersona(person) {
     "You are Gremly, a warm, shame-free companion, in the person's thread for today.",
     CARE_RULES,
     `VOICE
-Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, never to offer more. Never invent an item, a time, a day or a fact.`,
+Warm, lively and brief, like a friend who knows their day and is glad to be part of it. Share in what today means to them: when it is about something or someone that matters to them, be openly glad with them, in your own words, and see what they are doing today in its light. Gremly has a playful spark; let it show whenever the moment allows. Suggest, never instruct. Reply in one to three short sentences of plain chat text, with no headings, lists, bold or emoji. Say what you would change in your own words, as an offer. Say plainly what cannot be done here and why. Ask a question only when you need the answer to act or to understand them, or to ask after something that has just happened in their life, never to offer more. Never invent an item, a time, a day or a fact.
+${JUST_HAPPENED_RULE}`,
     PRIVATE_RULES,
     CHAT_WRITING_RULES,
     personBlock(person),
@@ -201,13 +218,10 @@ export function dayMeaning(dco) {
       `- Away: ${away.label}${away.through ? `, until ${weekdayName(away.through)} ${away.through}` : ''}`,
     );
   }
-  const moment = dco.life_moment;
-  if (moment && typeof moment === 'object' && (moment.what || moment.label)) {
-    lines.push(`- In their life right now: ${moment.what || moment.label}`);
-  } else if (typeof moment === 'string' && moment.trim()) {
-    lines.push(`- In their life right now: ${moment.trim()}`);
-  }
   if (dco.voice_note) lines.push(`- How Gremly's brief is pitching today: ${dco.voice_note}`);
+  // the open Chapter with the nearest date, worked out in code (shared/upNext.js)
+  const next = upNextWords(dco.up_next);
+  if (next) lines.push(`- Up next among their Chapters: ${next}`);
   return lines.length
     ? `WHAT TODAY IS ABOUT (Gremly's picture of their day)\n${lines.join('\n')}`
     : '';
@@ -404,8 +418,9 @@ function readHours(raw) {
  * The person's week as the app sends it with a message in today's thread
  * (lib/cortex/CortexClient.ts WeekTurnContext): their weekly day and days off,
  * this week's review as its row has it, whether the one extra review of the
- * week is used, the week's free hours, busy days and intention as they stand,
- * and, while a review is under way, where it is and what has been settled.
+ * week is used, the week's free hours, busy days, intention and what matters
+ * most as they stand, and, while a review is under way, where it is and what
+ * has been settled.
  * Null when the app sent none: an app build that does not know the week. With
  * today, a review whose days have all gone, or are further off than the week
  * after next, is not one under way.
@@ -414,6 +429,11 @@ function readHours(raw) {
  * build that can apply such a change: a list, empty when there are none. An
  * app build that cannot leaves it out, and it is null here, so the change is
  * never offered to it (surfaces.js, the ease variants).
+ *
+ * priorities is what matters most to them this week, each in its own words,
+ * from an app build that can keep a new one: a list, empty when there are
+ * none. A build that cannot leaves it out, and it is null here, so adding one
+ * is never put to it (the change model's priority).
  */
 export function readWeek(raw, today = null) {
   if (!raw || typeof raw !== 'object' || !Number.isInteger(raw.weekly_day)) return null;
@@ -442,9 +462,27 @@ export function readWeek(raw, today = null) {
     hours: readHours(raw.hours),
     busy_days: dayList(raw.busy_days, 14),
     intention,
+    priorities: Array.isArray(raw.priorities)
+      ? raw.priorities
+          .slice(0, 12)
+          .map((p) => str(p, 120))
+          .filter(Boolean)
+          .slice(0, 6)
+      : null,
     under_way: readUnderWay(raw.under_way, str, today),
     eased: readEased(raw.eased, str, today),
   };
+}
+
+/**
+ * What matters most to them this week as it stands, for what Gremly knows
+ * about their week. Nothing from an app build that did not say.
+ */
+export function prioritiesWords(week) {
+  if (!Array.isArray(week?.priorities)) return '';
+  return week.priorities.length
+    ? ` What matters most to them this week, as it stands: ${week.priorities.map((p) => `“${p}”`).join('; ')}.`
+    : ' Nothing is chosen as mattering most this week yet.';
 }
 
 /** The habits paused or on a lighter version, as the app sent them; null when it sent none at all. */
@@ -608,6 +646,8 @@ export function weekFrameOf(week, today) {
     hours: week.hours,
     busy_days: week.busy_days,
     intention: week.intention,
+    // what matters most as it stands; null from an app build that cannot keep a new one
+    priorities: week.priorities ?? null,
     // the week's shape and its check ins are kept on its review
     has_review: started || !!u,
     under_way: u,
@@ -672,7 +712,7 @@ export function weekLine(week, today, { moveOnCard = true } = {}) {
       : moveOnCard
         ? 'The one extra review a week has been used, so no other review can be started today; what Gremly can offer instead is to move their weekly day, on the card.'
         : "The one extra review a week has been used, so no other review can be started today. Their weekly day can be moved from today's thread, and not from here.";
-  return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}${easedWords(week)}`;
+  return `THEIR WEEK: ${when} The review for ${which}, ${range}, ${state}. ${extra}${prioritiesWords(week)}${easedWords(week)}`;
 }
 
 /** Where the weekly review has got to, in words (workers/shared/week.js WEEK_STEPS). */
@@ -744,7 +784,19 @@ export function weekContext(week) {
   if (!done) {
     L.push(
       'They can type anything at any moment of the review. Read what they wrote as a person would and answer what they mean. When it changes the week, say back briefly what you understood and put the changes that clearly follow from what they said on the card, and no others. The card is an offer they can turn down or correct, so offer what follows rather than asking whether you should, and never hold a change back to ask for a detail it can be offered without: something new they tell you about goes on the card with what they told you, and what they did not say about it is theirs to fill in. A todo with no length is counted as half an hour on the board until they give it one, so how long something takes is never a thing to ask first. Only when it is unclear what they want changed, ask one short question instead and put nothing on the card. When it is a question, answer it from what you know, and say so plainly when you do not know. When it is about how they feel, answer that first. Then let it shape the week: where it means the week should ask less of them, or more, offer that on the card, or ask one short question about what would help.',
-      'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
+      // Work Gremly cannot see, and what is already on their calendar (James, 7
+      // October). Before this a load they mentioned was made into a todo on a
+      // day, and something on their calendar into a note beside it. The task
+      // comes first and is said as a thing to do: said last, as "a todo as
+      // ever", a task named beside a load was left off the card in 14 runs of
+      // 30, folded into the priority's words or held back to ask which day.
+      `What they tell you about may be work or a commitment that is not among their items, which Gremly cannot see. A message like that can hold two different things, and each goes on the card in its own way, in the same step. One is a task: something they say they have to do, one piece of work with an end. It is a new todo, put on the card with add whatever else the message is about. Take it as they said it, without asking whether they want it or which day: give it the day they said, or a day before whatever they say it has to be ready for, or no day at all when they said nothing of when, and the board finds it one. The other is a load on the days being planned, something that takes their time and attention without being one piece of work they could tick off. The load itself is never a todo and never a note. Take it in as the shape of the week, with week_shape: the days they say it falls on become busy days. Change the hours they have free only when they say how many hours it takes or leaves them.${
+        Array.isArray(week.priorities)
+          ? ' And when the load is what the week is for, or a large part of it, add the load to what matters most this week with priority, in a few of their own words: the load alone, never a task they named, which is its own todo.'
+          : ''
+      } When they name no particular days for it, mark no day busy for it: saying it is this week names none. Ask which days it takes only when the week cannot be planned without knowing.`,
+      'What is on their calendar on the days being planned is theirs already, and it stays there. get_week shows it for each day, beside the todos. When what they tell you about is on their calendar, nothing new stands for it: never put a todo, a note or a set time on the card for a calendar entry. The most it does is shape the week, as a busy day.',
+      'The days being planned are read with get_week, which has them as the review has them now: where each todo sits on the board, what is put off, what is on their calendar, and the room each day has left. The list of their items for today, and get_day, have only what is saved.',
       'The review carries on after your reply, from the step it is on, and nothing on that step is lost, so leave its steps to it. Only when your reply ends by asking them something the step cannot be settled without, call hold with your reply, and the review waits for their answer. What carries the review on is a button under the thread, which they tap when they are ready.',
       'Some of what you know is about their health, body or mind. Let it shape the week: their energy, appointments, rest and how much to ask of them. Plan health todos and habits like any others. Write about it only as discreetly as they would want on a screen someone else might glance at, and never name a condition, treatment or medication in your own words; the titles of their items stay exactly as they wrote them.',
     );
@@ -755,22 +807,128 @@ export function weekContext(week) {
     }
     if (u.about) {
       const a = u.about;
+      // Talking one through ends with something to say yes to (James, 9
+      // October): before this a reply could stop at another question.
       L.push(
         '',
         'THEY OPENED ONE TO TALK IT THROUGH',
-        `"${a.title}"${a.item_ids.length ? ` (todos ${a.item_ids.join(', ')})` : ''}${a.stuck_because ? `. Why it seems stuck: ${a.stuck_because}` : ''}${a.question ? `. Gremly asked: "${a.question}"` : ''}. Their message is about this. Help them get it unstuck the way a friend would, and when what they say settles what should happen to it, offer that change.`,
+        `"${a.title}"${a.item_ids.length ? ` (todos ${a.item_ids.join(', ')})` : ''}${a.stuck_because ? `. Why it seems stuck: ${a.stuck_because}` : ''}${a.question ? `. Gremly asked: "${a.question}"` : ''}. Their message is about this: it is their answer to what Gremly asked. Help them get it unstuck the way a friend would, and do not leave it at talk or at another question. End your reply with one concrete offer on the card: the change to these todos, or the one new todo, that moves it on from what they just told you. When what they said could go more than one way, offer the likeliest and say the other in a few words.`,
       );
     }
   }
   return L.join('\n');
 }
 
-/** What Gremly knows about today, with their latest message: what the day is about, the day itself, and the wrap up or the weekly review when one is under way. */
-export function dayContext(req, dco = null, wrap = null, dayEndHour = null, week = null) {
+/** Two wordings of one question are the same when they match after spaces are evened out, up to the length the app sends. */
+const sameWords = (v) =>
+  String(v || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/…$/, '')
+    .slice(0, 300);
+
+/**
+ * The question of Gremly's that is in play with this message: the one the wrap
+ * up says the message answers, or the open one the thread carries.
+ */
+export function questionInPlay(req, wrap) {
+  return wrap?.answering?.question || req?.question || '';
+}
+
+/**
+ * Where one of Gremly's questions came from: the fact it was written about,
+ * with how Gremly knows that fact (public.fact_sources). The app sends the
+ * question's words and not its id, so it is found among the person's own
+ * questions by its words, the newest first. Null when the question rests on no
+ * single fact; null, and said in the log, when it cannot be read. Never stops
+ * the turn.
+ */
+export async function questionSource(ctx, userId, question) {
+  const asked = sameWords(question);
+  if (!asked || !ctx?.db) return null;
+  try {
+    const rows = await ctx.db.select(
+      `gremly_questions?user_id=eq.${userId}&about_fact_id=not.is.null&select=question,about_fact_id&order=created_at.desc&limit=40`,
+    );
+    const hit = (rows || []).find((r) => sameWords(r.question) === asked);
+    if (!hit) return null;
+    const facts = await ctx.db.rpc('fact_sources', {
+      p_user: userId,
+      p_fact_ids: [hit.about_fact_id],
+    });
+    const fact = Array.isArray(facts) ? facts[0] : null;
+    return fact?.statement ? fact : null;
+  } catch (err) {
+    console.warn(
+      "[BriefTurn] where Gremly's question came from could not be read",
+      String(err?.message || err).slice(0, 200),
+    );
+    return null;
+  }
+}
+
+/**
+ * Where the question in play came from, for the agent: how Gremly knows the
+ * fact it was written about, and what that is for. '' when there is no
+ * question or no source.
+ *
+ * Everything about it is said here, with the record, and only on a turn that
+ * has one (the day replay, 7 October). Said as a standing rule in who Gremly
+ * is, and as a line in the wrap up's own words, it cost the card on a plain
+ * answer: with the item wrong and the answer given, the change went on the
+ * card 96 times in 130, against 125 in 130 before, and 12 times in 40 once
+ * this record was beside it. Said here, for the one case it is for, 39 in 40.
+ * And called the record itself: left to look the fact up again, Luna believed
+ * an empty lookup over what it had been given.
+ */
+export function questionSourceContext(question, fact, { today = null, timezone = 'UTC' } = {}) {
+  const asked = sameWords(question);
+  const statement = sameWords(fact?.statement);
+  if (!asked || !statement) return '';
+  const how = sourceWords(fact, { today, timezone, quote: 240 });
+  // their own words say it best; the fact as Gremly wrote it stands in when none were kept
+  const from = how
+    ? `Gremly asked "${asked}" because of ${how}.${fact.source_quote ? '' : ` On record from it: "${statement}"`}`
+    : `Gremly asked "${asked}" because of this on record about them: "${statement}"`;
+  return `IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM\n${from}\nThis is the record itself, read just now, and it is here for one case only: when their message asks where the question came from, or how Gremly knew, rather than answering it. Then it is not an answer: tell them plainly and warmly from this, the day, where they said it and what they said, with no lookup. When their message answers the question, leave this out of your reply and handle the answer as above.`;
+}
+
+/** What Gremly knows about today, with their latest message: what the day is about, the day itself, the wrap up or the weekly review when one is under way, and where the question in play came from. */
+export function dayContext(
+  req,
+  dco = null,
+  wrap = null,
+  dayEndHour = null,
+  week = null,
+  asked = '',
+  life = '',
+) {
   const meaning = dayMeaning(dco);
   const evening = wrapContext(wrap, week);
   const review = weekContext(week);
-  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}`;
+  // what a friend would know about their life today (shared/lifePack.js, data fabric stage 4d)
+  const lifeNow = life
+    ? `THEIR LIFE RIGHT NOW (what a friend would know; draw on it the way a friend would, when it fits what they said and when a friend would raise it in reply, once and in a few words; never list it, and never tell them as news what they told you)\n${life}`
+    : '';
+  return `WHAT YOU KNOW ABOUT TODAY\n${meaning ? `${meaning}\n\n` : ''}${renderDay(req, dayEndHour, week)}${lifeNow ? `\n\n${lifeNow}` : ''}${evening ? `\n\n${evening}` : ''}${review ? `\n\n${review}` : ''}${asked ? `\n\n${asked}` : ''}`;
+}
+
+/**
+ * Their life (shared/lifePack.js) as lines, as much of it as Ask Gremly reads
+ * (CHAT_LIFE, shared/lifePack.js chatLifeSize; all of it unless set to compact,
+ * data fabric stage 4e); never stops the turn, and says when it cannot be read.
+ */
+async function readLife(ctx, userId, today, tz) {
+  try {
+    return lifePackText(
+      await loadLifePack(ctx.db, userId, { today, tz, size: chatLifeSize(ctx.env), personWords: personWordsOn(ctx.env) }),
+    );
+  } catch (err) {
+    console.warn(
+      `[ALERT][BriefTurn] could not read their life for ${userId}: ${err?.message || err}`,
+    );
+    return '';
+  }
 }
 
 /** Today's picture of the day, if the brief has made one; never stops the turn. */
@@ -826,19 +984,25 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   const ctx = deps.ctx
     ? { ...deps.ctx, today: req.date, day, week: weekFrame }
     : toolContext(env, { userId, today: req.date, timezone, day, week: weekFrame });
-  const [person, dco, dayEndHour] = await Promise.all([
+  const wrap = readWrap(body?.wrap);
+  const question = questionInPlay(req, wrap);
+  const [person, dco, dayEndHour, source, life] = await Promise.all([
     deps.person || personIdentity(env, userId),
     readDco(ctx, userId, req.date),
     // when their day ends, so the small hours read as the end of it
     deps.dayEndHour ?? dayEndHourOf(env, userId),
+    // where the question in play came from, so "how did you know" has its answer
+    questionSource(ctx, userId, question),
+    // their life right now, as the brief and the wrap up read it
+    deps.life !== undefined ? deps.life : readLife(ctx, userId, req.date, timezone),
   ]);
+  const asked = questionSourceContext(question, source, { today: req.date, timezone });
 
-  const wrap = readWrap(body?.wrap);
   const r = await runAgent({
     surface: 'brief',
     variant: weekVariant(week, { answering: !!wrap?.answering }),
     persona: briefPersona(person),
-    context: dayContext(req, dco, wrap, dayEndHour, week),
+    context: dayContext(req, dco, wrap, dayEndHour, week, asked, life),
     cacheKey: cacheKeyFor(userId),
     history: req.history,
     message: req.text,

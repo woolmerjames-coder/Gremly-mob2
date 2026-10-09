@@ -746,7 +746,17 @@ export type SignalVelocityDelta = 'growing' | 'stable' | 'declining';
 export type AssignedBy = 'classifier' | 'user' | 'migration';
 export type DropType = 'note' | 'todo' | 'habit';
 export type EntitySource = 'classifier' | 'user' | 'migration';
-export type SummarySource = 'classifier' | 'dco' | 'user';
+// Who wrote a field. The data fabric's writers add their own names: the
+// weekly synthesis, the words under a World or Chapter, a closed Chapter's
+// memory, and the Gremly first Worlds chose.
+export type SummarySource =
+  | 'classifier'
+  | 'dco'
+  | 'user'
+  | 'synthesis'
+  | 'words'
+  | 'memory'
+  | 'first_worlds';
 
 export interface KeyMoment {
   date: string; // ISO date YYYY-MM-DD
@@ -835,6 +845,10 @@ export interface World {
   mascot_slug: string | null;
   mascot_slug_source: SummarySource | null;
   mascot_slug_updated_at: string | null;
+  // Gremly's line for this World when the person wrote their own, offered
+  // underneath theirs (data fabric stage 4b)
+  card_subtitle_offered?: string | null;
+  card_subtitle_offered_at?: string | null;
   // Phase A additions
   world_type: WorldType | null;
   world_type_source: SummarySource | null;
@@ -905,6 +919,16 @@ export interface Chapter {
   with_you: WithYouItem[] | null;
   with_you_source: string | null;
   with_you_updated_at: string | null;
+  // Gremly's words and memory when the person wrote their own, offered
+  // underneath theirs (data fabric stage 4b)
+  card_subtitle_offered?: string | null;
+  card_subtitle_offered_at?: string | null;
+  epigraph_offered?: string | null;
+  epigraph_offered_at?: string | null;
+  // The Gremly this Chapter wears; empty means its World's (Worlds rebuild)
+  mascot_slug?: string | null;
+  mascot_slug_source?: 'user' | 'gremly' | null;
+  mascot_slug_updated_at?: string | null;
 }
 
 export interface LifeContext {

@@ -2,7 +2,7 @@
  * @jest-environment node
  *
  * The brief's data rules, in the worker: the offer, behind this week, the
- * shape of the day, the ID check, yesterday's reaction and when a brief is due.
+ * shape of the day, the writer's input, yesterday's reaction and when a brief is due.
  */
 import { decideOffer, planLabel, questionButtons } from '../offer';
 import { isBehindThisWeek, weeklyTarget } from '../behind';
@@ -15,17 +15,9 @@ import {
   minutesIn,
   localStartIso,
 } from '../data';
-import {
-  checkRefs,
-  clockTime,
-  noDashes,
-  renderBriefInput,
-  stripRefs,
-  sweepLine,
-  sweptWhen,
-} from '../writer';
+import { clockTime, noDashes, renderBriefInput, stripRefs, sweepLine, sweptWhen } from '../writer';
 import { summariseThread, summariseWrap } from '../reaction';
-import { dueForBrief, fallbackOffer } from '../index';
+import { dueBriefs, dueForBrief, fallbackOffer, MORNING_ACTIVE_DAYS } from '../index';
 
 jest.mock('../../context/daily', () => ({ buildDcoV4: jest.fn(), writeDco: jest.fn() }));
 
@@ -219,33 +211,28 @@ describe('when a brief is due', () => {
   });
 });
 
-describe("the writer's ID check", () => {
-  const refs = new Map([
-    ['c1', { type: 'calendar', id: 'cal-1' }],
-    ['t1', { type: 'todo', id: 'todo-1' }],
+describe('who gets a brief made ahead', () => {
+  const prefs = new Map([
+    ['a', { timezone: 'America/Los_Angeles', morning_time: '08:00' }],
+    ['b', { timezone: 'America/Los_Angeles', morning_time: '08:00' }],
+    ['c', { timezone: 'Europe/London', morning_time: '08:00' }],
   ]);
+  const at = new Date('2026-10-01T15:00:00Z'); // 8:00 in Los Angeles, 16:00 in London
 
-  it('keeps lines whose refs were all in the input and drops the rest', () => {
-    const out = checkRefs(
-      {
-        lines: [
-          { text: 'Standup at 8.', refs: ['c1'] },
-          { text: 'And the dentist.', refs: ['t9'] },
-          { text: 'Clear from 1:15.', refs: [] },
-        ],
-        offer_refs: ['t1'],
-      },
-      refs,
-    );
-    expect(out.lines).toEqual([
-      { text: 'Standup at 8.', ids: ['cal-1'] },
-      { text: 'Clear from 1:15.', ids: [] },
+  it('makes the morning work ahead only for people active in the last week', () => {
+    expect(MORNING_ACTIVE_DAYS).toBe(7);
+    expect(dueBriefs(['a', 'b', 'c'], ['a', 'c'], prefs, at)).toEqual([
+      { user_id: 'a', day: '2026-10-01' },
     ]);
-    expect(out.dropped).toEqual([{ text: 'And the dentist.', bad: ['t9'] }]);
-    expect(out.offerOk).toBe(true);
-    expect(checkRefs({ lines: [], offer_refs: ['x'] }, refs).offerOk).toBe(false);
   });
 
+  it('makes nothing ahead for someone with settings who has not used the app', () => {
+    expect(dueBriefs(['b'], [], prefs, at)).toEqual([]);
+    expect(dueBriefs(['b'], undefined, prefs, at)).toEqual([]);
+  });
+});
+
+describe("the writer's words", () => {
   it('takes refs out of the text', () => {
     expect(stripRefs('Checkout at 10am, then the flight. [c1, c2]')).toBe(
       'Checkout at 10am, then the flight.',
@@ -254,8 +241,8 @@ describe("the writer's ID check", () => {
       'Pack the charger before you go.',
     );
     expect(stripRefs('Call Mum at 6pm.')).toBe('Call Mum at 6pm.');
-    const out = checkRefs({ lines: [{ text: 'Standup at 8 [c1].', refs: ['c1'] }] }, refs);
-    expect(out.lines[0].text).toBe('Standup at 8.');
+    expect(stripRefs('Standup at 8 [c1].')).toBe('Standup at 8.');
+    expect(stripRefs('Clear from 1pm (s1, n1).')).toBe('Clear from 1pm.');
   });
 
   it('writes times the way people say them', () => {
@@ -308,7 +295,7 @@ describe("the writer's ID check", () => {
         why: 'They mentioned it last week',
         facts: [],
       },
-      anchors: [{ date: '2026-10-13', label: 'Anniversary with Dave', short_label: 'Anniversary' }],
+      anchors: [{ date: '2026-10-13', label: 'Anniversary with Theo', short_label: 'Anniversary' }],
       overdue: 0,
       unsorted: 2,
       reaction: null,

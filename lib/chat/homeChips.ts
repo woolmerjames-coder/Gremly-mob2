@@ -7,9 +7,16 @@
 
 export type HomePhase = 'morning' | 'day' | 'evening';
 
-export type HomeChipKey = 'plan_day' | 'this_week' | 'think' | 'habits' | 'wrap_up' | 'tomorrow';
+export type HomeChipKey =
+  | 'plan_day'
+  | 'this_week'
+  | 'think'
+  | 'habits'
+  | 'wrap_up'
+  | 'tomorrow'
+  | 'questions';
 
-export type HomeChipIcon = 'sun' | 'calendar' | 'sparkles' | 'target' | 'moon';
+export type HomeChipIcon = 'sun' | 'calendar' | 'sparkles' | 'target' | 'moon' | 'question';
 
 export type HomeChip = {
   key: HomeChipKey;
@@ -17,6 +24,8 @@ export type HomeChip = {
   icon: HomeChipIcon;
   /** Drawn in the evening colour (wrapping up the day) */
   evening?: boolean;
+  /** Drawn in the colour of Gremly's questions, with how many wait */
+  count?: number;
 };
 
 /**
@@ -43,13 +52,16 @@ const CHIPS: Record<HomeChipKey, HomeChip> = {
   habits: { key: 'habits', label: 'My habits', icon: 'target' },
   wrap_up: { key: 'wrap_up', label: 'Wrap up today', icon: 'moon', evening: true },
   tomorrow: { key: 'tomorrow', label: 'Tomorrow', icon: 'calendar' },
+  questions: { key: 'questions', label: 'Answer some Gremly questions', icon: 'question' },
 };
 
 /**
  * The chips for a part of the day. The first is the day's ritual, so the way
  * into each one is always there, whatever the hour: Plan my day in the morning
  * until today has a plan, then Wrap up today until the day is wrapped up
- * (lib/wrapup/teaser.ts, `start`), then Tomorrow.
+ * (lib/wrapup/teaser.ts, `start`), then Tomorrow. Answer some Gremly questions
+ * comes before them all while it shows (data fabric stage 4f): only when one
+ * needs an answer or several wait (lib/questions/askQuestions.ts).
  */
 export function homeChipsFor(
   phase: HomePhase,
@@ -58,6 +70,8 @@ export function homeChipsFor(
     wrap: boolean;
     /** Today has a plan */
     planned: boolean;
+    /** How many of Gremly's questions wait, when the way in shows; otherwise 0 */
+    questions?: number;
   },
 ): HomeChip[] {
   const ritual: HomeChipKey =
@@ -70,7 +84,10 @@ export function homeChipsFor(
         : ritual === 'wrap_up'
           ? ['tomorrow', 'think']
           : ['think', 'habits'];
-  return [ritual, ...rest].map((k) => CHIPS[k]);
+  const chips = [ritual, ...rest].map((k) => CHIPS[k]);
+  return day.questions && day.questions > 0
+    ? [{ ...CHIPS.questions, count: day.questions }, ...chips]
+    : chips;
 }
 
 /** What a chip sends to Gremly; null for the chips that open something instead. */

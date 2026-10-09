@@ -13,6 +13,8 @@ import {
   upsertDropWorldLinks,
 } from '../repo/linkingRepo';
 import type { ItemType } from './model';
+import { noteTakenOut } from '../worlds/removals';
+import type { FiledItem } from '../worlds/actions';
 import type { LinkOps } from './patch';
 
 type Links = { worlds?: LinkOps; chapters?: LinkOps };
@@ -52,6 +54,17 @@ export async function applyLinks(
   if (c.add.length)
     await upsertDropChapterLinks(c.add.map((t) => row('chapters', id, type, t, ownerId) as any));
   for (const t of c.remove) await deleteDropChapterLink(id, t);
+  // what they took out is remembered, so Gremly's filing never puts it back (lib/worlds/removals.ts)
+  await noteTakenOut(ownerId, { id, type } as FiledItem, {
+    out: [
+      ...w.remove.map((t) => ({ type: 'world' as const, id: t })),
+      ...c.remove.map((t) => ({ type: 'chapter' as const, id: t })),
+    ],
+    in: [
+      ...w.add.map((t) => ({ type: 'world' as const, id: t })),
+      ...c.add.map((t) => ({ type: 'chapter' as const, id: t })),
+    ],
+  });
 
   useGremlyStore.setState((state: any) => ({
     dropWorldLinks: [

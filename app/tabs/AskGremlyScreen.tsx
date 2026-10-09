@@ -47,6 +47,7 @@ import {
   Bookmark,
   ChevronRight,
   ChevronDown,
+  ArrowDown,
   X,
 } from 'lucide-react-native';
 import { NavigationRouteContext, useNavigation } from '@react-navigation/native';
@@ -64,7 +65,14 @@ import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { useHomeDock, useHomeMode } from '../../components/home/GremlyHomeDock';
 import { talkAboutOpener, type TalkAboutItem } from '../../lib/chat/talkAboutOpeners';
-import { addedBy, followOffset, nearBottom } from '../../lib/chat/follow';
+import {
+  addedBy,
+  belowFor,
+  followOffset,
+  nearBottom,
+  startsBelow,
+  type Below,
+} from '../../lib/chat/follow';
 import { anchorFor, anchorMetadata, anchorOf } from '../../lib/chat/chatAnchor';
 import { waitForExtraction } from '../../lib/chat/waitForExtraction';
 import { findItemChat } from '../../lib/chat/itemChat';
@@ -99,6 +107,7 @@ import type {
   BriefOfferMeta,
   BriefPlanMeta,
   DailyThreadMeta,
+  KeepOfferMeta,
   OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
@@ -144,9 +153,14 @@ import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 import { PlanPickSheet } from '../../components/brief/PlanPickSheet';
 import { HomeChips } from '../../components/home/HomeChips';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
+import { keepOfferFrom, pagePlace } from '../../lib/worlds/keep';
+import { KeepOffer } from '../../components/worlds/KeepOffer';
+import { ChatAskCard } from '../../components/worlds/ChatAskCard';
+import { isChapterQuestionKind } from '../../lib/worlds/questions';
 import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
+import { useAskQuestions } from '../../lib/questions/useAskQuestions';
 import { useNowMinutes } from '../../lib/brief/useDayCard';
 import { selectWrapUp } from '../../lib/store/selectors';
 
@@ -162,12 +176,21 @@ function agentTasksOf(chat: SpaceChat): AgentTask[] {
   return Array.isArray(tasks) ? (tasks as AgentTask[]) : [];
 }
 
-/** An item's own chat (components/chat/ItemChatScreen.tsx) */
+/**
+ * An item's own chat (components/chat/ItemChatScreen.tsx), a World's or a
+ * Chapter's (components/worlds/PageChat.tsx), or the box on the Worlds home,
+ * which has no anchor: it opens fresh each time with Gremly's own line, and
+ * keeps no thread of its own (its chats are in Ask Gremly's list).
+ */
 export type ItemChatOptions = {
-  /** The item: every turn is sent with it, and its chat is found by it */
-  anchor: ChatAnchor;
-  /** What the header calls it: Todo, Habit, Event... */
+  /** The item or page: every turn is sent with it, and its chat is found by it; none on the Worlds home */
+  anchor: ChatAnchor | null;
+  /** What the header calls it: Todo, Habit, Event, World, Chapter... */
   label: string;
+  /** The header's title when there is no anchor */
+  title?: string;
+  /** Gremly's first line when there is no anchor */
+  opener?: string;
   /** Sent straight away when the item has no chat yet (a screen asked for it) */
   initialPrompt?: string | null;
   /** The starters for its kind, shown under Gremly's opener */
@@ -178,6 +201,12 @@ export type ItemChatOptions = {
    */
   loadStarters?: () => Promise<ItemStarter[]>;
   onClose: () => void;
+  /**
+   * Shown as a sheet over its page rather than a full screen (a World's or a
+   * Chapter's chat, components/worlds/PageChat.tsx): the sheet's top, from the
+   * top of the screen, so the keyboard is measured against it
+   */
+  sheet?: { top: number };
 };
 
 /** How long a new item chat waits for starters drawn from the item */
@@ -226,6 +255,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const wakeOnInput = useWakeOnInput();
+  // a World's or a Chapter's own chat: what is kept from it goes there unless Gremly says otherwise
+  const keepPageRef = useRef(pagePlace(item?.anchor));
+  keepPageRef.current = pagePlace(item?.anchor);
   // set further down, once the hooks they call exist
   const wrapResumeRef = useRef<() => Promise<void>>(async () => undefined);
   const weekReviewRef = useRef<WeekReview | null>(null);
@@ -261,24 +293,38 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // null until Gremly's greeting arrives, so the bubble does not change under you
   const [greeting, setGreeting] = useState<string | null>(null);
   // what waits in the app, for the greeting to mention (set further down)
-  const greetingWaitingRef = useRef({ briefUnread: false, toDecide: 0 });
+  const greetingWaitingRef = useRef<{
+    briefUnread: boolean;
+    toDecide: number;
+    questions: { count: number; needs: number } | null;
+  }>({ briefUnread: false, toDecide: 0, questions: null });
+  // Gremly's questions that may be asked today: Answer some Gremly questions
+  // shows while one needs an answer or several wait (data fabric stage 4f).
+  // An item's chat has no home, so it reads none.
+  const askQuestions = useAskQuestions({ enabled: !item, navigation });
+  const questionsChip = askQuestions.waiting.show ? askQuestions.waiting.count : 0;
 
   // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
   // instead of the greeting, and nothing is sent until the user replies
   const [aboutItem, setAboutItem] = useState<TalkAboutItem | null>(null);
-  const [aboutOpener, setAboutOpener] = useState<string | null>(null);
+  // with no anchor (the box on the Worlds home), Gremly's own line opens it
+  const [aboutOpener, setAboutOpener] = useState<string | null>(
+    item && !item.anchor ? (item.opener ?? null) : null,
+  );
   const aboutRef = useRef<{ item: TalkAboutItem; opener: string } | null>(null);
 
   useEffect(() => {
     // the greeting is a model call: skip it while a drop is attached, and in
     // an item's chat, which opens with Gremly's line about the item instead
     if (item || aboutRef.current || params?.talkAbout) return;
+    // it waits for the first read of Gremly's questions, so it knows whether any wait
+    if (!askQuestions.loaded) return;
     if (!activeChat && userId) {
       callGeneralGreeting(userId, greetingWaitingRef.current).then((g) => {
         setGreeting(g || GREETING_FALLBACK);
       });
     }
-  }, [activeChat, userId]);
+  }, [activeChat, userId, askQuestions.loaded]);
   const [historyVisible, setHistoryVisible] = useState(false);
 
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
@@ -420,7 +466,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       week: weekReviewRef.current?.context() ?? null,
     }),
     onApplied: (changes) => weekReviewRef.current?.onApplied(changes),
-    onUndone: () => weekReviewRef.current?.onUndone(),
+    onUndone: (changes) => weekReviewRef.current?.onUndone(changes),
   });
   const dayTurnRef = useRef(dayTurn);
   dayTurnRef.current = dayTurn;
@@ -529,14 +575,16 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const seenRowsRef = useRef(0);
   // the typing bubble under the thread, part of its height until a line takes its place
   const footerHeightRef = useRef(0);
-  const [moreBelow, setMoreBelow] = useState(false);
+  // what is below the fold, for the pill over the thread: a reply of Gremly's
+  // they have not seen, or only the latest; null while they are at the end
+  const [moreBelow, setMoreBelow] = useState<Below | null>(null);
   // a chat opened afresh starts at its end, following
   useEffect(() => {
     followRef.current = true;
     anchorTopRef.current = null;
     caughtUpRef.current = true;
     seenRowsRef.current = 0;
-    setMoreBelow(false);
+    setMoreBelow(null);
   }, [activeChat?.id]);
 
   // Poll extractions when resuming an existing chat
@@ -758,6 +806,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               }
               void keepAgentTasks(chat, agent.tasks ?? []);
             }
+            // the Save button under a reply worth keeping (Worlds rebuild, stage 2)
+            const keep = keepOfferFrom(richResult?.keep, keepPageRef.current);
+            if (keep) {
+              await appendBriefMessage('system', '', {
+                type: 'keep-offer',
+                ...keep,
+              } as unknown as Record<string, unknown>);
+            }
             if (richResult?.entity_card) {
               await appendEntityCard(richResult.entity_card);
             } else if (opts.briefQuestion && isTodaysThread(chat)) {
@@ -956,8 +1012,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // with a message. Looked up once, when the screen opens.
   const itemRef = useRef(item);
   itemRef.current = item;
-  const itemId = item?.anchor.id ?? null;
-  const [itemReady, setItemReady] = useState(!item);
+  const itemId = item?.anchor?.id ?? null;
+  // with no anchor there is nothing to look up: it opens fresh
+  const [itemReady, setItemReady] = useState(!item || !item.anchor);
   // starters drawn from the item: undefined until asked, null while waiting
   const [itemStarters, setItemStarters] = useState<ItemStarter[] | null | undefined>(undefined);
   const itemLookedUpRef = useRef(false);
@@ -970,7 +1027,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   useEffect(() => {
     const opened = itemRef.current;
-    if (!opened || !itemId || !userId || itemLookedUpRef.current) return;
+    if (!opened?.anchor || !itemId || !userId || itemLookedUpRef.current) return;
+    const anchor = opened.anchor;
     itemLookedUpRef.current = true;
     (async () => {
       const found = await findItemChat(userId, itemId).catch(() => null);
@@ -981,8 +1039,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         setItemReady(true);
         return;
       }
-      const talk: TalkAboutItem = { ...opened.anchor, label: opened.label };
-      const opener = talkAboutOpener(opened.anchor.title);
+      const talk: TalkAboutItem = { ...anchor, label: opened.label };
+      const opener = talkAboutOpener(anchor.title);
       aboutRef.current = { item: talk, opener };
       setAboutItem(talk);
       setAboutOpener(opener);
@@ -1346,22 +1404,32 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       return;
     }
     const by = rows.length > seen ? addedBy(rows, seen) : null;
+    // where what was added begins: above the room the thread keeps under its
+    // last line, and above the typing bubble that stood there
+    const start = Math.max(0, before - (embedded ? 120 : 200) - footerBefore);
     // what they send or tap brings them to it
     if (by === 'them') followRef.current = true;
     if (by && !followRef.current) {
-      setMoreBelow(true);
+      // They are reading further up: nothing moves, and the pill says there
+      // is more. It says Gremly replied when a reply landed out of their sight.
+      const hidden = startsBelow(start, metricsRef.current);
+      setMoreBelow((was) => belowFor(rows, seen, was, hidden));
       return;
     }
     if (!followRef.current) return;
     if (by === 'them' || (by && (anchorTopRef.current === null || caughtUpRef.current))) {
-      const pad = embedded ? 120 : 200;
-      anchorTopRef.current = Math.max(0, before - pad - footerBefore);
+      anchorTopRef.current = start;
     }
     const end = Math.max(0, content - metricsRef.current.height);
     const to = followOffset(metricsRef.current, anchorTopRef.current);
     // a line that runs past the screen stays at its top while it grows
     caughtUpRef.current = to >= end;
-    if (!caughtUpRef.current) setMoreBelow(true);
+    if (!caughtUpRef.current) {
+      // The end is below the fold. A reply whose start is in view has been
+      // seen; one that landed under a line still being read has not.
+      const hidden = startsBelow(start, { y: to, height: metricsRef.current.height });
+      setMoreBelow((was) => belowFor(rows, seen, was, hidden));
+    }
     list.scrollToOffset({ offset: to, animated: true });
   };
 
@@ -1384,14 +1452,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     if (near) {
       anchorTopRef.current = null;
       caughtUpRef.current = true;
-      setMoreBelow(false);
+      setMoreBelow(null);
     }
   };
   const toLatest = () => {
     followRef.current = true;
     anchorTopRef.current = null;
     caughtUpRef.current = true;
-    setMoreBelow(false);
+    setMoreBelow(null);
     flatListRef.current?.scrollToEnd({ animated: true });
   };
   // the message Gremly is working on, until it is saved into the thread
@@ -1489,10 +1557,21 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // the ways into the wrap up: the pinned card's line and the Wrap up today chip
   const wrapTeaser = useEveningTeaser();
   const homeChips = useMemo(
-    () => homeChipsFor(phase, { wrap: wrapTeaser.start, planned: wrapTeaser.planned }),
-    [phase, wrapTeaser.start, wrapTeaser.planned],
+    () =>
+      homeChipsFor(phase, {
+        wrap: wrapTeaser.start,
+        planned: wrapTeaser.planned,
+        questions: questionsChip,
+      }),
+    [phase, wrapTeaser.start, wrapTeaser.planned, questionsChip],
   );
-  greetingWaitingRef.current = { briefUnread: briefUnreadHere, toDecide };
+  greetingWaitingRef.current = {
+    briefUnread: briefUnreadHere,
+    toDecide,
+    questions: askQuestions.waiting.show
+      ? { count: askQuestions.waiting.count, needs: askQuestions.waiting.needs }
+      : null,
+  };
   const freshHome = !activeChat && !item && !aboutItem;
   const openWrapUp = useCallback(() => {
     // today's thread, then the wrap up starts or picks up where it was left
@@ -1539,10 +1618,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         openWrapUp();
         return;
       }
+      if (key === 'questions') {
+        navigation.navigate('GremlyQuestions');
+        return;
+      }
       const prompt = chipPrompt(key);
       if (prompt) void handleSend(prompt);
     },
-    [openTodayThread, openWrapUp, handleSend],
+    [openTodayThread, openWrapUp, handleSend, navigation],
   );
   // put away while typing, for room to read
   const keyboardOpen = useKeyboardOpen();
@@ -1679,7 +1762,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       followRef.current = true;
       anchorTopRef.current = null;
       caughtUpRef.current = true;
-      setMoreBelow(false);
+      setMoreBelow(null);
       return applyChanges(message, unticked);
     },
     [applyChanges],
@@ -1692,7 +1775,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     (target: ChangeRowItem) => {
       if (item) {
         item.onClose();
-        if (item.anchor.id === target.id) return;
+        if (item.anchor?.id === target.id) return;
       }
       openEntity(
         { id: target.id, type: target.type, title: target.title },
@@ -1700,6 +1783,53 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       );
     },
     [item, openEntity],
+  );
+  // the Save button under a reply worth keeping (lib/worlds/keep.ts): the
+  // message keeps where it went, and Open it opens the note it made
+  const renderKeep = useCallback(
+    (message: SpaceChatMessage, meta: KeepOfferMeta) => (
+      <KeepOffer
+        messageId={message.id}
+        meta={meta}
+        onSaved={(saved) => patchMessageMetadata(message.id, { saved })}
+        onUndone={() => patchMessageMetadata(message.id, { saved: null })}
+        onOpen={(id, title) => openChangeItem({ id, type: 'note', title })}
+      />
+    ),
+    [patchMessageMetadata, openChangeItem],
+  );
+  // the newest message for each of Gremly's questions: when the wrap up has
+  // brought a question's buttons back after the app was closed, the card is
+  // drawn there, once
+  const newestAsk = useMemo(() => {
+    const at = new Map<string, string>();
+    for (const r of rows) {
+      const meta = briefMetaOf(r);
+      if (meta?.type === 'brief-offer' && meta.question_id) at.set(meta.question_id, r.id);
+    }
+    return at;
+  }, [rows]);
+  // a question about a Chapter, in the brief or the wrap up: the Worlds card
+  // with its own buttons, in place of answers to tap (components/worlds/ChatAskCard)
+  const renderAsk = useCallback(
+    (message: SpaceChatMessage, meta: BriefOfferMeta) => {
+      if (meta.kind !== 'question' || !meta.question_id) return undefined;
+      if (!isChapterQuestionKind(meta.question_kind)) return undefined;
+      if (newestAsk.get(meta.question_id) !== message.id) return null;
+      return (
+        <ChatAskCard
+          messageId={message.id}
+          meta={meta}
+          patch={(p) => patchMessageMetadata(message.id, p as Record<string, unknown>)}
+          onAnswered={() =>
+            void (meta.wrap
+              ? wrapUpRef.current.answeredByCard(meta)
+              : briefOffersRef.current.answeredByCard())
+          }
+        />
+      );
+    },
+    [newestAsk, patchMessageMetadata],
   );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
   const renderChanges = useRenderChanges(
@@ -1907,6 +2037,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             renderChanges={renderChanges}
             renderWrap={renderWrap}
             renderWeek={renderWeek}
+            renderKeep={renderKeep}
+            renderAsk={renderAsk}
             hiddenActions={hiddenActions}
             showOffer={showOffer}
             renderHabitWeek={renderHabitWeek}
@@ -1939,6 +2071,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       renderChanges,
       renderWrap,
       renderWeek,
+      renderKeep,
+      renderAsk,
       hiddenActions,
       showOffer,
       renderHabitWeek,
@@ -1950,22 +2084,54 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
 
   const inConversation = activeChat !== null;
+  // a page's chat as a sheet over its page (the Worlds rebuild's mockup)
+  const sheet = item?.sheet ?? null;
 
   return (
     <SafeAreaView
-      style={[styles.safe, item ? { paddingTop: insets.top } : null]}
+      style={[styles.safe, item && !sheet ? { paddingTop: insets.top } : null]}
       edges={embedded || item ? ['left', 'right'] : ['top', 'left', 'right']}
     >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={sheet ? sheet.top : 0}
         enabled={!embedded}
       >
         {/* Header. Inside the Gremly home the switch above names the page, so
             this is a slim row: history on the left, the chat's title in the
             middle, save and new chat on the right. */}
-        {item ? (
+        {item && sheet ? (
+          // a page's chat as a sheet: Gremly, on the page, and a close
+          <View testID="item-chat-header">
+            <View style={styles.sheetGrab} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle} numberOfLines={1} accessibilityRole="header">
+                {item.anchor?.title ? `Gremly, on ${item.anchor.title}` : 'Gremly'}
+              </Text>
+              {inConversation ? (
+                <TouchableOpacity
+                  style={styles.sheetBtnPlain}
+                  onPress={() => setSaveSheetVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save from this chat"
+                >
+                  <Bookmark size={20} color={MOSS} />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={styles.sheetClose}
+                onPress={item.onClose}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                testID="item-chat-close"
+              >
+                <X size={20} color={MOSS} strokeWidth={2.2} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : item ? (
           // an item's chat: back to the item, the item named in the middle
           <View style={styles.chatHeader} testID="item-chat-header">
             <TouchableOpacity
@@ -1980,7 +2146,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             <View style={styles.chatHeaderCenter}>
               <Text style={styles.itemHeaderLabel}>{item.label}</Text>
               <Text style={styles.itemHeaderTitle} numberOfLines={1}>
-                {item.anchor.title}
+                {item.anchor?.title ?? item.title ?? ''}
               </Text>
             </View>
             {inConversation ? (
@@ -2127,7 +2293,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 }}
                 scrollEventThrottle={64}
                 onScroll={(e) => {
-                  if (readerAt(e) && moreBelow) setMoreBelow(false);
+                  if (readerAt(e) && moreBelow) setMoreBelow(null);
                 }}
                 onScrollToIndexFailed={() => flatListRef.current?.scrollToEnd({ animated: true })}
                 // Inside the Gremly home, Gremly steps aside while you scroll
@@ -2211,17 +2377,29 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                   onPress={toLatest}
                   activeOpacity={0.8}
                   accessibilityRole="button"
-                  accessibilityLabel="Jump to the latest"
-                  testID="chat-more-below"
+                  accessibilityLabel={
+                    moreBelow === 'reply' ? 'Gremly replied. Jump to it' : 'Jump to the latest'
+                  }
+                  testID={moreBelow === 'reply' ? 'chat-gremly-replied' : 'chat-more-below'}
                 >
-                  <ChevronDown size={15} color={MOSS} strokeWidth={2.4} />
-                  <Text style={styles.moreBelowText}>Latest</Text>
+                  {moreBelow === 'reply' ? (
+                    // a reply of Gremly's landed below the fold: said in words, arrow after
+                    <>
+                      <Text style={styles.moreBelowText}>Gremly replied</Text>
+                      <ArrowDown size={15} color={MOSS} strokeWidth={2.4} />
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={15} color={MOSS} strokeWidth={2.4} />
+                      <Text style={styles.moreBelowText}>Latest</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               ) : null}
             </>
           ) : item && !itemReady ? (
             <View style={styles.flex} testID="item-chat-loading" />
-          ) : aboutItem && aboutOpener ? (
+          ) : (aboutItem || (item && !item.anchor)) && aboutOpener ? (
             <View style={styles.aboutOpener} testID="chat-about-opener">
               <ChatBubble
                 message={
@@ -2347,7 +2525,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             ) : null}
           </>
         ) : (
-          <View style={styles.bottomSection}>
+          <View
+            style={[
+              styles.bottomSection,
+              sheet ? { paddingBottom: Math.max(insets.bottom, 12) + 4 } : null,
+            ]}
+          >
             <View style={styles.composerContainer}>
               <SaveIndicatorPill
                 count={extractions.length}
@@ -2375,9 +2558,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 placeholder={
                   awaitingAnswer
                     ? BRIEF_COPY.answerPlaceholder
-                    : inConversation || item
-                      ? 'Type a message...'
-                      : 'Ask Gremly anything...'
+                    : sheet
+                      ? 'Say more'
+                      : inConversation || item
+                        ? 'Type a message...'
+                        : 'Ask Gremly anything...'
                 }
                 initialText={autoSendKey ? undefined : prefillPrompt || undefined}
               />
@@ -2674,6 +2859,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 10,
+  },
+  // a page's chat as a sheet (the Worlds rebuild's mockup)
+  sheetGrab: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(46,85,64,0.16)',
+    marginTop: 8,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 20,
+    paddingRight: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  sheetTitle: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 20,
+    lineHeight: 25,
+    color: '#1A3328',
+  },
+  sheetBtnPlain: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  sheetClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EAF2E8',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chatHeaderBtn: {
     width: 44,

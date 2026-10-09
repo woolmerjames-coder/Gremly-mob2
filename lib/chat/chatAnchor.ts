@@ -12,7 +12,8 @@ import type { TalkAboutItem } from './talkAboutOpeners';
 
 export const CHAT_ANCHOR_META = 'chat-anchor' as const;
 
-const ANCHOR_TYPES: ReadonlyArray<ChatAnchor['type']> = ['todo', 'habit', 'note'];
+// an item, or the World or Chapter page a page's own chat is on
+const ANCHOR_TYPES: ReadonlyArray<ChatAnchor['type']> = ['todo', 'habit', 'note', 'world', 'chapter'];
 
 /** The anchor for an item a chat is opened about. */
 export function anchorOf(item: TalkAboutItem): ChatAnchor {

@@ -67,7 +67,6 @@ import {
   FolderOpen,
   MessageCircle,
   CalendarDays,
-  Link2,
   Heart,
   Zap,
   RotateCcw,
@@ -88,12 +87,11 @@ import { getDateService, getTodayDayString } from '../../lib/date';
 import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { ClarificationWhen } from '../../lib/minddrop/clarification';
-import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
+import { selectItemById } from '../../lib/store/selectors';
 import { useChaptersForEntity } from '../../lib/store/chaptersSelectors';
 import { useWorldsForEntity } from '../../lib/store/worldsSelectors';
 import { WorldsChapterPicker } from './WorldsChapterPicker';
 import { useAuth } from '../../providers/AuthProvider';
-import ScopeSelector from '../ScopeSelector';
 import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
@@ -144,8 +142,6 @@ import { EntityChatButton, EntityChatScreen, EntityNotesModal } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
 
 // Linked Items for Events
-import LinkedItemsSection from './LinkedItemsSection';
-import LinkedEventPicker from './LinkedEventPicker';
 import { TodoPreviewModal } from './TodoPreviewModal';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import { hasActionableList, type ExtractedListItem, type ListItem } from '../../lib/lists';
@@ -604,8 +600,6 @@ try {
     throw new Error('UnifiedOverlayV2: import `Text` is undefined');
   if (typeof (Button as any) === 'undefined')
     throw new Error('UnifiedOverlayV2: import `Button` is undefined');
-  if (typeof (ScopeSelector as any) === 'undefined')
-    throw new Error('UnifiedOverlayV2: import `ScopeSelector` is undefined');
 } catch (e: any) {
   // eslint-disable-next-line no-console
   console.error('UnifiedOverlayV2 sanity check failed:', e && e.message ? e.message : e);
@@ -692,9 +686,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
 
-  // Spaces from selector (replaces repo.listSpaces)
-  const storeSpaces = useActiveSpaces();
-
   // Synchronous getItemById helper (replaces repo.getById)
   const getItemById = useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -706,7 +697,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   const repo = useMemo(
     () => ({
       getById: async (id: string) => getItemById(id),
-      listSpaces: async () => storeSpaces,
       update: async ({ id, patch }: { id: string; patch: any }) => {
         const item = getItemById(id);
         if (!item) return null;
@@ -752,7 +742,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
     }),
     [
       getItemById,
-      storeSpaces,
       updateTodo,
       updateHabit,
       updateNote,
@@ -1193,21 +1182,8 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   // Journal detection for mood selector (Phase L4) - now uses effectiveLogSubtype
   const isJournal = isLog && effectiveLogSubtype === 'journal';
 
-  // Event note detection for LinkedItemsSection
+  // Event note detection
   const isEventNote = isLog && effectiveLogSubtype === 'event' && !!currentEntityId;
-
-  // LinkedEventPicker: Check if current space has events
-  // Resolve spaceId from state (explicit) or entity (fallback)
-  const effectiveSpaceId = state.spaceId ?? fullEntity?.space_id ?? initialSpaceId ?? null;
-  const spaceHasEvents = useSpaceHasEvents(effectiveSpaceId ?? '');
-  // Show LinkedEventPicker when:
-  // - Entity has a space_id with events
-  // - Entity is NOT itself an event (subtype !== 'event')
-  const showLinkedEventPicker =
-    !!effectiveSpaceId &&
-    spaceHasEvents &&
-    effectiveLogSubtype !== 'event' &&
-    !(baseType === 'habit' && state.habit.subtype === 'break_habit'); // Don't show for break habits
 
   // Derived checklist mode: explicit state OR legacy "list" subtype for logs
   const isChecklistMode =
@@ -1225,71 +1201,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
 
   // Entity Chat state
-
-  // LinkedItemsSection handlers for event notes
-  const handleLinkedItemPress = useCallback(
-    (item: any) => {
-      const itemSpaceId = item.space_id || fullEntity?.space_id || initialSpaceId;
-      onClose();
-      // Small delay to let current overlay close before opening new one
-      setTimeout(() => {
-        globalOverlay.openEdit({ record: item, spaceId: itemSpaceId });
-      }, 100);
-    },
-    [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId],
-  );
-
-  const handleLinkedAddTodo = useCallback(() => {
-    const eventId = currentEntityId;
-    const spaceId = fullEntity?.space_id || initialSpaceId;
-    const eventDate = (fullEntity as any)?.target_date; // Event's date becomes todo's deadline
-    onClose();
-    setTimeout(() => {
-      globalOverlay.openCreate({
-        type: 'todo',
-        spaceId,
-        initialEntity: {
-          type: 'todo',
-          linked_event_id: eventId,
-          target_date: eventDate, // Pre-populate deadline from event date
-        } as any,
-      });
-    }, 100);
-  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId, currentEntityId, fullEntity]);
-
-  const handleLinkedAddNote = useCallback(() => {
-    const eventId = currentEntityId;
-    const spaceId = fullEntity?.space_id || initialSpaceId;
-    onClose();
-    setTimeout(() => {
-      globalOverlay.openCreate({
-        type: 'log',
-        spaceId,
-        initialEntity: { type: 'log', linked_event_id: eventId } as any,
-      });
-    }, 100);
-  }, [onClose, globalOverlay, fullEntity?.space_id, initialSpaceId, currentEntityId]);
-
-  const handleLinkExisting = useCallback(() => {
-    Alert.alert('Coming Soon', 'Linking existing items will be available in a future update.');
-  }, []);
-
-  // Handler for LinkedEventPicker changes
-  const handleLinkedEventChange = useCallback(
-    (eventId: string | null) => {
-      store.setLinkedEventId(eventId);
-
-      // Auto-populate todo deadline from event date if todo doesn't have one
-      if (eventId && baseType === 'todo' && !state.todo.target_date) {
-        const event = getItemById(eventId);
-        const eventDate = (event as any)?.target_date;
-        if (eventDate) {
-          store.setTodoTargetDate(eventDate);
-        }
-      }
-    },
-    [baseType, state.todo.target_date, getItemById],
-  );
 
   // View mode: store fetched entity for display
   const viewModeEntity: any = useMemo(() => {
@@ -1424,9 +1335,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   const currentTagsRef = useRef<TagKey[]>(state.tags);
   currentTagsRef.current = state.tags;
   const hasLoadedEditTagsRef = useRef(false);
-
-  // Derive spaces from store (no useEffect needed)
-  const spaces = storeSpaces || [];
 
   // Item reminders are hydrated once in store.open() via hydrateEntityToDraft
 
@@ -1769,8 +1677,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   if (typeof Text === 'undefined') throw new Error('UnifiedOverlayV2 render: `Text` is undefined');
   if (typeof Button === 'undefined')
     throw new Error('UnifiedOverlayV2 render: `Button` is undefined');
-  if (typeof ScopeSelector === 'undefined')
-    throw new Error('UnifiedOverlayV2 render: `ScopeSelector` is undefined');
   if (typeof ToastUndo === 'undefined')
     throw new Error('UnifiedOverlayV2 render: `ToastUndo` is undefined');
   if (typeof Reanimated === 'undefined' || typeof (Reanimated as any).View === 'undefined')
@@ -3043,7 +2949,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
     const entityBody =
       (entity as any).body || (entity as any).notes || (entity as any).content || '';
     const entityTags = state.tags || [];
-    const entitySpaceName = state.spaceId ? spaces.find((s) => s.id === state.spaceId)?.name : null;
     const entityCreatedAt = (entity as any).created_at;
 
     const formattedCreatedDate = entityCreatedAt
@@ -3261,10 +3166,7 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
 
         {/* Metadata summary card (todo/habit) */}
         {(baseType === 'todo' || baseType === 'habit') &&
-          (scheduleSummary ||
-            entitySpaceName ||
-            entityChapters.length > 0 ||
-            entityWorlds.length > 0) && (
+          (scheduleSummary || entityChapters.length > 0 || entityWorlds.length > 0) && (
             <View
               style={{
                 padding: 10,
@@ -3396,18 +3298,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
           </View>
         )}
 
-        {/* Linked items (event notes) */}
-        {effectiveLogSubtype === 'event' && currentEntityId && fullEntity?.space_id && (
-          <LinkedItemsSection
-            eventId={currentEntityId}
-            spaceId={fullEntity.space_id}
-            onItemPress={handleLinkedItemPress}
-            onAddTodo={handleLinkedAddTodo}
-            onAddNote={handleLinkedAddNote}
-            onLinkExisting={handleLinkExisting}
-          />
-        )}
-
         {/* Chat saved notes */}
         {entityChatNotes.length > 0 && (
           <View style={{ marginBottom: 14 }}>
@@ -3476,11 +3366,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
   };
 
   if (!visible) return null;
-
-  // Derive space name for modals
-  const currentSpaceName = state.spaceId
-    ? spaces.find((s) => s.id === state.spaceId)?.name || 'this Space'
-    : 'this Space';
 
   return (
     <>
@@ -3708,7 +3593,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
                           storeHabits.find((h) => h.id === (initialEntity as any)?.id)) as any
                       }
                       habitProgress={habitProgressForView}
-                      spaceName={spaces.find((s) => s.id === state.spaceId)?.name}
                       onLogToday={handleLogHabitToday}
                       onLogDate={handleLogHabitDate}
                       onRemoveDate={handleRemoveHabitDate}
@@ -3883,31 +3767,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
                           disabled={isViewMode}
                         />
                       </View>
-                    )}
-
-                    {/* Linked Items section for event notes - only in view mode */}
-                    {isViewMode && isEventNote && fullEntity?.space_id && (
-                      <Box px={4}>
-                        <LinkedItemsSection
-                          eventId={currentEntityId}
-                          spaceId={fullEntity.space_id}
-                          onItemPress={handleLinkedItemPress}
-                          onAddTodo={handleLinkedAddTodo}
-                          onAddNote={handleLinkedAddNote}
-                          onLinkExisting={handleLinkExisting}
-                        />
-                      </Box>
-                    )}
-
-                    {/* LinkedEventPicker for notes (non-event) - show when space has events */}
-                    {isLog && !isEventNote && showLinkedEventPicker && effectiveSpaceId && (
-                      <Box px={4} mt={3}>
-                        <LinkedEventPicker
-                          spaceId={effectiveSpaceId}
-                          currentEventId={state.linkedEventId}
-                          onChange={handleLinkedEventChange}
-                        />
-                      </Box>
                     )}
 
                     {/* Tags row — no Re-suggest link */}
@@ -4359,19 +4218,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
                               </Pressable>
                             </View>
                           </View>
-
-                          {showLinkedEventPicker && effectiveSpaceId && (
-                            <StaticRow
-                              icon={Link2}
-                              label="Link to event"
-                              right={
-                                <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                  {state.linkedEventId ? 'Linked' : 'None'}
-                                </Text>
-                              }
-                              onPress={() => toggleRow('linked')}
-                            />
-                          )}
 
                           {currentEntityId && (
                             <StaticRow
@@ -5133,19 +4979,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
                             </View>
                           </View>
 
-                          {showLinkedEventPicker && effectiveSpaceId && (
-                            <StaticRow
-                              icon={Link2}
-                              label="Link to event"
-                              right={
-                                <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                  {state.linkedEventId ? 'Linked' : 'None'}
-                                </Text>
-                              }
-                              onPress={() => toggleRow('linked')}
-                            />
-                          )}
-
                           {baseType === 'habit' && currentEntityId && (
                             <StaticRow
                               icon={BarChart3}
@@ -5677,18 +5510,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
                                 </Pressable>
                               </View>
                             </View>
-                          )}
-
-                          {/* Event-type: linked items */}
-                          {isViewMode && isEventNote && fullEntity?.space_id && (
-                            <StaticRow
-                              icon={Link2}
-                              label="Linked items"
-                              right={<ChevronRight size={14} color="#A09A90" />}
-                              onPress={() => {
-                                /* LinkedItemsSection is rendered above */
-                              }}
-                            />
                           )}
 
                           {currentEntityId && (
@@ -6612,98 +6433,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
               </Pressable>
             </Modal>
 
-            {/* Space Selector Modal for To-Do Details */}
-            <Modal visible={storeUI.showSpaceModal} transparent animationType="fade">
-              <Pressable
-                style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(0,0,0,0.4)',
-                }}
-                onPress={() => store.setUI({ showSpaceModal: false })}
-              >
-                <Pressable
-                  onPress={(e) => e.stopPropagation()}
-                  style={{
-                    width: '85%',
-                    maxWidth: 350,
-                    backgroundColor: '#FFFFFF',
-                    padding: 20,
-                    borderRadius: 16,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 12,
-                    elevation: 5,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: '600',
-                      color: '#111827',
-                      marginBottom: 16,
-                    }}
-                  >
-                    Select Space
-                  </Text>
-
-                  {/* Clear selection option */}
-                  <Pressable
-                    onPress={() => {
-                      store.setSpaceId(null);
-                      store.setUI({ showSpaceModal: false });
-                    }}
-                    style={({ pressed }) => ({
-                      paddingVertical: 12,
-                      paddingHorizontal: 12,
-                      borderRadius: 8,
-                      backgroundColor: pressed
-                        ? '#F3F4F6'
-                        : state.spaceId === null
-                          ? '#F0F4F1'
-                          : 'transparent',
-                      marginBottom: 8,
-                    })}
-                  >
-                    <Text style={{ fontSize: 15, color: '#374151' }}>None</Text>
-                  </Pressable>
-
-                  {/* Space options */}
-                  <ScrollView style={{ maxHeight: 300 }}>
-                    {spaces.map((space) => (
-                      <Pressable
-                        key={space.id}
-                        onPress={() => {
-                          store.setSpaceId(space.id);
-                          store.setUI({ showSpaceModal: false });
-                        }}
-                        style={({ pressed }) => ({
-                          paddingVertical: 12,
-                          paddingHorizontal: 12,
-                          borderRadius: 8,
-                          backgroundColor: pressed
-                            ? '#F3F4F6'
-                            : state.spaceId === space.id
-                              ? '#F0F4F1'
-                              : 'transparent',
-                          marginBottom: 8,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                        })}
-                      >
-                        {space.icon && (
-                          <Text style={{ fontSize: 16, marginRight: 10 }}>{space.icon}</Text>
-                        )}
-                        <Text style={{ fontSize: 15, color: '#374151' }}>{space.name}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </Pressable>
-              </Pressable>
-            </Modal>
-
             {/* Worlds & Chapter Picker – F.4 */}
             <WorldsChapterPicker
               visible={storeUI.showWorldsModal}
@@ -6957,8 +6686,6 @@ export function UnifiedOverlayV2(props: UnifiedOverlayProps) {
       <TodoPreviewModal
         visible={storeUI.showTodoPreview}
         items={extractedItems}
-        spaceName={currentSpaceName}
-        spaceId={fullEntity?.space_id || initialSpaceId || ''}
         onConfirm={handleExplodeToTodos}
         onCancel={() => store.setUI({ showTodoPreview: false })}
         isLoading={isCreatingTodos}

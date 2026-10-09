@@ -265,6 +265,8 @@ export interface WrapUp {
   handleButton: (message: SpaceChatMessage, button: OfferButton) => Promise<void>;
   /** A typed message while the wrap up waits for one. False when it is not the wrap up's. */
   takeTyped: (text: string) => Promise<boolean>;
+  /** A question answered on the Worlds card under it: the next question follows */
+  answeredByCard: (asked: Pick<BriefOfferMeta, 'question_id'>) => Promise<void>;
   /** What the next typed message is: the journal entry, an answer, or nothing */
   awaiting: Awaiting;
   /** The X on the pill above the box: the next message goes to Gremly */
@@ -701,6 +703,25 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
       await nextQuestion();
     },
     [save, nextQuestion],
+  );
+
+  /**
+   * The question was answered on the Worlds card under it, a question about
+   * a Chapter (components/worlds/ChatAskCard): the card made the change,
+   * marked the question answered and says so itself, so it goes neither to
+   * the pipeline nor to Gremly as a turn. The next question follows, while
+   * this is the one tonight is waiting on (or the app was closed part way
+   * and the questions are no longer held).
+   */
+  const answeredByCard = useCallback(
+    (asked: Pick<BriefOfferMeta, 'question_id'>) =>
+      run(async () => {
+        const head = queueRef.current[0];
+        if (head ? head.id !== asked.question_id : currentWrap()?.step !== 'questions') return;
+        setAwaiting(null);
+        await nextQuestion();
+      }),
+    [run, nextQuestion],
   );
 
   const toQuestions = useCallback(async () => {
@@ -1492,6 +1513,17 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
             });
             if (ok) movedTo[h.id] = day;
           }
+          // A break habit not held tonight is kept with the day, apart from
+          // habit_progress, which every reader counts as done
+          const notHeld = Object.keys(held).filter((id) => held[id] === 'not');
+          const ownerId = store().userId;
+          if (notHeld.length && ownerId) {
+            const { error } = await supabase.from('habit_not_held' as any).upsert(
+              notHeld.map((habit_id) => ({ owner_id: ownerId, habit_id, day: card.date })),
+              { onConflict: 'owner_id,habit_id,day', ignoreDuplicates: true },
+            );
+            if (error) console.warn('[WrapUp] could not record a habit not held:', error);
+          }
           await patch(message.id, {
             status: 'saved',
             done: built,
@@ -1647,6 +1679,7 @@ export function useWrapUp(deps: WrapUpDeps): WrapUp {
     open,
     handleButton,
     takeTyped,
+    answeredByCard,
     awaiting,
     cancelAwaiting,
     backFromCards,

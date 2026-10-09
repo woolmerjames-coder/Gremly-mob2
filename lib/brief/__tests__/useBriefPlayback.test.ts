@@ -36,7 +36,7 @@ describe('the brief playing in', () => {
     const long = {
       ...BRIEF[1],
       content:
-        'Your meetings are behind you, and the rest of the afternoon is completely open alongside your anniversary with Dave, with the plumber and Apple Calendar waiting.',
+        'Your meetings are behind you, and the rest of the afternoon is completely open alongside your anniversary with Theo, with the plumber and Apple Calendar waiting.',
     } as SpaceChatMessage;
     expect(beatBefore(long, false)).toBeGreaterThan(beatBefore(short, false));
     // never so long that it drags
@@ -45,7 +45,7 @@ describe('the brief playing in', () => {
     // a question is read like a line
     const question = {
       ...BRIEF[3],
-      content: "Is Bella's vet on October 1 or 2?",
+      content: "Is Pepper's vet on October 1 or 2?",
     } as SpaceChatMessage;
     expect(beatBefore(question, false)).toBeGreaterThan(beatBefore(BRIEF[2], false));
   });

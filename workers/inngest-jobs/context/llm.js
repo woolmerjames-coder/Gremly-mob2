@@ -10,14 +10,53 @@
  * Each call returns parsed JSON or throws. Usage is logged by ../../shared/aiUsage.js.
  */
 
+import { jsonrepair } from 'jsonrepair';
+
 export const MODELS = {
   reader: { provider: 'openai', model: 'gpt-6-luna' },
   readerFallback: { provider: 'google', model: 'gemini-3.8-flash' },
-  daily: { provider: 'google', model: 'gemini-3.8-flash' },
-  dailyFallback: { provider: 'openai', model: 'gpt-6-luna' },
+  // the daily picture (daily.js): Luna, chosen on the morning replay (scripts/morning-replay)
+  daily: { provider: 'openai', model: 'gpt-6-luna' },
+  dailyFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the check's one question about each sentence (workers/shared/check/words.js)
+  check: { provider: 'openai', model: 'gpt-6-luna' },
+  checkFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the second reader, of another family, asked only when the check's first says a sentence does not hold (stage 7)
+  checkSecond: { provider: 'google', model: 'gemini-3.8-flash' },
+  // filing a drop into a World or Chapter (context/filing.js), in cortex and the backfill
+  filing: { provider: 'openai', model: 'gpt-6-luna' },
+  filingFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the words under each World and open Chapter (words.js): Luna, which met the
+  // bar on the words replay where Flash did not (scripts/words-replay)
+  words: { provider: 'openai', model: 'gpt-6-luna' },
+  wordsFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // a closed Chapter's memory (memory.js), and a new person's first Worlds
+  // (firstWorlds.js): Sonnet 5.5 unless the replay showed a cheaper model does
+  // as well (James, 7 Oct). Luna met the bar on both replays and Flash did not
+  // (scripts/words-replay, scripts/first-worlds-replay). Sonnet, run on James's
+  // Mac, missed it on both at about eight times the cost, so Luna it is (James,
+  // 7 Oct)
+  memory: { provider: 'openai', model: 'gpt-6-luna' },
+  memoryFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  firstWorlds: { provider: 'openai', model: 'gpt-6-luna' },
+  firstWorldsFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // questions about the people in their life, and reading their answers
+  // (peopleQuestions.js, data fabric stage 4c), and Gremly's questions about
+  // Chapters (chapterQuestions.js), on the replay's choice
+  personQuestion: { provider: 'openai', model: 'gpt-6-luna' },
+  personQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  chapterQuestion: { provider: 'openai', model: 'gpt-6-luna' },
+  chapterQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // the ledger review (review.js, data fabric stage 4f): what only the person
+  // can settle, read over the whole ledger at medium effort
+  review: { provider: 'openai', model: 'gpt-6-luna' },
+  reviewFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   rewrite: { provider: 'google', model: 'gemini-3.8-flash' },
   rewriteFallback: { provider: 'openai', model: 'gpt-6-luna' },
   weekly: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+  // what the weekly pass falls back on when Sonnet's run fails or never comes
+  // back (functions.js synthesisJob, data fabric stage 5), on the weekly replay
+  weeklyFallback: { provider: 'openai', model: 'gpt-6-luna' },
   // Daily brief in Chat: the brief sounds like chat Gremly; the plan picker is a cheap, careful pick
   brief: { provider: 'google', model: 'gemini-3.8-flash' },
   briefFallback: { provider: 'openai', model: 'gpt-6-luna' },
@@ -36,6 +75,20 @@ export const MODELS = {
   weekRelief: { provider: 'openai', model: 'gpt-6-luna' },
   weekReliefFallback: { provider: 'google', model: 'gemini-3.8-flash' },
 };
+
+/**
+ * How hard one writer thinks: CONTEXT_EFFORT_<JOB> when set (minimal, low,
+ * medium or high), for Gemini thinking high at medium and above; otherwise
+ * the writer's own, as it was. Lets a replay or the shadow runner try a writer
+ * thinking harder without a code change (18 Oct).
+ * @param own { effort, thinking } the writer ships with
+ * @returns {{ effort: string, thinking: string }}
+ */
+export function effortFor(env, job, own = { effort: 'low', thinking: 'low' }) {
+  const v = String(env?.[`CONTEXT_EFFORT_${String(job).toUpperCase()}`] ?? '').trim();
+  if (!['minimal', 'low', 'medium', 'high'].includes(v)) return { ...own };
+  return { effort: v, thinking: ['medium', 'high'].includes(v) ? 'high' : 'low' };
+}
 
 export function modelFor(env, job) {
   const base = MODELS[job];
@@ -204,7 +257,55 @@ export function anthropicJsonResult(message) {
     .map((b) => b.text)
     .join('');
   if (!text) throw new Error('Anthropic reply had no text block');
-  return parseJsonText(text, 'Anthropic');
+  try {
+    return parseJsonText(text, 'Anthropic');
+  } catch (err) {
+    // a reply asked for by its schema in the prompt (anthropicSchemaInPromptParams)
+    // can come back nearly JSON; it is repaired when it can be, and said
+    const t = String(text)
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/, '');
+    let repaired;
+    try {
+      repaired = JSON.parse(jsonrepair(t));
+    } catch {
+      throw err;
+    }
+    console.warn(`[ALERT][context] Anthropic reply was repaired into JSON: ${err.message.slice(0, 160)}`);
+    return repaired;
+  }
+}
+
+/**
+ * The same request as anthropicJsonParams with its schema in the prompt rather
+ * than in output_config: for a reply whose schema is too large for Anthropic's
+ * strict grammar ("The compiled grammar is too large"), which the weekly pass
+ * became when it took on the summary's plan (data fabric stage 5). The schema
+ * goes at the end of the fixed part of the system prompt, so it is cached with
+ * it, and the reply is read by anthropicJsonResult. What comes back is held to
+ * its shape by the caller.
+ */
+export function anthropicSchemaInPromptParams({
+  model,
+  system,
+  user,
+  schema,
+  maxTokens,
+  effort = 'medium',
+}) {
+  const fixed = typeof system === 'string' ? system : system?.fixed || '';
+  const varying = typeof system === 'string' ? null : system?.varying || null;
+  const out = `OUTPUT
+- Return one JSON object and nothing else, matching this JSON schema. Every property the schema lists is present, with an empty string or an empty list where there is nothing to say.
+${JSON.stringify(toStrictSchema(schema))}`;
+  return {
+    model,
+    max_tokens: maxTokens,
+    system: anthropicSystem({ fixed: `${fixed}\n\n${out}`, varying }),
+    messages: [{ role: 'user', content: user }],
+    output_config: { effort },
+  };
 }
 
 async function callAnthropic(env, { model, system, user, schema, maxTokens, effort }) {

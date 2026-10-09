@@ -114,7 +114,7 @@ describe('useChatMessages hook', () => {
       metadata_json: {
         type: 'entity-card',
         status: 'pending',
-        card: { kind: 'edit', entity: { id: 't1', type: 'todo', title: 'Walk Bella' } },
+        card: { kind: 'edit', entity: { id: 't1', type: 'todo', title: 'Walk Pepper' } },
       },
     });
 
@@ -138,7 +138,7 @@ describe('useChatMessages hook', () => {
         const a = result.current.setEntityCardStatus(
           'c1',
           'applied',
-          'Walk Bella is now Sat 3 Oct.',
+          'Walk Pepper is now Sat 3 Oct.',
         );
         const b = result.current.setEntityCardStatus('c2', 'declined');
         await Promise.all([a, b]);
@@ -146,7 +146,7 @@ describe('useChatMessages hook', () => {
       expect(mockMessageRepoUpdate).toHaveBeenCalledWith('c1', {
         metadata_json: expect.objectContaining({
           status: 'applied',
-          summary: 'Walk Bella is now Sat 3 Oct.',
+          summary: 'Walk Pepper is now Sat 3 Oct.',
         }),
       });
       expect(mockMessageRepoUpdate).toHaveBeenCalledWith('c2', {

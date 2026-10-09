@@ -104,7 +104,7 @@ Output JSON only, matching the schema below. No markdown fences. No prose outsid
 
 // ── Schema reference ──────────────────────────────────────────────────────
 
-const WRITER_SCHEMA_REFERENCE = `OUTPUT SCHEMA:
+export const WRITER_SCHEMA_REFERENCE = `OUTPUT SCHEMA:
 
 Return one JSON object:
 
@@ -428,7 +428,7 @@ ${JSON.stringify(brief.prior_surfaced, null, 0)}`,
  * for Anthropic's prompt cache: the writer's second attempt sends the same
  * brief and facts again, and cache reads cost a tenth of normal input.
  */
-type UserMessage = string | { cached: string; rest?: string };
+export type UserMessage = string | { cached: string; rest?: string };
 
 function userContent(message: UserMessage) {
   if (typeof message === 'string') return message;
@@ -446,7 +446,7 @@ function isClaude5(model: string): boolean {
   return /^claude-(sonnet|opus|fable|mythos)-5/.test(model);
 }
 
-async function callAnthropic(
+export async function callAnthropic(
   apiKey: string,
   model: string,
   system: string,
@@ -548,7 +548,7 @@ Judge the deck against the criteria. Return JSON only.`;
  * stray dash from the writer is silently corrected rather than hard-failing the deck.
  * Only touches string values; structured fields are untouched.
  */
-function sanitizeDeckProse(deck: unknown): void {
+export function sanitizeDeckProse(deck: unknown): void {
   const fix = (s: string): string =>
     s
       .replace(/\s*[\u2014\u2013]\s*/g, ', ')
@@ -609,6 +609,8 @@ function inputAllowedNumbers(brief: SummaryBrief, facts: HardFacts): Set<string>
   scan(JSON.stringify(facts.totals));
   scan(JSON.stringify(facts.fed));
   scan(JSON.stringify(facts.durations));
+  // the week counted by code, when the summary is written from the weekly pass
+  scan(JSON.stringify(facts.week_counts ?? {}));
   scan(`${facts.user.gremly_level}`);
   scan(`${facts.user.tenure_days}`);
   for (const d of facts.day_by_day) {
@@ -891,6 +893,7 @@ function validateAtoms(
   brief: SummaryBrief,
   facts: HardFacts,
   errors: string[],
+  readsWords = true,
 ): void {
   // image_hint is photo-search metadata, not a factual atom. Strip image_hint values from
   // the scanned text so a scenic keyword cannot trip the date or number scanners.
@@ -939,6 +942,13 @@ function validateAtoms(
   // Weekday/date agreement for structured day_of_week fields (existing)
   validateWeekdayDateAgreement(deck, facts, errors);
 
+  // The two checks below read the deck's own words, and run only for the old
+  // summary path (generateAdaptiveSummary), which has no words check of its own
+  // and goes once it is retired. The summary from the weekly pass leaves them to
+  // its writer's rules and the shared words check (18 Oct: no pattern matching
+  // in worker code).
+  if (!readsWords) return;
+
   // Weekday-in-prose ban (v0.7a structural fix). Weekday words appear ONLY in structured
   // day_of_week fields; anywhere else is hallucination territory and rejected outright.
   validateNoWeekdayInProse(deck, errors);
@@ -968,13 +978,8 @@ function validateAtoms(
     });
   }
 
-  // Tone hard rules.
-  // NOTE: em/en dash is NOT checked here. Dashes are cosmetic, not factual, and are
-  // sanitized (stripped/replaced) in sanitizeDeckProse before this fact-check runs, so a
-  // stray dash never blocks publication. Only genuinely false content blocks.
-  if (/\bshould\b/i.test(flat.replace(/"shape"\s*:\s*"\w+"/g, ''))) {
-    errors.push('output contains the word "should"');
-  }
+  // Tone is the writer's to keep, from its rules: code never reads the deck's
+  // words for it (18 Oct; it once refused any deck with the word should).
 }
 
 function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: string[]): void {
@@ -1034,9 +1039,11 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
         // Walk body prose, but skip fields that are NOT writer prose: body.quote is verbatim
         // user journal text (the user may have written a weekday themselves, correctly or not,
         // and that is not a writer hallucination), and image_hint is photo-search metadata.
-        // This matches the exemption in isStructuredWeekdayField used by the prose ban.
+        // This matches the exemption in isStructuredWeekdayField used by the prose ban:
+        // a day_of_week field (the hero's mood arc, a timeline's events) is filled
+        // from the date beside it and is not prose, so it never stands near another date.
         for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-          if (k === 'quote' || k === 'image_hint') continue;
+          if (k === 'quote' || k === 'image_hint' || k === 'day_of_week') continue;
           walk(val);
         }
       }
@@ -1091,10 +1098,11 @@ function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: s
   });
 }
 
-function factCheckDeterministic(
+export function factCheckDeterministic(
   deck: unknown,
   brief: SummaryBrief,
   facts: HardFacts,
+  { readsWords = true }: { readsWords?: boolean } = {},
 ): FactCheckResult {
   const errors: string[] = [];
 
@@ -1156,7 +1164,7 @@ function factCheckDeterministic(
   });
 
   validateSourceRefs(deck, brief, facts, errors);
-  validateAtoms(deck, brief, facts, errors);
+  validateAtoms(deck, brief, facts, errors, readsWords);
   validateHeroMoodArcLength(deck, facts, errors);
 
   return { ok: errors.length === 0, errors };
@@ -1190,13 +1198,16 @@ function validateBodyStructure(
       errors.push(`card[${i}/${shape}].${field} missing or empty`);
   };
   const requireArray = (field: string, val: unknown, minLen = 1): void => {
-    if (!Array.isArray(val) || val.length < minLen)
+    if (!Array.isArray(val) || val.length === 0)
       errors.push(`card[${i}/${shape}].${field} missing or empty`);
+    else if (val.length < minLen)
+      errors.push(`card[${i}/${shape}].${field} has ${val.length}, and this shape needs at least ${minLen}`);
   };
   switch (shape) {
     case 'hero': {
       const b = body as Partial<HeroBody>;
-      requireString('subtitle', b.subtitle);
+      // an opening that fell back to the plan's character has no words of its own (stage 7)
+      if (!b.fallback) requireString('subtitle', b.subtitle);
       requireString('classification_chip', b.classification_chip);
       requireArray('mood_arc', b.mood_arc);
       requireArray('stat_strip', b.stat_strip);

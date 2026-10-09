@@ -30,11 +30,12 @@ import {
   PRIVATE_RULES,
   personBlock,
 } from '../../inngest-jobs/careRules.js';
-import { db, personIdentity } from '../../shared/db.js';
+import { db, personIdentity, userTimezone } from '../../shared/db.js';
+import { loadLifePack, lifePackText, personWordsOn } from '../../shared/lifePack.js';
 import { helperFetch } from '../helperClient.js';
 import { dayMeaning } from '../agent/brief.js';
 
-export const WRAP_WORDS_VERSION = 'wrap-2026-10-05f';
+export const WRAP_WORDS_VERSION = 'wrap-2026-10-07a';
 
 export const MOMENTS = [
   'open',
@@ -373,11 +374,11 @@ export function lifeNowWords(story, chapters) {
   return L.join('\n');
 }
 
-/** Their life now, read for the moments that use it. Never throws. */
-async function readLifeNow(env, userId) {
+/** Their life now, read for the moments that use it: their story, their Chapters and what a friend would know today (shared/lifePack.js). Never throws. */
+async function readLifeNow(env, userId, day = null) {
   try {
     const d = db(env);
-    const [map, chapters] = await Promise.all([
+    const [map, chapters, pack] = await Promise.all([
       d
         .select(
           `user_life_map?user_id=eq.${userId}&select=story:life_map->story->story_so_far&limit=1`,
@@ -388,8 +389,21 @@ async function readLifeNow(env, userId) {
           `chapters?owner_id=eq.${userId}&phase=eq.active&select=title,card_subtitle&order=start_date.desc.nullslast&limit=4`,
         )
         .catch(() => []),
+      day
+        ? userTimezone(env, userId)
+            .then((tz) => loadLifePack(d, userId, { today: day, tz, personWords: personWordsOn(env) }))
+            .catch((err) => {
+              console.warn(
+                `[ALERT][WrapWords] could not read their life for ${userId}: ${err?.message || err}`,
+              );
+              return null;
+            })
+        : null,
     ]);
-    return lifeNowWords(map?.[0]?.story, chapters) || null;
+    const words = [lifeNowWords(map?.[0]?.story, chapters), lifePackText(pack)]
+      .filter(Boolean)
+      .join('\n');
+    return words || null;
   } catch {
     return null;
   }
@@ -519,7 +533,7 @@ export async function writeWrapWords({ env, userId, body, deps = {} }) {
     deps.life !== undefined
       ? deps.life
       : WITH_LIFE.includes(f.moment)
-        ? readLifeNow(env, userId)
+        ? readLifeNow(env, userId, f.day)
         : null,
   ]);
   const p = wrapPrompt(f, { person, dco, life });

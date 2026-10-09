@@ -61,7 +61,7 @@ function runColumn(r, item) {
     <div class="col-head"><b>${esc(r.modelUsed || r.model)}</b>${fellBack ? '<span class="pill warn">fell back</span>' : ''}<span class="pill ${fails.length ? 'bad' : looks.length ? 'warn' : 'good'}">${fails.length ? `${fails.length} rule${fails.length > 1 ? 's' : ''} broken` : looks.length ? `${looks.length} to look at` : 'All checks pass'}</span><span class="ms">${(r.ms / 1000).toFixed(1)}s</span></div>
     <div class="thread">
       ${r.out.lines.map((l) => `<div class="bubble">${esc(l.text)}</div>`).join('')}
-      ${r.out.dropped.map((d) => `<div class="bubble dropped" title="Dropped by the ID check">${esc(d.text)}<small>Dropped by the ID check: ${esc(d.bad.join(', '))}</small></div>`).join('')}
+      ${r.out.dropped.map((d) => `<div class="bubble dropped" title="Left out by the check">${esc(d.text)}<small>Left out by the check: ${esc(d.bad.join('; '))}</small></div>`).join('')}
       ${dayCard(item.snapshot)}
       ${held ? `<div class="bubble">${esc(r.out.questionLine)}</div>${chips(r.questionButtons)}<div class="after">After they answer or skip</div>` : ''}
       <div class="bubble">${esc(r.out.offer || '(no offer text: the fallback line is used)')}</div>

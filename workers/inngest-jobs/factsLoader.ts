@@ -40,6 +40,20 @@ export interface FactsLoaderInput {
   canonicalWeekEnd: string;
   runRpc: RunRpc;
   fetchRows: FetchRows;
+  /**
+   * Read the analyst's observations for quotes and people (the old weekly path).
+   * The summary written from the weekly pass (data fabric stage 5) reads
+   * neither: its quotes are the week's own notes and its people come from the
+   * people records the pass named.
+   */
+  useAnalyst?: boolean;
+  /**
+   * Who they are as the rest of the context pipeline reads it (person_identity,
+   * workers/shared/db.js), for when their profile's identity does not give a
+   * name or pronouns: the summary from the weekly pass is written and checked
+   * knowing who "you" is.
+   */
+  person?: { first_name?: string | null; pronouns?: string | null } | null;
 }
 
 const WEEKDAY_NAMES = [
@@ -60,6 +74,7 @@ function weekdayOf(iso: string): string {
 
 export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
   const { userId, canonicalWeekStart, canonicalWeekEnd, runRpc, fetchRows } = input;
+  const useAnalyst = input.useAnalyst !== false;
 
   // ── Cortex preferences (tenure, level, tier) ──────────────────────────────
   const cpRows = (await fetchRows(
@@ -89,8 +104,12 @@ export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
   }>;
   const up = upRows[0] ?? { identity: null, profile_text: null, timezone: null };
   const identity = (up.identity ?? {}) as Record<string, unknown>;
-  const userName = ((identity['name'] as string) || null) as string | null;
-  const userPronouns = ((identity['pronouns'] as string) || null) as string | null;
+  const userName = ((identity['name'] as string) || input.person?.first_name || null) as
+    | string
+    | null;
+  const userPronouns = ((identity['pronouns'] as string) || input.person?.pronouns || null) as
+    | string
+    | null;
   const partnerRaw = identity['partner'];
   const partnerName =
     typeof partnerRaw === 'string'
@@ -204,10 +223,14 @@ export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
   let quoteCounter = 0;
   const nextQuoteId = (date: string): string => `q_${date}_${++quoteCounter}`;
 
-  const analystRows = (await fetchRows(
-    `observations?user_id=eq.${userId}&stage=eq.analyst&superseded_at=is.null&observed_for_week=eq.${canonicalWeekStart}` +
-      `&select=kind,evidence_snapshot`,
-  )) as Array<{ kind: string; evidence_snapshot: Record<string, unknown> | null }>;
+  const analystRows = (
+    useAnalyst
+      ? await fetchRows(
+          `observations?user_id=eq.${userId}&stage=eq.analyst&superseded_at=is.null&observed_for_week=eq.${canonicalWeekStart}` +
+            `&select=kind,evidence_snapshot`,
+        )
+      : []
+  ) as Array<{ kind: string; evidence_snapshot: Record<string, unknown> | null }>;
   for (const r of analystRows) {
     const ev = r.evidence_snapshot ?? {};
     const rawQ = ev['journal_quote'];
@@ -261,8 +284,9 @@ export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
       `&or=(date.gte.${display_start},captured_at.gte.${display_start}T00:00:00Z)` +
       `&or=(date.lte.${display_end},captured_at.lte.${display_end}T23:59:59Z)` +
       `&archived=is.false` +
-      `&select=body,date,captured_at,canonical_type,subtype,journal_subtype`,
+      `&select=id,body,date,captured_at,canonical_type,subtype,journal_subtype`,
   ).catch(() => [])) as Array<{
+    id?: string;
     body: string | null;
     date: string | null;
     captured_at: string | null;
@@ -274,7 +298,16 @@ export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
     const text = (n.body ?? '').trim();
     if (text.length < 20) continue;
     if (seenTexts.has(text)) continue;
-    const date = n.date ?? (n.captured_at ? n.captured_at.slice(0, 10) : canonicalWeekStart);
+    // the day it was written is the person's own day, not the day in UTC
+    const date =
+      n.date ??
+      (n.captured_at
+        ? up.timezone
+          ? new Intl.DateTimeFormat('en-CA', { timeZone: up.timezone }).format(
+              new Date(n.captured_at),
+            )
+          : n.captured_at.slice(0, 10)
+        : canonicalWeekStart);
     const isJournal =
       n.canonical_type === 'log' || n.journal_subtype !== null || n.subtype === 'journal';
     seenTexts.add(text);
@@ -284,6 +317,7 @@ export async function loadFacts(input: FactsLoaderInput): Promise<HardFacts> {
       day_of_week: weekdayOf(date),
       text,
       source: isJournal ? 'journal' : 'drop_note',
+      ...(n.id ? { note_id: n.id } : {}),
     });
   }
 

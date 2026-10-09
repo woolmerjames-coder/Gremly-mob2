@@ -241,7 +241,7 @@ describe('decide', () => {
   });
 
   it('gives the words what makes a day not clear: habits, Sweep and what is dated today', async () => {
-    // 2 October for Dave: no meetings, nothing due, but habits, Sweep and a trip
+    // 2 October for Theo: no meetings, nothing due, but habits, Sweep and a trip
     gatherBrief.mockResolvedValue({
       now: 7 * 60,
       meetings: [],
@@ -292,6 +292,25 @@ describe('decide', () => {
       sets_off: expect.stringMatching(/^12:30/),
     });
     expect(briefFacts({ ...g, day: null }, 'brief')).not.toHaveProperty('travel_today');
+  });
+
+  it('gives the morning what the daily picture says today is about, and only the morning', () => {
+    const g = {
+      now: 7 * 60,
+      meetings: [],
+      today: '2026-11-12',
+      ritualDay: '2026-11-12',
+      lead: { what: 'An anniversary falls today.', why_today: 'It is the day itself.' },
+      headline: 'A day for the two of you',
+    };
+    expect(briefFacts(g, 'brief')).toMatchObject({
+      what_leads_today: 'An anniversary falls today.',
+      todays_headline: 'A day for the two of you',
+    });
+    expect(briefFacts(g, 'sweep')).not.toHaveProperty('what_leads_today');
+    expect(briefFacts({ ...g, lead: null, headline: null }, 'brief')).not.toHaveProperty(
+      'todays_headline',
+    );
   });
 
   it('leaves the number out rather than guess when it cannot be counted', async () => {

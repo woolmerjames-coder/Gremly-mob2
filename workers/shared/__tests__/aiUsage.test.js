@@ -241,6 +241,60 @@ describe('the row each call writes', () => {
     expect(rows[0].user_id).toBeNull();
   });
 
+  it('logs a call that times out as failed, and the caller still gets the error', async () => {
+    provider = async () => {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      throw err;
+    };
+    await expect(
+      request({ job: 'enrich-phase2', userId: USER }, () =>
+        fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          body: JSON.stringify({ model: 'gpt-6-luna' }),
+        }),
+      ),
+    ).rejects.toThrow('The operation was aborted');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      worker: 'cortex',
+      job: 'enrich-phase2',
+      user_id: USER,
+      provider: 'openai',
+      model: 'gpt-6-luna',
+      input_tokens: 0,
+      output_tokens: 0,
+      cost_usd: null,
+      status: 0,
+      ok: false,
+      meta: { failed: 'timed out', error: 'The operation was aborted' },
+    });
+  });
+
+  it('logs a call that throws for another reason as failed', async () => {
+    provider = async () => {
+      throw new TypeError('fetch failed');
+    };
+    await expect(
+      request({ job: 'classify-v3' }, () =>
+        fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+          {
+            method: 'POST',
+            body: '{}',
+          },
+        ),
+      ),
+    ).rejects.toThrow('fetch failed');
+    expect(rows[0]).toMatchObject({
+      job: 'classify-v3',
+      provider: 'google',
+      model: 'gemini-3.8-flash',
+      ok: false,
+      meta: { failed: 'threw', error: 'fetch failed' },
+    });
+  });
+
   it('does not log calls to anything else', async () => {
     await request({ job: 'general_chat' }, () => fetch('https://example.com/x'));
     expect(rows).toHaveLength(0);

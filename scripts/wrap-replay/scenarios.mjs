@@ -105,7 +105,11 @@ export const EVENINGS = [
     id: 'early-afternoon',
     kind: 'Wrapped up at 2pm, the day not over',
     person,
-    dco: { lead_story: { what: 'Half day before the long weekend', why_today: 'Finishing early to head to the coast.' } },
+    dco: {
+      lead_story: { what: 'Half day before the long weekend', why_today: 'Finishing early to head to the coast.' },
+      // Up next among their Chapters (data fabric stage 4b): there to know, never asked for
+      up_next: { title: 'Coast weekend', world: 'Home', date: '2026-10-03', which: 'starts', days_until: 1 },
+    },
     facts: {
       day: '2026-10-02',
       weekday: 'Friday',
@@ -215,7 +219,10 @@ export const EVENINGS = [
     id: 'skip-night',
     kind: 'Moved it all on, a busy week',
     person,
-    dco: { lead_story: { what: 'Launch week', why_today: 'The app goes live on Thursday.' } },
+    dco: {
+      lead_story: { what: 'Launch week', why_today: 'The app goes live on Thursday.' },
+      up_next: { title: 'App launch', world: 'Work', date: '2026-10-08', which: 'ends', days_until: 2 },
+    },
     facts: {
       day: '2026-10-06',
       weekday: 'Tuesday',

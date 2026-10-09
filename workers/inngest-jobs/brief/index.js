@@ -15,6 +15,8 @@ import { gatherBrief, minutesIn } from './data';
 import { decideOffer, questionButtons } from './offer';
 import { writeBrief, BRIEF_PROMPT_VERSION } from './writer';
 import { readLastWrap } from './reaction';
+import { checkRunRow } from '../../shared/check/index.js';
+import { sendEvents } from '../notifications/planner';
 import {
   appendMessages,
   ensureThread,
@@ -41,7 +43,7 @@ export function fallbackOffer(kind, part = 'morning') {
 
 /**
  * Gremly's opening line when the writer could not be used (both models
- * failed, or every line failed the ID check). Fixed words, so the brief still
+ * failed, or every line failed the check). Fixed words, so the brief still
  * arrives: this line, the day card and the offer.
  */
 export function fallbackLine(part, returnDay) {
@@ -118,8 +120,9 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
       questionLine: g.question && !g.ret ? out?.questionLine || g.question.question : null,
       questionChoices: out?.questionChoices ?? [],
       catchUp: out?.catchUp ?? null,
+      check: out?.check ?? null,
     };
-    writerError = writerError || 'no lines passed the ID check';
+    writerError = writerError || 'no lines passed the check';
   }
 
   const existing = await threadMessages(env, thread.id);
@@ -141,7 +144,9 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
   const asking = g.question && !g.ret;
   if (asking) {
     let choices = g.question.choices || [];
-    if (!choices.length && out.questionChoices.length) {
+    // a question about someone with no answers to tap is answered in their own
+    // words, as its writer chose (context/peopleQuestions.js)
+    if (!choices.length && out.questionChoices.length && g.question.kind !== 'person') {
       choices = out.questionChoices.slice(0, 4);
       await db(env)
         .update(`gremly_questions?id=eq.${g.question.id}`, { choices })
@@ -154,6 +159,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
         type: 'brief-offer',
         kind: 'question',
         question_id: g.question.id,
+        // what it is about: the app puts one about a Chapter as the Worlds card
+        question_kind: g.question.kind || null,
         buttons: questionButtons(choices),
         brief_id: briefId,
       },
@@ -220,9 +227,40 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
     // set when the fixed words were used instead of the writer's
     error: writerError,
   });
+  // what the check did, so the share left out can be watched; the brief never
+  // waits on its log
+  if (out.check) {
+    await db(env)
+      .insertQuiet('check_runs', [
+        checkRunRow({
+          userId,
+          job: 'brief',
+          day: g.ritualDay,
+          counts: out.check.counts,
+          details: out.check.details,
+          model: out.model,
+        }),
+      ])
+      .catch((err) => console.warn(`[DailyBrief] could not log the check: ${err.message}`));
+  }
+  // A return day: the words under their Worlds and Chapters are written again
+  // (context/words.js), once a day. The brief never waits on it.
+  if (g.ret) {
+    await sendEvents(env, [
+      {
+        id: `words-return-${userId}-${g.ritualDay}`,
+        name: 'app/words.write',
+        data: { user_id: userId, reason: 'return' },
+      },
+    ]).catch((err) =>
+      console.warn(
+        `[ALERT][DailyBrief] fresh words were not asked for on a return day: ${err.message}`,
+      ),
+    );
+  }
   if (out.dropped.length || out.offerDropped) {
     console.warn(
-      `[ALERT][DailyBrief] ID check dropped ${out.dropped.length} line(s)${out.offerDropped ? ' and the offer' : ''} for ${userId}`,
+      `[ALERT][DailyBrief] the check left out ${out.dropped.length} line(s)${out.offerDropped ? ' and the offer' : ''} for ${userId}`,
       JSON.stringify({ dropped: out.dropped, offer: out.offerDropped }).slice(0, 1500),
     );
   }
@@ -237,6 +275,28 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
     checkin: checkIn?.habit_id ?? null,
     review_offer: reviewOffer,
   };
+}
+
+/**
+ * The morning work (the daily picture and the brief) is made ahead only for
+ * people who used the app in the last week. Anyone else gets both made fresh
+ * when they next open the app (todaysDco in data.js).
+ */
+export const MORNING_ACTIVE_DAYS = 7;
+
+/**
+ * Who is due a brief now: people with settings who used the app in the last
+ * week, 20 minutes before their morning time, until noon. Ids and dates only.
+ */
+export function dueBriefs(ownerIds, activeIds, prefsByUser, at = new Date()) {
+  const active = new Set(activeIds || []);
+  const out = [];
+  for (const id of ownerIds || []) {
+    if (!active.has(id)) continue;
+    const day = dueForBrief(prefsByUser.get(id) || {}, at);
+    if (day) out.push({ user_id: id, day });
+  }
+  return out;
 }
 
 /** Who is due their brief now: 20 minutes before their morning time, until noon. */
@@ -258,18 +318,15 @@ export function createBriefFunctions(inngest) {
       const due = await step.run('who-is-due', async () => {
         const d = db(env);
         const on = await d.select('cortex_preferences?select=owner_id&limit=5000');
-        const ids = (on || []).map((r) => r.owner_id);
+        const active = await d.rpc('get_active_people', { active_days: MORNING_ACTIVE_DAYS });
+        const activeIds = (active || []).map((r) => r.user_id);
+        const ids = (on || []).map((r) => r.owner_id).filter((id) => activeIds.includes(id));
         if (!ids.length) return [];
         const prefs = await d.select(
           `notification_preferences?user_id=in.(${ids.join(',')})&select=user_id,timezone,morning_time`,
         );
         const byUser = new Map((prefs || []).map((p) => [p.user_id, p]));
-        const out = [];
-        for (const id of ids) {
-          const day = dueForBrief(byUser.get(id) || {});
-          if (day) out.push({ user_id: id, day });
-        }
-        return out;
+        return dueBriefs(ids, activeIds, byUser);
       });
       if (due.length) {
         await step.sendEvent(

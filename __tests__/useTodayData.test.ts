@@ -308,29 +308,6 @@ describe('useTodayData', () => {
     });
   });
 
-  it('should enrich items with space names', async () => {
-    const habitWithSpace = createHabit({
-      id: 'h1',
-      name: 'Test Habit',
-      space_id: 'space-1',
-    });
-
-    mockRepo.listDueToday.mockResolvedValue([habitWithSpace]);
-    mockRepo.getSpaceById.mockResolvedValue({
-      id: 'space-1',
-      name: 'Work Space',
-    });
-
-    const { result } = renderHook(() => useTodayData());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    expect(result.current.habits[0].spaceName).toBe('Work Space');
-    expect(mockRepo.getSpaceById).toHaveBeenCalledWith('space-1');
-  });
-
   it('should handle error state gracefully', async () => {
     mockRepo.listDueToday.mockRejectedValue(new Error('Network error'));
 

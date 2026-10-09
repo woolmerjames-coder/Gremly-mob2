@@ -31,9 +31,9 @@ import { EntityChatScreen } from '../EntityChatScreen';
 beforeEach(() => {
   mockItemProps = null;
   mockState = {
-    todos: [{ id: 't1', name: 'Walk Bella', title: 'Walk Bella' }],
+    todos: [{ id: 't1', name: 'Walk Pepper', title: 'Walk Pepper' }],
     habits: [{ id: 'h1', name: 'Run', title: null }],
-    notes: [{ id: 'n1', title: 'Bella Vet Appointment', subtype: 'event' }],
+    notes: [{ id: 'n1', title: 'Pepper Vet Appointment', subtype: 'event' }],
   };
 });
 
@@ -44,7 +44,7 @@ describe('ItemChatScreen', () => {
     expect(mockItemProps.anchor).toEqual({
       id: 'n1',
       type: 'note',
-      title: 'Bella Vet Appointment',
+      title: 'Pepper Vet Appointment',
     });
     expect(mockItemProps.label).toBe('Event');
     expect(mockItemProps.initialPrompt).toBeNull();
@@ -92,6 +92,6 @@ describe('ItemChatScreen', () => {
     const { getByTestId } = render(
       <EntityChatScreen entityId="t1" entityType="todo" onClose={jest.fn()} />,
     );
-    expect(getByTestId('ask-gremly').props.children).toBe('Walk Bella');
+    expect(getByTestId('ask-gremly').props.children).toBe('Walk Pepper');
   });
 });

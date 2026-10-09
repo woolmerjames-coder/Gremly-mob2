@@ -86,8 +86,6 @@ const SCREEN_TYPES = [
   'organize',
   'sweep',
   'sweep-habits',
-  'spaces',
-  'space-detail',
   'hub',
   'askgremly',
 ] as const;
@@ -98,8 +96,6 @@ const EXPECTED_TITLES: Record<string, string> = {
   organize: 'Organize',
   sweep: 'Evening Sweep',
   'sweep-habits': 'Habits today',
-  spaces: 'Spaces',
-  'space-detail': 'Inside a Space',
   hub: 'Hub',
   askgremly: 'Ask Gremly',
 };

@@ -1,5 +1,6 @@
 /**
- * Shared helpers used by worldsBootstrap.ts and worldsWriterTest.ts.
+ * The Worlds and Chapters a person has now, for the Sunday classifier
+ * (processWorldsWindow.ts).
  */
 
 import { createClient } from '@supabase/supabase-js';

@@ -476,6 +476,11 @@ export function briefFacts(g, moment) {
     // left out, not guessed, when the count failed
     ...sweepFact(g, moment),
     gremly_age: g.gremlyAge ?? null,
+    // the morning: what the daily picture says today is about, as it reads at
+    // the top of the brief. Both passed its check, which keeps anything
+    // private out of them, so they may show on a lock screen (stage 4d).
+    ...(moment === 'brief' && g.lead?.what ? { what_leads_today: g.lead.what } : {}),
+    ...(moment === 'brief' && g.headline ? { todays_headline: g.headline } : {}),
   };
 }
 

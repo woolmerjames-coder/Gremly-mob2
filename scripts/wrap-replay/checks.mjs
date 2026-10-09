@@ -52,11 +52,12 @@ export function checks(moment, f, out, expect = {}) {
   if (moment === 'journal_ask') add('Asks one question', (text.match(/\?/g) || []).length === 1, text);
   else add('Asks nothing', !/\?/.test(text), text);
   if (f.part === 'early') {
-    // a habit's own name is not about the night
+    // a habit's own words are not about the night, even when the line rewords the habit
     const t = f.tonight || {};
-    let plain = text;
-    for (const h of [...(t.logged || []), ...(t.held || []), ...(t.not_held || [])]) plain = plain.split(h).join('');
-    add('Nothing about tonight', !NIGHT.test(plain), text);
+    const habits = [...(t.logged || []), ...(t.held || []), ...(t.not_held || [])];
+    const own = new Set(habits.flatMap((h) => h.toLowerCase().split(/\W+/)));
+    const night = (text.match(new RegExp(NIGHT.source, 'gi')) || []).filter((w) => !own.has(w.toLowerCase()));
+    add('Nothing about tonight', night.length === 0, text);
   }
   if (f.part === 'late' && moment !== 'journal_reply') add('Names the next day', !/\btomorrow\b/i.test(text), text);
   if (moment === 'close') add('No goodnight', !/good ?night|sleep well/i.test(text), text);

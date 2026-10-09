@@ -69,18 +69,31 @@ export const SURFACES = {
   },
 };
 
+/** The surfaces whose app builds can be offered Worlds and Chapters (chat, for now). */
+export const PLACE_SURFACES = ['chat'];
+
 /**
  * A surface by name, or one of its variants: the surface's job and tools with
- * the variant's added, and the variant's own tool set.
+ * the variant's added, and the variant's own tool set. With places, for an
+ * app build that can apply changes to Worlds and Chapters, propose_changes can
+ * change them too (tool sets chat_places and chat_ease_places). How Gremly
+ * works with them rides with their Worlds and Chapters in what the agent knows
+ * (places.js), not in the job: added to the job, it cost other turns their
+ * card (the chat replay, 8 October: ease-sooner 3 of 10 with it in the job,
+ * 7 of 8 with it beside their Worlds and Chapters, 10 of 12 before).
  */
-export function surfaceOf(name, variant) {
+export function surfaceOf(name, variant, { places = false } = {}) {
   const base = SURFACES[name] || null;
   const v = variant ? base?.variants?.[variant] : null;
-  if (!base || !v) return base;
-  return {
-    ...base,
-    job: `${base.job} ${v.job}`,
-    tools: [...base.tools, ...v.tools],
-    toolSet: v.toolSet,
-  };
+  const s =
+    !base || !v
+      ? base
+      : {
+          ...base,
+          job: `${base.job} ${v.job}`,
+          tools: [...base.tools, ...v.tools],
+          toolSet: v.toolSet,
+        };
+  if (!s || !places || !PLACE_SURFACES.includes(name)) return s;
+  return { ...s, toolSet: `${s.toolSet || name}_places` };
 }

@@ -22,6 +22,7 @@ const BRIEF_TYPES: ReadonlySet<string> = new Set<BriefMessageType>([
   'sweep-end',
   'week-card',
   'week-offer',
+  'keep-offer',
 ]);
 
 /** The brief metadata on a message, or null when it is an ordinary chat message. */
@@ -87,9 +88,11 @@ export function dayPartAt(hour: number): DayPart {
 export function followsGremly(prev: SpaceChatMessage | undefined): boolean {
   if (!prev) return false;
   const meta = briefMetaOf(prev);
-  // after one of the weekly review's cards, or the button to their week, his
-  // next line is marked as his: a card can end with their own answer under it
-  if (meta?.type === 'week-card' || meta?.type === 'week-offer') return false;
+  // after one of the weekly review's cards, the button to their week or the
+  // Save button, his next line is marked as his: a card can end with their
+  // own answer under it
+  if (meta?.type === 'week-card' || meta?.type === 'week-offer' || meta?.type === 'keep-offer')
+    return false;
   if (meta) return meta.type !== 'brief-reply' && meta.type !== 'brief-event';
   return prev.role === 'assistant';
 }

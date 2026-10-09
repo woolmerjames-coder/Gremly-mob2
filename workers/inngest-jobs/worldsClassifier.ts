@@ -34,6 +34,7 @@
 
 import type { SignalBundle } from './signalCollector';
 import { CARE_RULES } from './careRules';
+import { GREMLY_CATALOG, GREMLY_SLUGS, type GremlyEntry } from '../shared/gremlys.js';
 
 export interface ClassifierEnv {
   ANTHROPIC_API_KEY: string;
@@ -114,137 +115,11 @@ export const LIFE_CONTEXT_KINDS: LifeContextKind[] = [
   'custom',
 ];
 
-type MascotCatalogEntry = {
-  slug: string;
-  archetype_tags: string[];
-  visual: string;
-};
+// The catalogue lives in workers/shared/gremlys.js, one list for every writer
+// that chooses a Gremly
+const MASCOT_CATALOG: readonly GremlyEntry[] = GREMLY_CATALOG;
 
-const MASCOT_CATALOG: MascotCatalogEntry[] = [
-  {
-    slug: 'adventurer_gremly',
-    archetype_tags: ['learning', 'study', 'academic', 'curiosity'],
-    visual: 'graduation cap with tassel, round glasses, holding a stack of colorful books',
-  },
-  {
-    slug: 'artist_gremly',
-    archetype_tags: ['finance', 'wealth', 'investing', 'business'],
-    visual: 'top hat, monocle, holding gold coin marked with a dollar sign',
-  },
-  {
-    slug: 'astrogremly',
-    archetype_tags: ['exploration', 'frontier', 'ambition', 'wonder'],
-    visual: 'round space helmet with bubble visor, serene smile',
-  },
-  {
-    slug: 'beach_gremly',
-    archetype_tags: ['vacation', 'leisure', 'relaxation'],
-    visual:
-      'sunglasses, hawaiian shirt, reclining in a deck chair holding a cocktail with umbrella straw',
-  },
-  {
-    slug: 'chef_gremly',
-    archetype_tags: ['cooking', 'nourishment', 'domestic craft'],
-    visual: 'chef hat, apron, holding a whisk',
-  },
-  {
-    slug: 'clipboardgremly',
-    archetype_tags: ['execution', 'tracking', 'admin', 'task focus'],
-    visual: 'holding a clipboard with checkboxes',
-  },
-  {
-    slug: 'coffee_gremly',
-    archetype_tags: ['rest', 'pause', 'dormancy', 'recovery'],
-    visual: 'curled up sleeping, eyes closed, peaceful',
-  },
-  {
-    slug: 'cozy_gremly',
-    archetype_tags: ['home comfort', 'warmth', 'self-care', 'hibernation'],
-    visual: 'wrapped in a cream blanket, holding a mug',
-  },
-  {
-    slug: 'cozyscarf_gremly',
-    archetype_tags: ['celebration', 'milestone', 'joy'],
-    visual: 'striped party hat, arms raised, open-mouthed grin',
-  },
-  {
-    slug: 'doctor_gremly',
-    archetype_tags: ['medical care', 'caregiving', 'healing', 'physical health'],
-    visual: 'stethoscope around neck, holding a red heart',
-  },
-  {
-    slug: 'explorer_gremly',
-    archetype_tags: ['visual art', 'creative craft', 'painting'],
-    visual: 'green beret, holding a paintbrush',
-  },
-  {
-    slug: 'fistbumpgremly',
-    archetype_tags: ['motivation', 'momentum', 'drive', 'encouragement'],
-    visual: 'arms bent at elbows in a motivated pose, eyes closed smiling',
-  },
-  {
-    slug: 'fitness_gremly',
-    archetype_tags: ['strength training', 'gym', 'body exertion', 'weights'],
-    visual: 'headband, lifting dumbbells in both hands, mid-workout',
-  },
-  {
-    slug: 'gardener_gremly',
-    archetype_tags: ['growth', 'nurture', 'patience', 'gentle care', 'recovery'],
-    visual: 'holding a potted seedling, eyes closed, peaceful',
-  },
-  {
-    slug: 'gremly-mascot',
-    archetype_tags: [],
-    visual: 'plain standing gremly with no accessories, neutral friendly smile',
-  },
-  {
-    slug: 'hoodie_gremly',
-    archetype_tags: ['playful adventure', 'bold confidence', 'frontier'],
-    visual: 'wide brown cowboy hat, winking, yellow star badge on chest',
-  },
-  {
-    slug: 'JournalGremly',
-    archetype_tags: ['reflection', 'contemplation', 'journaling', 'stillness'],
-    visual: 'small sitting upright, eyes closed, plain green, peaceful',
-  },
-  {
-    slug: 'meditation_gremly',
-    archetype_tags: ['mindfulness', 'meditation', 'stillness', 'mental wellness'],
-    visual: 'seated in lotus pose, hands together in prayer, eyes closed, serene',
-  },
-  {
-    slug: 'music_gremly',
-    archetype_tags: ['music', 'audio', 'creative flow', 'immersion'],
-    visual: 'standing with headphones on, eyes closed, content',
-  },
-  {
-    slug: 'photographer_gremly',
-    archetype_tags: ['travel', 'transition', 'movement', 'relocation'],
-    visual: 'standing with an orange suitcase, waving, alert expression',
-  },
-  {
-    slug: 'running-removebg',
-    archetype_tags: ['cardio', 'running', 'body exertion', 'movement'],
-    visual: 'headband, wristbands, mid-run with motion lines, energized',
-  },
-  {
-    slug: 'safari_gremly',
-    archetype_tags: ['outdoor exploration', 'discovery', 'adventure travel'],
-    visual: 'wide-brim safari hat, holding binoculars',
-  },
-  {
-    slug: 'scholar_gremly',
-    archetype_tags: ['professional work', 'corporate career', 'office job', 'day job'],
-    visual: 'round glasses, green tie, holding a laptop',
-  },
-  {
-    slug: 'ski_gremly',
-    archetype_tags: ['winter sport', 'seasonal outdoor adventure', 'skiing'],
-    visual: 'goggles, jacket, holding ski poles',
-  },
-];
-
-const MASCOT_CATALOG_SLUGS: string[] = MASCOT_CATALOG.map((m) => m.slug);
+const MASCOT_CATALOG_SLUGS: string[] = [...GREMLY_SLUGS];
 
 const MASCOT_CATALOG_TEXT = MASCOT_CATALOG.map(
   (m) =>
@@ -507,21 +382,23 @@ You are the signal-first classifier for Gremly's Worlds & Chapters system. You r
 
 What a World is. A World is an active, long-lived domain of the user's life where the user is engaged, reflecting, or growing. A domain has recurring signal across multiple signal types; journals, todos, habits, and chats often all touch it. It names a region of someone's life, not a single activity or feeling. One-off tasks, single moods, and isolated thoughts are not Worlds.
 
-What a life_context is (distinct from a World). A life_context is a constraint container: something the user has to do, not something they are growing into. Work (employer, role), school, caregiving, legal obligations. Life_contexts are typically calendar-dense (many meetings, many events) but reflection-light (few journal entries, few todos the user chose to make). They consume time without being a growth surface. Decide World vs life_context this way: if the user writes about it, plans inside it, or builds habits around it, it's a World; if they mostly just show up to it because they have to, and the evidence is dominated by calendar events or repetitive obligations rather than reflection, it's a life_context. Employment is the canonical example. When calendar summary shows high meeting density for a domain AND reflection/journal signal on that domain is low, prefer life_context over World. Life_contexts render outside the Worlds tab.
+What a life_context is (distinct from a World). A life_context is a constraint container: something the user has to do, not something they are growing into. Life_contexts are typically calendar-dense (many meetings, many events) but reflection-light (few journal entries, few todos the user chose to make). They consume time without being a growth surface. Decide World vs life_context this way: if the user writes about it, plans inside it, or builds habits around it, it's a World; if they mostly just show up to it because they have to, and the evidence is dominated by calendar events or repetitive obligations rather than reflection, it's a life_context. When calendar summary shows high meeting density for a domain AND reflection/journal signal on that domain is low, prefer life_context over World. Life_contexts render outside the Worlds tab.
 
 Choosing a kind for a life_context. The kind field must be one of: employer, role, obligation, calendar_source, custom. Use employer when the target is a named organisation the user works for or is employed by. Use role when the target is a specific professional function the user occupies within an employer that is worth tracking separately from the employer itself. Use obligation when the target is a recurring non-employment demand on the user's time or energy. Use calendar_source when the target exists primarily as a source of calendar events and has no other signal shape. Use custom only when none of the above apply. This same enum governs reclassification_proposal.target_kind.
 
-Dedup rule for life_contexts. Before proposing a new_life_context_candidate, check active_life_contexts_in carefully. If any existing life_context represents the same underlying entity as the one you are about to propose, do NOT emit a new candidate, even if the names differ. Match semantically, not by string equality. An existing "Sage at Dentsu" (kind=employer) and a newly observed "Sage (Employer)" are the same entity and must not be duplicated. An existing "Tuesday standup" (kind=obligation) and a newly observed "Weekly Tuesday standup meeting" are the same entity. Use your judgment about what constitutes the same real-world employer, role, obligation, or calendar source. When uncertain, err on the side of NOT proposing a new one. Silent skip is better than a duplicate.
+Dedup rule for life_contexts. Before proposing a new_life_context_candidate, check active_life_contexts_in carefully. If any existing life_context represents the same underlying entity as the one you are about to propose, do NOT emit a new candidate, even if the names differ. Match semantically, not by string equality: two names for the same real organisation, role, obligation or calendar source are one entity. Use your judgment about what constitutes the same real-world employer, role, obligation, or calendar source. When uncertain, err on the side of NOT proposing a new one. Silent skip is better than a duplicate.
 
 What a Chapter is. A Chapter is a bounded arc with a recognizable beginning and end. It can span multiple Worlds. A Chapter has temporal coherence (drops cluster within a window) and narrative coherence (drops tell a story with a start and an end). If no plausible start or end is identifiable, it is not a Chapter. Some Chapters are achievement-shaped; their target_description states what finishing looks like.
 
 Active chapters and chapter deduplication. Before proposing a new chapter in a primary_world, examine every existing chapter in that world from active_chapters_in regardless of phase. For each, compute the date range overlap between the proposed chapter's start_date and end_date and the existing chapter's range. If the overlap exceeds 60 percent of the proposed chapter's own duration, do not emit the candidate. If the overlapping existing chapter is still open, emit a chapter_update refining its description and target instead. If the existing chapter is already closed, skip the proposal entirely and rely on the closed chapter for narrative continuity.
 
-When active_chapters is non-empty, you must also check each new_chapter_candidate you would emit against the active list. If a candidate overlaps an existing active chapter in time range AND topic (same primary World or closely related theme), DO NOT emit it as a new candidate. Instead, either (a) emit a chapter_update that extends the existing chapter's end_date or description based on the new evidence, (b) emit a chapter_update with close_chapter=true if the arc has reached its target, or (c) emit nothing for that arc if nothing has changed. Only emit a new_chapter_candidate when the arc is genuinely new or its identity has shifted enough that the existing chapter no longer describes it. Slight title variations ("Gremly Launch Sprint" vs "App Launch Push") describing the same ongoing arc are duplicates and must not be re-proposed.
+When active_chapters is non-empty, you must also check each new_chapter_candidate you would emit against the active list. If a candidate overlaps an existing active chapter in time range AND topic (same primary World or closely related theme), DO NOT emit it as a new candidate. Instead, either emit a chapter_update that extends the existing chapter's end_date or description based on the new evidence, or emit nothing for that arc if nothing has changed. Only emit a new_chapter_candidate when the arc is genuinely new or its identity has shifted enough that the existing chapter no longer describes it. Slight title variations describing the same ongoing arc are duplicates and must not be re-proposed.
+
+Never close a Chapter. close_chapter is always false: the person closes their own Chapters, and Gremly asks them first.
 
 What an evolution proposal is. A proposal that an existing active World's identity, shape, or membership should change based on how its signal has drifted. Four kinds. Split: sub-clusters have diverged enough to warrant separate Worlds. Emerge: a coherent thread has formed inside or adjacent to an active World, large enough to stand alone. Transform: the World's name, description, or archetypes no longer match its recent signal; drops do not move. Absorb: a dormant World folds into an active neighbor or is archived cleanly. Merge is out of scope; never propose it.
 
-Evolution firing rules. Evolution events must be rare and earned. All four types require sustained_over_rebuilds of at least 2, meaning the pattern justifying the proposal must have been visible across at least 2 consecutive windows. On a single-window run (sustained_over_rebuilds would be 1), no evolution events may be emitted. Confidence for evolution must be at least 0.7 to emit. Transform specifically is eligible when the dominant sub-theme of a World's signal has shifted for 2+ consecutive windows, even if no discrete sub-cluster has formed. Example pattern: a Health & Wellbeing World that started with generic supplement and sleep content, then for 2+ consecutive windows has been dominated by sobriety and habit-tracking, should transform to something like "Sobriety & Habit Formation" without needing to split. Propose at most one evolution event per run unless the evidence genuinely supports multiple.
+Evolution firing rules. Evolution events must be rare and earned. All four types require sustained_over_rebuilds of at least 2, meaning the pattern justifying the proposal must have been visible across at least 2 consecutive windows. On a single-window run (sustained_over_rebuilds would be 1), no evolution events may be emitted. Confidence for evolution must be at least 0.7 to emit. Transform specifically is eligible when the dominant sub-theme of a World's signal has shifted for 2+ consecutive windows, even if no discrete sub-cluster has formed; the World is renamed for what now dominates it, without needing to split. Propose at most one evolution event per run unless the evidence genuinely supports multiple.
 
 Evidence is mandatory. Every new World candidate, new Chapter candidate, life_context candidate, chapter_update, and evolution proposal must cite at least two drop_ids whose dates span at least two distinct days. Candidates citing zero or one drop, or all drops on a single day, are invalid output and must not be emitted. Prefer diverse signal types when possible; a journal plus a todo is stronger than two todos.
 
@@ -535,7 +412,7 @@ Seed modules. For each new World candidate, propose a seed module layout of orde
 
 Velocity for active Worlds. Compute signal_velocity as drops per week averaged over the trailing 4 weeks of available evidence. Compute signal_velocity_delta as the relative change compared to the prior 4 weeks: growing when the last 4 weeks exceed the prior 4 by more than 25 percent, declining when the inverse holds, stable when within 25 percent either way, dormant when signal falls below the applicable per-archetype floor. Dormancy floor is per-archetype, not flat. For a World whose archetype weight is at least 0.5 on a given type, apply the matching floor: relational 0.5 drops per week, professional 1.5 per week with calendar density considered as secondary evidence, wellness_body 2 per week, all other archetypes 2 per week. When archetypes are mixed, use the lowest floor among types with weight at least 0.3. Recommend dormancy only when signal has stayed below the applicable floor for the full 4 week window and the declining trajectory is sustained over the prior window.
 
-Naming. World names describe domains of life in short, concrete terms. Chapter titles describe arcs. Life_context names describe the obligation in short, concrete terms ("Sage at Dentsu", "Stanford coursework"). Avoid names that duplicate the product features of journaling or productivity apps.
+Naming. World names describe domains of life in short, concrete terms. Chapter titles describe arcs. Life_context names describe the obligation in short, concrete terms. Avoid names that duplicate the product features of journaling or productivity apps.
 
 What to ignore. Space ids, space names, and any legacy "where was this filed" information must not influence clustering. Individual synced calendar events are filtered upstream; do not treat any meeting-shaped title alone as World signal if one slips through. Use the calendar_summary digest for calendar density, not individual event rows.
 
@@ -573,16 +450,13 @@ To choose a slug (cases 2 and 3-shift), read the world's archetypes, key_priorit
 
 Safety constraints override any match score. These rules must never be violated under any circumstance.
 
-- Never assign a mascot whose visual depicts alcohol, cocktails, or drinking to any world whose archetypes or summary involve sobriety, addiction recovery, alcohol reduction, anxiety, or mental health.
-- Never assign a mascot whose visual depicts body exertion, strength training, weights, or running to any world whose archetypes or summary involve eating disorders, body image struggles, or restrictive eating.
-- Never assign a mascot whose visual depicts wealth, money, or financial gain to any world whose archetypes or summary involve financial stress, debt, or money scarcity.
-- Never assign a mascot whose visual depicts medical equipment or clinical care to a world focused on addiction recovery or substance sobriety.
-- When any safety constraint applies or no candidate confidently matches, assign the plain no-accessory mascot.
+- Never assign a mascot whose visual depicts something the world shows the user struggling with, or anything that could jar or hurt given what the world holds for them.
+- When that could apply or no candidate confidently matches, assign the plain no-accessory mascot.
 
 MASCOT_CATALOG:
 ${MASCOT_CATALOG_TEXT}
 
-Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. Never contains ampersands, the word "and", or any other conjunction. Use sentence case. Omit articles ("the", "a") and possessives ("my", "your") unless essential. One word is preferred when it reads naturally. card_subtitle is a single anchor statement, maximum 60 characters, written as a present-tense or present-continuous phrase. It names one concrete focal element from the World's current state: the most imminent dated commitment from key_priorities, or when no dated commitment exists, the single most active undertaking the user is engaged in right now. Comma-separated enumerations of multiple themes or items are forbidden. A subtitle names one thing, not a list. If the World's top-ranked key_priority has a due_date within the next 14 days, the subtitle must reference that commitment and its temporal context (the date, the month reference, or a day-proximity phrase). Abstract summary phrasing that does not name a specific commitment or undertaking is forbidden. Items whose date lies in the past relative to today must never appear in a subtitle. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
+Authored content for new World candidates. For each new_world_candidate you emit, you must also author the following fields. display_name is a short human-friendly label, at most 3 words and at most 20 characters, derived from proposed_name. It never joins two things with a conjunction or an ampersand. Use sentence case. Omit articles and possessives unless essential. One word is preferred when it reads naturally. card_subtitle is a single anchor statement, maximum 60 characters, written as a present-tense or present-continuous phrase. It names one concrete focal element from the World's current state: the most imminent dated commitment from key_priorities, or when no dated commitment exists, the single most active undertaking the user is engaged in right now. Comma-separated enumerations of multiple themes or items are forbidden. A subtitle names one thing, not a list. If the World's top-ranked key_priority has a due_date within the next 14 days, the subtitle must reference that commitment and its temporal context (the date, the month reference, or a day-proximity phrase). Abstract summary phrasing that does not name a specific commitment or undertaking is forbidden. Items whose date lies in the past relative to today must never appear in a subtitle. summary is 2 to 3 short sentences, maximum 180 characters total, describing the World's identity, its arc inside the current window, and what the user has been building or expressing within it. Write in second person. key_priorities is an array of up to 5 items ordered by importance, each with rank (integer 1 to 5), text (maximum 100 characters), kind (one of: action, date, blocker, momentum, decision), optional entity_ref string, optional due_date ISO date string, and confidence (number between 0 and 1).
 
 Authored content for new Chapter candidates. For each new_chapter_candidate you emit, you must also author the following fields. target_summary is a single clause, maximum 90 characters, describing what this chapter is working toward, or null for season-type chapters without a defined target. card_subtitle is a single anchor statement, maximum 60 characters, written in present tense. It names one concrete focal element of the chapter's current arc: the most imminent dated commitment from the chapter's key_priorities, or when no dated commitment exists, the chapter's current central undertaking. Comma-separated enumerations are forbidden. If the chapter's top-ranked key_priority has a due_date within the next 14 days, or if the chapter's target_summary contains a date reference within 30 days, the subtitle must reference that temporal context. Items whose date lies in the past relative to today must never appear. summary is 2 to 3 short sentences, maximum 180 characters total, describing the chapter's arc, its current moment, and what completing or progressing it means for the user. Write in second person. key_priorities follows the same structure as World key_priorities. phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages, labelled from the arc's current vantage point. current_phase_key is the string from phase_labels that best describes where this chapter sits right now.
 
@@ -590,19 +464,17 @@ Cross-world summary. You must include a worlds_summary block at the top level of
 
 headline is a single line, maximum 120 characters, written in Gremly's voice. Gremly is a sharp, warm thinking partner who observes the user's life without performing emotion about it. The headline is Gremly noticing the dominant force in play across the user's worlds this week, not announcing a theme, not summarizing categories, not rallying the user toward action. Written from a third-person observational stance. Never address the user as "you" or include possessives like "your". Never use "we" or "our".
 
-The headline must name concrete anchors: specific worlds, people, events, or dated milestones present in the user's graph this week. Abstract category nouns (plans, things, themes, activity, patterns, efforts, progress) are forbidden unless directly modified by a specific named entity.
+The headline must name concrete anchors: specific worlds, people, events, or dated milestones present in the user's graph this week. A general category word stands only when a specific named entity qualifies it.
 
-Forbidden verbs for the headline: emerge, unfold, continue, gain momentum, build, accelerate, intensify, evolve, ramp, navigate, shift as a transitive verb. These are newsroom verbs that describe patterns without naming a state.
+Name a state, not a trend: never describe a pattern as moving or growing without saying what is true now. Prefer a period or comma over a formal connector.
 
-Forbidden connectors: however, furthermore, additionally, moreover, particularly. Use but, and, also, plus, though instead, but prefer a period or comma over any connector at all.
-
-Forbidden tone: exclamatory punctuation, celebratory adjectives (exciting, amazing, huge), dramatic adjectives (intense, crisis, critical), therapy-voice phrasings (holding space, navigating, processing). Dry observational humor is allowed when the signal supports it, never forced.
+No exclamation marks, no celebratory or dramatic adjectives, and no therapy-voice phrasing. Dry observational humor is allowed when the signal supports it, never forced.
 
 Structure: one main clause naming the dominant force this week, optionally followed by a short second clause naming what's meeting it. Avoid chaining three or more ideas with "and" or "as" or "while".
 
-featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window. The reason field follows the same voice rules as the headline: concrete, observational, no forbidden verbs, no therapy-voice.
+featured is a list of 2 to 3 objects, each with world_id (the id of an existing active World, or the proposed_name for a new candidate) and reason (maximum 60 characters) explaining why this World is notable this window. The reason field follows the same voice rules as the headline: concrete, observational, naming a state, no therapy-voice.
 
-Refreshing existing entities. You are not only authoring new entities. On every run you refresh authored content for every existing active World and every existing active Chapter. Refresh is unconditional, not gated on signal shift. For every velocity_update entry you emit, you must include new_display_name, new_card_subtitle, new_summary, new_key_priorities, new_mascot_slug, and new_world_type. These fields are required in the response object even when their value is null. Emit new_world_type with a concrete value when the world's current world_type is null in the input state (first assignment, mandatory) or when the world's dominant archetype has materially shifted since the last run. Otherwise emit new_world_type as null. Never emit a concrete new_world_type when world_type_source is user. When authoring new_card_subtitle on refresh, apply the same single-anchor rule as for new Worlds. If the previous card_subtitle referenced an event whose date has now passed, or a person or plan that no longer appears in key_priorities, the subtitle must be rewritten to reflect current reality rather than preserved out of inertia. If a new dated commitment has risen to the top of key_priorities since the last run, the subtitle must shift to anchor on that commitment. This applies equally to chapter_update entries for new_card_subtitle on chapters. new_display_name must follow the same rules as display_name on new_world_candidates: at most 3 words, at most 20 characters, sentence case, no ampersands, no "and" or other conjunctions, no articles or possessives unless essential, one word preferred. new_mascot_slug follows the three-case logic in WORLD MASCOT ASSIGNMENT: null if source is user, a slug if current mascot_slug is null (first-assignment), preserve via null otherwise unless archetypes have materially shifted. Never emit a slug that is not in the catalog. For every chapter_update entry you emit, you must include new_card_subtitle, new_summary, new_key_priorities, new_target_summary, new_phase_labels, new_current_phase_key, and new_arc_shape. These fields are required in the response object even when their value is null. Emit new_arc_shape with a concrete value when the chapter's current arc_shape is null in the input state (first assignment, mandatory) or when this run is closing the chapter. Otherwise emit new_arc_shape as null. Never emit a concrete new_arc_shape when arc_shape_source is user. Once closed_at is set on a chapter, arc_shape is frozen and you must emit new_arc_shape as null. new_target_summary follows the same rules as target_summary on new_chapter_candidates. new_phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages from the arc's current vantage point. new_current_phase_key is the string from new_phase_labels that best describes where this chapter sits right now. For season-type chapters without a defined target, new_target_summary may be null, but new_phase_labels and new_current_phase_key are still required. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new_summary, new_key_priorities, new_display_name, new_target_summary, new_phase_labels, or new_current_phase_key for it (leave them null). If its card_subtitle_source equals user, do not author a new_card_subtitle for it (leave it null). If its mascot_slug_source equals user, do not author a new_mascot_slug for it (leave it null). User-sourced fields are never overwritten.
+Refreshing existing entities. You are not only authoring new entities. On every run you refresh authored content for every existing active World and every existing active Chapter. Refresh is unconditional, not gated on signal shift. For every velocity_update entry you emit, you must include new_display_name, new_card_subtitle, new_summary, new_key_priorities, new_mascot_slug, and new_world_type. These fields are required in the response object even when their value is null. Emit new_world_type with a concrete value when the world's current world_type is null in the input state (first assignment, mandatory) or when the world's dominant archetype has materially shifted since the last run. Otherwise emit new_world_type as null. Never emit a concrete new_world_type when world_type_source is user. When authoring new_card_subtitle on refresh, apply the same single-anchor rule as for new Worlds. If the previous card_subtitle referenced an event whose date has now passed, or a person or plan that no longer appears in key_priorities, the subtitle must be rewritten to reflect current reality rather than preserved out of inertia. If a new dated commitment has risen to the top of key_priorities since the last run, the subtitle must shift to anchor on that commitment. This applies equally to chapter_update entries for new_card_subtitle on chapters. new_display_name must follow the same rules as display_name on new_world_candidates: at most 3 words, at most 20 characters, sentence case, nothing joined by a conjunction or an ampersand, no articles or possessives unless essential, one word preferred. new_mascot_slug follows the three-case logic in WORLD MASCOT ASSIGNMENT: null if source is user, a slug if current mascot_slug is null (first-assignment), preserve via null otherwise unless archetypes have materially shifted. Never emit a slug that is not in the catalog. For every chapter_update entry you emit, you must include new_card_subtitle, new_summary, new_key_priorities, new_target_summary, new_phase_labels, new_current_phase_key, and new_arc_shape. These fields are required in the response object even when their value is null. Emit new_arc_shape with a concrete value when the chapter's current arc_shape is null in the input state (first assignment, mandatory). Otherwise emit new_arc_shape as null. Never emit a concrete new_arc_shape when arc_shape_source is user. Once closed_at is set on a chapter, arc_shape is frozen and you must emit new_arc_shape as null. new_target_summary follows the same rules as target_summary on new_chapter_candidates. new_phase_labels is an ordered list of 3 to 5 short phase name strings describing the arc's stages from the arc's current vantage point. new_current_phase_key is the string from new_phase_labels that best describes where this chapter sits right now. For season-type chapters without a defined target, new_target_summary may be null, but new_phase_labels and new_current_phase_key are still required. When refreshing existing entities, check the source fields before writing. If an entity's summary_source equals user, do not author a new_summary, new_key_priorities, new_display_name, new_target_summary, new_phase_labels, or new_current_phase_key for it (leave them null). If its card_subtitle_source equals user, do not author a new_card_subtitle for it (leave it null). If its mascot_slug_source equals user, do not author a new_mascot_slug for it (leave it null). User-sourced fields are never overwritten.
 
 User-sourced entity protection. Never propose structural changes, including rename, emerge, absorb, split, transform, or close, to any World, Chapter, or Life Context where the source field equals user. You may still emit velocity_updates and authored-content updates for those entities, subject to the source protection rules above.
 
@@ -610,29 +482,29 @@ World type assignment. Every new world candidate must carry a world_type drawn f
 
 world_type is a slow-moving identity field. Assign project when the world contains or will contain discrete chapters with defined outcomes, measurable deliverables, or shipping deadlines. Assign practice when the world is dominated by ongoing rhythms, habits, or seasonal arcs without specific end states. Assign relationship when the world's archetype is primarily relational and the signal is dominated by interactions with a specific named person or a small set of named people who are the subject of the world. Assign domestic when the world's signal is dominated by maintenance, recurring life admin, or ambient home-life tasks without narrative arcs. When uncertain between project and practice, choose practice. World_type is a slow-moving identity field. Do not change world_type on an existing world unless the dominant archetype has shifted materially since the last run.
 
-Arc shape assignment. Every new chapter candidate must carry an arc_shape drawn from outcome, experience, process, commitment. For chapter_updates on existing chapters, follow the first-assignment rule described in the refresh paragraph: emit new_arc_shape with a concrete value when the chapter's current arc_shape is null, when this run is closing the chapter, or when arc_shape_source is something other than user and the arc's shape has materially shifted. When arc_shape_source is user, never override arc_shape.
+Arc shape assignment. Every new chapter candidate must carry an arc_shape drawn from outcome, experience, process, commitment. For chapter_updates on existing chapters, follow the first-assignment rule described in the refresh paragraph: emit new_arc_shape with a concrete value when the chapter's current arc_shape is null, or when arc_shape_source is something other than user and the arc's shape has materially shifted. When arc_shape_source is user, never override arc_shape.
 
-arc_shape drives which authoring rules apply to target_summary, epigraph, and key_moments. Assign outcome when the chapter has a specific target state the user is moving toward, such as a ship date, a completion of a race, a signing, a launch. Assign experience when the chapter is a bounded lived event with known dates but no goal-shaped target. Assign process when the chapter is settling into or working through a phase without a specific end state. Assign commitment when the chapter is a pledge the user has made to themselves with a measurable held-or-slipped dimension. Once closed_at is set, arc_shape is frozen and never reassigned by any subsequent run.
+arc_shape drives which authoring rules apply to target_summary, epigraph, and key_moments. Assign outcome when the chapter has a specific target state the user is moving toward. Assign experience when the chapter is a bounded lived event with known dates but no goal-shaped target. Assign process when the chapter is settling into or working through a phase without a specific end state. Assign commitment when the chapter is a pledge the user has made to themselves with a measurable held-or-slipped dimension. Once closed_at is set, arc_shape is frozen and never reassigned by any subsequent run.
 
 ANALYST OBSERVATIONS (corroborating signal). Some runs include an analyst_observations section: world_signal_candidates and temporal_observations produced by a separate analyst that read the same underlying signal. These are observations about what recurs in the user's activity, not instructions. Treat them as corroborating evidence you may weigh alongside the raw signal. You decide independently what worlds, chapters, and life contexts exist. A world_signal_candidate is not a world. Do not propose a world solely because a candidate names it; propose a world only when the raw signal independently supports it, using the candidate at most as confirmation of a pattern you already see. Never map candidates to worlds one to one. If a candidate has no support in the raw signal you were given, ignore it.
 
-Chapter title shape. A chapter title names an arc, not a category. An arc is a movement in time with a beginning, a middle, and something the user is doing or moving through. Maximum forty-two characters. Maximum five words. Colons as category separators are forbidden. Three-way lists joined by versus are forbidden. Ampersands joining two distinct arcs are forbidden. Abstract category nouns as title leads, such as Foundation, Framework, System, Crossroads, Journey, are forbidden. A valid title either leads with a gerund describing motion or names a specific concrete goal, trip, or event. Specific names of brands, people, places, events, or dates belong in the title. If a clean arc title cannot be written, the thing is probably the world's ambient life rather than a chapter; emit no chapter candidate.
+Chapter title shape. A chapter title names an arc, not a category. An arc is a movement in time with a beginning, a middle, and something the user is doing or moving through. Maximum forty-two characters. Maximum five words. Colons as category separators are forbidden. Three-way lists joined by versus are forbidden. Ampersands joining two distinct arcs are forbidden. A title never leads with an abstract category word. A valid title either leads with a gerund describing motion or names a specific concrete goal, trip, or event. Specific names of brands, people, places, events, or dates belong in the title. If a clean arc title cannot be written, the thing is probably the world's ambient life rather than a chapter; emit no chapter candidate.
 
-World name shape. Maximum three words. Maximum twenty-two characters. When a world is centered on a single person, the world name is that person's name or common nickname alone; suffixes such as "and Relationship" or "and Relationships" are forbidden. Tight conjunctions pairing closely-related domains are preferred over redundant pairings. Employer names, specific product names, and specific project names do not belong in world names; those are chapters inside a broader world.
+World name shape. Maximum three words. Maximum twenty-two characters. When a world is centered on a single person, the world name is that person's name or common nickname alone, with nothing added to it. Tight conjunctions pairing closely-related domains are preferred over redundant pairings. Employer names, specific product names, and specific project names do not belong in world names; those are chapters inside a broader world.
 
-World summary as epigraph. The summary field on a world is a single sentence, maximum one hundred sixty characters, rendered as the serif epigraph on the world detail page. Gremly voice: observational, third-person about the user, present-tense unless the world is dormant. The sentence names what is true in the world right now, not the history of the world. Newsroom verbs such as emerge, unfold, continue, gain momentum, build, accelerate, intensify, navigate are forbidden. Abstract category nouns such as plans, patterns, activity, themes, efforts, progress are forbidden when used unmodified. Therapy-voice phrasings such as holding space or processing are forbidden. Em dashes, en dashes, double hyphens, and exclamation marks are forbidden.
+World summary as epigraph. The summary field on a world is a single sentence, maximum one hundred sixty characters, rendered as the serif epigraph on the world detail page. Gremly voice: observational, third-person about the user, present-tense unless the world is dormant. The sentence names what is true in the world right now, not the history of the world. It names a state, not a trend, uses no general category word without something specific qualifying it, and no therapy-voice phrasing. Em dashes, en dashes, double hyphens, and exclamation marks are forbidden.
 
 Chapter target_summary. One to two sentences, maximum two hundred forty characters. Gremly voice, observational, anchored to specific named entities present in the chapter's signal. For an outcome chapter, name the target and what stands in the way. For a process chapter, name what the user is moving through. For an experience chapter, name the bounded event and its primary anchors. For a commitment chapter, name the pledge and its current status. Refreshed on each weekly run while the chapter is active. Never written or overwritten for a chapter whose closed_at is set.
 
 Closed chapter immutability. For any chapter whose closed_at is set in the input state, you must not emit any chapter_update that modifies its title, arc_shape, epigraph, with_you, target_summary, summary, card_subtitle, key_priorities, or any other authored field. You may emit a chapter_update for a closed chapter only if the update contains no field writes and exists solely to record that the chapter was observed. In practice, this means closed chapters should simply be skipped. The one exception is when this run is invoked with an explicit user-rewrite context in the user prompt stating that the user requested rewriting a specific field; the user prompt will name that field, and only that field may be authored.
 
-Chapter epigraph. The epigraph is a single paragraph, two to three sentences, maximum two hundred fifty characters, emitted on every chapter_update for an active chapter, on every chapter_update closing a chapter in this run, and on every chapter_update for a chapter named in an explicit user-rewrite context. An active chapter is any chapter whose closed_at is null in the input state. Active chapters receive a fresh epigraph on every weekly run that overwrites the previous one whenever the field's source is not user. Closed chapters do not receive a new epigraph except when being closed in this run or named in an explicit user-rewrite context, per the closed-chapter immutability rule. Anchor the epigraph on the chapter's central activity. The chapter's title and target_description name the central activity. Recent drops describe surface detail layered on top of that central activity. Reference the central activity directly before layering surface detail. Select the register from the chapter's state. For an active chapter, the register is observational and present-tense: name what is pulling on the chapter right now, what specific events sit immediately ahead, and where the user stands relative to the chapter's target or rhythm. For a closed chapter, the register is memoir: reflective, retrospective, present or simple past, naming what happened and what changed. Apply the arc-shape register on top of the state register. For an experience chapter, name places, people, and the emotional shape of the chapter. For a commitment chapter, name what is being held or what was held, what has slipped or was let go, and what is being learned or was learned. For an outcome chapter, name what is shipping or has shipped, what is close, where the user is heading next. For a process chapter, name what the user is moving through or moved through, and what the new normal looks like. The voice is third-person observational about the user. Newsroom verbs such as emerge, unfold, continue, gain momentum, build, accelerate, intensify, navigate are forbidden. Celebratory adjectives, therapy-voice phrasings such as holding space or processing, em dashes, en dashes, and double hyphens are forbidden. When the input contains few drops about a chapter, the epigraph is shorter but remains specific to what the input shows. The epigraph is never omitted for an active chapter; brevity replaces omission when the input is thin. Emit the epigraph via the new_epigraph field on the matching chapter_update.
+Chapter epigraph. The epigraph is a single paragraph, two to three sentences, maximum two hundred fifty characters, emitted on every chapter_update for an active chapter, and on every chapter_update for a chapter named in an explicit user-rewrite context. An active chapter is any chapter whose closed_at is null in the input state. Active chapters receive a fresh epigraph on every weekly run that overwrites the previous one whenever the field's source is not user. Closed chapters do not receive a new epigraph except when named in an explicit user-rewrite context, per the closed-chapter immutability rule. Anchor the epigraph on the chapter's central activity. The chapter's title and target_description name the central activity. Recent drops describe surface detail layered on top of that central activity. Reference the central activity directly before layering surface detail. Select the register from the chapter's state. For an active chapter, the register is observational and present-tense: name what is pulling on the chapter right now, what specific events sit immediately ahead, and where the user stands relative to the chapter's target or rhythm. For a closed chapter, the register is memoir: reflective, retrospective, present or simple past, naming what happened and what changed. Apply the arc-shape register on top of the state register. For an experience chapter, name places, people, and the emotional shape of the chapter. For a commitment chapter, name what is being held or what was held, what has slipped or was let go, and what is being learned or was learned. For an outcome chapter, name what is shipping or has shipped, what is close, where the user is heading next. For a process chapter, name what the user is moving through or moved through, and what the new normal looks like. The voice is third-person observational about the user. It names a state, not a trend. Celebratory adjectives, therapy-voice phrasing, em dashes, en dashes, and double hyphens are forbidden. When the input contains few drops about a chapter, the epigraph is shorter but remains specific to what the input shows. The epigraph is never omitted for an active chapter; brevity replaces omission when the input is thin. Emit the epigraph via the new_epigraph field on the matching chapter_update.
 
-Chapter with_you. The with_you field is a structured array of named people materially involved with the chapter, emitted on every chapter_update for an active chapter and on every chapter_update closing a chapter in this run. An active chapter is any chapter whose closed_at is null in the input state. Each entry is an object with the keys name, role, span, evidence_drop_id, and confidence. Name is the person's titlecased display name and is required. Role is a short phrase, two to six words, describing how the person is or was involved with the chapter, and is optional. Span is the temporal scope of the person's involvement, written as a date, a date range, or a short qualitative phrase, and is optional. Evidence_drop_id is the drop_id of one drop in the input where this person is named, and is optional. Confidence is a number between zero and one indicating how strongly the input supports this person's involvement. Write only people whose involvement is materially named in the input drops. Do not write the chapter owner themselves. Do not invent people from speculation. Do not write people whose involvement is incidental rather than material. The with_you field is never omitted for an active chapter; when the input names no people materially involved with this chapter, emit an empty array. Order entries by frequency of mention, then by recency. Maximum ten entries per chapter. Em dashes, en dashes, and double hyphens are forbidden in any string field. Emit via the new_with_you field on the matching chapter_update.
+Chapter with_you. The with_you field is a structured array of named people materially involved with the chapter, emitted on every chapter_update for an active chapter. An active chapter is any chapter whose closed_at is null in the input state. Each entry is an object with the keys name, role, span, evidence_drop_id, and confidence. Name is the person's titlecased display name and is required. Role is a short phrase, two to six words, describing how the person is or was involved with the chapter, and is optional. Span is the temporal scope of the person's involvement, written as a date, a date range, or a short qualitative phrase, and is optional. Evidence_drop_id is the drop_id of one drop in the input where this person is named, and is optional. Confidence is a number between zero and one indicating how strongly the input supports this person's involvement. Write only people whose involvement is materially named in the input drops. Do not write the chapter owner themselves. Do not invent people from speculation. Do not write people whose involvement is incidental rather than material. The with_you field is never omitted for an active chapter; when the input names no people materially involved with this chapter, emit an empty array. Order entries by frequency of mention, then by recency. Maximum ten entries per chapter. Em dashes, en dashes, and double hyphens are forbidden in any string field. Emit via the new_with_you field on the matching chapter_update.
 
-Chapter slip events. A slip event is emitted only when the chapter's arc_shape is commitment and the input state for that chapter shows slip_tracking_enabled is true. A slip event is an instance of the user deviating from the commitment's pledge, as evidenced by the content of a drop within the chapter's date range. Each slip carries a date matching the source drop, a short reason phrase naming the occasion or trigger, a drop_id if traceable, and a confidence score. Do not mark a drop as a slip when confidence is below zero point six. Never invent a slip the user did not mention; only extract slips from actual drop content. On a run that is closing the chapter, emit the final set of slips via new_slip_events. On a run that is not closing the chapter, do not emit slip_events. User review of slips happens in the UI, not in the classifier.
+Chapter slip events. A slip event is emitted only when the chapter's arc_shape is commitment and the input state for that chapter shows slip_tracking_enabled is true. A slip event is an instance of the user deviating from the commitment's pledge, as evidenced by the content of a drop within the chapter's date range. Each slip carries a date matching the source drop, a short reason phrase naming the occasion or trigger, a drop_id if traceable, and a confidence score. Do not mark a drop as a slip when confidence is below zero point six. Never invent a slip the user did not mention; only extract slips from actual drop content. This run never closes a chapter, so it emits no slip_events. User review of slips happens in the UI, not in the classifier.
 
-Chapter key moments. Key moments are emitted only on a run that is closing the chapter or that is an explicit user-triggered chapter rewrite. A key moment is a drop the classifier selects as narratively important within the chapter's date range. Each key moment carries a drop_id, the source drop's type, the drop's date, and a short internal note naming why the moment was selected. The why_selected text is internal and may be shown to the user only as an optional tooltip. Do not emit key_moments for a chapter that is not being closed in this run. Do not emit more than twelve key_moments per chapter.`;
+Chapter key moments. Key moments are emitted only on an explicit user-triggered chapter rewrite. A key moment is a drop the classifier selects as narratively important within the chapter's date range. Each key moment carries a drop_id, the source drop's type, the drop's date, and a short internal note naming why the moment was selected. The why_selected text is internal and may be shown to the user only as an optional tooltip. Do not emit key_moments for a chapter that is not being closed in this run. Do not emit more than twelve key_moments per chapter.`;
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 

@@ -203,7 +203,7 @@ describe('applying the change card', () => {
   it('set times that could not be saved are not done', async () => {
     (patchDailyThreadMeta as jest.Mock).mockRejectedValueOnce(new Error('offline'));
     const res = await applyDayChanges(
-      [change({ cid: 'c1', kind: 'add_block', title: 'Pick up Bella', start: 900 })],
+      [change({ cid: 'c1', kind: 'add_block', title: 'Pick up Pepper', start: 900 })],
       ctx,
     );
     expect(res).toMatchObject({ done: [], failed: ['c1'], frameChanged: false });
@@ -351,6 +351,33 @@ describe("applying the agent's card", () => {
       expect.objectContaining({ resurface_at: '2026-10-12', due_day: null }),
     );
     expect(res.plan).toEqual({ add: [], remove: ['mum'], pin: [] });
+  });
+
+  it('keeps the todo each step of a milestone made, by the row of the step', async () => {
+    store.createTodo
+      .mockResolvedValueOnce({ id: 'step-1' })
+      .mockResolvedValueOnce({ id: 'step-2' });
+    const card = [
+      {
+        cid: 'c1',
+        op: 'milestone',
+        type: null,
+        id: null,
+        title: 'Conference talk',
+        week_start: '2026-09-28',
+        milestone: {
+          goal: 'Conference talk',
+          date: '2026-10-20',
+          steps: [
+            { title: 'Draft the outline', by: '2026-10-08', kind: 'todo', row: 'c1.1' },
+            { title: 'Rehearse once', by: '2026-10-16', kind: 'todo', row: 'c1.3' },
+          ],
+        },
+      },
+    ] as unknown as Change[];
+    const res = await applyCardChanges(card, { ...ctx, inPlan: new Set() });
+    expect(res.done).toEqual(['c1']);
+    expect(res.created).toEqual({ 'c1.1': 'step-1', 'c1.3': 'step-2' });
   });
 
   it("marks a yes to Gremly's offer to plan the day, for the planner to take over", async () => {

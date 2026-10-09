@@ -188,7 +188,8 @@ export interface HabitEntry {
   target_per_period: number | null;
   subtype: string | null;
   archived: boolean;
-  commitment: string | null;
+  /** Lock In, gone from the app: no longer read (data fabric stage 4b) */
+  commitment?: string | null;
   space_id: string | null; // UNION (+ fetchUserSnapshot)
   created_at: string;
 }
@@ -463,7 +464,7 @@ async function fetchHabits(
 ): Promise<HabitEntry[]> {
   const columns =
     'id,name,title,notes,why_string,tags,frequency,cadence,target_per_period,' +
-    'subtype,archived,commitment,space_id,created_at'; // +space_id (union)
+    'subtype,archived,space_id,created_at'; // +space_id (union); no Lock In (commitment), which is gone from the app
   // Habits are persistent — fetch all regardless of creation date (matches legacy).
   const q = `habits?owner_id=eq.${userId}&select=${columns}&order=created_at.asc&limit=500`;
   return supabaseGet<HabitEntry>(env, q);

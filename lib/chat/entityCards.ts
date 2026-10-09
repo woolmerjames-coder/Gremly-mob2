@@ -45,16 +45,15 @@ export function entityWhen(entity: EntityCardEntity): string {
 }
 
 /**
- * One line under the title. With the Space known: "Todo · Health". Otherwise
- * the kind and when it is: "Note · Thu 1 Oct, 2:00pm". An edit card shows the
- * dates in its change row, so it asks for the short form.
+ * One line under the title: the kind and when it is, "Note · Thu 1 Oct,
+ * 2:00pm". An edit card shows the dates in its change row, so it asks for the
+ * short form.
  */
 export function entitySubtitle(
   entity: EntityCardEntity,
-  opts: { spaceName?: string | null; withWhen?: boolean } = {},
+  opts: { withWhen?: boolean } = {},
 ): string {
   const parts = [entityKind(entity)];
-  if (opts.spaceName) parts.push(opts.spaceName);
   if (opts.withWhen !== false) {
     const when = entityWhen(entity);
     if (when) parts.push(when);

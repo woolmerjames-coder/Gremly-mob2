@@ -4,7 +4,14 @@
  */
 jest.mock('../../supabase/client', () => ({ supabase: { from: jest.fn() } }));
 
-import { itemKindOf, pickQuestions, questionButtons, type WrapQuestion } from '../questions';
+import { supabase } from '../../supabase/client';
+import {
+  fetchWrapQuestions,
+  itemKindOf,
+  pickQuestions,
+  questionButtons,
+  type WrapQuestion,
+} from '../questions';
 
 const DAY = '2026-09-30';
 const q = (id: string, more: Partial<WrapQuestion> = {}): WrapQuestion => ({
@@ -72,4 +79,55 @@ test('the kind of item a question is about', () => {
   expect(itemKindOf('todos')).toBe('todo');
   expect(itemKindOf('notes')).toBe('note');
   expect(itemKindOf('life_facts')).toBeNull();
+});
+
+test('a question held until a later day waits until then', () => {
+  const open = [q('held', { hold_until: '2026-10-02' }), q('now')];
+  expect(pickQuestions(open, none).map((x) => x.id)).toEqual(['now']);
+  expect(pickQuestions(open, { ...none, day: '2026-10-02' }).map((x) => x.id)).toEqual([
+    'held',
+    'now',
+  ]);
+});
+
+test('the numbers are the ones every place that asks keeps to (workers/shared/questionRules.js)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const rules = require('../../../workers/shared/questionRules.js');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const wrap = require('../questions');
+  expect(wrap.MOST_QUESTIONS).toBe(rules.QUESTION_CAPS.wrap);
+  expect(wrap.ASKED_WAIT_DAYS).toBe(rules.ASKED_WAIT_DAYS);
+  expect([...wrap.QUESTIONS_ONLY_KINDS]).toEqual([...rules.QUESTIONS_ONLY_KINDS]);
+});
+
+test('a question that needs an answer comes first, then the oldest (stage 4f)', () => {
+  const open = [q('old'), q('needs', { weight: 'needs' }), q('older')];
+  const order = pickQuestions(open, none).map((x) => x.id);
+  expect(order[0]).toBe('needs');
+});
+
+test("a welcome back's questions are never asked one by one here", async () => {
+  const rows = [
+    { id: 'a', kind: 'fact', question: 'A?', choices: [], created_at: '2026-09-20T10:00:00Z' },
+    {
+      id: 'w',
+      kind: 'while_away',
+      question: 'W?',
+      choices: [],
+      created_at: '2026-09-21T10:00:00Z',
+    },
+    { id: 'p', kind: 'person', question: 'P?', choices: [], created_at: '2026-09-22T10:00:00Z' },
+  ];
+  const chain: any = {
+    select: () => chain,
+    in: () => chain,
+    order: () => chain,
+    limit: async () => ({ data: rows, error: null }),
+  };
+  (supabase.from as jest.Mock).mockReturnValue(chain);
+  const got = await fetchWrapQuestions();
+  expect(got.map((x) => [x.id, x.kind])).toEqual([
+    ['a', 'fact'],
+    ['p', 'person'],
+  ]);
 });

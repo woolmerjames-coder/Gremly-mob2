@@ -12,15 +12,16 @@
 // finish, the quick lane's writer answers instead (cortex-index.js).
 // ============================================================================
 
-import { chatAgentPersona } from '../gremlyPersona.js';
+import { chatAgentPersona, chatTurnGuidance } from '../gremlyPersona.js';
 import { formatWeekAhead } from '../context/weekAhead.js';
 import { localDateOf, minutesIn } from '../../shared/calendar.js';
 import { runAgent } from './run.js';
 import { runTool, toolContext } from './tools/index.js';
 import { AGENT_PROMPT_VERSION } from './prompt.js';
 import { readWeek, weekFrameOf, weekLine, weekVariant } from './brief.js';
+import { placesContext, readPlaces } from './places.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-06a/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-17b/${AGENT_PROMPT_VERSION}`;
 
 /** How many of their items the search before the first step offers. */
 const FOUND_LIMIT = 8;
@@ -100,6 +101,10 @@ function weekWithIds(sessionContext, week) {
  * carrying their ids, and their items that share words with the message. When
  * the app sent their week (the weekly review), one line about it too: their
  * weekly day, where this week's review stands, and whether the extra is free.
+ * First, how triage read the message (its mode and how personal it is), as the
+ * quick lane's writer is told it (gremlyPersona.js chatTurnGuidance). For an
+ * app build that can apply changes to Worlds and Chapters, their Worlds and
+ * Chapters with ids (places.js).
  */
 export function chatContext({
   profileText,
@@ -110,15 +115,23 @@ export function chatContext({
   week,
   found,
   theirWeek,
+  triage,
+  places,
+  page,
 }) {
   return [
+    // first, as the quick lane's writer reads it before what it knows of them
+    chatTurnGuidance(triage),
     profileText ? `ABOUT THIS USER\n${profileText}` : '',
     todayActivity || '',
     runningSummary ? `THIS CONVERSATION EARLIER, IN SHORT\n${runningSummary}` : '',
     anchor && !anchor.gone && anchor.id
       ? `THIS CHAT IS ABOUT ONE OF THEIR ITEMS: the ${anchor.type} "${anchor.title}" (id ${anchor.id})`
       : '',
+    // a World's or a Chapter's own chat: what is on its page (context/pageDetail.js)
+    typeof page === 'string' ? page : '',
     weekWithIds(sessionContext, week),
+    typeof places === 'string' ? places : '',
     typeof theirWeek === 'string' ? theirWeek : '',
     typeof found === 'string' ? found : '',
   ]
@@ -144,8 +157,9 @@ export function chatCacheKey(userId) {
  * @param {string} p.timezone
  * @param {{role: string, content: string}[]} p.messages the conversation, ending with their message
  * @param {object[]} [p.tasks] the task list kept on the chat
- * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
+ * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; triage is how triage read the message; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
  * @param {object} [p.week] the person's week as the app sent it (lib/cortex/CortexClient.ts WeekTurnContext); with it Gremly knows where their weekly review stands and can put the button to it under a reply
+ * @param {boolean} [p.worlds] the app build can apply changes to Worlds and Chapters (the request's worldsCard): Gremly is told theirs, with ids, and can put changes to them on the card
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays
  * @returns {Promise<object>} ok with reply, card and tasks, or not ok with why
@@ -158,6 +172,7 @@ export async function runChatTurn({
   tasks = [],
   preload = {},
   week: sentWeek = null,
+  worlds = false,
   onStatus,
   deps = {},
 }) {
@@ -180,17 +195,23 @@ export async function runChatTurn({
   const ctx = deps.ctx
     ? { ...deps.ctx, today, week: weekFrame }
     : toolContext(env, { userId, today, timezone: tz, week: weekFrame });
-  const found =
+  const [found, places, page] = await Promise.all([
     preload.found !== undefined
-      ? await Promise.resolve(preload.found).catch(() => '')
-      : await foundForMessage({ ...ctx, surface: 'chat' }, last.content).catch(() => '');
+      ? Promise.resolve(preload.found).catch(() => '')
+      : foundForMessage({ ...ctx, surface: 'chat' }, last.content).catch(() => ''),
+    worlds ? readPlaces(ctx).catch(() => null) : Promise.resolve(null),
+    Promise.resolve(preload.page).catch(() => ''),
+  ]);
   const r = await runAgent({
     surface: 'chat',
     variant: weekVariant(theirWeek),
     persona: chatAgentPersona(),
+    places: worlds === true,
     context: chatContext({
       ...preload,
       found,
+      page: page || '',
+      places: places ? placesContext(places, today) : '',
       // the weekly day is moved on the card in today's thread, not here
       theirWeek: theirWeek ? weekLine(theirWeek, today, { moveOnCard: false }) : '',
     }),

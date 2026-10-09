@@ -2,7 +2,8 @@
  * Worlds Weekly Run
  *
  * Trigger:   app/worlds.weekly-run
- * Triggered: by worldsWeeklyScheduler (cron fan-out) or manually for testing.
+ * Triggered: by each person's weekly pipe, after their weekly synthesis
+ * (week/index.js, data fabric stage 4b), or by hand for testing.
  * Required event data: { user_id: string }
  *
  * Runs the full worlds pipeline for the past 28 days for a single user and

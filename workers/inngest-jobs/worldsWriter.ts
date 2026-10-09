@@ -20,6 +20,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import type { ClassifierOutput } from './worldsClassifier';
+import { oldWorldsFieldsStopped, withoutOldFields } from '../shared/worldsFields.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -30,6 +31,10 @@ export interface WriterEnv {
   // Worlds headline. The classifier then only adds structure (new worlds,
   // chapters, life contexts) and velocity.
   CONTEXT_PIPELINE?: string;
+  // 'stop' once the Worlds build says the old screens are gone: then no
+  // suggested row is made and the old fields are not written
+  // (shared/worldsFields.js, data fabric stage 4a)
+  WORLDS_OLD_FIELDS?: string;
 }
 
 /**
@@ -95,7 +100,15 @@ function assertChapterWritable(
 export interface WriteResult {
   run_id: string;
   worlds: { inserted: number; existing: number };
-  chapters: { inserted: number; existing: number; updated: number; closed: number };
+  /** closed stays 0: the classifier never closes a Chapter (data fabric stage 4b);
+   * close_refused counts the closes it asked for, which were not applied */
+  chapters: {
+    inserted: number;
+    existing: number;
+    updated: number;
+    closed: number;
+    close_refused: number;
+  };
   life_contexts: { inserted: number; existing: number };
   velocity_updates: number;
   chapter_world_links_inserted: number;
@@ -144,7 +157,7 @@ function sanitizeAuthored(raw: string | null | undefined, maxChars: number): str
  * Step 2: insert new world candidates (skip confidence < 0.5 and duplicates).
  * Step 3: insert new chapter candidates + chapter_world_links.
  * Step 4: insert new life_context candidates.
- * Step 5: apply chapter_updates (extend / close).
+ * Step 5: apply chapter_updates (extend; a close is counted and never applied).
  * Step 6: apply velocity_updates (patch worlds table).
  * Step 7: apply reactivation_proposals (dormant → active).
  * Step 8: defer reclassification + evolution proposals as events.
@@ -168,7 +181,7 @@ export async function writeClassifierOutput(
   const result: WriteResult = {
     run_id,
     worlds: { inserted: 0, existing: 0 },
-    chapters: { inserted: 0, existing: 0, updated: 0, closed: 0 },
+    chapters: { inserted: 0, existing: 0, updated: 0, closed: 0, close_refused: 0 },
     life_contexts: { inserted: 0, existing: 0 },
     velocity_updates: 0,
     chapter_world_links_inserted: 0,
@@ -177,6 +190,10 @@ export async function writeClassifierOutput(
     deferred: { reclassification_proposals: 0, evolution_proposals: 0 },
     errors: [],
   };
+
+  // Once the old Worlds fields stop, the classifier makes no suggested World,
+  // Chapter or life context, and writes none of the old fields
+  const stopOld = oldWorldsFieldsStopped(env);
 
   // ── Step 1: load existing state ───────────────────────────────
   const [worldsRes, chaptersRes, lcRes] = await Promise.all([
@@ -268,7 +285,8 @@ export async function writeClassifierOutput(
       noKeyMoments: (c.key_moments_source as string | null) === 'user',
       noWithYou: (c.with_you_source as string | null) === 'user',
       noStartDate: (c.start_date_source as string | null) === 'user',
-      noEndDate: (c.end_date_source as string | null) === 'user',
+      // the weekly pass keeps a Chapter's end date once it has given one (data fabric 7)
+      noEndDate: ['user', 'synthesis'].includes(c.end_date_source as string),
       noCurrentPhaseKey: (c.current_phase_key_source as string | null) === 'user',
       noTargetDescription: (c.target_description_source as string | null) === 'user',
       noPhaseLabels: (c.phase_labels_source as string | null) === 'user',
@@ -290,7 +308,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 2: insert new worlds ─────────────────────────────────
-  for (const candidate of output.new_world_candidates) {
+  for (const candidate of stopOld ? [] : output.new_world_candidates) {
     if (candidate.confidence < 0.5) continue;
     const key = candidate.proposed_name.toLowerCase().trim();
     if (existingWorlds.has(key)) {
@@ -304,9 +322,7 @@ export async function writeClassifierOutput(
         name: sanitizeAuthored(candidate.proposed_name, 22) ?? candidate.proposed_name,
         display_name: candidate.display_name,
         description: candidate.description,
-        card_subtitle: candidate.card_subtitle,
-        card_subtitle_source: 'classifier',
-        card_subtitle_updated_at: now(),
+        // the words under it are the words writer's (data fabric stage 4b)
         summary: sanitizeAuthored(candidate.summary, 160),
         key_priorities: candidate.key_priorities,
         summary_source: 'classifier',
@@ -340,7 +356,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 3: insert new chapters ───────────────────────────────
-  for (const candidate of output.new_chapter_candidates) {
+  for (const candidate of stopOld ? [] : output.new_chapter_candidates) {
     if (candidate.confidence < 0.5) continue;
     const primaryWorldId = existingWorlds.get(candidate.primary_world_name.toLowerCase().trim());
     if (primaryWorldId === undefined) {
@@ -369,9 +385,7 @@ export async function writeClassifierOutput(
         primary_world_id: primaryWorldId,
         target_description: candidate.target_description,
         target_summary: sanitizeAuthored(candidate.target_summary, 240),
-        card_subtitle: candidate.card_subtitle,
-        card_subtitle_source: 'classifier',
-        card_subtitle_updated_at: now(),
+        // the words under it are the words writer's (data fabric stage 4b)
         summary: candidate.summary,
         key_priorities: candidate.key_priorities,
         summary_source: 'classifier',
@@ -433,7 +447,7 @@ export async function writeClassifierOutput(
   }
 
   // ── Step 4: insert new life_contexts ──────────────────────────
-  for (const candidate of output.new_life_context_candidates) {
+  for (const candidate of stopOld ? [] : output.new_life_context_candidates) {
     if (candidate.confidence < 0.5) continue;
     const key = `${candidate.proposed_name.toLowerCase().trim()}::${candidate.kind}`;
     if (existingLifeContexts.has(key)) {
@@ -524,15 +538,8 @@ export async function writeClassifierOutput(
         patch.arc_shape_source = 'classifier';
         patch.arc_shape_updated_at = now();
       }
-      if (update.new_epigraph != null && chapterProt?.noEpigraph !== true) {
-        assertChapterWritable(chapter, 'epigraph', runOptions);
-        const clean = sanitizeAuthored(update.new_epigraph, 250);
-        if (clean) {
-          patch.epigraph = clean;
-          patch.epigraph_source = 'classifier';
-          patch.epigraph_updated_at = now();
-        }
-      }
+      // new_epigraph is not written: a closed Chapter's memory is the memory
+      // writer's, and an open Chapter's is not written (data fabric stage 4b)
       if (update.new_key_moments != null && chapterProt?.noKeyMoments !== true) {
         assertChapterWritable(chapter, 'key_moments', runOptions);
         patch.key_moments = update.new_key_moments;
@@ -578,13 +585,8 @@ export async function writeClassifierOutput(
         }
       }
 
-      // Source-protected fields
-      if (update.new_card_subtitle != null && !chapterProt?.noCardSubtitle) {
-        assertChapterWritable(chapter, 'card_subtitle', runOptions);
-        patch.card_subtitle = update.new_card_subtitle;
-        patch.card_subtitle_source = 'classifier';
-        patch.card_subtitle_updated_at = now();
-      }
+      // Source-protected fields. new_card_subtitle is not written: the words
+      // under a Chapter are the words writer's (data fabric stage 4b)
       if (update.new_summary != null && !chapterProt?.noSummary) {
         assertChapterWritable(chapter, 'summary', runOptions);
         patch.summary = update.new_summary;
@@ -598,19 +600,18 @@ export async function writeClassifierOutput(
         patch.key_priorities_updated_at = now();
       }
 
-      // Close MUST be last — flips closed_at for subsequent runs
-      if (update.close_chapter) {
-        patch.phase = 'closed';
-        patch.closed_at = now();
-      }
+      // The classifier never closes a Chapter (data fabric stage 4b): the
+      // person closes their own, and Gremly asks them first. A close it asks
+      // for is counted and not applied.
+      if (update.close_chapter) result.chapters.close_refused++;
 
       // Defense-in-depth: for open chapters, guard against concurrent user-close races
       let query = db
         .from('chapters')
-        .update(patch)
+        .update(withoutOldFields('chapters', patch, env))
         .eq('id', update.chapter_id)
         .eq('owner_id', ownerId);
-      if (closedAt === null && !update.close_chapter) {
+      if (closedAt === null) {
         query = query.is('closed_at', null);
       }
 
@@ -619,11 +620,7 @@ export async function writeClassifierOutput(
         result.errors.push(`chapter_update '${update.chapter_id}': ${updateError.message}`);
         continue;
       }
-      if (update.close_chapter) {
-        result.chapters.closed++;
-      } else {
-        result.chapters.updated++;
-      }
+      result.chapters.updated++;
     } catch (err) {
       if (err instanceof ClosedChapterWriteError) {
         result.errors.push(err.message);
@@ -644,7 +641,7 @@ export async function writeClassifierOutput(
       updated_at: now(),
     };
     const synthesisOwnsText = env.CONTEXT_PIPELINE === 'on';
-    if (vu.recommend_dormant && !synthesisOwnsText) {
+    if (vu.recommend_dormant && !synthesisOwnsText && !stopOld) {
       patch.phase = 'dormant';
     }
     const worldProt = synthesisOwnsText
@@ -653,11 +650,8 @@ export async function writeClassifierOutput(
     if (vu.new_display_name != null && !worldProt?.noSummary) {
       patch.display_name = sanitizeAuthored(vu.new_display_name, 22) ?? vu.new_display_name;
     }
-    if (vu.new_card_subtitle != null && !worldProt?.noCardSubtitle) {
-      patch.card_subtitle = vu.new_card_subtitle;
-      patch.card_subtitle_source = 'classifier';
-      patch.card_subtitle_updated_at = now();
-    }
+    // new_card_subtitle is not written: the words under a World are the
+    // words writer's (data fabric stage 4b)
     if (vu.new_summary != null && !worldProt?.noSummary) {
       patch.summary = sanitizeAuthored(vu.new_summary, 160);
       patch.key_priorities = vu.new_key_priorities ?? [];
@@ -676,7 +670,7 @@ export async function writeClassifierOutput(
     }
     const { error: vuError } = await db
       .from('worlds')
-      .update(patch)
+      .update(withoutOldFields('worlds', patch, env))
       .eq('id', vu.world_id)
       .eq('owner_id', ownerId);
     if (vuError) {

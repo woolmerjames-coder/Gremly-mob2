@@ -13,12 +13,9 @@
   },
   "include": [
     "worldsWriter.ts",
-    "worldsWriterTest.ts",
     "worldsClassifier.ts",
-    "worldsHarness.ts",
     "signalCollector.ts",
     "worldsActiveState.ts",
-    "worldsBootstrap.ts",
     "unifiedUserBundle.ts",
     "moodValence.ts"
   ]

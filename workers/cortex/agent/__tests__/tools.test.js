@@ -14,7 +14,7 @@ import {
   toolsFor,
 } from '../tools/index.js';
 import { daysToRead, habitOnDay, plannedAround, weekBounds } from '../tools/getDay.js';
-import { boardOf, hoursWords } from '../tools/getWeek.js';
+import { boardOf, calendarOf, hoursWords } from '../tools/getWeek.js';
 import {
   easeCheckOf,
   fieldListWords,
@@ -288,6 +288,29 @@ describe('get_day', () => {
     expect(r.text).toContain(`Habits: Run (id ${HABIT}) daily, not done that day`);
   });
 
+  it('leaves out the steps left on a closed Chapter, as Today does', async () => {
+    const db = fakeDb({
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
+        { id: TODO, name: 'Call Mum', due_time: null, time_estimate_minutes: 15 },
+        { id: 'packed', name: 'Pack the tent', due_time: null, time_estimate_minutes: 20 },
+      ],
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=lt.`]: [
+        { id: 'old', name: 'Tax form', due_day: '2026-09-29' },
+      ],
+      [`chapters?owner_id=eq.${USER}&or=`]: [{ id: 'cCamp' }],
+      [`drop_chapter_links?owner_id=eq.${USER}&drop_type=eq.todo&chapter_id=in.(cCamp)`]: [
+        { drop_id: 'packed' },
+        { drop_id: 'old' },
+      ],
+      'habits?': [],
+      habit_progress: [],
+    });
+    const r = await runTool(ctxWith(db), 'get_day', {});
+    expect(r.text).toContain(`Call Mum (id ${TODO})`);
+    expect(r.text).not.toContain('Pack the tent');
+    expect(r.text).not.toContain('Tax form');
+  });
+
   it("counts a todo put off until a day among that day's todos", async () => {
     const db = fakeDb({
       [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
@@ -426,7 +449,7 @@ describe('recall', () => {
     const db = fakeDb(
       {},
       {
-        recall_life: [
+        recall_life_now: [
           {
             source: 'fact',
             title: 'Trip',
@@ -454,6 +477,53 @@ describe('recall', () => {
     });
     expect(r.text).toContain('- fact | Fri 2 Oct (today) | current | Flying to San Diego on 2 Oct');
     expect(r.text).toMatch(/A hard year: Grief after a loss \[private: use it only when/);
+  });
+
+  it('says how Gremly knows a fact, and nothing of the kind for its own writing', async () => {
+    const db = fakeDb(
+      {},
+      {
+        recall_life_now: [
+          {
+            source: 'fact',
+            title: 'Alex',
+            body: 'Alex might be moving to the Lisbon office.',
+            about_date: null,
+            state: 'current',
+            private: false,
+            said_by: 'user',
+            source_table: 'user_corrections',
+            source_kind: 'question',
+            source_question: 'How is work going these days?',
+            source_quote: 'Might be moving to the Lisbon office in the new year',
+            // the evening of Tuesday 29 September in Los Angeles
+            observed_at: '2026-09-30T05:10:00Z',
+          },
+          {
+            source: 'story',
+            title: 'A year of change',
+            body: 'Work shifted a lot this year.',
+            about_date: null,
+            state: 'shift',
+            private: false,
+          },
+        ],
+      },
+    );
+    const r = await runTool({ ...ctxWith(db), timezone: 'America/Los_Angeles' }, 'recall', {
+      query: 'Lisbon',
+    });
+    expect(r.text).toContain(
+      '- fact | current | Alex might be moving to the Lisbon office. | how Gremly knows: their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Might be moving to the Lisbon office in the new year"',
+    );
+    expect(r.text).toContain('- story | shift | A year of change: Work shifted a lot this year.');
+    expect(r.text.split('\n')[2]).not.toContain('how Gremly knows');
+    // what a source is for is said with the result, above what was found
+    expect(r.text.split('\n')[0]).toBe(
+      'On record (when they ask how Gremly knows something, a fact says it on its own line: tell them the day, where they said it and what they said. When no line says it, Gremly cannot tell where it came from and may have got it wrong, and it is never from anyone else):',
+    );
+    // and not in the description, which the agent is sent on every turn
+    expect(TOOLS.find((t) => t.name === 'recall').description).not.toContain('how Gremly knows');
   });
 });
 
@@ -1037,6 +1107,65 @@ describe("the week's tools", () => {
       expect(b.later).toEqual([{ id: TODO, title: 'Dentist', back_on: '2026-10-20' }]);
     });
 
+    it('says what is on their calendar each day, so nothing on it is added a second time', async () => {
+      // Friday 2 October in Los Angeles: a timed entry, a cancelled one and a whole day one
+      const synced = [
+        {
+          id: 'c1',
+          title: 'Stock audit kickoff',
+          start_at: '2026-10-02T17:00:00Z',
+          end_at: '2026-10-02T19:00:00Z',
+          is_all_day: false,
+        },
+        {
+          id: 'c2',
+          title: 'Cancelled: Supplier call',
+          start_at: '2026-10-02T21:00:00Z',
+          end_at: '2026-10-02T22:00:00Z',
+          is_all_day: false,
+        },
+        {
+          id: 'c3',
+          title: 'Trade fair',
+          start_at: '2026-10-03T00:00:00Z',
+          end_at: '2026-10-04T00:00:00Z',
+          is_all_day: true,
+        },
+      ];
+      const routes = {
+        'todos?': [],
+        'habits?': rows.habits,
+        'habit_plans?': [],
+        'synced_calendar_events?': (path) =>
+          path.includes('is_all_day=eq.true') ? synced.filter((e) => e.is_all_day) : synced,
+      };
+      const r = await runTool(weekCtx(fakeDb(routes)), 'get_week', {});
+      expect(r.result.calendar.find((c) => c.day === '2026-10-02')).toEqual({
+        day: '2026-10-02',
+        meetings: [{ title: 'Stock audit kickoff', start: 600, end: 720 }],
+        all_day: [],
+      });
+      expect(r.text).toContain('  On their calendar: 10:00am to 12:00pm Stock audit kickoff');
+      expect(r.text).toContain('  On their calendar: all day Trade fair');
+      expect(r.text).not.toContain('Supplier call');
+      // a day with nothing on the calendar says nothing of it
+      expect(calendarOf(['2026-10-01'], { timed: [], allDay: [], long: [] }, 'UTC')).toEqual([
+        { day: '2026-10-01', meetings: [], all_day: [] },
+      ]);
+      // a calendar that cannot be read leaves the week told without it
+      const broken = fakeDb({
+        ...routes,
+        'synced_calendar_events?': () => {
+          throw new Error('offline');
+        },
+      });
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const without = await runTool(weekCtx(broken), 'get_week', {});
+      expect(without.ok).toBe(true);
+      expect(without.result.calendar).toEqual([]);
+      expect(without.text).not.toContain('On their calendar');
+    });
+
     it('says hours the way the board does', () => {
       expect(hoursWords(120)).toBe('2 hr');
       expect(hoursWords(90)).toBe('1 hr 30 min');
@@ -1271,9 +1400,46 @@ describe("the week's tools", () => {
         busy_days: ['2026-10-03'],
         has_review: true,
         intention: null,
+        // this build did not say what matters most now: a new priority is never put to it
+        priorities: null,
         weekly_day: 0,
       });
+      expect(weekCheckOf({ ...week(), priorities: ['Finish the grant'] }).priorities).toEqual([
+        'Finish the grant',
+      ]);
       expect(weekCheckOf(null)).toBeNull();
+    });
+
+    it('adds something to what matters most, for an app build that can keep it', async () => {
+      const can = weekCtx(db());
+      can.week = { ...can.week, priorities: ['Finish the grant'] };
+      const r = await runTool(can, 'propose_changes', {
+        changes: [{ op: 'priority', priority: 'The stock audit' }],
+      });
+      expect(r.result.changes).toEqual([
+        expect.objectContaining({
+          op: 'priority',
+          title: 'The stock audit',
+          fields: { text: 'The stock audit' },
+          before: { priorities: ['Finish the grant'] },
+        }),
+      ]);
+      expect(r.text).toContain('priority: “The stock audit” added to what matters most this week');
+      // a build that cannot keep one: dropped, with what to say instead
+      const old = await runTool(weekCtx(db()), 'propose_changes', {
+        changes: [{ op: 'priority', priority: 'The stock audit' }],
+      });
+      expect(old.result.changes).toEqual([]);
+      expect(old.result.dropped).toEqual([{ cid: 'c1', reason: 'no_priorities' }]);
+      expect(old.text).toContain('their app cannot keep a new priority from here yet');
+      // and a week that already holds as many as it keeps
+      const full = weekCtx(db());
+      full.week = { ...full.week, priorities: ['One', 'Two', 'Three'] };
+      const over = await runTool(full, 'propose_changes', {
+        changes: [{ op: 'priority', priority: 'A fourth' }],
+      });
+      expect(over.result.dropped).toEqual([{ cid: 'c1', reason: 'priorities_full' }]);
+      expect(over.text).toContain('ask which one this should take the place of');
     });
 
     it('checks each against the week and the item, and says each in words', async () => {

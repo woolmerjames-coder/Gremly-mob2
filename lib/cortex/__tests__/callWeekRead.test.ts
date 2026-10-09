@@ -104,8 +104,24 @@ describe('callWeekRead', () => {
     expect(JSON.parse(es.options.body as string)).toEqual({
       type: 'week-read',
       date: '2026-10-04',
+      first: null,
     });
     es.say({ done: true, made: false, on: ON, review: REVIEW });
+    await pending;
+  });
+
+  it('says which day the review plans from when it is opened in the evening', async () => {
+    MockEventSource.last = null;
+    const pending = callWeekRead({ date: '2026-10-07', first: '2026-10-08' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const es = MockEventSource.last as unknown as MockEventSource;
+    expect(JSON.parse(es.options.body as string)).toEqual({
+      type: 'week-read',
+      date: '2026-10-07',
+      first: '2026-10-08',
+    });
+    es.say({ done: true, made: true, on: ON, review: REVIEW });
     await pending;
   });
 
@@ -206,7 +222,7 @@ describe('callWeekSpread', () => {
 
   async function spread(board?: typeof BOARD, opts?: { timeoutMs?: number; quietMs?: number }) {
     MockEventSource.last = null;
-    const pending = callWeekSpread({ date: '2026-10-04', board }, opts);
+    const pending = callWeekSpread({ date: '2026-10-04', first: '2026-10-05', board }, opts);
     await Promise.resolve();
     await Promise.resolve();
     return { pending, es: MockEventSource.last as unknown as MockEventSource };
@@ -219,6 +235,8 @@ describe('callWeekSpread', () => {
     expect(JSON.parse(es.options.body as string)).toEqual({
       type: 'week-spread',
       date: '2026-10-04',
+      // the first day being planned, as the app's board has it
+      first: '2026-10-05',
       board: BOARD,
     });
     es.say({ ping: true });

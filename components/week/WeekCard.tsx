@@ -18,9 +18,11 @@ import {
   dateKey,
   daysPlanned,
   hoursTotal,
+  intentionSuggestions,
   isPast,
   isWeekend,
   milestonesShown,
+  priorityOptions,
   stepOf,
   type ChatStep,
 } from '../../lib/week/review/state';
@@ -205,7 +207,8 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
       );
       break;
     case 'priorities': {
-      const options = read.priority_options ?? [];
+      // the read's options, then anything they added themselves through Gremly
+      const options = priorityOptions(read, a);
       // settled: what the row keeps; being picked: what the card holds
       const picked = editable
         ? d.priorities
@@ -214,7 +217,7 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
             .filter((i) => i >= 0);
       body = (
         <PriorityChips
-          options={options.map((o) => ({ text: o.text, star: !!o.gremly_pick }))}
+          options={options.map((o) => ({ text: o.text, star: o.star }))}
           picked={picked}
           onToggle={review.priorities.toggle}
           onDone={() => void review.priorities.done()}
@@ -289,17 +292,18 @@ export function WeekCard({ messageId, meta, review }: WeekCardProps) {
       break;
     }
     case 'intention': {
-      const drafts = read.intention_drafts ?? [];
-      const kept = (a.intention ?? '').trim();
-      const keptAt = drafts.findIndex((x) => x.trim() === kept);
+      const field = d.intention;
+      // Gremly's line is offered while the field is empty or still holds one of his
+      const lines = intentionSuggestions(read, a);
+      const canSuggest = lines.length > 0 && (!field.own.trim() || field.pick != null);
       body = (
         <IntentionCard
-          drafts={drafts}
-          picked={editable ? d.intention.pick : keptAt >= 0 ? keptAt : null}
-          own={editable ? d.intention.own : keptAt >= 0 ? '' : kept}
-          onPick={review.intention.pick}
+          own={editable ? field.own : (a.intention ?? '')}
+          canSuggest={canSuggest}
           onWrite={review.intention.write}
+          onSuggest={review.intention.suggest}
           onDone={() => void review.intention.done()}
+          onSkip={() => void review.intention.skip()}
           {...common}
         />
       );

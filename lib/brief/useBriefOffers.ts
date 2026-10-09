@@ -105,6 +105,8 @@ export interface BriefOffers {
   /** Use a typed message as the answer. False when no answer is awaited. */
   answerTyped: (text: string) => Promise<boolean>;
   cancelAnswer: () => void;
+  /** The question was answered on the Worlds card under it: the waiting offer follows */
+  answeredByCard: () => Promise<void>;
   /**
    * A message typed while Gremly's question is the last thing said is the
    * reply to it: the question loses its buttons and the words go to the answer
@@ -194,6 +196,18 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
     [pause],
   );
 
+  /** The day's first reply feeds Gremly (once a day, Not today included). */
+  const credit = useCallback(() => {
+    const d = depsRef.current;
+    if (!d.threadId || repliedRef.current === d.threadId) return;
+    repliedRef.current = d.threadId;
+    creditFirstReply(d.threadId)
+      .then((fresh) => {
+        if (fresh) depsRef.current.onFirstReply?.();
+      })
+      .catch((err) => console.warn('[DailyBrief] could not note the first reply:', err));
+  }, []);
+
   /** The reply, the offer's buttons gone, and the day's first reply noted. */
   const reply = useCallback(
     async (
@@ -208,17 +222,9 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
         ...also,
       });
       await save([step]);
-      if (d.threadId && repliedRef.current !== d.threadId) {
-        repliedRef.current = d.threadId;
-        // the day's first reply feeds Gremly (once a day, Not today included)
-        creditFirstReply(d.threadId)
-          .then((fresh) => {
-            if (fresh) depsRef.current.onFirstReply?.();
-          })
-          .catch((err) => console.warn('[DailyBrief] could not note the first reply:', err));
-      }
+      credit();
     },
-    [save],
+    [save, credit],
   );
 
   /** After the question: the offer that was waiting for it. */
@@ -420,6 +426,22 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
   const cancelAnswer = useCallback(() => setAwaiting(null), []);
 
   /**
+   * The question was answered on the Worlds card under it, a question about
+   * a Chapter (components/worlds/ChatAskCard): the card made the change and
+   * marked the question answered, and says so itself, so nothing goes to the
+   * pipeline. The offer that was waiting for it follows.
+   */
+  const answeredByCard = useCallback(
+    () =>
+      run(async () => {
+        setAwaiting(null);
+        credit();
+        await reveal();
+      }),
+    [credit, reveal, run],
+  );
+
+  /**
    * A message typed while the habit check in is the live offer answers it in
    * their own words: the message keeps the check in's words from here on, and
    * its buttons go. The brief's own offer follows once the turn is done
@@ -516,6 +538,7 @@ export function useBriefOffers(deps: BriefOffersDeps): BriefOffers {
     awaitingAnswer: awaiting !== null,
     answerTyped,
     cancelAnswer,
+    answeredByCard,
     takeTypedReply,
     owesOffer,
     continueBrief,

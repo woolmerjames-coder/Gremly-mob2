@@ -29,6 +29,7 @@ import {
   weekAround,
 } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
+import { loadLifePack, personWordsOn } from '../../shared/lifePack.js';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -309,13 +310,14 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   let question = brief.question || null;
   if (question?.id) {
     const [q] = await d.select(
-      `gremly_questions?id=eq.${question.id}&select=id,question,status,choices`,
+      `gremly_questions?id=eq.${question.id}&select=id,kind,question,status,choices`,
     );
     // Answered or retired since the DCO was built: not asked again
     question =
       q && ['open', 'asked'].includes(q.status)
         ? {
             id: q.id,
+            kind: q.kind || null,
             question: question.question || q.question,
             choices: Array.isArray(q.choices) ? q.choices : [],
           }
@@ -344,6 +346,15 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     .map((x) => ({ type: x.type, id: x.id, title: x.title, start: minutesIn(tz, x.iso) }))
     .sort((a, b) => a.start - b.start);
   const reaction = await readThreadReaction(env, userId, addDays(ritualDay, -1)).catch(() => null);
+  // Their life right now, as every surface reads it (shared/lifePack.js, data
+  // fabric stage 4d). The brief never waits on it: unread, the brief is
+  // written from the day alone, and says why in the log.
+  const life = await loadLifePack(d, userId, { today, tz, personWords: personWordsOn(env) }).catch((err) => {
+    console.warn(
+      `[ALERT][DailyBrief] could not read their life for ${userId}: ${err?.message || err}`,
+    );
+    return null;
+  });
 
   return {
     tz,
@@ -379,8 +390,16 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     reach,
     ret,
     anchors: Array.isArray(dco?.named_anchors) ? dco.named_anchors : [],
+    // the open Chapter with the nearest date, as the daily picture carries it
+    upNext: dco?.up_next || null,
     claims: Array.isArray(brief.claims) ? brief.claims : [],
     dayShape: brief.day_shape || null,
+    // what the daily picture decided today is about, and how it reads (stage 4d)
+    lead: dco?.lead_story?.what ? dco.lead_story : null,
+    headline: dco?.brief_headline || null,
+    alsoMatters: Array.isArray(dco?.also_matters) ? dco.also_matters.filter(Boolean) : [],
+    voiceNote: dco?.voice_note || null,
+    life,
     absence: dco?.absence || null,
     reaction,
   };

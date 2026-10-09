@@ -7,30 +7,47 @@
  */
 
 import { db, addDays } from './db';
+import { asOfToday } from '../../shared/factTiming.js';
 import { recentCorrections } from './corrections';
 import { loadStory } from './story';
 
 function trim(text, n) {
-  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  const s = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
 export async function weeklySummaryContext(env, userId, weekStart, weekEnd) {
   const d = db(env);
   const after = addDays(weekEnd, 1);
-  const [open, thisWeek, corrections, story] = await Promise.all([
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=statement,about_date,about_date_end,state,private&order=about_date.asc.nullslast&limit=150`),
-    d.select(`life_facts?user_id=eq.${userId}&state=in.(happened,changed,superseded)&about_date=gte.${weekStart}&about_date=lte.${weekEnd}&select=statement,about_date,state,state_reason,private&order=about_date.asc&limit=60`),
+  const [openRead, thisWeek, corrections, story] = await Promise.all([
+    d.select(
+      `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=statement,timing,about_date,about_date_end,state,private&order=about_date.asc.nullslast&limit=150`,
+    ),
+    d.select(
+      `life_facts_now?user_id=eq.${userId}&state=in.(happened,changed,superseded)&about_date=gte.${weekStart}&about_date=lte.${weekEnd}&select=statement,about_date,state,state_reason,private&order=about_date.asc&limit=60`,
+    ),
     recentCorrections(env, userId, 365),
     loadStory(env, userId, { includePrivate: true, limit: 60 }).catch(() => []),
   ]);
-  const during = open.filter((f) => f.about_date && f.about_date >= weekStart && f.about_date <= weekEnd);
-  const ahead = open.filter((f) => f.about_date && f.about_date >= after && f.about_date <= addDays(weekEnd, 21));
-  const passedPlans = open.filter((f) => f.about_date && f.about_date < weekStart && f.state === 'planned');
+  // a standing fact holds with no date, a yearly one on its next day from the week (stage 4d)
+  const open = openRead.map((f) => asOfToday(f, weekStart));
+  const during = open.filter(
+    (f) => f.about_date && f.about_date >= weekStart && f.about_date <= weekEnd,
+  );
+  const ahead = open.filter(
+    (f) => f.about_date && f.about_date >= after && f.about_date <= addDays(weekEnd, 21),
+  );
+  const passedPlans = open.filter(
+    (f) => f.about_date && f.about_date < weekStart && f.state === 'planned',
+  );
   const undated = open.filter((f) => !f.about_date).slice(0, 40);
   const mark = (x) => (x.private ? ' [private]' : '');
-  const line = (f) => `- ${f.state}${mark(f)} | ${f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}` : 'no date'} | ${trim(f.statement, 200)}`;
-  const storyLine = (s) => `- ${s.kind}${s.pattern_kind ? `/${s.pattern_kind}` : ''}${mark(s)} | ${s.period_start || 'undated'} | ${trim(s.title, 100)}: ${trim(s.body, 220)}`;
+  const line = (f) =>
+    `- ${f.state}${mark(f)} | ${f.about_date ? `${f.about_date}${f.about_date_end ? ` to ${f.about_date_end}` : ''}${f.every_year ? ', every year' : ''}` : f.timing === 'standing' ? 'holds with no date of its own' : 'no date'} | ${trim(f.statement, 200)}`;
+  const storyLine = (s) =>
+    `- ${s.kind}${s.pattern_kind ? `/${s.pattern_kind}` : ''}${mark(s)} | ${s.period_start || 'undated'} | ${trim(s.title, 100)}: ${trim(s.body, 220)}`;
 
   return [
     `WEEK: ${weekStart} to ${weekEnd}.`,

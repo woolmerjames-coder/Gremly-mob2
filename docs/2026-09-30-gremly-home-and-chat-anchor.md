@@ -29,7 +29,7 @@ Either order works: the live Worker ignores the new app fields, and the new Work
 
 1. `cd workers/cortex && npx wrangler deploy`
 2. A new build or EAS update of the app from this branch.
-3. On the phone: drop "Take Bella for a walk" and tap Talk it through. "I keep putting it off" should not say it is on your list. "Move it to Saturday" should give a card for the walk. "Unrelated, I need a haircut" should give no card for the walk. Reopen the chat from history and say "done": a card to mark the walk done.
+3. On the phone: drop "Take Pepper for a walk" and tap Talk it through. "I keep putting it off" should not say it is on your list. "Move it to Saturday" should give a card for the walk. "Unrelated, I need a haircut" should give no card for the walk. Reopen the chat from history and say "done": a card to mark the walk done.
 4. Reply fixes: ask to move something to the day it is already on, then ask "did you change it?". It should say it was already that way.
 
 ## 4. What happens next, in order
@@ -51,6 +51,6 @@ Now:
 
 Found and not fixed (belongs to the context pipeline project, `lifemaps-context-fixes-9.30`): the weekly summary's fact extraction (`workers/inngest-jobs/inngest-index.js`, step extract-profile-facts) reads chat messages from `space_chat_messages`, a table that no longer exists (it is `scope_chat_messages`), and reads `views.chat` as a list when it never was one, so it has found no chat messages at all since the rename.
 
-Chat quality, parked by James: replies over-personalise (Bella, San Francisco, client work, the Sage deck in turns about something else); it is the rich context being used.
+Chat quality, parked by James: replies over-personalise (their pet, their city, client work, a work deck in turns about something else); it is the rich context being used.
 
 Other threads have their own lists: `docs/2026-09-28-minddrop-fixes.md` and the 29 Sep audits. The one dated deadline among them is the gpt-4.1-nano switch off on 23 Oct 2026, which needs the Inngest worker deployed before then (`cd workers/inngest-jobs && npx wrangler deploy`) if it has not been.

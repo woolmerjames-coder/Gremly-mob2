@@ -37,11 +37,11 @@ function processCardNote(raw: string | null): string | null {
 
 describe('sentenceCase', () => {
   it('capitalizes first letter, leaves rest unchanged', () => {
-    expect(sentenceCase('bella time is the best time')).toBe('Bella time is the best time');
+    expect(sentenceCase('pepper time is the best time')).toBe('Pepper time is the best time');
   });
 
   it('keeps proper nouns as they are (only touches first char)', () => {
-    expect(sentenceCase('walk with Bella at the Park')).toBe('Walk with Bella at the Park');
+    expect(sentenceCase('walk with Pepper at the Park')).toBe('Walk with Pepper at the Park');
   });
 
   it('handles already-capitalized input', () => {
@@ -110,7 +110,7 @@ describe('processCardNote', () => {
     });
 
     it('preserves proper nouns in middle of string', () => {
-      expect(processCardNote('walking Bella again')).toBe('Walking Bella again');
+      expect(processCardNote('walking Pepper again')).toBe('Walking Pepper again');
     });
   });
 });

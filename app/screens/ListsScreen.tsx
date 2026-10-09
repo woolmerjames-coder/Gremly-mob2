@@ -22,9 +22,9 @@ export const ListsScreen: React.FC = () => {
       setIsLoading(true);
       try {
         // Get or create the list
+        // Any list with this key, wherever it was made
         const list = await repo.getOrCreateList(listType, {
           userId: undefined, // Will use auth context
-          spaceId: null, // For now, not using spaces
         });
         setCurrentListId(list.id);
 
@@ -82,9 +82,7 @@ export const ListsScreen: React.FC = () => {
     // Optimistic update
     setListItems((prev) =>
       prev.map((item) =>
-        item.id === itemId
-          ? { ...item, completed_at: done ? nowTimestamp() : null }
-          : item,
+        item.id === itemId ? { ...item, completed_at: done ? nowTimestamp() : null } : item,
       ),
     );
 
@@ -95,9 +93,7 @@ export const ListsScreen: React.FC = () => {
       // Revert optimistic update
       setListItems((prev) =>
         prev.map((item) =>
-          item.id === itemId
-            ? { ...item, completed_at: done ? null : nowTimestamp() }
-            : item,
+          item.id === itemId ? { ...item, completed_at: done ? null : nowTimestamp() } : item,
         ),
       );
       Alert.alert('Error', 'Failed to update item. Please try again.');

@@ -91,7 +91,7 @@ const week = () =>
       ],
     },
     noteEvents: [
-      { id: 'n', title: 'Dinner with Jen', event_time: '19:00', target_date: '2026-10-07' },
+      { id: 'n', title: 'Dinner with Mira', event_time: '19:00', target_date: '2026-10-07' },
     ],
     quickEvents: [
       {
@@ -127,7 +127,7 @@ test('each of the seven days, in their time zone, with what is on it', () => {
   expect(on('2026-10-05').meetings.map((m) => m.title)).toEqual(['Team huddle']);
   expect(on('2026-10-06').meetings.map((m) => m.title)).toEqual(['Vet']);
   expect(on('2026-10-06').todos).toEqual([{ id: 't2', title: 'Book flights', due_time: null }]);
-  expect(on('2026-10-07').meetings.map((m) => m.title)).toEqual(['Dinner with Jen']);
+  expect(on('2026-10-07').meetings.map((m) => m.title)).toEqual(['Dinner with Mira']);
   // the all day entry is on Friday, not on Thursday evening where they are
   expect(on('2026-10-08').allDay).toEqual([]);
   expect(on('2026-10-09').allDay.map((a) => a.title)).toEqual([

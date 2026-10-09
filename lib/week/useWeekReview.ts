@@ -32,8 +32,9 @@ import type { OfferButton, WeekCardKind, WeekCardMeta } from '../brief/types';
 import { briefMetaOf, dayPartAt, visibleThreadMessages } from '../brief/messages';
 import { ampm, clock } from '../brief/dayCard';
 import { minutesOfDay } from '../brief/time';
-import { applyChange } from '../changes/apply';
-import { checkWeekChange, type Change } from '../changes/model';
+import { applyChange, applyChanges } from '../changes/apply';
+import { checkChange, checkWeekChange, type Change } from '../changes/model';
+import { contextFor, snapshotOf } from '../changes/snapshot';
 import { intentionNote } from '../changes/week';
 import { rowWords } from '../changes/words';
 import { callWeekRead, callWeekSpread, type WeekTurnContext } from '../cortex/CortexClient';
@@ -54,6 +55,7 @@ import {
   addDays,
   cycleOf,
   extraUsed,
+  planFrom,
   readServes,
   reliefBasis,
   reviewOn,
@@ -75,6 +77,7 @@ import {
   reliefFor,
   ownMoves,
   toggleHabitDay,
+  unfitted,
   withoutMoves,
   workingPicture,
 } from './board/model';
@@ -119,22 +122,25 @@ import {
   MAX_PRIORITIES,
   asksAboutDay,
   daysPlanned,
-  gremlyPicks,
+  guessedPriorities,
   intentionOf,
+  intentionSuggestions,
   isPast,
   milestonesShown,
   prioritiesOf,
+  priorityOptions,
   rekeyed,
   settledText,
   stepAfter,
   stepOf,
   stepsFor,
   weekTurnContext,
+  withCardMilestones,
   easedFor,
   type ChatStep,
   type ReviewOn,
 } from './review/state';
-import { WEEK_COPY, boardIntro, dayName, doneTiles } from './review/words';
+import { WEEK_COPY, boardIntro, dayName, doneTiles, partTitle } from './review/words';
 import { useThisWeek } from './thisWeek';
 
 const STEP_PAUSE_MS = 350;
@@ -193,16 +199,25 @@ function nowPart() {
   return dayPartAt(Math.floor(minutesOfDay() / 60));
 }
 
+/**
+ * The first day a review opened now plans from: today, or tomorrow once it is
+ * evening for them (workers/shared/week.js planFrom).
+ */
+function fromNow(today: string): string {
+  return planFrom(today, getDateService().minutesIntoDay());
+}
+
 /** The review of another week than the one today's date gives: what it is, from its own row. */
 function onFor(today: string, weeklyDay: number, row: WeekReviewRow): ReviewOn {
-  const byDate = reviewWith(today, weeklyDay, row);
+  const byDate = reviewWith(today, weeklyDay, row, fromNow(today));
   if (byDate.week_start === row.week_start) return byDate;
   return {
     kind: row.kind,
     promoted: false,
     fresh: false,
     week_start: row.week_start,
-    span_start: today > row.span_start ? today : row.span_start,
+    // from today, or from tomorrow in the evening, when its own first day has gone by
+    span_start: fromNow(today) > row.span_start ? fromNow(today) : row.span_start,
     span_end: addDays(row.week_start, 6),
   };
 }
@@ -297,8 +312,8 @@ export interface WeekReview {
   carryOn: () => Promise<void>;
   /** A change card was applied in the thread while the review is under way */
   onApplied: (changes: Change[]) => Promise<void>;
-  /** A card's changes were taken back with its Undo while the review is under way */
-  onUndone: () => Promise<void>;
+  /** A card's changes, as they were applied, were taken back with its Undo while the review is under way */
+  onUndone: (changes: Change[]) => Promise<void>;
   /** Their week, for every message sent to Gremly from this thread; null until their week is read */
   context: () => WeekTurnContext | null;
   /** The review is under way in this thread: typed messages are its to take */
@@ -322,9 +337,13 @@ export interface WeekReview {
     done: () => Promise<void>;
   };
   intention: {
-    pick: (index: number) => void;
+    /** Put one of Gremly's lines in the field: the one for what they chose as mattering most, then the next */
+    suggest: () => void;
     write: (text: string) => void;
+    /** Keep the words in the field as the week's intention */
     done: () => Promise<void>;
+    /** No intention this week, whatever the field holds */
+    skip: () => Promise<void>;
   };
   ahead: {
     toggleStep: (key: string, index: number) => void;
@@ -343,6 +362,11 @@ export interface WeekReview {
     close: () => void;
     /** A todo to a day, or to Later */
     move: (todoId: string, to: string | 'later') => void;
+    /**
+     * A todo ticked done on the board, or its tick taken back. Unlike a move
+     * it is saved at once: it is done, whatever becomes of the week.
+     */
+    tick: (todoId: string, done: boolean) => void;
     toggleHabit: (habitId: string, day: string) => void;
     /**
      * Pause a habit for the days being planned, give it a lighter version
@@ -367,6 +391,15 @@ export interface WeekReview {
      * open the board on it to change it by hand (changed), or leave it (left)
      */
     relieve: (day: string, how: 'moved' | 'changed' | 'left') => Promise<void>;
+    /**
+     * A todo that matters most and is on no day: put it on the day with room
+     * for it (day), split it into parts that each fit a day (split), or leave
+     * it for later (left). A split is written at once: the todo becomes its
+     * first part, and each other part is a new todo.
+     */
+    fit: (todoId: string, how: 'day' | 'split' | 'left') => Promise<void>;
+    /** Take back the last of those choices, so its card comes back */
+    unfit: () => Promise<void>;
     done: () => Promise<void>;
     /** Take back everything Done wrote, and go back to the board */
     undo: () => Promise<void>;
@@ -402,6 +435,8 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
   const askedBasis = useRef<string | null>(null);
   /** Their moves as they stood when the board was opened to change an over-full day by hand */
   const relieveFrom = useRef<string | null>(null);
+  /** The over-full day, and the board as it stood, that suggestions were last asked for on their own */
+  const unsuggested = useRef<string | null>(null);
 
   // A thread that already holds the review (the app was closed part way, or
   // the thread was opened from history) reads the week's row, so its cards
@@ -582,7 +617,12 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     askedBasis.current = askedFor.spread;
     patchSession({ fitting: true, spreadFailed: false });
     try {
-      const res = await callWeekSpread({ date: day, board: ownMoves(now.moves) });
+      // the first day being planned goes with it, so the spread is made for the days this board has
+      const res = await callWeekSpread({
+        date: day,
+        first: now.on.span_start,
+        board: ownMoves(now.moves),
+      });
       if (mine !== spreadAsk.current) return;
       if (res.ok) {
         spreadMade(r.id, res.data.spread, askedFor);
@@ -711,7 +751,8 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     patchSession({ loading: true });
     try {
       const day = today();
-      const res = await callWeekRead({ date: day });
+      // In the evening the review plans from tomorrow: the read is made for those days.
+      const res = await callWeekRead({ date: day, first: fromNow(day) });
       if (res.ok) {
         setReview(res.data.review, res.data.on as ReviewOn);
         useThisWeek.getState().setReview(res.data.review);
@@ -749,7 +790,9 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     // never read: their weekly day here would be a default, and the wrong week could be opened
     if (!loaded) throw new Error('Their weekly day and this week could not be read.');
     const day = today();
-    const byDate = reviewOn(day, weeklyDay);
+    // opened in the evening, it plans from tomorrow: today is as good as over
+    const from = fromNow(day);
+    const byDate = reviewOn(day, weeklyDay, from);
     const target =
       cycleRow && cycleRow.week_start === byDate.week_start
         ? cycleRow
@@ -761,7 +804,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
       day,
       byDate,
       target,
-      on: reviewWith(day, weeklyDay, target),
+      on: reviewWith(day, weeklyDay, target, from),
     };
   }, []);
 
@@ -1208,9 +1251,29 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         keepMovesSoon();
       }
       const intention = changes.find((c) => c.op === 'intention');
+      // Something added to what matters most: the priorities card picks it up,
+      // so it is kept when that card is settled or opened again. A card that
+      // already holds as many as a week keeps gives up its last pick for it.
+      const priority = changes.find((c) => c.op === 'priority');
+      if (priority) {
+        const text = String(priority.fields?.text ?? '').trim();
+        patchDraft((d) => {
+          const row = session().row;
+          const at = priorityOptions(row?.read ?? null, row?.answers).findIndex(
+            (o) => o.text === text,
+          );
+          if (at < 0 || d.priorities.includes(at)) return d;
+          const kept = d.priorities.slice(0, MAX_PRIORITIES - 1);
+          return { ...d, priorities: [...kept, at] };
+        });
+      }
       const about = now.talking != null ? r.read?.needs_you?.[now.talking] : null;
-      // One of their items was changed: the spread is made from them, so it is
-      // made again. The week's own answers say so for themselves.
+      // A milestone set up from the card is kept with the ones set up from the
+      // review's own card, so the summary counts its steps too.
+      const setUp = changes.some((c) => c.op === 'milestone');
+      // One of their items was changed, or what matters most: the spread is
+      // made from them, so it is made again. The week's own answers that are
+      // part of what a spread is made for say so for themselves.
       const touched = changes.some(
         (c) => c.op !== 'intention' && c.op !== 'week_shape' && c.op !== 'weekly_day',
       );
@@ -1219,6 +1282,9 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         await saveRow((x) => {
           const answers = { ...x.answers };
           if (touched) answers.touched = (answers.touched ?? 0) + 1;
+          if (setUp) {
+            answers.milestones = withCardMilestones(answers.milestones ?? [], changes, 'added');
+          }
           if (intention) {
             answers.intention = String(intention.fields?.text ?? '').trim() || null;
             answers.intention_id = intentionNote(x.week_start)?.id ?? answers.intention_id ?? null;
@@ -1246,16 +1312,32 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     [keepMovesSoon, saveRow],
   );
 
-  /** A card's changes were taken back: their items are as they were, so the spread is made again. */
-  const onUndone = useCallback(async () => {
-    const r = session().row;
-    if (!r || r.status !== 'started') return;
-    try {
-      await saveRow((x) => ({ answers: { ...x.answers, touched: (x.answers.touched ?? 0) + 1 } }));
-    } catch (err) {
-      console.warn('[Week] could not note that a change was taken back:', err);
-    }
-  }, [saveRow]);
+  /**
+   * A card's changes were taken back: their items are as they were, so the
+   * spread is made again, and a milestone the card set up is no longer one
+   * the review keeps as set up.
+   */
+  const onUndone = useCallback(
+    async (changes: Change[]) => {
+      const r = session().row;
+      if (!r || r.status !== 'started') return;
+      const setUp = changes.some((c) => c.op === 'milestone');
+      try {
+        await saveRow((x) => ({
+          answers: {
+            ...x.answers,
+            touched: (x.answers.touched ?? 0) + 1,
+            ...(setUp
+              ? { milestones: withCardMilestones(x.answers.milestones ?? [], changes, 'undone') }
+              : {}),
+          },
+        }));
+      } catch (err) {
+        console.warn('[Week] could not note that a change was taken back:', err);
+      }
+    },
+    [saveRow],
+  );
 
   const context = useCallback((): WeekTurnContext | null => {
     const now = session();
@@ -1337,7 +1419,11 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         run(async () => {
           const now = session();
           if (!now.draft || !editable('priorities')) return;
-          const picked = prioritiesOf(now.row?.read ?? null, now.draft.priorities);
+          const picked = prioritiesOf(
+            now.row?.read ?? null,
+            now.draft.priorities,
+            now.row?.answers ?? null,
+          );
           await settle('priorities', (a) => ({ ...a, priorities: picked }));
         }),
     }),
@@ -1391,73 +1477,81 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     [run, settle, tell],
   );
 
-  const intention = useMemo(
-    () => ({
-      pick: (index: number) => {
+  const intention = useMemo(() => {
+    /** The intention step is settled: with the words in the field, or with none when they skip. */
+    const settleIntention = (keep: boolean) =>
+      run(async () => {
+        const now = session();
+        const r = now.row;
+        if (!now.draft || !now.on || !r || !editable('intention')) return;
+        if (!keep) patchDraft((d) => ({ ...d, intention: { pick: null, own: '' } }));
+        const text = keep ? intentionOf(now.draft.intention) : '';
+        let noteId = r.answers.intention_id ?? null;
+        if (text) {
+          // kept as the week's intention note, the way a card of Gremly's keeps it
+          const note = intentionNote(r.week_start);
+          const was = String(note?.body ?? note?.title ?? '').trim();
+          const checked = checkWeekChange(
+            { cid: 'week-intention', op: 'intention', intention: text },
+            {
+              today: today(),
+              week: {
+                first: now.on.span_start,
+                last: now.on.span_end,
+                week_start: r.week_start,
+                has_review: true,
+                intention: note ? { id: note.id, text: was } : null,
+              },
+            },
+          );
+          if (checked.ok) {
+            const out = await applyChange(checked.change, { source: 'thread' });
+            if (!out.ok) throw new Error(out.message);
+            noteId = out.createdId ?? (note?.id as string | undefined) ?? noteId;
+          } else if (checked.reason === 'no_change') {
+            noteId = (note?.id as string | undefined) ?? noteId;
+          } else {
+            throw new Error(`The intention could not be kept: ${checked.reason}`);
+          }
+        } else if (r.answers.intention) {
+          // None this week after all, where the review held one: its note is
+          // put away, so the week and Gremly no longer have it.
+          const note = intentionNote(r.week_start);
+          if (note) {
+            await store().archiveNote(note.id, 'cleared in the weekly review');
+            if (intentionNote(r.week_start)) {
+              throw new Error("The week's intention could not be cleared.");
+            }
+          }
+          noteId = null;
+        }
+        await settle('intention', (a) => ({
+          ...a,
+          intention: text || null,
+          intention_id: noteId,
+        }));
+      });
+    return {
+      suggest: () => {
         if (!editable('intention')) return;
-        patchDraft((d) => ({ ...d, intention: { pick: index, own: '' } }));
+        const r = session().row;
+        const lines = intentionSuggestions(r?.read ?? null, r?.answers);
+        if (!lines.length) return;
+        // the first of his lines, or the next when the field already holds one of them
+        patchDraft((d) => {
+          const at = d.intention.pick == null ? 0 : (d.intention.pick + 1) % lines.length;
+          return { ...d, intention: { pick: at, own: lines[at] } };
+        });
       },
       write: (text: string) => {
         if (!editable('intention')) return;
-        patchDraft((d) => ({
-          ...d,
-          intention: { pick: text.trim() ? null : d.intention.pick, own: text },
-        }));
+        // once they change it, the words are theirs
+        patchDraft((d) => ({ ...d, intention: { pick: null, own: text } }));
       },
-      done: () =>
-        run(async () => {
-          const now = session();
-          const r = now.row;
-          if (!now.draft || !now.on || !r || !editable('intention')) return;
-          const text = intentionOf(r.read, now.draft.intention);
-          let noteId = r.answers.intention_id ?? null;
-          if (text) {
-            // kept as the week's intention note, the way a card of Gremly's keeps it
-            const note = intentionNote(r.week_start);
-            const was = String(note?.body ?? note?.title ?? '').trim();
-            const checked = checkWeekChange(
-              { cid: 'week-intention', op: 'intention', intention: text },
-              {
-                today: today(),
-                week: {
-                  first: now.on.span_start,
-                  last: now.on.span_end,
-                  week_start: r.week_start,
-                  has_review: true,
-                  intention: note ? { id: note.id, text: was } : null,
-                },
-              },
-            );
-            if (checked.ok) {
-              const out = await applyChange(checked.change, { source: 'thread' });
-              if (!out.ok) throw new Error(out.message);
-              noteId = out.createdId ?? (note?.id as string | undefined) ?? noteId;
-            } else if (checked.reason === 'no_change') {
-              noteId = (note?.id as string | undefined) ?? noteId;
-            } else {
-              throw new Error(`The intention could not be kept: ${checked.reason}`);
-            }
-          } else if (r.answers.intention) {
-            // None this week after all, where the review held one: its note is
-            // put away, so the week and Gremly no longer have it.
-            const note = intentionNote(r.week_start);
-            if (note) {
-              await store().archiveNote(note.id, 'cleared in the weekly review');
-              if (intentionNote(r.week_start)) {
-                throw new Error("The week's intention could not be cleared.");
-              }
-            }
-            noteId = null;
-          }
-          await settle('intention', (a) => ({
-            ...a,
-            intention: text || null,
-            intention_id: noteId,
-          }));
-        }),
-    }),
-    [run, settle],
-  );
+      done: () => settleIntention(true),
+      skip: () => settleIntention(false),
+    };
+  }, [run, settle]);
 
   const ahead = useMemo(
     () => ({
@@ -1560,7 +1654,7 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           const one = r?.read?.needs_you?.[index];
           if (!r || !one || !editable('needs_you')) return;
           patchSession({ talking: index, hold: null });
-          await save(talkMsgs(one.title, one.question));
+          await save(talkMsgs(one.title, one.question, one.answers));
         }),
       done: () => run(() => settle('needs_you', (a) => a)),
     }),
@@ -1615,6 +1709,40 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
     };
   }, [askSpread, atBoard, haveBasis, overfullOpen, wantBasis, relieved, s.asking, s.picking]);
 
+  // An over-full day is up for its card and the suggestions in hand say
+  // nothing of it: they filled it by hand on the board, after the spread was
+  // made. Once they are back from the board, the week is spread again around
+  // what they put there, and the suggestions for that day come with it. It is
+  // asked once for the board as it stands: when nothing comes back for the
+  // day, its card says no moves could be worked out.
+  const spreadIn = row?.spread;
+  useEffect(() => {
+    if (!atBoard || s.boardOpen || s.fitting || s.spreadFailed || !spreadIn) return;
+    const now = session();
+    const b = currentBoard();
+    if (!now.row || !b) return;
+    const at = boardStage(b, now.row.answers, { asking: now.asking, picking: now.picking });
+    if (at.stage !== 'overfull') return;
+    // None in hand for these answers means a spread is already due for them.
+    const relief = currentRelief();
+    if (!relief || (relief.days ?? []).some((d) => d.day === at.day)) return;
+    const asked = `${at.day} ${JSON.stringify(now.moves)}`;
+    if (unsuggested.current === asked) return;
+    unsuggested.current = asked;
+    void askSpread();
+  }, [
+    askSpread,
+    atBoard,
+    relieved,
+    spreadIn,
+    s.asking,
+    s.boardOpen,
+    s.fitting,
+    s.moves,
+    s.picking,
+    s.spreadFailed,
+  ]);
+
   const onBoard = (): boolean => {
     const r = session().row;
     return !!r && r.status === 'started' && stepOf(r) === 'board';
@@ -1666,6 +1794,15 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
         if (!b) return;
         setMoves(moveTodo(b, session().moves, todoId, to));
         keepMovesSoon();
+      },
+      tick: (todoId: string, done: boolean) => {
+        if (!onBoard()) return;
+        const st = store();
+        // The store puts the todo back as it was when the write fails, and the
+        // board then shows it as it is saved.
+        Promise.resolve(done ? st.completeTodo(todoId) : st.uncompleteTodo(todoId)).catch(
+          (err: unknown) => console.warn('[Week] a tick on the board could not be saved:', err),
+        );
       },
       toggleHabit: (habitId: string, day: string) => {
         const b = onBoard() ? currentBoard() : null;
@@ -1765,6 +1902,165 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           await markRelieved(day, how, moves);
           setMoves(moves);
         }),
+      fit: (todoId: string, how: 'day' | 'split' | 'left') =>
+        run(async () => {
+          if (!onBoard()) return;
+          const now = session();
+          const b = currentBoard();
+          const offer = b ? unfitted(b, now.row?.answers).find((u) => u.todo.id === todoId) : null;
+          if (!b || !offer) return;
+          const title = offer.todo.title;
+          let moves = now.moves;
+          let made: string[] = [];
+          let revert: (() => Promise<void>) | null = null;
+          if (how === 'day') {
+            if (!offer.day) return;
+            // theirs from here on: what Gremly placed on that day gives way to it
+            moves = moveTodo(b, moves, todoId, offer.day);
+          }
+          if (how === 'split') {
+            const parts = offer.parts;
+            if (!parts) return;
+            // The split is written at once, through the change model: the todo
+            // becomes its first part, and each other part is a new todo with
+            // the same hard date and the same place in their life.
+            const snap = snapshotOf('todo', todoId);
+            const beside = {
+              ...(offer.todo.by ? { deadline: offer.todo.by } : {}),
+              ...(snap?.world_ids?.length ? { worlds: snap.world_ids } : {}),
+              ...(snap?.chapter_ids?.length ? { chapters: snap.chapter_ids } : {}),
+            };
+            const raws = parts.map((p, i) => {
+              const name = partTitle(title, i + 1, parts.length);
+              return i === 0
+                ? {
+                    cid: `fit-${todoId}-1`,
+                    op: 'change',
+                    type: 'todo',
+                    id: todoId,
+                    fields: { name, length: p.minutes },
+                  }
+                : {
+                    cid: `fit-${todoId}-${i + 1}`,
+                    op: 'add',
+                    type: 'todo',
+                    fields: { name, length: p.minutes, ...beside },
+                  };
+            });
+            const changes: Change[] = [];
+            for (const raw of raws) {
+              const checked = checkChange(raw, contextFor(raw));
+              if (!checked.ok) throw new Error(`It could not be split: ${checked.reason}`);
+              changes.push(checked.change);
+            }
+            const res = await applyChanges(changes, { source: 'thread' });
+            const failed = res.outcomes.find((o) => !o.ok);
+            if (failed && !failed.ok) {
+              // split whole or not at all
+              await res
+                .revertAll()
+                .catch((err: unknown) =>
+                  console.warn('[Week] a split failed part way and could not be taken back:', err),
+                );
+              throw new Error(failed.message);
+            }
+            made = res.outcomes.slice(1).flatMap((o) => (o.ok && o.createdId ? [o.createdId] : []));
+            revert = res.revertAll;
+            // each part on its day, as moves of their own, unsaved like the rest of the board
+            const placed = { ...(moves.placed ?? {}) };
+            const later = { ...(moves.later ?? {}) };
+            [todoId, ...made].forEach((id, i) => {
+              placed[id] = parts[i].day;
+              delete later[id];
+            });
+            moves = { ...moves, placed, later };
+          }
+          try {
+            await saveRow((x) => {
+              const fitted = x.answers.fitted ?? {};
+              const order = Math.max(0, ...Object.values(fitted).map((f) => f.order)) + 1;
+              return {
+                answers: {
+                  ...x.answers,
+                  board: moves,
+                  fitted: {
+                    ...fitted,
+                    [todoId]: {
+                      how,
+                      title,
+                      ...(how === 'day' && offer.day ? { day: offer.day } : {}),
+                      ...(how === 'split' ? { parts: made.length + 1, made } : {}),
+                      order,
+                    },
+                  },
+                  ...(made.length
+                    ? {
+                        // the parts matter as much as the todo they came from,
+                        // and are new todos: a spread made before them is made again
+                        priorities: (x.answers.priorities ?? []).map((p) =>
+                          (p.item_ids ?? []).includes(todoId)
+                            ? { ...p, item_ids: [...(p.item_ids ?? []), ...made] }
+                            : p,
+                        ),
+                        touched: (x.answers.touched ?? 0) + 1,
+                      }
+                    : {}),
+                },
+              };
+            });
+          } catch (err) {
+            // the row does not say it was split, so the card would offer it
+            // again: the split is taken back, and the step fails as a whole
+            if (revert) {
+              await revert().catch((undo: unknown) =>
+                console.warn(
+                  '[Week] a split was made, the review could not be saved, and it could not be taken back:',
+                  undo,
+                ),
+              );
+            }
+            throw err;
+          }
+          if (revert) holdUndo(`fit:${todoId}`, revert);
+          setMoves(moves);
+        }),
+      unfit: () =>
+        run(async () => {
+          if (!onBoard()) return;
+          const now = session();
+          const last = Object.entries(now.row?.answers.fitted ?? {}).sort(
+            (a, b) => b[1].order - a[1].order,
+          )[0];
+          if (!last) return;
+          const [todoId, f] = last;
+          const made = f.made ?? [];
+          // a split is taken back only while this sitting still holds its Undo
+          if (f.how === 'split' && !(await runUndo(`fit:${todoId}`))) return;
+          // the todo goes back to where the spread has it, and its card comes back
+          const moves =
+            f.how === 'left' ? now.moves : withoutMoves(now.moves, { todos: [todoId, ...made] });
+          await saveRow((x) => {
+            const fitted = { ...(x.answers.fitted ?? {}) };
+            delete fitted[todoId];
+            return {
+              answers: {
+                ...x.answers,
+                board: moves,
+                fitted,
+                ...(made.length
+                  ? {
+                      priorities: (x.answers.priorities ?? []).map((p) => ({
+                        ...p,
+                        item_ids: (p.item_ids ?? []).filter((id) => !made.includes(id)),
+                      })),
+                      touched: (x.answers.touched ?? 0) + 1,
+                    }
+                  : {}),
+              },
+            };
+          });
+          setMoves(moves);
+        }),
       done: () =>
         run(async () => {
           if (!onBoard()) return;
@@ -1773,10 +2069,28 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           // other answers, there is nothing to finish yet: the sheet's Done is
           // off, and a tap that slips through is not taken.
           if (!boardReady()) return;
-          if (movesTimer.current) clearTimeout(movesTimer.current);
-          movesTimer.current = null;
           const b = currentBoard();
           if (!b) throw new Error('There is no board to save.');
+          // Keeping a day never means keeping it over its room without a
+          // word. A day their own todos overfill that has not been looked at,
+          // because they filled it here by hand, is looked at before the week
+          // is finished: the board closes on that day's card, with their
+          // moves kept.
+          const now = session();
+          // Nor does what matters most go to Later without a word: a todo of
+          // their priorities that is on no day is looked at first too.
+          const at = boardStage(b, now.row?.answers, {
+            asking: now.asking,
+            picking: now.picking,
+            ready: true,
+          });
+          if (at.stage !== 'board') {
+            patchSession({ boardOpen: false, boardDay: null, relieving: null });
+            await keepMoves();
+            return;
+          }
+          if (movesTimer.current) clearTimeout(movesTimer.current);
+          movesTimer.current = null;
           // what the week's row says was planned until now, for the Undo
           const before = session().row?.answers.planned ?? null;
           const open = new Set<string>(
@@ -1915,7 +2229,8 @@ export function useWeekReview(deps: WeekReviewDeps): WeekReview {
           const a = { ...x.answers };
           // Gremly's picks and guesses stand for what they did not settle themselves
           if (left('challenge')) a.challenge = a.challenge ?? { agreed: true };
-          if (left('priorities')) a.priorities = prioritiesOf(r.read, gremlyPicks(r.read));
+          // what they added to it themselves stays, ahead of Gremly's picks
+          if (left('priorities')) a.priorities = guessedPriorities(r.read, a);
           if (left('shape')) {
             a.hours = d.hours;
             a.busy_days = [

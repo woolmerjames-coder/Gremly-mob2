@@ -58,9 +58,6 @@ export type SweepDecision = {
   noteAction?: 'fine' | 'resurface' | 'maketodo';
   resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
 
-  // Space assignment
-  spaceId?: string;
-
   // Event reminder
   eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
 
@@ -325,7 +322,6 @@ async function keepTodo(decision: SweepDecision, item: Item, base: Base): Promis
 
 async function keepNote(decision: SweepDecision, item: Item, base: Base): Promise<SweepOutcome> {
   const now = getDateService().nowTimestamp();
-  const space = decision.spaceId ? { space_id: decision.spaceId } : {};
 
   // Resurface later: no notification, Sweep brings it back on the day
   if (decision.noteAction === 'resurface' && decision.resurfaceDateStr) {
@@ -335,7 +331,6 @@ async function keepNote(decision: SweepDecision, item: Item, base: Base): Promis
       swept_at: now,
       skipped_in_sweep_at: null,
       resurface_count: (item.resurface_count ?? 0) + 1,
-      ...space,
     });
     return {
       ok: true,
@@ -360,7 +355,7 @@ async function keepNote(decision: SweepDecision, item: Item, base: Base): Promis
       const undoPrep = await addPrepTodo(decision.prepTodoText, item);
       if (undoPrep) reverts.push(undoPrep);
     }
-    const patch: Item = { swept_at: now, skipped_in_sweep_at: null, ...space };
+    const patch: Item = { swept_at: now, skipped_in_sweep_at: null };
     if (decision.reminderDateStr) {
       void maybeAsk('bell');
       patch.reminders = [reminderFor(item.id, decision.reminderDateStr, '09:00')];
@@ -388,7 +383,6 @@ async function keepNote(decision: SweepDecision, item: Item, base: Base): Promis
     swept_at: now,
     skipped_in_sweep_at: null,
     resurface_at: null,
-    ...space,
   });
   return {
     ok: true,

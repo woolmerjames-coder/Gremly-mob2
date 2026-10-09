@@ -123,7 +123,7 @@ The following template-based question patterns are no longer used:
    - ❌ Caused truncation issues
 
 2. **"Thinking about" pattern:**
-   - Input: "I'm thinking about visiting Oaxaca"
+   - Input: "I'm thinking about visiting Porto"
    - Template: "What's the first detail you're exploring about {fragment}?"
    - ❌ Generic, not contextual
 

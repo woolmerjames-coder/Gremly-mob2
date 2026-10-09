@@ -43,7 +43,7 @@ jest.mock('../../../lib/minddrop/relationActions', () => ({
 const todo = {
   id: 't1',
   type: 'todo',
-  title: 'Arrange a Pet Sitter for Bella',
+  title: 'Arrange a Pet Sitter for Pepper',
   due_day: null,
   due_time: null,
 };
@@ -93,7 +93,7 @@ describe('RelationPopup', () => {
     );
     await findByText('Mark this one done?');
     expect(getByText('“Booked the pet sitter”')).toBeTruthy();
-    expect(getByText('Arrange a Pet Sitter for Bella')).toBeTruthy();
+    expect(getByText('Arrange a Pet Sitter for Pepper')).toBeTruthy();
     expect(getByText('Yes, mark it done')).toBeTruthy();
     expect(getByText('Not that one')).toBeTruthy();
     expect(getByText('Skip for now')).toBeTruthy();
@@ -104,11 +104,11 @@ describe('RelationPopup', () => {
     const undo = jest.fn(async () => {});
     const toast = {
       icon: 'done',
-      title: 'Marked “Arrange a Pet Sitter for Bella” done',
+      title: 'Marked “Arrange a Pet Sitter for Pepper” done',
       detail: 'Drop archived',
     };
     (applyDropRelation as jest.Mock).mockResolvedValue({
-      summary: 'Arrange a Pet Sitter for Bella is done.',
+      summary: 'Arrange a Pet Sitter for Pepper is done.',
       confirm: 'Done',
       toast,
       targetId: 't1',

@@ -3,8 +3,8 @@ import { talkAboutOpener, TALK_ABOUT_OPENER_COUNT } from '../talkAboutOpeners';
 describe('talkAboutOpener', () => {
   it('names the item in every opener', () => {
     for (let i = 0; i < TALK_ABOUT_OPENER_COUNT; i++) {
-      const line = talkAboutOpener('Take Bella for a Walk', (i + 0.5) / TALK_ABOUT_OPENER_COUNT);
-      expect(line).toContain('**Take Bella for a Walk**');
+      const line = talkAboutOpener('Take Pepper for a Walk', (i + 0.5) / TALK_ABOUT_OPENER_COUNT);
+      expect(line).toContain('**Take Pepper for a Walk**');
     }
   });
 

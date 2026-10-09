@@ -16,7 +16,7 @@ const items = withKeys([
   {
     id: 'todo-food-0001',
     type: 'todo',
-    title: 'Order more of Bella’s food',
+    title: 'Order more of Pepper’s food',
     due_day: null,
     due_time: null,
   },
@@ -30,7 +30,7 @@ const items = withKeys([
   {
     id: 'note-vet-00003',
     type: 'note',
-    title: 'Bella vet appointment',
+    title: 'Pepper vet appointment',
     due_day: '2026-10-02',
     due_time: null,
     target_date: '2026-10-02',
@@ -45,7 +45,7 @@ const items = withKeys([
   {
     id: 'habit-walk-005',
     type: 'habit',
-    title: 'Walk Bella',
+    title: 'Walk Pepper',
     habit_kind: 'build',
     frequency: 'daily',
     logged_days: ['2026-09-29'],
@@ -164,7 +164,7 @@ describe('decideRelation', () => {
     expect(r.entity).toMatchObject({
       id: 'note-vet-00003',
       type: 'note',
-      title: 'Bella vet appointment',
+      title: 'Pepper vet appointment',
     });
     expect(r.entity.key).toBeUndefined();
   });

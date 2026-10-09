@@ -34,10 +34,10 @@ describe('findItemChat', () => {
         data: [{ chat_id: 'c2' }, { chat_id: 'c1' }, { chat_id: 'c2' }],
         error: null,
       },
-      scope_chats: { data: [{ id: 'c2', title: 'Walk Bella' }], error: null },
+      scope_chats: { data: [{ id: 'c2', title: 'Walk Pepper' }], error: null },
     };
     const chat = await findItemChat('u1', 't1');
-    expect(chat).toEqual({ id: 'c2', title: 'Walk Bella' });
+    expect(chat).toEqual({ id: 'c2', title: 'Walk Pepper' });
     const onMessages = mockCalls.filter((c) => c.table === 'scope_chat_messages');
     expect(onMessages).toEqual(
       expect.arrayContaining([

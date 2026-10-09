@@ -271,7 +271,7 @@ describe('what the read gathers', () => {
     expect(g.calendar.days).toHaveLength(7);
     expect(g.calendar.days[0]).toEqual({
       day: '2026-10-05',
-      meetings: [{ title: 'Staff meeting', start: 540, end: 570 }],
+      meetings: [{ id: 's1', title: 'Staff meeting', start: 540, end: 570 }],
       all_day: [],
     });
     expect(g.dated).toEqual([

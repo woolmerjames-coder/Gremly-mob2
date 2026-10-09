@@ -58,8 +58,6 @@ describe('RootStackParamList route types', () => {
     type _Login = AssertRouteExists<'Login'>;
     type _Tabs = AssertRouteExists<'Tabs'>;
     type _CatchAllNotepad = AssertRouteExists<'CatchAllNotepad'>;
-    type _SpaceDetail = AssertRouteExists<'SpaceDetail'>;
-    type _ChatThread = AssertRouteExists<'ChatThread'>;
     type _WeeklySummary = AssertRouteExists<'WeeklySummary'>;
     type _WeeklySummaryV2 = AssertRouteExists<'WeeklySummaryV2'>;
     type _CalendarScreen = AssertRouteExists<'CalendarScreen'>;
@@ -69,16 +67,6 @@ describe('RootStackParamList route types', () => {
 
     // If we reach here, all routes compile
     expect(true).toBe(true);
-  });
-
-  it('ChatThread requires spaceId', () => {
-    const params: RootStackParamList['ChatThread'] = { spaceId: 'space-abc' };
-    expect(params.spaceId).toBe('space-abc');
-  });
-
-  it('SpaceDetail requires id', () => {
-    const params: RootStackParamList['SpaceDetail'] = { id: 'space-123' };
-    expect(params.id).toBe('space-123');
   });
 
   it('HabitDetail requires habitId', () => {

@@ -15,20 +15,16 @@ import {
   Moon,
   CheckCircle2,
   ListChecks,
-  PlusCircle,
   Inbox,
   ArrowRightLeft,
   Grip,
-  FolderOpen,
   MessageCircle,
-  Tag,
   Settings,
   Search,
   LayoutGrid,
   ArrowRight,
   CircleDot,
   Flame,
-  Flag,
   CalendarCheck,
   Coffee,
 } from 'lucide-react-native';
@@ -50,8 +46,6 @@ type ScreenType =
   | 'organize'
   | 'sweep'
   | 'sweep-habits'
-  | 'spaces'
-  | 'space-detail'
   | 'hub'
   | 'askgremly';
 
@@ -139,40 +133,6 @@ const HELP_CONTENT: Record<ScreenType, HelpContent> = {
       {
         icon: <Flame size={ICON_SIZE} color={ICON_COLOR} />,
         text: 'Every day counts \u2014 your streaks build here',
-      },
-    ],
-  },
-  spaces: {
-    title: 'Spaces',
-    steps: [
-      {
-        icon: <FolderOpen size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Areas of your life \u2014 work, health, projects, and anything else',
-      },
-      {
-        icon: <Sparkles size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Gremly suggests new Spaces based on your drops',
-      },
-      {
-        icon: <PlusCircle size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Create your own or tap Add to accept a suggestion',
-      },
-    ],
-  },
-  'space-detail': {
-    title: 'Inside a Space',
-    steps: [
-      {
-        icon: <MessageCircle size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Chat with Gremly about anything here',
-      },
-      {
-        icon: <Tag size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Assign todos, habits, and notes \u2014 or create them by chat',
-      },
-      {
-        icon: <Flag size={ICON_SIZE} color={ICON_COLOR} />,
-        text: 'Set a goal to give this Space direction',
       },
     ],
   },

@@ -117,14 +117,16 @@ describe('writing the brief', () => {
     expect(rows[2].content).toBe(fallbackOffer('plan'));
   });
 
-  it('still arrives when every line failed the ID check, and still asks the question', async () => {
+  it('still arrives when every line failed the check, and still asks the question', async () => {
     gatherBrief.mockResolvedValue(
       day({ question: { id: 'q1', question: 'Is the haircut Friday?', choices: ['Yes', 'No'] } }),
     );
     writeBrief.mockResolvedValue({
       model: 'gemini',
       lines: [],
-      dropped: [{ text: 'Your 3pm with Bob', bad: ['c9'] }],
+      dropped: [
+        { text: 'Your 3pm with Bob', bad: ['it states time 15:00 from a record it was not given'] },
+      ],
       offer: null,
       offerDropped: null,
       questionLine: null,
@@ -136,6 +138,40 @@ describe('writing the brief', () => {
     expect(rows[0].content).toBe("Here's your day.");
     const question = rows.find((r) => r.metadata_json.kind === 'question');
     expect(question.content).toBe('Is the haircut Friday?');
+  });
+
+  it("gives a question with no answers the writer's answers, but not one about someone", async () => {
+    const asked = (kind) => ({
+      model: 'gemini',
+      lines: [{ text: 'A clear day.', ids: [] }],
+      dropped: [],
+      offer: null,
+      offerDropped: null,
+      questionLine: 'What is your brother called?',
+      questionChoices: ['Tom', 'Sam'],
+      catchUp: null,
+      kind,
+    });
+    for (const [kind, want] of [
+      ['fact', ['Tom', 'Sam']],
+      ['person', []],
+    ]) {
+      appendMessages.mockClear();
+      gatherBrief.mockResolvedValue(
+        day({
+          question: { id: 'q1', kind, question: 'What is your brother called?', choices: [] },
+        }),
+      );
+      writeBrief.mockResolvedValue(asked(kind));
+      await writeDailyBrief({}, 'user-1', { reason: 'scheduled' });
+      const q = written().find((r) => r.metadata_json.kind === 'question');
+      const answers = q.metadata_json.buttons
+        .filter((b) => b.action === 'answer')
+        .map((b) => b.label);
+      expect(answers).toEqual(want);
+      // what it is about goes with it: the app puts one about a Chapter as the Worlds card
+      expect(q.metadata_json.question_kind).toBe(kind);
+    }
   });
 
   describe('their week', () => {

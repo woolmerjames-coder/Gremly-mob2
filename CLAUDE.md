@@ -8,6 +8,11 @@ The agent work (one agent core for the daily brief, general chat and Sweep) is
 handed over in `docs/agent/HANDOFF.md`. Read it before working on chat, the
 brief, the change model or anything in `workers/cortex/agent`.
 
+The data fabric (what Gremly knows about a person and every writer and reader
+of it: the ledger, the daily picture, the weekly pass and summary, Worlds
+words, questions, the story, corrections) is handed over in
+`docs/data-fabric/HANDOFF.md`. Read it before changing any of those.
+
 ## Rules that hold everywhere
 
 - No dashes as punctuation in anything written: prompts, UI words, commit

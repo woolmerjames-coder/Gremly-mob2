@@ -15,6 +15,10 @@ import {
   dayMeaning,
   easedWords,
   learnFromTurn,
+  prioritiesWords,
+  questionInPlay,
+  questionSource,
+  questionSourceContext,
   readWeek,
   readWrap,
   renderDay,
@@ -27,8 +31,9 @@ import {
   weekVariant,
   wrapContext,
 } from '../brief.js';
+import { JUST_HAPPENED_RULE } from '../../../shared/lifePack.js';
 import { readTurnRequest } from '../../../inngest-jobs/brief/dayTurn.js';
-import { CHAT_WRITING_RULES } from '../../../inngest-jobs/careRules.js';
+import { CHAT_WRITING_RULES, SOURCE_RULES_AGENT } from '../../../inngest-jobs/careRules.js';
 import { configureModels } from '../../models.js';
 
 const MUM = '11111111-1111-4111-8111-111111111111';
@@ -232,12 +237,17 @@ describe('the day the agent knows', () => {
     expect(p).not.toContain('WHAT YOU KNOW ABOUT TODAY');
     expect(p).not.toMatch(/ — | – /);
     expect(dayContext(req)).toBe(`WHAT YOU KNOW ABOUT TODAY\n${renderDay(req)}`);
+    // a friend asks after what has just happened (data fabric stage 4e)
+    expect(p).toContain(JUST_HAPPENED_RULE);
+    expect(p).toContain(
+      'or to ask after something that has just happened in their life, never to offer more',
+    );
   });
 
   it("knows what today is about, from Gremly's picture of their day", () => {
     const dco = {
       lead_story: {
-        what: 'Anniversary weekend with Dave in San Diego',
+        what: 'Anniversary weekend with Theo in San Diego',
         why_today: 'A multi-day trip celebrating your anniversary, running through Sunday.',
       },
       day_frame: { away: { label: 'San Diego anniversary trip', through: '2026-10-04' } },
@@ -245,11 +255,18 @@ describe('the day the agent knows', () => {
     };
     expect(dayMeaning(dco)).toBe(
       "WHAT TODAY IS ABOUT (Gremly's picture of their day)\n" +
-        '- Anniversary weekend with Dave in San Diego: A multi-day trip celebrating your anniversary, running through Sunday.\n' +
+        '- Anniversary weekend with Theo in San Diego: A multi-day trip celebrating your anniversary, running through Sunday.\n' +
         '- Away: San Diego anniversary trip, until Sunday 2026-10-04\n' +
         "- How Gremly's brief is pitching today: Keep things warm and unhurried.",
     );
     expect(dayMeaning(null)).toBe('');
+    // Up next among their Chapters, as the daily picture carries it (data fabric 4b)
+    expect(
+      dayMeaning({
+        ...dco,
+        up_next: { title: 'The half', date: '2026-10-04', which: 'ends', days_until: 2 },
+      }),
+    ).toMatch(/\n- Up next among their Chapters: "The half" ends on Sunday 2026-10-04$/);
     expect(dayContext(req, dco).indexOf('WHAT TODAY IS ABOUT')).toBeLessThan(
       dayContext(req, dco).indexOf('TODAY: Friday'),
     );
@@ -599,14 +616,14 @@ describe('a message typed while the evening wrap up is under way', () => {
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday or Monday?",
-        item: { id: VET, kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday or Monday?",
+        item: { id: VET, kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     });
     const text = wrapContext(wrap);
     expect(text).toContain("THEIR MESSAGE ANSWERS GREMLY'S QUESTION");
     expect(text).toContain(
-      `Gremly asked: "Is Bella's vet visit on Friday or Monday?", about their todo "Take Bella to the vet" (id ${VET}), Fri 9 Oct.`,
+      `Gremly asked: "Is Pepper's vet visit on Friday or Monday?", about their todo "Take Pepper to the vet" (id ${VET}), Fri 9 Oct.`,
     );
     // the case that changes nothing comes first, and is the whole turn
     expect(text).toContain('Then see whether that item already agrees with the answer.');
@@ -740,10 +757,31 @@ describe("the person's week, when the app sends it", () => {
         hours: { normal_day: 2, weekend_day: 4 },
         busy_days: ['2026-10-08'],
         intention: { id: MUM, text: 'Rest first' },
+        // this build did not say what matters most now: a new priority is never put to it
+        priorities: null,
         under_way: null,
         // this build did not say which habits are eased: that change is never offered to it
         eased: null,
       });
+    });
+
+    it('reads what matters most this week, from a build that sends it', () => {
+      const w = readWeek({
+        weekly_day: 0,
+        priorities: ['  Finish   the grant ', '', 7, 'x'.repeat(200)],
+      });
+      expect(w.priorities).toEqual(['Finish the grant', 'x'.repeat(120)]);
+      expect(readWeek({ weekly_day: 0, priorities: [] }).priorities).toEqual([]);
+      // it is told with their week, and nothing is said from a build that did not send it
+      expect(prioritiesWords(w)).toContain(
+        'What matters most to them this week, as it stands: “Finish the grant”',
+      );
+      expect(prioritiesWords({ priorities: [] })).toBe(
+        ' Nothing is chosen as mattering most this week yet.',
+      );
+      expect(prioritiesWords(readWeek({ weekly_day: 0 }))).toBe('');
+      expect(weekFrameOf(w, MON).priorities).toEqual(w.priorities);
+      expect(weekFrameOf(readWeek({ weekly_day: 0 }), MON).priorities).toBeNull();
     });
 
     it('reads the habits paused or on a lighter version, from a build that sends them', () => {
@@ -1084,6 +1122,30 @@ describe("the person's week, when the app sends it", () => {
       expect(text).not.toMatch(/ — | – | - /);
     });
 
+    it('takes work Gremly cannot see as the shape of the week, and never copies their calendar', () => {
+      const text = weekContext(readWeek(UNDER));
+      // a task they name comes first and is a new todo, put on the card without asking
+      expect(text).toContain('It is a new todo, put on the card with add');
+      expect(text).toContain('without asking whether they want it or which day');
+      // a load is the week's shape, never an item
+      expect(text).toContain('The load itself is never a todo and never a note');
+      expect(text).toContain('with week_shape: the days they say it falls on become busy days');
+      expect(text.indexOf('It is a new todo')).toBeLessThan(text.indexOf('The load itself'));
+      expect(text).toContain(
+        'never put a todo, a note or a set time on the card for a calendar entry',
+      );
+      // adding it to what matters most is put only to a build that can keep it
+      expect(text).not.toContain('with priority');
+      const can = weekContext(readWeek({ ...UNDER, priorities: [] }));
+      expect(can).toContain('add the load to what matters most this week with priority');
+      // the task is never folded into the priority's words
+      expect(can).toContain('the load alone, never a task they named');
+      expect(can).not.toMatch(/ — | – | - /);
+      // none of it is said once the review is finished
+      const finished = readWeek({ ...UNDER, under_way: { ...UNDER.under_way, step: 'done' } });
+      expect(weekContext(finished)).not.toContain('The load itself is never a todo');
+    });
+
     it('says when it plans only the rest of a week', () => {
       const part = readWeek({
         ...UNDER,
@@ -1117,6 +1179,8 @@ describe("the person's week, when the app sends it", () => {
       expect(text).toContain('THEY OPENED ONE TO TALK IT THROUGH');
       expect(text).toContain(`"Sort out the accountant" (todos ${MUM})`);
       expect(text).toContain('Gremly asked: "What is the first small step?"');
+      // talking one through ends with something to say yes to
+      expect(text).toContain('End your reply with one concrete offer on the card');
     });
 
     it('once it is finished, keeps what was settled and stops carrying on', () => {
@@ -1283,5 +1347,195 @@ describe("the person's week, when the app sends it", () => {
       // the weekly day is already Sunday: the model hears why that row was dropped
       expect(m.seen[1].turns.at(-1).results[0].text).toContain('c2: it already is that way');
     });
+  });
+});
+
+// ── Where Gremly's question came from ───────────────────────────────────────
+
+describe("where Gremly's question came from", () => {
+  const QUESTION =
+    'Did the move to the Lisbon office get confirmed, or are you still waiting to hear?';
+  const FACT_ID = '77777777-7777-4777-8777-777777777777';
+  const FACT = {
+    id: FACT_ID,
+    statement:
+      'Alex said work is busy but good, and that a move to the Lisbon office might be coming.',
+    about_date: '2026-09-29',
+    state: 'current',
+    private: false,
+    said_by: 'user',
+    source_table: 'user_corrections',
+    source_kind: 'question',
+    source_question: 'How is work going these days?',
+    source_quote:
+      'Busy but good. Might be moving to the Lisbon office in the new year, we will see',
+    // the evening of Tuesday 29 September in Los Angeles
+    observed_at: '2026-09-30T05:10:00Z',
+  };
+  /** A database holding the person's questions and each one's fact. */
+  const dbWith = (questions, facts = [FACT]) => {
+    const seen = [];
+    return {
+      seen,
+      select: async (path) => {
+        seen.push(path);
+        return path.startsWith('gremly_questions') ? questions : [];
+      },
+      rpc: async (fn, args) => {
+        seen.push([fn, args]);
+        return fn === 'fact_sources' ? facts.filter((f) => args.p_fact_ids.includes(f.id)) : [];
+      },
+    };
+  };
+  const WRAP = { step: 'questions', decisions: [], answering: { question: QUESTION } };
+
+  it("is the wrap up's question when the message answers one, else the thread's open one", () => {
+    const req = readTurnRequest({ ...BODY, question: 'Friday or Monday?' });
+    expect(questionInPlay(req, readWrap(WRAP))).toBe(QUESTION);
+    expect(questionInPlay(req, null)).toBe('Friday or Monday?');
+    expect(questionInPlay(readTurnRequest(BODY), null)).toBe('');
+  });
+
+  it("finds the question among the person's own by its words, then reads its fact's source", async () => {
+    const db = dbWith([
+      { question: 'Another question?', about_fact_id: '88888888-8888-4888-8888-888888888888' },
+      // spaces differ; the words are the same
+      {
+        question: `  ${QUESTION.replace('Lisbon office', 'Lisbon  office')} `,
+        about_fact_id: FACT_ID,
+      },
+    ]);
+    const fact = await questionSource({ db }, USER, QUESTION);
+    expect(fact).toEqual(FACT);
+    // only this person's questions, and only ones written about a fact
+    expect(db.seen[0]).toContain(`gremly_questions?user_id=eq.${USER}`);
+    expect(db.seen[0]).toContain('about_fact_id=not.is.null');
+    expect(db.seen[1]).toEqual(['fact_sources', { p_user: USER, p_fact_ids: [FACT_ID] }]);
+  });
+
+  it('is nothing when there is no question, no such question, or no fact behind it', async () => {
+    const db = dbWith([{ question: 'Another question?', about_fact_id: FACT_ID }]);
+    expect(await questionSource({ db }, USER, '')).toBeNull();
+    expect(db.seen).toEqual([]);
+    expect(await questionSource({ db }, USER, QUESTION)).toBeNull();
+    expect(
+      await questionSource(
+        { db: dbWith([{ question: QUESTION, about_fact_id: FACT_ID }], []) },
+        USER,
+        QUESTION,
+      ),
+    ).toBeNull();
+  });
+
+  it('never stops the turn when it cannot be read', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = {
+      select: async () => {
+        throw new Error('select gremly_questions 500');
+      },
+      rpc: async () => [],
+    };
+    expect(await questionSource({ db }, USER, QUESTION)).toBeNull();
+    // said in the log, not swallowed
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('tells the agent how Gremly knows it, and that it is for the one case of being asked', () => {
+    const block = questionSourceContext(QUESTION, FACT, {
+      today: '2026-10-03',
+      timezone: 'America/Los_Angeles',
+    });
+    expect(block).toBe(
+      `IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM\nGremly asked "${QUESTION}" because of their answer when Gremly asked "How is work going these days?", on Tue 29 Sep 2026; their words: "Busy but good. Might be moving to the Lisbon office in the new year, we will see".\nThis is the record itself, read just now, and it is here for one case only: when their message asks where the question came from, or how Gremly knew, rather than answering it. Then it is not an answer: tell them plainly and warmly from this, the day, where they said it and what they said, with no lookup. When their message answers the question, leave this out of your reply and handle the answer as above.`,
+    );
+    expect(questionSourceContext(QUESTION, null)).toBe('');
+    expect(questionSourceContext('', FACT)).toBe('');
+  });
+
+  it('gives the fact as Gremly wrote it when their own words were not kept', () => {
+    const block = questionSourceContext(
+      QUESTION,
+      { ...FACT, source_quote: null },
+      { today: '2026-10-03', timezone: 'America/Los_Angeles' },
+    );
+    expect(block).toContain(
+      `on Tue 29 Sep 2026. On record from it: "${FACT.statement}"\nThis is the record itself`,
+    );
+    // a fact whose source is not known is still said, as what is on record
+    expect(questionSourceContext(QUESTION, { statement: FACT.statement })).toContain(
+      `Gremly asked "${QUESTION}" because of this on record about them: "${FACT.statement}"\nThis is the record itself`,
+    );
+  });
+
+  it('comes last in what the agent knows about today, and only when there is one', () => {
+    const req = readTurnRequest({ text: 'hi', date: '2026-10-03', now: 1250, items: [] });
+    const block = questionSourceContext(QUESTION, FACT, { today: '2026-10-03', timezone: 'UTC' });
+    const all = dayContext(req, null, readWrap(WRAP), null, null, block);
+    expect(all.endsWith(block)).toBe(true);
+    expect(all.indexOf("THEIR MESSAGE ANSWERS GREMLY'S QUESTION")).toBeLessThan(all.indexOf(block));
+    expect(dayContext(req, null, readWrap(WRAP))).not.toContain(
+      "IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM",
+    );
+  });
+
+  it("leaves the wrap up's own words about an answer exactly as they were", () => {
+    // what to do when they ask about the question is said with its source, not here:
+    // a line here took the card off a plain answer
+    const text = wrapContext(readWrap(WRAP));
+    expect(text).not.toContain('it is not the answer');
+    expect(text.endsWith('with your reply, in this step.')).toBe(true);
+  });
+
+  it('reaches the model with the message, and changes nothing about who Gremly is in the thread', async () => {
+    const m = scripted(reply('You told me on Tuesday, when I asked how work was going.'));
+    const db = dbWith([{ question: QUESTION, about_fact_id: FACT_ID }]);
+    const r = await runBriefTurn({
+      env: {},
+      userId: USER,
+      body: {
+        ...BODY,
+        text: 'How did you know about the Lisbon move?',
+        date: '2026-10-03',
+        wrap: WRAP,
+      },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: {
+        person: { first_name: 'Alex' },
+        ctx: { ...fakeCtx, db },
+        dayEndHour: 3,
+        agent: { callModel: m.callModel },
+      },
+    });
+    expect(r).toMatchObject({ engine: 'agent', stopped: 'answer' });
+    const sent = JSON.stringify(m.seen[0]);
+    expect(sent).toContain("IF THEY ASK WHERE GREMLY'S QUESTION CAME FROM");
+    expect(sent).toContain('on Tue 29 Sep 2026');
+    expect(sent).toContain('Might be moving to the Lisbon office in the new year');
+    // no standing rule in the thread: it cost the card on a plain answer (careRules.js)
+    expect(m.seen[0].system).not.toContain('HOW GREMLY KNOWS WHAT IT KNOWS');
+    expect(briefPersona({ first_name: 'Alex' })).not.toContain(SOURCE_RULES_AGENT);
+  });
+
+  it('a turn with no question in play asks the database nothing more', async () => {
+    const m = scripted(reply('Morning.'));
+    const db = dbWith([{ question: QUESTION, about_fact_id: FACT_ID }]);
+    await runBriefTurn({
+      env: {},
+      userId: USER,
+      body: { ...BODY, text: 'morning' },
+      useAgent: true,
+      dayTurn: async () => null,
+      deps: {
+        person: {},
+        ctx: { ...fakeCtx, db },
+        dayEndHour: 3,
+        agent: { callModel: m.callModel },
+      },
+    });
+    expect(db.seen.filter((x) => String(x).startsWith('gremly_questions'))).toEqual([]);
+    const sent = JSON.stringify(m.seen[0]);
+    expect(sent).not.toContain("WHERE GREMLY'S QUESTION CAME FROM");
+    expect(sent).not.toContain('HOW GREMLY KNOWS');
   });
 });

@@ -200,6 +200,11 @@ function dbFor(s, to) {
     ...todos.map((r) => ({ type: 'todo', row: r, day: r.due_day, time: r.due_time })),
     ...habits.map((r) => ({ type: 'habit', row: r, day: null, time: null })),
   ];
+  // Gremly's questions in the scenario, each fact with an id of its own
+  const asked = (s.asked || []).map((q, i) => ({
+    question: q.question,
+    fact: { id: `10000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`, ...q.fact },
+  }));
   return {
     select: async (path) => {
       const [table, query = ''] = path.split('?');
@@ -235,11 +240,29 @@ function dbFor(s, to) {
         return todos.filter((r) => r.due_day && r.due_day < day);
       }
       if (table === 'habits') return habits;
+      // their connected calendar on the days of the week (get_week, get_day): timed entries only
+      if (table === 'synced_calendar_events') {
+        if (query.includes('is_all_day=eq.true')) return [];
+        // the scenarios are in Los Angeles in October, seven hours behind UTC
+        const at = (day, time) => new Date(`${day}T${time}:00-07:00`).toISOString();
+        return (s.calendar || []).map(([day, from, until, title], i) => ({
+          id: `cal-${i + 1}`,
+          title,
+          start_at: at(day, from),
+          end_at: at(day, until),
+          is_all_day: false,
+        }));
+      }
       // the day's picture the brief is written from, when the scenario has one
       if (table === 'user_daily_state') return s.dco ? [{ dco: s.dco }] : [];
+      // Gremly's own questions, each with the fact it was written about, when the scenario has them
+      if (table === 'gremly_questions') return asked.map((q) => ({ question: q.question, about_fact_id: q.fact.id }));
       return [];
     },
     rpc: async (fn, a) => {
+      // what Gremly remembers (recall), and where a question's fact came from
+      if (fn === 'recall_life') return s.memories || [];
+      if (fn === 'fact_sources') return asked.map((q) => q.fact).filter((f) => (a.p_fact_ids || []).includes(f.id));
       if (fn !== 'find_items') return [];
       const words = String(a.p_query || '')
         .toLowerCase()
@@ -280,6 +303,8 @@ export function asDayChange(c, back) {
       return { kind: 'milestone', title: c.title, day: c.milestone?.date, steps: c.milestone?.steps };
     case 'weekly_day':
       return { kind: 'weekly_day', weekday: f.weekday };
+    case 'priority':
+      return { kind: 'priority', title: f.text };
     case 'add':
       return {
         kind: 'create_todo',
@@ -346,6 +371,8 @@ async function runOne(s, modelKey) {
         person: { first_name: 'Alex', pronouns: null, identity: {} },
         // when their day ends (3am unless the scenario says otherwise)
         dayEndHour: s.dayEnd ?? 3,
+        // their life right now, when the scenario gives it (stage 4d); none otherwise
+        life: s.life ?? '',
         ctx: { env, userId: USER, timezone: 'America/Los_Angeles', cache: new Map(), db: dbFor(s, to) },
         models: { model: MODELS[modelKey], fallback: MODELS[modelKey], thinking: thinking || undefined },
         // every tool call and what it said back, for the results file

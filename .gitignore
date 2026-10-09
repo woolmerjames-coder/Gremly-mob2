@@ -82,3 +82,16 @@ onboarding-files.zip
 app/screens/.WeeklySummaryV2Screen.tsx.swp
 
 .env.local
+
+# Outputs that hold real people's data never go in the repo (18 Oct)
+/dist-cortex/
+/analyst*.json
+/summary-v2*.json
+/vibe*.json
+/corpus-results*.json
+workers/cortex/corpus-results*.json
+workers/cortex/corpus-review*.html
+workers/inngest-jobs/*.json
+!workers/inngest-jobs/package.json
+!workers/inngest-jobs/package-lock.json
+!workers/inngest-jobs/tsconfig*.json

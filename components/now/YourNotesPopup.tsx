@@ -148,16 +148,6 @@ export function YourNotesPopup({
   // Get recent notes from store (last 7 days worth)
   const recentNotesRaw = useRecentNotes(200);
   const isLoading = useGremlyStore((s) => s.isLoading);
-  const spaces = useGremlyStore((s) => s.spaces);
-
-  // Create space lookup map
-  const spaceMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    spaces.forEach((space) => {
-      map[space.id] = space.name;
-    });
-    return map;
-  }, [spaces]);
 
   // Filter to last 7 days and exclude catchall
   const { logs, journals, ideas, general, totalCount } = useMemo(() => {
@@ -273,7 +263,6 @@ export function YourNotesPopup({
                   key={log.id}
                   log={log}
                   onPress={handleLogPress}
-                  spaceName={log.spaceId ? spaceMap[log.spaceId] : undefined}
                   isFirst={index === 0}
                 />
               ))

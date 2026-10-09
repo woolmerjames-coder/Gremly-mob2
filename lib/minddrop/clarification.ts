@@ -57,7 +57,6 @@ export interface ClarificationOption {
     kind?: ClarifyOptionKind | null;
     followUp?: ClarifyFollowUp | null;
   };
-  space_suggestion?: string | null;
 }
 
 export interface ClarificationPayload {
@@ -249,7 +248,6 @@ function toClientOption(o: FallbackOption, label?: string): ClarificationOption 
       kind: o.kind ?? null,
       followUp: o.followUp ?? null,
     },
-    space_suggestion: null,
   };
 }
 
@@ -312,7 +310,6 @@ export function mapWorkerOptions(
           kind: optionKind(o),
           followUp: optionFollowUp(o),
         },
-        space_suggestion: o.space_suggestion ?? null,
       } as ClarificationOption;
     });
   return mapped.length >= 2 ? mapped : null;
@@ -339,7 +336,6 @@ export interface FetchClarificationArgs {
   ambiguityType?: string | null;
   ambiguityReason?: string | null;
   bucket?: ClarifyBucket;
-  userSpaces?: string[];
   timeoutMs?: number;
 }
 
@@ -375,7 +371,6 @@ export async function fetchClarification(
           ambiguityReason: args.ambiguityReason || undefined,
           currentDate: dateService.today(),
           targetBucket: args.bucket || 'log',
-          userSpaces: args.userSpaces || [],
         }),
         ...(controller ? { signal: controller.signal } : {}),
       });

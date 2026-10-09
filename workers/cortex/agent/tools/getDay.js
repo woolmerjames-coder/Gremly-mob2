@@ -31,6 +31,7 @@ import { isDay, weeklyDayOf } from '../../../shared/week.js';
 import { easeOn, isBreakHabit, rowOfEase, weekAround } from '../../../shared/habitWeek.js';
 import { day, obj } from './schema.js';
 import { addDays, clock, dayWords, trim, weekdayOf } from './words.js';
+import { stepsOnClosedChapters, withoutClosedSteps } from '../../../shared/closedSteps.js';
 
 const DESCRIPTION = `Read one day of the person's life, or several days in a row: timed calendar entries and all day ones, the todos planned for each day with their ids, the habits that fall on it and where each stands, and for today also the todos past their day and the travel and set times Gremly knows about. Use it for questions about a day or a stretch of days, before suggesting how to fit something in, and before proposing changes to a day. Read every day a question covers in one call, by giving the last day as to, up to a week. Today when no date is given.`;
 
@@ -201,13 +202,15 @@ async function readDay(ctx, date, shared) {
   const isToday = date === ctx.today;
   const d = ctx.db;
   const u = ctx.userId;
+  // steps left on a closed Chapter stay with it, as on Today in the app
+  const leftP = stepsOnClosedChapters(d, u);
   const [
     synced,
     noteEvents,
     quickEvents,
-    todos,
-    back,
-    overdue,
+    todosRead,
+    backRead,
+    overdueRead,
     habits,
     progress,
     plans,
@@ -241,6 +244,10 @@ async function readDay(ctx, date, shared) {
           .catch(() => [])
       : Promise.resolve([]),
   ]);
+  const left = await leftP;
+  const todos = withoutClosedSteps(todosRead, left);
+  const back = withoutClosedSteps(backRead, left);
+  const overdue = withoutClosedSteps(overdueRead, left);
   const dco = dcoRows?.[0]?.dco || null;
   const { meetings, allDay } = meetingsFrom({
     synced,
