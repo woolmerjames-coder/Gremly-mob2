@@ -8,6 +8,10 @@
  *   scripts/worlds-parity/run.sh newpath [--repeat n] [--label x]      the Chapter questions' model
  *   scripts/worlds-parity/run.sh compare --label x
  *
+ * The classifier left the weekly pipe on 18 Oct (WEEKLY_CLASSIFIER off), and
+ * the Chapter suggestion compared here moved to the weekly pass; this replay is
+ * kept as the record of the call.
+ *
  * Since stage 4b the classifier writes no words, closes nothing, and its new
  * Worlds and Chapters are only suggestions. What is left to compare:
  *   - Chapters forming: the classifier's new Chapter candidates, against the
@@ -31,7 +35,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { keys } from '../chat-audit/keys.mjs';
 import { classifyWorldsWeekly } from '../../workers/inngest-jobs/worldsClassifier';
-import { askClose, askSuggestion, closeCandidates } from '../../workers/inngest-jobs/context/chapterQuestions.js';
+import { askClose, closeCandidates } from '../../workers/inngest-jobs/context/chapterQuestions.js';
 import { WORLDS, CHAPTERS, CONTEXTS, DROPS, TODAY, PERSON } from '../filing-replay/person.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -108,14 +112,9 @@ async function runNewPath() {
   const runs = [];
   for (let i = 1; i <= repeat; i++) {
     const r = { i };
-    try {
-      const s = await askSuggestion(env, { worlds, chapters, drops, person: PERSON, today: TODAY, userId: 'u', runId: `r${i}` });
-      r.suggestion = s.row
-        ? { title: s.row.proposed_change.title, drops: s.row.rests_on.map((x) => x.id), world: WORLDS.find((w) => w.id === s.row.proposed_change.world_id)?.name }
-        : { none: s.refused };
-    } catch (err) {
-      r.suggestion = { error: String(err?.message || err).slice(0, 300) };
-    }
+    // a Chapter forming is offered by the weekly pass since 18 Oct, with the
+    // whole of their week; its replay is scripts/weekly-replay (the forming weeks)
+    r.suggestion = { moved: 'the weekly pass' };
     try {
       const records = new Map(passed.map((c) => [c.id, { items: DROPS.filter((d) => goldOf.get(d.id)?.chapter === c.title).map((d) => ({ type: d.entity_type, id: d.id, title: d.title, body: d.text, date: d.date })), facts: [] }]));
       const c = passed.length ? await askClose(env, { chapters: passed, records, worlds, person: PERSON, today: TODAY, userId: 'u', runId: `r${i}` }) : null;

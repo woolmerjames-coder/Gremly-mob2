@@ -37,7 +37,7 @@ import { weekCountLines } from './context/weekCounts';
 import { wordsRequest, wordsProblem } from '../shared/check/words.js';
 import type { Card, Deck, HardFacts, SummaryBrief, SourceRef } from './summaryTypes';
 
-export const PLAN_WRITER_VERSION = 'summary-plan-2026-10-15f';
+export const PLAN_WRITER_VERSION = 'summary-plan-2026-10-18a';
 const DEFAULT_WRITER_MODEL = 'claude-sonnet-5-5';
 
 // ── The writer ─────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ THE DECK
 
 HOW IT READS
 - Second person, direct and warm. Never address them by their own name. The companion is their Gremly, with a capital G.
-- Nothing tells them what to do or how to feel, the word should is never used, and the letter closes without asking anything of them.
+- Nothing tells them what to do or how to feel, and the letter closes without asking anything of them.
 - The deck speaks of their week as the records show it, and says nothing of Gremly itself: where it was, what it did or what it will do. It never speaks of records, of the app or of how Gremly knows what it says.
 - It is read on the last day of the week it looks back on, so it never says whether that week is over or still going.
 - Nothing counts days in a row, and nothing left undone is framed as a failing.
@@ -468,8 +468,7 @@ export function problemsByPart(
       else whole.push(e);
       continue;
     }
-    const v =
-      /^fabricated (?:date|number): (\S+)/.exec(e)?.[1] ?? (/"should"/.test(e) ? 'should' : null);
+    const v = /^fabricated (?:date|number): (\S+)/.exec(e)?.[1] ?? null;
     if (v) {
       // a value belongs to the parts whose own words or dates hold it, read
       // without the fields code fills (the mood arc, sources, ids), and a

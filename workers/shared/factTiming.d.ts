@@ -9,4 +9,5 @@ export function asOfToday<T extends Fact>(fact: T, today: string): T & { every_y
 export function whenTrue(fact: Fact, from?: string | null): string;
 export function factTiming(fact: Fact, today: string): unknown;
 export function planPassed(fact: Fact, today: string): boolean;
+export function currentPassed(fact: Fact, today: string): boolean;
 export function stateWords(fact: Fact, today: string): string;

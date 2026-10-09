@@ -108,7 +108,25 @@ export function planPassed(fact, today) {
   return fact?.state === 'planned' && factTiming(fact, today) === 'passed';
 }
 
-/** The state as a writer should read it: a passed plan says so. */
+/**
+ * A fact held as current on a day or a stretch of its own, which has gone by:
+ * it was so then. Whether it still is, the writer reads from the rest.
+ */
+export function currentPassed(fact, today) {
+  return (
+    fact?.state === 'current' &&
+    (fact.timing === 'day' || fact.timing === 'span') &&
+    factTiming(fact, today) === 'passed'
+  );
+}
+
+/**
+ * The state as a writer should read it: a passed plan says so, and so does
+ * something held as current on days that have passed, so that no writer tells
+ * it as holding now.
+ */
 export function stateWords(fact, today) {
-  return planPassed(fact, today) ? 'planned, date passed' : fact?.state || '';
+  if (planPassed(fact, today)) return 'planned, date passed';
+  if (currentPassed(fact, today)) return 'so on its days, which have passed: what was under way then took place';
+  return fact?.state || '';
 }

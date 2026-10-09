@@ -391,6 +391,17 @@ describe('the ledger as the reader sees it', () => {
       'planned, date passed',
     );
   });
+
+  it('says something held as current on days of its own that have passed was so then', () => {
+    const trip = { state: 'current', timing: 'span', about_date: '2026-10-02', about_date_end: '2026-10-04' };
+    expect(stateWords(trip, '2026-10-07')).toBe('so on its days, which have passed: what was under way then took place');
+    // while its days last, and for what holds with no day of its own, it is current
+    expect(stateWords(trip, '2026-10-03')).toBe('current');
+    expect(stateWords({ state: 'current', timing: 'standing', about_date: '2026-10-01' }, '2026-10-07')).toBe('current');
+    expect(stateWords({ state: 'current', timing: 'yearly', about_date: '2025-10-01' }, '2026-10-07')).toBe('current');
+    // a fact not yet given its timing is read as it was
+    expect(stateWords({ state: 'current', about_date: '2026-10-01' }, '2026-10-07')).toBe('current');
+  });
 });
 
 describe('a deleted note', () => {

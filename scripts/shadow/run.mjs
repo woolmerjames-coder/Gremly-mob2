@@ -1305,7 +1305,7 @@ const JOBS = {
         worlds: {
           headline: output?.worlds_summary?.headline ?? null,
           featured: (output?.worlds_summary?.featured || []).map((f) => ({ world: nameOf(f.world_ref), reason: f.reason })),
-          each: (output?.worlds || []).map((w) => ({ world: nameOf(w.world_ref), phase: w.phase, summary: w.summary, priorities: (w.key_priorities || []).map((k) => k?.text).filter(Boolean) })),
+          each: (output?.worlds || []).map((w) => ({ world: nameOf(w.world_ref), summary: w.summary, priorities: (w.key_priorities || []).map((k) => k?.text).filter(Boolean) })),
         },
         chapters: (output?.chapters || []).map((c) => ({ chapter: nameOf(c.chapter_ref), stage: c.stage ?? null, summary: c.summary, priorities: (c.key_priorities || []).map((k) => k?.text).filter(Boolean) })),
         profile: output?.profile_text ?? null,
@@ -1712,7 +1712,7 @@ Then list every statement in either summary that the records do not hold, each a
         }
         const applied = await weekly.applyWeekly(env, userId, output, p.refsSnapshot, { shadow: true, runId: `shadow-not-sure-${weekEnd}`, today: p.today });
         const refs = new Map(p.refsSnapshot);
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/life_people?user_id=eq.${userId}&select=id,name,relationship,merged_into,hidden_at&limit=2000`, { headers });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/life_people?user_id=eq.${userId}&select=id,name,relationship,relationship_by,merged_into,hidden_at&limit=2000`, { headers });
         const peopleRows = res.ok ? await res.json() : [];
         const plan = unsureMod.unsurePlan({ output, refs, open: [], people: new Map(peopleRows.map((x) => [x.id, x])), today: p.today });
         const guesses = plan.inserts.map((g, i) => ({ id: `shadow-u${i + 1}`, status: 'open', ...g }));
@@ -1724,6 +1724,7 @@ Then list every statement in either summary that the records do not hold, each a
           if (!x) return r;
           if (x.type === 'fact') return `${r} fact: ${x.statement}`;
           if (x.type === 'person') return `${r} person: ${x.name}`;
+          if (x.type === 'lately' || x.type === 'item') return `${r} added: ${x.title}`;
           return `${r} ${x.type}`;
         };
         return {
@@ -1736,6 +1737,28 @@ Then list every statement in either summary that the records do not hold, each a
           })),
           kept: plan.inserts.length,
           dropped: plan.dropped,
+          // who someone is, understood from the records rather than asked
+          understood: (plan.ties || []).map((t) => `${nameOf(t.person_id)}: ${t.tie}`),
+          understood_no_longer: (plan.unties || []).map((t) => nameOf(t.person_id)),
+          // the Chapter forming it would offer, as code would keep it
+          chapter_forming: (() => {
+            const f = ((applied.output || output).chapter_forming || [])[0];
+            if (!f) return null;
+            return {
+              title: f.title,
+              world: refs.get(f.world_ref)?.label?.split(' | ')[1] || f.world_ref,
+              dates: [f.start_date || '?', f.end_date || '?'].join(' to '),
+              unsure: !!f.unsure,
+              question: f.question,
+              choices: f.choices,
+              rests_on: (f.rests_on || []).map(labelOf),
+              result: applied.applied?.chapter_forming || null,
+            };
+          })(),
+          life_map: ((applied.output || output).life_map?.domains || []).map((dm) => ({
+            domain: dm.name,
+            threads: (dm.threads || []).map((t) => `${t.name} (${t.status}, ${t.lifecycle || 'active'}): ${t.summary}`),
+          })),
           who_matters: plan.matters.map((m) => nameOf(m.person_id)),
           weekly_questions: ((applied.output || output).questions || []).map((q) => q.question),
           // Gremly's notes on each World and Chapter as the check left them, and the
@@ -1754,7 +1777,7 @@ Then list every statement in either summary that the records do not hold, each a
               end_given: (applied.chapterEnds || []).find((e) => e.chapter_id === x.id)?.end_date || null,
               end_refused: (applied.chapterEnds || []).find((e) => e.chapter_id === x.id)?.refused || null,
               begun_for: (() => {
-                const ref = (output.chapters || []).find((y) => refs.get(y.chapter_ref)?.id === x.id)?.begun_for_ref;
+                const ref = (output.begun_for || []).find((y) => refs.get(y.chapter_ref)?.id === x.id)?.fact_ref;
                 return ref ? labelOf(ref) : null;
               })(),
               summary: x.c?.summary,

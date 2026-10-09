@@ -119,7 +119,9 @@ export function peopleLines(people) {
     const others = (p.names || []).filter((n) => lower(n) !== lower(p.name));
     const name = p.name ? p.name : '(no name given yet)';
     const also = others.length ? ` | also called ${others.join(', ')}` : '';
-    const who = p.relationship ? ` | ${p.relationship}, as they said` : '';
+    const who = p.relationship
+      ? ` | ${p.relationship}, ${p.relationship_by === 'understood' ? 'as Gremly understood it from the records, never said by them' : 'as they said'}`
+      : '';
     const hidden = p.hidden_at ? ' | hidden from their people page by them' : '';
     return `${r} | ${name}${also}${who}${hidden}`;
   });
@@ -246,15 +248,23 @@ export function planPeople({
       }
       // Who they are: only as the person stated it, and never over their own
       // words. Someone known only by who they are keeps it: it is who they are.
+      // What Gremly only understood from the records gives way to what a fact
+      // states, even the same words: it is then theirs, read by Gremly.
       if (
         relationship &&
         p.relationship_by !== 'person' &&
         (p.name || !p.relationship) &&
-        lower(p.relationship) !== lower(relationship)
+        (lower(p.relationship) !== lower(relationship) || p.relationship_by === 'understood')
       ) {
+        const was = p.relationship_by;
         p.relationship = relationship;
         p.relationship_fact_id = f.factId;
-        Object.assign(patchOf(plan, p), { relationship, relationship_fact_id: f.factId });
+        p.relationship_by = 'gremly';
+        Object.assign(patchOf(plan, p), {
+          relationship,
+          relationship_fact_id: f.factId,
+          ...(was === 'understood' ? { relationship_by: 'gremly' } : {}),
+        });
       }
     }
   }
@@ -321,7 +331,7 @@ export async function writePeople(d, userId, plan) {
     // a field the person wrote is never written over
     const guards = [
       patch.name ? '&name_by=eq.gremly' : '',
-      patch.relationship ? '&relationship_by=eq.gremly' : '',
+      patch.relationship ? '&relationship_by=neq.person' : '',
     ].join('');
     const rows = await d.update(`life_people?id=eq.${id}&user_id=eq.${userId}${guards}`, {
       ...patch,

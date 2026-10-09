@@ -1,6 +1,9 @@
 /**
- * Gremly's questions about Chapters (data fabric stage 4c): a suggestion to
- * start one, whether one past its dates is over, and the welcome back.
+ * Gremly's questions about Chapters (data fabric stage 4c): whether one past
+ * its dates is over, and the welcome back. Suggesting one to start moved to
+ * the weekly pass on 18 Oct (context/weekly.js, chapter_forming): this daily
+ * suggester saw only drops filed in no Chapter, so a launch they kept working
+ * on inside one of their Worlds was never offered.
  *
  * Built and replayed here, and on since 8 Oct, when their answers came to be
  * acted on (context/chapterAnswers.js). While CHAPTER_QUESTIONS is off
@@ -16,12 +19,6 @@
  *               passed, and those with none and nothing filed in them for
  *               four weeks. A model writes the question for each, with its
  *               guess from the records. The classifier never closes one.
- *   Suggesting  once a day, when enough of their recent drops are filed in no
- *               Chapter, a model says whether one is forming, and what it
- *               would hold. Code checks every ref and date, refuses a second
- *               while one is open, and refuses one resting mostly on items
- *               they already said no to. An unsure one offers to leave it as
- *               an idea, which makes nothing.
  *   Welcome     on the day they come back after WELCOME_BACK_DAYS or more
  *   back        away, code lists the Chapters whose dates passed while they
  *               were away and what is still ahead; one call guesses each from
@@ -35,10 +32,10 @@
 import { db, addDays, personIdentity, localDate, localDateTime } from './db';
 import { jsonCall, modelFor } from './llm';
 import { CARE_RULES, PRIVATE_RULES, WRITING_RULES, personBlock } from '../careRules';
-import { itemOf, readItems, readItemMarks, markItems, ITEM_TABLE } from './filed';
+import { readItems, readItemMarks, markItems } from './filed';
 import { personToday } from './filing';
+import { questionRoom } from './questionRoom';
 import {
-  OPEN_CHAPTER_SUGGESTIONS,
   WELCOME_BACK_DAYS,
   AWAY_AFTER_DAYS,
   CHAPTER_QUIET_DAYS,
@@ -46,13 +43,9 @@ import {
 } from '../../shared/questionRules.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 
-export const CHAPTER_QUESTIONS_VERSION = 'chapter-questions-2026-10-18a';
+export const CHAPTER_QUESTIONS_VERSION = 'chapter-questions-2026-10-18d';
 
-/** A suggestion looks at drops this many days back, and needs this many in no Chapter. */
-export const SUGGEST_WINDOW_DAYS = 21;
-export const SUGGEST_MIN_DROPS = 3;
-/** Drops shown to the suggester at most, and close questions written in a day at most. */
-const MOST_DROPS = 60;
+/** Close questions written in a day at most. */
 const MOST_CLOSE_A_DAY = 3;
 
 const day = (v) => {
@@ -68,7 +61,7 @@ function trim(text, n) {
 }
 
 /** The answers to tap: two to four, short, each once. Pure. */
-function cleanChoices(choices) {
+export function cleanChoices(choices) {
   const out = [];
   for (const c of choices || []) {
     const s = trim(c, 40);
@@ -127,6 +120,18 @@ export function closeCandidates({ chapters, today, asked = new Set(), noKeys = n
     if (!noKeys.has(closeNoKey(quiet))) out.push({ c: quiet, since: last });
   }
   return out.sort((a, b) => a.since.localeCompare(b.since)).map((x) => x.c);
+}
+
+/**
+ * The open questions about Chapters, split into those still about an open
+ * Chapter (or a suggestion) and those about one no longer open. Pure.
+ */
+export function staleChapterQuestions(open, chapters) {
+  const openIds = new Set((chapters || []).map((c) => c.id));
+  const stale = (open || []).filter(
+    (q) => (q.kind === 'close_chapter' || q.kind === 'while_away') && q.record_id && !openIds.has(q.record_id),
+  );
+  return { live: (open || []).filter((q) => !stale.includes(q)), stale };
 }
 
 /**
@@ -362,180 +367,6 @@ export function closeRows({ output, refs, userId, runId, kind = 'close_chapter',
   return { rows, problems };
 }
 
-// ── suggesting a Chapter ─────────────────────────────────────────────────
-
-const SUGGEST_RULES = `SUGGESTING A CHAPTER
-- A Chapter is something in the person's life with a shape of its own, inside one of their Worlds: something they are working towards, going through or planning, often with dates. A single task, or something they simply keep up, is not a Chapter.
-- You are given their Worlds, the Chapters they already have, and their recent drops that are filed in no Chapter. Say whether some of those drops together plainly show a Chapter forming that they do not already have. Most days none is.
-- When one is, suggest it: a short title as they would name it, the World it belongs in, its dates only when the drops say when it happens, and the drops it would hold, which must all belong to it. The days the drops were written are never its dates. Suggest at most one, the clearest.
-- Say whether you are unsure it is a Chapter rather than something passing.
-- Write one short, warm question to them, as you, offering it by its title without presuming, and two to four short answers they could tap, among them a no. When you are unsure, one of them leaves it as an idea for now.
-- Never suggest something they already turned down, shown below.
-- A drop marked private may be part of it, and is never named or hinted at in the question or the title.`;
-
-const SUGGEST_SCHEMA = {
-  type: 'object',
-  properties: {
-    suggest: { type: 'boolean' },
-    title: { type: 'string', nullable: true },
-    world_ref: { type: 'string', nullable: true },
-    start_date: { type: 'string', nullable: true },
-    end_date: { type: 'string', nullable: true },
-    rests_on: { type: 'array', items: { type: 'string' } },
-    unsure: { type: 'boolean' },
-    question: { type: 'string', nullable: true },
-    choices: { type: 'array', items: { type: 'string' } },
-    why: { type: 'string' },
-  },
-  required: [
-    'suggest',
-    'title',
-    'world_ref',
-    'start_date',
-    'end_date',
-    'rests_on',
-    'unsure',
-    'question',
-    'choices',
-    'why',
-  ],
-};
-
-/** The suggester's request, and its refs. Pure. */
-export function suggestRequest({ worlds, chapters, drops, declined = [], person, today }) {
-  const worldRefs = new Map();
-  const dropRefs = new Map();
-  const worldLines = (worlds || []).map((w, i) => {
-    const ref = `w${i + 1}`;
-    worldRefs.set(ref, w);
-    return `${ref} | ${trim(w.display_name || w.name, 60)}`;
-  });
-  const worldName = new Map((worlds || []).map((w) => [w.id, w.display_name || w.name]));
-  const chapterLines = (chapters || []).map(
-    (c) =>
-      `- ${trim(c.title, 80)} | ${day(c.start_date) || 'no start set'} to ${day(c.end_date) || 'no end set'}${worldName.get(c.primary_world_id) ? ` | in ${trim(worldName.get(c.primary_world_id), 60)}` : ''}`,
-  );
-  const dropLines = (drops || []).map((it, i) => {
-    const ref = `i${i + 1}`;
-    dropRefs.set(ref, it);
-    return `${ref} |${itemLine(it).slice(3)}`;
-  });
-  return {
-    system: {
-      fixed: `You suggest Chapters for Gremly, a warm, shame-free companion app.
-
-${CARE_RULES}
-
-${PRIVATE_RULES}
-
-${SUGGEST_RULES}
-
-${WRITING_RULES}`,
-      varying: personBlock(person),
-    },
-    user: `TODAY: ${today}.
-
-THEIR WORLDS (ref | name):
-${worldLines.join('\n') || '(none)'}
-
-THE CHAPTERS THEY HAVE:
-${chapterLines.join('\n') || '(none)'}
-
-SUGGESTIONS THEY TURNED DOWN:
-${declined.map((t) => `- ${trim(t, 80)}`).join('\n') || '(none)'}
-
-THEIR RECENT DROPS FILED IN NO CHAPTER (ref | what | its day | title and words):
-${dropLines.join('\n')}`,
-    worldRefs,
-    dropRefs,
-  };
-}
-
-/**
- * The suggestion row, when the answer is one code can stand behind: a World
- * it was given, two or more drops it was given, real dates in order, a title,
- * a question and two to four answers, and not resting mostly on drops they
- * turned down. Pure.
- */
-export function suggestionRow({ output, worldRefs, dropRefs, declinedItems = [], userId, runId }) {
-  if (!output?.suggest) return { row: null, refused: 'none forming' };
-  const world = worldRefs.get(output.world_ref);
-  if (!world) return { row: null, refused: 'a World it was never given' };
-  const items = [];
-  for (const r of output.rests_on || []) {
-    const it = dropRefs.get(r);
-    if (!it) return { row: null, refused: 'a drop it was never given' };
-    if (!items.some((x) => x.id === it.id)) items.push({ table: ITEM_TABLE[it.type], id: it.id });
-  }
-  if (items.length < 2) return { row: null, refused: 'fewer than two drops' };
-  const title = trim(output.title, 60);
-  const question = trim(output.question, 300);
-  const choices = cleanChoices(output.choices);
-  if (!title || !question || choices.length < 2)
-    return { row: null, refused: 'no title, no question or fewer than two answers' };
-  const start = day(output.start_date);
-  const end = day(output.end_date);
-  if ((output.start_date && !start) || (output.end_date && !end) || (start && end && end < start))
-    return { row: null, refused: 'dates that are not dates, or out of order' };
-  if (restsOnDeclined(items, declinedItems)) return { row: null, refused: 'they said no to these' };
-  return {
-    row: {
-      user_id: userId,
-      kind: 'start_chapter',
-      question,
-      choices,
-      status: 'open',
-      record_table: 'worlds',
-      record_id: world.id,
-      rests_on: items,
-      proposed_change: {
-        type: 'start',
-        title,
-        world_id: world.id,
-        start_date: start,
-        end_date: end,
-        unsure: output.unsure === true,
-      },
-      no_key: startNoKey(items),
-      run_id: runId,
-      prompt_version: CHAPTER_QUESTIONS_VERSION,
-    },
-  };
-}
-
-/** Their recent drops filed in no Chapter, newest first, marked private where a fact from one is. */
-async function unfiledDrops(d, userId, today) {
-  const since = `${addDays(today, -SUGGEST_WINDOW_DAYS)}T00:00:00Z`;
-  const cols = {
-    note: 'id,title,body,subtype,date,target_date,created_at',
-    todo: 'id,name,title,body,notes,created_at,completed_at',
-    habit: 'id,name,title,notes,subtype,created_at',
-  };
-  const lists = await Promise.all(
-    Object.entries(ITEM_TABLE).map(async ([type, table]) =>
-      (
-        (await d.select(
-          `${table}?owner_id=eq.${userId}&archived=is.false${type === 'note' ? '&external_source=is.null' : ''}&created_at=gte.${since}&select=${cols[type]}&order=created_at.desc&limit=${MOST_DROPS}`,
-        )) || []
-      ).map((r) => itemOf(type, r)),
-    ),
-  );
-  const items = lists.flat();
-  if (!items.length) return [];
-  const inChapter = new Set();
-  const ids = items.map((i) => i.id);
-  for (let i = 0; i < ids.length; i += 100)
-    for (const l of (await d.select(
-      `drop_chapter_links?owner_id=eq.${userId}&drop_id=in.(${ids.slice(i, i + 100).join(',')})&select=drop_id`,
-    )) || [])
-      inChapter.add(l.drop_id);
-  const free = items
-    .filter((i) => !inChapter.has(i.id))
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-    .slice(0, MOST_DROPS);
-  return markItems(free, [], await readItemMarks(d, userId, free));
-}
-
 // ── the day's run ────────────────────────────────────────────────────────
 
 /**
@@ -570,13 +401,35 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
     ),
   ]);
   const runId = `chapter-questions-${userId.slice(0, 8)}-${today}`;
-  const insert = async (rows) => {
-    if (write && rows.length) await d.insertQuiet('gremly_questions', rows);
+  // only as many as there is room for (questionRoom), taken in the order asked;
+  // a welcome back is one set the brief puts, and is not counted
+  let room = null;
+  const insert = async (rows, { counted = true } = {}) => {
+    if (!write || !rows.length) return;
+    if (counted && room == null) room = await questionRoom(d, userId);
+    const kept = counted ? rows.slice(0, room) : rows;
+    if (counted) {
+      room -= kept.length;
+      if (kept.length < rows.length) out.no_room = (out.no_room || 0) + rows.length - kept.length;
+    }
+    if (kept.length) await d.insertQuiet('gremly_questions', kept);
   };
+
+  // a question about a Chapter that is no longer open (they closed it, or it
+  // went) is put away, so they are never asked about something already settled
+  const { live, stale } = staleChapterQuestions(open, chapters);
+  if (stale.length) {
+    out.retired = stale.map((q) => q.id);
+    if (write)
+      for (const q of stale)
+        await d.update(`gremly_questions?id=eq.${q.id}&user_id=eq.${userId}&status=in.(open,asked)`, {
+          status: 'expired',
+        });
+  }
 
   // the welcome back, once for each return
   if (state.welcomeBack) {
-    const already = (open || []).some(
+    const already = (live || []).some(
       (q) => q.kind === 'while_away' && String(q.created_at).slice(0, 10) >= addDays(today, -1),
     );
     const { passed, ahead } = whileAway({ chapters, today, since: state.lastActiveBefore });
@@ -599,13 +452,13 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
       runId,
       setId,
     });
-    await insert(rows);
+    await insert(rows, { counted: false });
     return { ...out, welcome: { set_id: setId, rows, problems, model } };
   }
 
   // closing: the Chapters past their end date, a few a day
   const asked = new Set(
-    (open || []).filter((q) => q.kind === 'close_chapter').map((q) => q.record_id),
+    (live || []).filter((q) => q.kind === 'close_chapter').map((q) => q.record_id),
   );
   const noKeys = new Set(
     (answered || []).filter((q) => q.kind === 'close_chapter').map((q) => q.no_key),
@@ -632,26 +485,7 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
     out.close = { rows, problems, model };
   }
 
-  // suggesting: at most one open at a time
-  const openStarts = (open || []).filter((q) => q.kind === 'start_chapter').length;
-  if (openStarts >= OPEN_CHAPTER_SUGGESTIONS)
-    return { ...out, suggest: { skipped: 'one is open' } };
-  const drops = await unfiledDrops(d, userId, today);
-  if (drops.length < SUGGEST_MIN_DROPS)
-    return { ...out, suggest: { skipped: 'too few drops in no Chapter' } };
-  const declined = (answered || []).filter((q) => q.kind === 'start_chapter');
-  const { row, refused, why, model } = await askSuggestion(env, {
-    worlds,
-    chapters,
-    drops,
-    declined: declined.map((q) => ({ title: q.proposed_change?.title, items: q.rests_on || [] })),
-    person,
-    today,
-    userId,
-    runId,
-  });
-  if (row) await insert([row]);
-  return { ...out, suggest: { row, refused: refused || null, why, model } };
+  return out;
 }
 
 /**
@@ -685,44 +519,6 @@ export async function askClose(
     output,
     model,
   };
-}
-
-/**
- * Ask whether a Chapter is forming from these drops, and check what comes
- * back. Writes nothing; the replay calls it as the worker does.
- * @param p.declined suggestions turned down before [{ title, items }]
- */
-export async function askSuggestion(
-  env,
-  { worlds, chapters, drops, declined = [], person, today, userId, runId },
-) {
-  const req = suggestRequest({
-    worlds,
-    chapters,
-    drops,
-    declined: declined.map((x) => x.title).filter(Boolean),
-    person,
-    today,
-  });
-  const { output, model } = await jsonCall(env, {
-    primary: modelFor(env, 'chapterQuestion'),
-    fallback: modelFor(env, 'chapterQuestionFallback'),
-    system: req.system,
-    user: req.user,
-    schema: SUGGEST_SCHEMA,
-    maxTokens: 2000,
-    effort: 'low',
-    thinking: 'low',
-  });
-  const { row, refused } = suggestionRow({
-    output,
-    worldRefs: req.worldRefs,
-    dropRefs: req.dropRefs,
-    declinedItems: declined.map((x) => x.items || []),
-    userId,
-    runId,
-  });
-  return { row, refused: refused || null, output, why: trim(output?.why, 300), model };
 }
 
 /** The hour of their day the day's Chapter questions are raised, before the brief. */

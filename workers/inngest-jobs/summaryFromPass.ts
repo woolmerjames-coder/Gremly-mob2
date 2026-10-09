@@ -133,10 +133,16 @@ export function planBrief(run: WeeklyPassRun, facts: HardFacts, userId: string):
       .filter(([, q]) => q);
     const persons = pick(card?.refs, 'person');
     const counts = pick(card?.refs, 'count');
-    const allItems = pick(card?.refs, 'item');
+    // what they added lately counts as what they added (weekly.js, 18 Oct)
+    const allItems = [...pick(card?.refs, 'item'), ...pick(card?.refs, 'lately')];
     // a card that rests on anything private or about health may speak of it in
     // what it says it shows, which the writer reads: it is not written at all
+    // any ref marked so counts, whatever its kind (what they added lately too)
     const restsOnPrivate =
+      (Array.isArray(card?.refs) ? card.refs : []).some((r) => {
+        const v = refs.get(String(r)) as Record<string, unknown> | undefined;
+        return !!(v && (v.private || v.health));
+      }) ||
       open.length < allFacts.length ||
       allMoments.some(([, j]) => privateNotes.has(String(j.id)) || j.private || j.health) ||
       allItems.some(([, t]) => t.private || t.health) ||

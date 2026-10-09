@@ -86,6 +86,9 @@ describe('the day a Chapter ends', () => {
     ['f1', { type: 'fact', id: 'fa-1', about_date: '2026-05-17' }],
     ['f2', { type: 'fact', id: 'fa-2', about_date: '2026-09-01', about_date_end: '2026-09-05' }],
     ['f3', { type: 'fact', id: 'fa-3', about_date: null }],
+    // a stretch with no last day, and a day that comes every year
+    ['f4', { type: 'fact', id: 'fa-4', timing: 'span', about_date: '2026-10-02', about_date_end: null }],
+    ['f5', { type: 'fact', id: 'fa-5', timing: 'yearly', about_date: '2025-10-07' }],
     ['p1', { type: 'person', id: 'pe-1' }],
   ]);
 
@@ -93,14 +96,16 @@ describe('the day a Chapter ends', () => {
     expect(
       chapterEndPlan({
         output: {
-          chapters: [
-            { chapter_ref: 'c1', begun_for_ref: 'f1' },
-            { chapter_ref: 'c2', begun_for_ref: 'f2' },
+          begun_for: [
+            { chapter_ref: 'c1', fact_ref: 'f1' },
+            { chapter_ref: 'c2', fact_ref: 'f2' },
             // nothing it was begun for, a fact with no day, or no fact at all
-            { chapter_ref: 'c2', begun_for_ref: '' },
-            { chapter_ref: 'c1', begun_for_ref: 'f3' },
-            { chapter_ref: 'c1', begun_for_ref: 'p1' },
-            { chapter_ref: 'x9', begun_for_ref: 'f1' },
+            { chapter_ref: 'c2', fact_ref: '' },
+            { chapter_ref: 'c1', fact_ref: 'f3' },
+            { chapter_ref: 'c1', fact_ref: 'p1' },
+            { chapter_ref: 'c1', fact_ref: 'f4' },
+            { chapter_ref: 'c1', fact_ref: 'f5' },
+            { chapter_ref: 'x9', fact_ref: 'f1' },
           ],
         },
         refs: dated,
@@ -111,8 +116,15 @@ describe('the day a Chapter ends', () => {
     ]);
   });
 
+  it('is refused, and says so, when it falls on the day the Chapter began', () => {
+    const begun = new Map([...dated, ['c4', { type: 'chapter', id: 'ch-4', start_date: '2026-05-17' }]]);
+    expect(chapterEndPlan({ output: { begun_for: [{ chapter_ref: 'c4', fact_ref: 'f1' }] }, refs: begun })).toEqual([
+      { chapter_id: 'ch-4', end_date: '2026-05-17', fact_id: 'fa-1', refused: 'the day it began' },
+    ]);
+  });
+
   it('is refused, and says so, when it falls before the Chapter began', () => {
-    expect(chapterEndPlan({ output: { chapters: [{ chapter_ref: 'c3', begun_for_ref: 'f1' }] }, refs: dated })).toEqual([
+    expect(chapterEndPlan({ output: { begun_for: [{ chapter_ref: 'c3', fact_ref: 'f1' }] }, refs: dated })).toEqual([
       { chapter_id: 'ch-3', end_date: '2026-05-17', fact_id: 'fa-1', refused: 'before it began' },
     ]);
   });

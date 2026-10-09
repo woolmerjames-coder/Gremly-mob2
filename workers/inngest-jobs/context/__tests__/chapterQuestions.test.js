@@ -12,11 +12,8 @@ import {
   closeNoKey,
   whileAway,
   restsOnDeclined,
-  startNoKey,
   closeRequest,
   closeRows,
-  suggestRequest,
-  suggestionRow,
   chapterQuestionsForDay,
   chapterQuestionEvents,
 } from '../chapterQuestions.js';
@@ -185,100 +182,9 @@ describe('closing', () => {
   });
 });
 
-const drop = (i, over = {}) => ({
-  type: 'note',
-  id: `d-${i}`,
-  title: `drop ${i}`,
-  body: null,
-  date: '2026-10-0' + ((i % 7) + 1),
-  created_at: '2026-10-01T09:00:00Z',
-  private: false,
-  health: false,
-  ...over,
-});
-
-describe('suggesting', () => {
-  const req = suggestRequest({
-    worlds: [{ id: 'w-1', name: 'Travel' }],
-    chapters: [],
-    drops: [drop(1), drop(2), drop(3), drop(4, { private: true })],
-    declined: ['Something they said no to'],
-    person: null,
-    today: TODAY,
-  });
-  const ok = {
-    suggest: true,
-    title: 'Porto in November',
-    world_ref: 'w1',
-    start_date: '2026-11-10',
-    end_date: '2026-11-14',
-    rests_on: ['i1', 'i2', 'i3'],
-    unsure: false,
-    question: 'Shall I start a Chapter for Porto in November?',
-    choices: ['Yes', 'Not now'],
-    why: '',
-  };
-
-  it('shows the drops by ref, private ones marked, and what they turned down', () => {
-    expect(req.user).toContain('i4 | [private] note');
-    expect(req.user).toContain('- Something they said no to');
-  });
-
-  it('becomes a start question resting on the drops given', () => {
-    const { row } = suggestionRow({
-      output: ok,
-      worldRefs: req.worldRefs,
-      dropRefs: req.dropRefs,
-      userId: 'u',
-      runId: 'r',
-    });
-    expect(row).toMatchObject({
-      kind: 'start_chapter',
-      record_table: 'worlds',
-      record_id: 'w-1',
-      rests_on: [
-        { table: 'notes', id: 'd-1' },
-        { table: 'notes', id: 'd-2' },
-        { table: 'notes', id: 'd-3' },
-      ],
-      proposed_change: {
-        type: 'start',
-        title: 'Porto in November',
-        world_id: 'w-1',
-        start_date: '2026-11-10',
-        end_date: '2026-11-14',
-        unsure: false,
-      },
-    });
-    expect(row.no_key).toBe(startNoKey(row.rests_on));
-  });
-
-  it('is refused for a World or drop it was never given, one drop, bad dates, or drops they turned down', () => {
-    const refusal = (over, declinedItems = []) =>
-      suggestionRow({
-        output: { ...ok, ...over },
-        worldRefs: req.worldRefs,
-        dropRefs: req.dropRefs,
-        declinedItems,
-        userId: 'u',
-        runId: 'r',
-      }).refused;
-    expect(refusal({ world_ref: 'w9' })).toBe('a World it was never given');
-    expect(refusal({ rests_on: ['i1', 'i99'] })).toBe('a drop it was never given');
-    expect(refusal({ rests_on: ['i1'] })).toBe('fewer than two drops');
-    expect(refusal({ start_date: '2026-11-20' })).toBe('dates that are not dates, or out of order');
-    expect(refusal({ end_date: 'November' })).toBe('dates that are not dates, or out of order');
-    expect(
-      refusal({}, [
-        [
-          { table: 'notes', id: 'd-1' },
-          { table: 'notes', id: 'd-2' },
-        ],
-      ]),
-    ).toBe('they said no to these');
-    expect(refusal({ suggest: false })).toBe('none forming');
-  });
-
+describe('a suggestion turned down', () => {
+  // the weekly pass offers Chapters forming since 18 Oct (weeklyForming.test.js),
+  // by these same rules for what was offered before
   it('counts a turned down suggestion only when half or more of the drops are the same', () => {
     const mine = [
       { table: 'notes', id: 'a' },
@@ -330,11 +236,8 @@ function withDb(t, absence) {
 
 const HERE = { days_since_active: 0, active_today: true, days_away_before_today: 0 };
 
-function answers({ close, suggest }) {
-  jsonCall.mockImplementation(async (env, req) => {
-    if (req.user.includes('CHAPTERS (ref')) return { output: close, model: 'chapterQuestion' };
-    return { output: suggest, model: 'chapterQuestion' };
-  });
+function answers({ close }) {
+  jsonCall.mockImplementation(async () => ({ output: close, model: 'chapterQuestion' }));
 }
 
 const CLOSE = {
@@ -350,37 +253,42 @@ const CLOSE = {
     },
   ],
 };
-const SUGGEST = {
-  suggest: true,
-  title: 'A trip',
-  world_ref: 'w1',
-  start_date: null,
-  end_date: null,
-  rests_on: ['i1', 'i2'],
-  unsure: true,
-  question: 'Shall I keep a Chapter for this trip?',
-  choices: ['Yes', 'Leave it as an idea', 'No'],
-  why: '',
-};
-
 describe("the day's run", () => {
   it('writes nothing while the switch is off, and says what it would have', async () => {
     const mem = withDb(tables(), HERE);
-    answers({ close: CLOSE, suggest: SUGGEST });
+    answers({ close: CLOSE });
     const out = await chapterQuestionsForDay({}, 'u');
     expect(out.written).toBe(false);
     expect(out.close.rows).toHaveLength(1);
-    expect(out.suggest.row).toMatchObject({ kind: 'start_chapter' });
     expect(mem.tables.gremly_questions).toEqual([]);
   });
 
-  it('writes the close questions and one suggestion when on', async () => {
+  it('writes the close questions when on, and never a suggestion: the weekly pass offers those', async () => {
     const mem = withDb(tables(), HERE);
-    answers({ close: CLOSE, suggest: SUGGEST });
-    await chapterQuestionsForDay({ CHAPTER_QUESTIONS: 'on' }, 'u');
-    expect(mem.tables.gremly_questions.map((q) => q.kind)).toEqual([
-      'close_chapter',
-      'start_chapter',
+    answers({ close: CLOSE });
+    const out = await chapterQuestionsForDay({ CHAPTER_QUESTIONS: 'on' }, 'u');
+    expect(mem.tables.gremly_questions.map((q) => q.kind)).toEqual(['close_chapter']);
+    expect(out.suggest).toBeUndefined();
+    expect(jsonCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts away a question about a Chapter they have since closed, and asks it no more', async () => {
+    const mem = withDb(
+      tables({
+        chapters: mine([ch('done', { end_date: '2026-09-01', phase: 'closed', closed_at: '2026-10-08T23:19:27Z' })]),
+        gremly_questions: [
+          { id: 'q-close', user_id: 'u', kind: 'close_chapter', status: 'open', record_id: 'done' },
+          { id: 'q-start', user_id: 'u', kind: 'start_chapter', status: 'open', record_id: 'w-1' },
+        ],
+      }),
+      HERE,
+    );
+    answers({ close: CLOSE });
+    const out = await chapterQuestionsForDay({ CHAPTER_QUESTIONS: 'on' }, 'u');
+    expect(out.retired).toEqual(['q-close']);
+    expect(mem.tables.gremly_questions.map((q) => [q.id, q.status])).toEqual([
+      ['q-close', 'expired'],
+      ['q-start', 'open'],
     ]);
   });
 
@@ -389,32 +297,6 @@ describe("the day's run", () => {
     const out = await chapterQuestionsForDay({ CHAPTER_QUESTIONS: 'on' }, 'u');
     expect(out.skipped).toBe('away');
     expect(jsonCall).not.toHaveBeenCalled();
-  });
-
-  it('suggests nothing while one is open, nor from too few drops in no Chapter', async () => {
-    withDb(
-      tables({
-        chapters: [],
-        gremly_questions: [{ id: 'q', user_id: 'u', kind: 'start_chapter', status: 'asked' }],
-      }),
-      HERE,
-    );
-    expect((await chapterQuestionsForDay({ CHAPTER_QUESTIONS: 'on' }, 'u')).suggest).toEqual({
-      skipped: 'one is open',
-    });
-    withDb(
-      tables({
-        chapters: [],
-        drop_chapter_links: [
-          { owner_id: 'u', drop_id: 'd-1' },
-          { owner_id: 'u', drop_id: 'd-2' },
-        ],
-      }),
-      HERE,
-    );
-    expect((await chapterQuestionsForDay({ CHAPTER_QUESTIONS: 'on' }, 'u')).suggest).toEqual({
-      skipped: 'too few drops in no Chapter',
-    });
   });
 
   it('on a welcome back makes one set from what passed while they were away, and nothing else', async () => {

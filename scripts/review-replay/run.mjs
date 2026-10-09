@@ -10,17 +10,20 @@
  * - an occasion on two days (a birthday kept from a trip around it, and the
  *   day itself): a question that rests on both, that needs an answer;
  * - someone with two places in their life: a question that rests on both;
- * - work meetings and an entry made to try the app: a tidy up may set them
- *   aside, and only them;
+ * - two entries on their calendar for one work deadline: never a question, as
+ *   their calendar keeps its own entries (8 Oct);
  * - plans whose days passed with nothing to say what happened: a tidy up may
  *   ask whether they happened, and only about plans, never one about a todo
- *   or calendar entry they keep, which says itself how it stands;
+ *   or calendar entry they keep, which says itself how it stands, each plan
+ *   named to them in its own words;
  * - what must never be in a tidy up: their people, an occasion, work they
- *   care about, anything private or about health.
+ *   care about, anything private or about health. Nothing is ever offered to
+ *   be set aside: that tidy up is gone (8 Oct).
  *
  * The bar, set before the runs: the occasion on two days found every run,
- * nothing that must never be set aside ever in a tidy up, nothing private in
- * anything, and no more questions than the caps.
+ * nothing from their calendar asked about,
+ * nothing set aside, nothing private in anything, every plan named, and no
+ * more questions than the caps.
  * OPENAI_API_KEY and GEMINI_TEST_API_KEY come from the environment;
  * CONTEXT_MODEL_REVIEW=provider:model tries another model.
  */
@@ -123,6 +126,10 @@ const LEDGER = [
   fact('meet-status', 'Noor has a project status call on 2 October.', { state: 'planned', about_date: '2026-10-02', source_table: 'synced_calendar_events', item_table: 'synced_calendar_events' }),
   fact('meet-budget', 'Noor has a budget review meeting on 29 September.', { state: 'planned', about_date: '2026-09-29', source_table: 'synced_calendar_events', item_table: 'synced_calendar_events' }),
   fact('app-test', 'Noor added a todo called test test 123.', { state: 'current', source_table: 'todos' }),
+  // their calendar twice over
+  fact('cal-dl-span', 'Noor has the Hartley report deadline from 14 to 15 October.', { state: 'planned', timing: 'span', about_date: '2026-10-14', about_date_end: '2026-10-15', source_table: 'synced_calendar_events' }),
+  fact('cal-dl-day', 'Noor has the Hartley report deadline at the end of 14 October.', { state: 'planned', about_date: '2026-10-14', source_table: 'synced_calendar_events' }),
+
   // plans whose days passed, nothing to say what happened
   fact('plan-bank', 'Noor plans to call the bank about the mortgage on 1 October.', { state: 'planned', about_date: '2026-10-01' }),
   fact('plan-jacket', 'Noor plans to return the jacket by 25 September.', { state: 'planned', about_date: '2026-09-25', source_table: 'todos', item_table: 'todos' }),
@@ -144,7 +151,8 @@ const LEDGER = [
 const keyOf = new Map(LEDGER.map((f) => [f.id, f.key]));
 const NEVER_TIDY = ['mum-70', 'eli-kit', 'hartley', 'grant', 'physio', 'journal-private', 'swim', 'veg', 'anniv', 'lisbon', 'mira-sister', 'mira-cousin', 'bday-trip', 'bday-day'];
 const PRIVATE = ['physio', 'journal-private'];
-const NOT_LIFE = ['meet-sync', 'meet-status', 'meet-budget', 'app-test'];
+const CALENDAR = ['meet-sync', 'meet-status', 'meet-budget', 'cal-dl-span', 'cal-dl-day', 'physio'];
+const statementOf = new Map(LEDGER.map((f) => [f.id, f.statement]));
 // plans about an item they keep, or from their calendar: the item says how it stands
 const ITEM_PLANS = ['meet-status', 'meet-budget', 'plan-jacket'];
 
@@ -188,12 +196,18 @@ async function runOnce(i) {
     },
     { name: 'someone in two places is asked', ok: conflicts.some((r) => has(r, 'mira-sister', 'mira-cousin')), soft: true },
     { name: 'nothing that must stay is in a tidy up', ok: tidy.every((r) => keys(r).every((k) => !NEVER_TIDY.includes(k))) },
-    { name: 'a set aside holds only what is not about their life', ok: tidy.filter((r) => r.proposed_change?.type === 'set_aside').every((r) => keys(r).every((k) => NOT_LIFE.includes(k))) },
+    { name: 'nothing is ever offered to be set aside', ok: tidy.every((r) => r.proposed_change?.type !== 'set_aside') },
+    { name: 'nothing from their calendar is questioned', ok: conflicts.every((r) => keys(r).every((k) => !CALENDAR.includes(k))) },
+    {
+      name: 'every plan put to them is named in its own words, never the ledger\'s',
+      ok: tidy.every((r) =>
+        (r.proposed_change?.statements || []).every((x, k) => x && x !== statementOf.get(r.proposed_change.fact_ids[k])),
+      ),
+    },
     { name: 'nothing private anywhere', ok: rows.every((r) => keys(r).every((k) => !PRIVATE.includes(k))) },
     { name: 'no plan about an item they keep is asked whether it happened', ok: tidy.filter((r) => r.proposed_change?.type === 'happened').every((r) => keys(r).every((k) => !ITEM_PLANS.includes(k))) },
     { name: 'no fact in two questions', ok: new Set(rows.flatMap(keys)).size === rows.flatMap(keys).length },
-    { name: 'within the caps', ok: conflicts.length <= REVIEW_CAPS.conflicts && tidy.length <= REVIEW_CAPS.set_aside + REVIEW_CAPS.passed },
-    { name: 'the work meetings are offered to set aside', ok: tidy.some((r) => r.proposed_change?.type === 'set_aside' && keys(r).some((k) => k.startsWith('meet-'))), soft: true },
+    { name: 'within the caps', ok: conflicts.length <= REVIEW_CAPS.conflicts && tidy.length <= REVIEW_CAPS.passed },
     { name: 'passed plans are asked about', ok: tidy.some((r) => r.proposed_change?.type === 'happened'), soft: true },
   ];
   return { i, ms: RealDate.now() - started, error, out, rows, keys: rows.map(keys), checks, cost };
@@ -221,7 +235,7 @@ for (const r of runs) {
   L.push(`Found: ${JSON.stringify(r.out?.found || {})}; skipped ${JSON.stringify(r.out?.skipped || {})}`, '');
   r.rows.forEach((row, k) =>
     L.push(
-      `- ${row.kind}${row.proposed_change?.type ? ` (${row.proposed_change.type})` : ''}${row.weight ? `, ${row.weight}` : ''}: "${row.question}" [${row.choices.join(' / ')}] on ${r.keys[k].join(', ')}`,
+      `- ${row.kind}${row.proposed_change?.type ? ` (${row.proposed_change.type})` : ''}${row.weight ? `, ${row.weight}` : ''}: "${row.question}" [${row.choices.join(' / ')}] on ${r.keys[k].join(', ')}${row.proposed_change?.statements ? ` | named: ${row.proposed_change.statements.join('; ')}` : ''}`,
     ),
   );
   L.push('', ...r.checks.map((c) => `- ${c.ok ? 'ok' : c.soft ? 'miss' : 'FAIL'}: ${c.name}`), '');

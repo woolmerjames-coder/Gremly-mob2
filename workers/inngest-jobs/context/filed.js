@@ -164,7 +164,7 @@ export async function readFactPeople(d, userId, facts) {
   if (!personIds.length) return byFact;
   const [people, names] = await Promise.all([
     d.select(
-      `life_people?user_id=eq.${userId}&id=in.(${personIds.join(',')})&merged_into=is.null&select=id,name,relationship`,
+      `life_people?user_id=eq.${userId}&id=in.(${personIds.join(',')})&merged_into=is.null&select=id,name,relationship,relationship_by`,
     ),
     d.select(
       `life_person_names?user_id=eq.${userId}&person_id=in.(${personIds.join(',')})&select=person_id,name`,

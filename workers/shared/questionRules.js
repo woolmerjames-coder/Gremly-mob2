@@ -28,9 +28,22 @@ export const QUESTION_CAPS = Object.freeze({
 });
 
 /**
+ * At most this many of Gremly's questions wait for them at once, of every
+ * kind but the welcome back, which the brief puts as one set (8 Oct, after
+ * twelve were waiting at once). Every writer of questions takes only the room
+ * left (inngest-jobs context/questionRoom.js), most pressing first.
+ */
+export const QUESTIONS_WAITING_MOST = 6;
+
+/** The room left for new questions, given how many wait. Pure. */
+export function roomFor(waiting) {
+  return Math.max(0, QUESTIONS_WAITING_MOST - (Number(waiting) || 0));
+}
+
+/**
  * At most this many suggestions to start a Chapter open at once. Their writer
- * (inngest-jobs context/chapterQuestions.js) checks this before it writes;
- * the database holds it too (gremly_questions_one_open_start_idx).
+ * (the weekly pass, inngest-jobs context/weekly.js, since 18 Oct) checks this
+ * before it writes; the database holds it too (gremly_questions_one_open_start_idx).
  */
 export const OPEN_CHAPTER_SUGGESTIONS = 1;
 

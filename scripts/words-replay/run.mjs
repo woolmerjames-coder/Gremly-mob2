@@ -112,6 +112,7 @@ const QUESTIONS = {
     no_private: 'Does it keep off anything about health and anything a record marks private, neither naming nor hinting at it?',
     grounded: 'Does everything it says come from the records given?',
     particular: 'Is it particular to this person, rather than words that could sit under anyone\'s?',
+    no_records: 'Does it speak of their life, never of their records, notes, todos, lists or what was written down?',
   },
   memory: {
     you: 'Is it written to the person, as you, looking back?',

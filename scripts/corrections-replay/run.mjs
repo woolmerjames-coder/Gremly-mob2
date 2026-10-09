@@ -7,9 +7,12 @@
  *
  *   scripts/corrections-replay/run.sh [--repeat n] [--only id,id] [--label name]
  *
- * The five: a person's label is corrected, a date is corrected, something is
+ * The seven: a person's label is corrected, a date is corrected, something is
  * said never to have happened, a line of the day is said not to be so from the
- * brief though nothing in the ledger changes, and something is marked private.
+ * brief though nothing in the ledger changes, something is marked private, and
+ * a trip moved to today, said on the day, kept as a stretch from today with its
+ * last day and as under way, and something they ask Gremly to delete, set
+ * aside.
  * And two answers to a question about something Gremly thought but was not
  * sure of (context/unsure.js): a yes, which makes it a fact in their words and
  * confirms it, and a no, which makes no fact of it and closes it.
@@ -198,6 +201,93 @@ function scenarios() {
       judge: 'that the food shopping is still to be done',
     },
     {
+      id: 'today',
+      look: 'A trip moves to today and they say so on the day: it changes, and what is true is kept as a stretch from today, current, with its last day.',
+      said: "We're actually driving to the coast today, back on Sunday!",
+      facts: [
+        fact('coast', 'Noor and Eli are driving to the coast on Friday 9 October for the weekend, back on Sunday 11 October.', {
+          state: 'planned',
+          timing: 'span',
+          about_date: '2026-10-09',
+          about_date_end: '2026-10-11',
+        }),
+        book(),
+      ],
+      people: [],
+      sentences: [
+        { at: 'daily', field: 'also_matters.0', text: 'The coast trip with Eli starts tomorrow', facts: ['coast'], expect: 'change' },
+        { at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' },
+      ],
+      put: { coast: ['changed', 'corrected'] },
+      added: (f) =>
+        f.some(
+          (x) =>
+            String(x.about_date || '').slice(0, 10) === '2026-10-08' &&
+            String(x.about_date_end || '').slice(0, 10) === '2026-10-11' &&
+            x.timing === 'span' &&
+            x.state === 'current',
+        ),
+      judge: 'that the coast trip starts on 9 October',
+    },
+    {
+      id: 'delete',
+      look: 'They ask Gremly to delete something not worth keeping: it is set aside, and what rested on it is written again.',
+      said: 'Delete the printer toner thing, it is not important.',
+      facts: [
+        fact('toner', 'Noor needs to order printer toner for the office by 20 October.', { state: 'planned', about_date: '2026-10-20' }),
+        book(),
+      ],
+      people: [],
+      sentences: [
+        { at: 'daily', field: 'also_matters.0', text: 'Printer toner for the office is due by 20 October', facts: ['toner'], expect: 'change' },
+        { at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' },
+      ],
+      put: { toner: ['set_aside'] },
+      judge: 'that Noor needs to order printer toner',
+    },
+    {
+      id: 'understood-wrong',
+      look: 'Gremly understood Bo to be her brother without being told, and she says he is not: that is put right, and what rested on it is written again.',
+      said: 'Bo is not my brother, he is our neighbour.',
+      facts: [fact('bo-dinner', 'Noor had dinner with Bo on 4 October.', { state: 'happened', about_date: '2026-10-04' }), book()],
+      people: [{ key: 'bo', name: 'Bo', relationship: 'her brother', by: 'understood', facts: ['bo-dinner'] }],
+      sentences: [
+        { at: 'daily', field: 'lead_story.what', text: 'Dinner with your brother Bo on Saturday', facts: ['bo-dinner'], people: ['bo'], expect: 'change' },
+        { at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' },
+      ],
+      put: { 'bo-dinner': ['happened'] },
+      understood: { cleared: ['bo'] },
+      judge: 'that Bo is her brother',
+    },
+    {
+      id: 'understood-kept',
+      look: 'Something else about Bo is put right: who Gremly understood him to be is kept.',
+      said: 'The dinner with Bo was on the 5th, not the 4th.',
+      facts: [fact('bo-dinner', 'Noor had dinner with Bo on 4 October.', { state: 'happened', about_date: '2026-10-04' }), book()],
+      people: [{ key: 'bo', name: 'Bo', relationship: 'her brother', by: 'understood', facts: ['bo-dinner'] }],
+      sentences: [
+        { at: 'daily', field: 'lead_story.what', text: 'Dinner with Bo on 4 October', facts: ['bo-dinner'], people: ['bo'], expect: 'change' },
+        { at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' },
+      ],
+      put: { 'bo-dinner': ['corrected', 'changed'] },
+      understood: { kept: ['bo'] },
+      judge: 'that the dinner with Bo was on 4 October',
+    },
+    {
+      id: 'matters-little',
+      look: 'They say something matters little to them, and ask nothing: it is kept as it is, never set aside.',
+      said: 'The printer toner does not matter much, I will get to it.',
+      facts: [
+        fact('toner', 'Noor needs to order printer toner for the office by 20 October.', { state: 'planned', about_date: '2026-10-20' }),
+        book(),
+      ],
+      people: [],
+      sentences: [
+        { at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' },
+      ],
+      put: { toner: ['planned'] },
+    },
+    {
       id: 'guess-yes',
       look: 'A yes to what Gremly thought but was not sure of: it becomes a fact in her words, and is confirmed.',
       said: 'Yes, a half marathon in March',
@@ -315,7 +405,8 @@ function build(s) {
       user_id: USER,
       name: p.name,
       relationship: p.relationship,
-      relationship_by: 'gremly',
+      // understood: who Gremly understood them to be from the records, never told (context/unsure.js)
+      relationship_by: p.by || 'gremly',
       relationship_fact_id: factId.get(p.fact) || null,
       merged_into: null,
       hidden_at: null,
@@ -342,8 +433,12 @@ function build(s) {
     notification_preferences: [{ user_id: USER, timezone: TZ }],
     user_corrections: [],
     scope_chat_messages: [],
+    // the entry each understood tie came from
+    life_unsure: people
+      .filter((p) => p.by === 'understood')
+      .map((p) => ({ id: uuid(), user_id: USER, person_id: p.id, kind: 'who', thinks: `${p.name} is ${p.relationship}`, sure: 'high', status: 'understood', rests_on: (p.facts || []).map((k) => ({ table: 'life_facts', id: factId.get(k) })) })),
   };
-  return { tables, where, factId };
+  return { tables, where, factId, personId };
 }
 
 /** The words a stored sentence has now, from the tables. */
@@ -373,7 +468,8 @@ async function stillSays(text, claim, said) {
   const { output } = await jsonCall(env, {
     primary: JUDGE,
     system: `You check one sentence a companion app wrote about a person after they corrected something. Decide whether the sentence still says, or plainly implies, the claim they corrected. A sentence that says what is now true, or says nothing about it, does not.\n\nReturn only JSON: {"still_says": true or false, "what": "the words that do, or empty"}`,
-    user: `WHAT THEY SAID: "${said}"\nTHE CLAIM THEY CORRECTED: ${claim}\n\nTHE SENTENCE: ${text}`,
+    // the sentence and what they said speak from today, so the judge is told which day that is
+    user: `TODAY: ${TODAY}, a ${new RealDate(`${TODAY}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' })}\nWHAT THEY SAID: "${said}"\nTHE CLAIM THEY CORRECTED: ${claim}\n\nTHE SENTENCE: ${text}`,
     schema: JUDGE_SCHEMA,
     maxTokens: 800,
   });
@@ -381,7 +477,7 @@ async function stillSays(text, claim, said) {
 }
 
 async function runOne(s, i) {
-  const { tables, where, factId } = build(s);
+  const { tables, where, factId, personId } = build(s);
   const cid = uuid();
   // a correction from the brief names the message they marked, as the app sends it
   const brief = s.surface === 'brief';
@@ -433,6 +529,12 @@ async function runOne(s, i) {
     checks.push({ name: `${k} put right`, ok: states.includes(stateOf(k)?.state), detail: stateOf(k)?.state });
   for (const k of s.privateKeys || []) checks.push({ name: `${k} kept private`, ok: stateOf(k)?.private === true });
   if (s.added) checks.push({ name: 'what is true kept with its day', ok: s.added(facts.filter((f) => f.source_table === 'user_corrections')) });
+  // who Gremly understood someone to be: put right when they say it is not so, kept otherwise
+  const personNow = (k) => current.mem.tables.life_people.find((p) => p.id === personId.get(k));
+  for (const k of s.understood?.cleared || [])
+    checks.push({ name: `who Gremly understood ${k} to be is put right`, ok: !personNow(k)?.relationship && current.mem.tables.life_unsure.some((u) => u.person_id === personId.get(k) && u.status === 'said_no'), detail: `${personNow(k)?.relationship} (${personNow(k)?.relationship_by})` });
+  for (const k of s.understood?.kept || [])
+    checks.push({ name: `who Gremly understood ${k} to be is kept`, ok: personNow(k)?.relationship_by === 'understood' && !!personNow(k)?.relationship, detail: `${personNow(k)?.relationship} (${personNow(k)?.relationship_by})` });
   const moved = [];
   where.forEach((w, j) => {
     const changed = after[j] !== before[j];

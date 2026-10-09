@@ -970,13 +970,8 @@ function validateAtoms(
     });
   }
 
-  // Tone hard rules.
-  // NOTE: em/en dash is NOT checked here. Dashes are cosmetic, not factual, and are
-  // sanitized (stripped/replaced) in sanitizeDeckProse before this fact-check runs, so a
-  // stray dash never blocks publication. Only genuinely false content blocks.
-  if (/\bshould\b/i.test(flat.replace(/"shape"\s*:\s*"\w+"/g, ''))) {
-    errors.push('output contains the word "should"');
-  }
+  // Tone is the writer's to keep, from its rules: code never reads the deck's
+  // words for it (18 Oct; it once refused any deck with the word should).
 }
 
 function validateWeekdayDateAgreement(deck: unknown, facts: HardFacts, errors: string[]): void {

@@ -34,12 +34,14 @@
  * or closed as they said.
  */
 
+import { whoSaid } from '../../shared/whoSaid.js';
 import { db, addDays, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { CARE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { loadPeople, mergePeople } from './people';
 import { invalidateChatCache } from './cache';
 import { personToday } from './filing';
+import { questionRoom } from './questionRoom';
 import {
   QUESTION_SET_MOST,
   PERSON_QUESTION_MIN_FACTS,
@@ -172,7 +174,7 @@ export function askCandidates({
 }
 
 const name = (p) => (p?.name ? p.name : '(no name known)');
-const who = (p) => (p?.relationship ? `${p.relationship}, as they said` : 'who they are not known');
+const who = (p) => whoSaid(p, 'who they are not known');
 const matters = (p) => (p?.matters_rank != null ? ' | one of the people who matter most to them' : '');
 const factLines = (facts) =>
   facts
@@ -596,12 +598,17 @@ export async function writeQuestionSet(
     }),
   );
   if (dryRun) return { ...out, written: false, dry_run: true, rows };
+  // only as many as there is room for, in the order the set asks them
+  const room = await questionRoom(db(env), userId);
+  const kept = rows.slice(0, room);
+  if (!kept.length) return { ...out, written: false, skipped: 'no room', why: 'enough questions are waiting already' };
   // the database holds one open question for each record as well
-  await db(env).insertQuiet('gremly_questions', rows);
+  await db(env).insertQuiet('gremly_questions', kept);
   return {
     ...out,
     written: true,
-    count: rows.length,
+    count: kept.length,
+    ...(kept.length < rows.length ? { no_room: rows.length - kept.length } : {}),
     set_id: setId,
     types: asked.asked.map((a) => a.c.type),
   };

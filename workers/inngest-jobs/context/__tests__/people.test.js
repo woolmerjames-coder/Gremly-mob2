@@ -308,6 +308,17 @@ describe('the first fill', () => {
 });
 
 describe('writing', () => {
+  it('lets what a fact states take the place of what Gremly only understood, even in the same words', () => {
+    const plan = planPeople({
+      known: known([{ ...SAM_WORK, relationship: 'manager', relationship_by: 'understood', relationship_fact_id: null }]),
+      facts: [{ factId: 'f-9', people: [{ ref: 'p1', name: SAM_WORK.name, relationship: 'manager' }] }],
+      userId: 'u',
+      runId: 'r',
+      newId,
+    });
+    expect(plan.updates.get(SAM_WORK.id)).toMatchObject({ relationship: 'manager', relationship_fact_id: 'f-9', relationship_by: 'gremly' });
+  });
+
   it('guards every patch so a field the person wrote is never written over', async () => {
     const calls = [];
     const d = {
@@ -324,7 +335,8 @@ describe('writing', () => {
     });
     const out = await writePeople(d, 'u', plan);
     const update = calls.find((c) => c.op === 'update');
-    expect(update.path).toBe('life_people?id=eq.p-sam&user_id=eq.u&relationship_by=eq.gremly');
+    // never over what they wrote; Gremly's own reading, or what it only understood, may change
+    expect(update.path).toBe('life_people?id=eq.p-sam&user_id=eq.u&relationship_by=neq.person');
     expect(calls.find((c) => c.t === 'life_person_names').on).toBe('person_id,name');
     expect(calls.find((c) => c.t === 'life_fact_people').on).toBe('fact_id,person_id');
     expect(out).toMatchObject({

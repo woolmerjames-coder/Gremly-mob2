@@ -47,7 +47,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 
-export const WORDS_WRITER_VERSION = 'words-2026-10-18a';
+export const WORDS_WRITER_VERSION = 'words-2026-10-18c';
 
 /** What a person's words fields record as their writer. */
 export const WORDS_SOURCE = 'words';
@@ -93,7 +93,7 @@ export function wordsRewritePrompt(person) {
     fixed: `${wordsSystemPrompt(person).fixed}
 
 ONCE AGAIN
-You are given the words you wrote, what was wrong with them, and only the records they rest on. Write them again for the same World or Chapter, so that they say only what those records hold, with their refs and what they state. Cite only the records given here. Each sentence still reads whole: someone or something a record given here holds stays, listed with that record, and what none holds is left out with the words around it. When nothing true can be said from them, return empty text.`,
+You are given the words you wrote, what was wrong with them, and only the records they rest on. Write them again for the same World or Chapter, so that they say only what those records hold, with their refs and what they state. Cite only the records given here. Each sentence still reads whole: someone or something a record given here holds stays, listed with that record, and what none holds is left out with the words around it. Put right what was wrong by saying less, never by saying where something came from: the words still speak of their life, never of their records, notes, lists or what was written down. When nothing true can be said from them, return empty text.`,
     varying: personBlock(person),
   };
 }
