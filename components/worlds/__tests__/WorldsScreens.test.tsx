@@ -10,6 +10,15 @@ import WorldDetailScreen from '../../../app/screens/WorldDetailScreen';
 import ChapterDetailScreen from '../../../app/screens/ChapterDetailScreen';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { hideSnack } from '../../../lib/worlds/snack';
+import {
+  closeIt,
+  fetchWorldsQuestions,
+  notNow,
+  startIt,
+  stillGoing,
+  tellGremly,
+  worldsQuestionFrom,
+} from '../../../lib/worlds/questions';
 
 jest.mock('../../../lib/store/useGremlyStore', () => {
   const { create } = require('zustand');
@@ -43,6 +52,20 @@ jest.mock('../../../lib/story/useStory', () => ({
   }),
 }));
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: () => null }));
+// Gremly's questions (stage 3): read from the database, and answered through their own module
+jest.mock('../../../lib/worlds/questions', () => {
+  const actual = jest.requireActual('../../../lib/worlds/questions');
+  return {
+    ...actual,
+    fetchWorldsQuestions: jest.fn(() => Promise.resolve([])),
+    startIt: jest.fn(),
+    notNow: jest.fn(),
+    closeIt: jest.fn(),
+    stillGoing: jest.fn(),
+    moveIt: jest.fn(),
+    tellGremly: jest.fn(),
+  };
+});
 // a page's own chat is Ask Gremly tied to the page (components/worlds/PageChat.tsx)
 jest.mock('../../../app/tabs/AskGremlyScreen', () => {
   const { Text } = require('react-native');
@@ -220,6 +243,7 @@ beforeEach(() => {
   store.setState(fresh(), true);
   jest.clearAllMocks();
   mockParams = {};
+  (fetchWorldsQuestions as jest.Mock).mockResolvedValue([]);
 });
 afterEach(() => act(() => hideSnack()));
 
@@ -305,6 +329,149 @@ describe('Worlds home', () => {
     const r = render(<WorldsScreen />);
     expect(r.getByText('Nothing here yet, and that is fine')).toBeTruthy();
     expect(r.getByText('Start something yourself')).toBeTruthy();
+  });
+});
+
+// a stored question, as the data fabric writes them (inngest-jobs context/chapterQuestions.js)
+const asked = (o: Record<string, unknown>) =>
+  worldsQuestionFrom({
+    status: 'open',
+    choices: [],
+    weight: null,
+    created_at: '2026-10-07T05:00:00Z',
+    asked_at: null,
+    hold_until: null,
+    record_table: null,
+    record_id: null,
+    rests_on: [],
+    set_id: null,
+    ...o,
+  })!;
+const suggestion = () =>
+  asked({
+    id: 'q1',
+    kind: 'start_chapter',
+    question: 'Shall I start a Chapter for the gate and the van?',
+    proposed_change: { type: 'start', title: 'Yard tidy', world_id: 'w1', end_date: '2026-10-31' },
+    rests_on: [
+      { table: 'todos', id: 't3' },
+      { table: 'todos', id: 't5' },
+      { table: 'todos', id: 'gone' },
+    ],
+  });
+const closing = () =>
+  asked({
+    id: 'q2',
+    kind: 'close_chapter',
+    question: 'Is the fence done now?',
+    record_table: 'chapters',
+    record_id: 'c3',
+    proposed_change: { type: 'close', chapter_id: 'c3', guess: 'over' },
+  });
+
+describe('Gremly asks, on the Worlds home', () => {
+  it('a suggestion waits above the box, shows what it rests on, and Start it makes it with Undo', async () => {
+    (fetchWorldsQuestions as jest.Mock).mockResolvedValue([suggestion()]);
+    const back = jest.fn(() => Promise.resolve());
+    (startIt as jest.Mock).mockResolvedValue({
+      chapter: { id: 'c9', title: 'Yard tidy' },
+      undo: back,
+    });
+    const r = render(<WorldsScreen />);
+    await waitFor(() => expect(r.getByTestId('worlds-ask')).toHaveTextContent('Start Yard tidy?'));
+    fireEvent.press(r.getByTestId('worlds-ask'));
+    expect(r.getByText('Something is starting: Yard tidy')).toBeTruthy();
+    expect(r.getByTestId('ask-card')).toHaveTextContent(/31 Oct\. Shall I start a Chapter/);
+    expect(r.getByText('Fix the gate')).toBeTruthy();
+    expect(r.getByText('Return the van')).toBeTruthy();
+    await act(async () => fireEvent.press(r.getByTestId('ask-primary')));
+    expect(startIt).toHaveBeenCalledWith(expect.objectContaining({ id: 'q1' }), { worldId: 'w1' });
+    expect(r.getByTestId('worlds-snack')).toHaveTextContent(/Yard tidy is in motion now/);
+    expect(r.queryByTestId('worlds-ask')).toBeNull();
+    await act(async () => fireEvent.press(r.getByTestId('worlds-snack-undo')));
+    expect(back).toHaveBeenCalled();
+    await waitFor(() => expect(r.getByTestId('worlds-ask')).toBeTruthy());
+  });
+
+  it('Not now turns the suggestion down', async () => {
+    (fetchWorldsQuestions as jest.Mock).mockResolvedValue([suggestion()]);
+    (notNow as jest.Mock).mockResolvedValue(undo);
+    const r = render(<WorldsScreen />);
+    await waitFor(() => expect(r.getByTestId('worlds-ask')).toBeTruthy());
+    fireEvent.press(r.getByTestId('worlds-ask'));
+    await act(async () => fireEvent.press(r.getByTestId('ask-secondary')));
+    expect(notNow).toHaveBeenCalled();
+    expect(r.getByTestId('worlds-snack')).toHaveTextContent(/will not suggest it again/);
+  });
+
+  it('a Chapter that looks finished closes with Close it, quietly, with Undo', async () => {
+    (fetchWorldsQuestions as jest.Mock).mockResolvedValue([closing()]);
+    (closeIt as jest.Mock).mockResolvedValue(undo);
+    (stillGoing as jest.Mock).mockResolvedValue(undo);
+    (tellGremly as jest.Mock).mockResolvedValue(true);
+    const r = render(<WorldsScreen />);
+    await waitFor(() =>
+      expect(r.getByTestId('worlds-ask')).toHaveTextContent('Close Garden fence?'),
+    );
+    fireEvent.press(r.getByTestId('worlds-ask'));
+    expect(r.getByText('This looks finished: Garden fence')).toBeTruthy();
+    await act(async () => fireEvent.press(r.getByTestId('ask-primary')));
+    expect(closeIt).toHaveBeenCalledWith(expect.objectContaining({ id: 'q2' }));
+    expect(r.getByTestId('worlds-snack')).toHaveTextContent(/Garden fence is closed/);
+  });
+
+  it('their own words go to Gremly to read', async () => {
+    (fetchWorldsQuestions as jest.Mock).mockResolvedValue([closing()]);
+    (tellGremly as jest.Mock).mockResolvedValue(true);
+    const r = render(<WorldsScreen />);
+    await waitFor(() => expect(r.getByTestId('worlds-ask')).toBeTruthy());
+    fireEvent.press(r.getByTestId('worlds-ask'));
+    fireEvent.changeText(r.getByTestId('ask-say'), 'Nearly, one panel left');
+    await act(async () => fireEvent.press(r.getByTestId('ask-send')));
+    expect(tellGremly).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'q2' }),
+      'Nearly, one panel left',
+    );
+    expect(r.getByTestId('worlds-snack')).toHaveTextContent(/Sent to Gremly/);
+  });
+
+  it('after time away, the welcome back: each guess can be changed, Accept all, one Undo, or Later', async () => {
+    const away = (id: string, chapterId: string, guess: string) =>
+      asked({
+        id,
+        kind: 'while_away',
+        question: 'What became of it?',
+        record_table: 'chapters',
+        record_id: chapterId,
+        set_id: 's1',
+        proposed_change: { type: 'while_away', chapter_id: chapterId, guess },
+      });
+    (fetchWorldsQuestions as jest.Mock).mockResolvedValue([
+      away('a1', 'c3', 'over'),
+      away('a2', 'c2', 'unsure'),
+    ]);
+    (closeIt as jest.Mock).mockResolvedValue(undo);
+    (stillGoing as jest.Mock).mockResolvedValue(undo);
+    const r = render(<WorldsScreen />);
+    await waitFor(() => expect(r.getByTestId('welcome-back')).toBeTruthy());
+    expect(r.getByTestId('welcome-back')).toHaveTextContent(/Nothing changed while you were away/);
+    expect(r.getByTestId('away-pick-a1')).toHaveTextContent('Close it');
+    // nothing is closed on a guess Gremly was unsure of
+    expect(r.getByTestId('away-pick-a2')).toHaveTextContent('Still going');
+    fireEvent.press(r.getByTestId('away-pick-a1'));
+    fireEvent.press(r.getByTestId('away-to-going'));
+    expect(r.getByTestId('away-pick-a1')).toHaveTextContent('Still going');
+    fireEvent.press(r.getByTestId('away-later'));
+    expect(r.queryByTestId('welcome-back')).toBeNull();
+    expect(r.getByTestId('worlds-ask')).toHaveTextContent('Tidy what passed?');
+    fireEvent.press(r.getByTestId('worlds-ask'));
+    await act(async () => fireEvent.press(r.getByTestId('away-accept')));
+    expect(closeIt).not.toHaveBeenCalled();
+    expect(stillGoing).toHaveBeenCalledTimes(2);
+    expect(r.queryByTestId('welcome-back')).toBeNull();
+    await act(async () => fireEvent.press(r.getByTestId('worlds-snack-undo')));
+    expect(undo).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(r.getByTestId('welcome-back')).toBeTruthy());
   });
 });
 

@@ -2,6 +2,8 @@
  * Worlds, in the look James chose (look A, "Up next"): the row of Gremlys,
  * one Chapter leading on the dark card, everything else as a quiet list, and
  * Looking back. Built from lib/worlds (the rules, the actions and the look).
+ * Gremly's one question waits above the box, and after time away the welcome
+ * back comes as a card (stage 3, lib/worlds/questions.ts).
  */
 import { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -36,16 +38,43 @@ import { WorldsStrip } from '../../components/worlds/WorldsStrip';
 import { UpNextCard, stepTitle } from '../../components/worlds/UpNextCard';
 import { ChapterRow, ClosedRow } from '../../components/worlds/ChapterRow';
 import { NoneYet, SectionHead, TextLink, plural } from '../../components/worlds/parts';
-import { Btn, Sheet } from '../../components/worlds/Sheet';
+import { Btn, MenuRow, Sheet, SheetTitle } from '../../components/worlds/Sheet';
 import { StartSomething } from '../../components/worlds/StartSomething';
 import { WorldPick } from '../../components/worlds/WorldPick';
 import { UndoSnack } from '../../components/worlds/UndoSnack';
-import { BOX_SPACE, GremlyBox } from '../../components/worlds/GremlyBox';
+import { BOX_SPACE, CHIP_SPACE, GremlyBox } from '../../components/worlds/GremlyBox';
 import { PageChat } from '../../components/worlds/PageChat';
 import { lightTap } from '../../components/worlds/usePageActions';
+import { AskCard } from '../../components/worlds/AskCard';
+import {
+  PICK_WORDS,
+  WelcomeBack,
+  guessPick,
+  picksFor,
+  type AwayPick,
+} from '../../components/worlds/WelcomeBack';
+import { useWorldsQuestions } from '../../lib/worlds/useWorldsQuestions';
+import {
+  askWords,
+  closeIt,
+  moveIt,
+  notNow,
+  proposedWorld,
+  startIt,
+  stillGoing,
+  tellGremly,
+  type AskAct,
+  type WorldsQuestion,
+} from '../../lib/worlds/questions';
+import type { Undo } from '../../lib/worlds/actions';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
-type HomeSheet = { kind: 'start'; asWorld?: boolean } | { kind: 'hidden' } | null;
+type HomeSheet =
+  | { kind: 'start'; asWorld?: boolean }
+  | { kind: 'hidden' }
+  | { kind: 'ask'; q: WorldsQuestion }
+  | { kind: 'away'; q: WorldsQuestion }
+  | null;
 
 export default function WorldsScreen() {
   useAppEventOnFocus('world_view', { type: 'worlds_tab' });
@@ -65,6 +94,11 @@ export default function WorldsScreen() {
   const closeChat = useCallback(() => setChatOpen(false), []);
   // A World just made is scrolled into view along the top.
   const [madeWorld, setMadeWorld] = useState<string | null>(null);
+  // Gremly's questions: the one above the box, and the welcome back
+  const { ask, away, drop, restore } = useWorldsQuestions(today);
+  const [awayPicks, setAwayPicks] = useState<Record<string, AwayPick>>({});
+  const [awayLater, setAwayLater] = useState(false);
+  const [answering, setAnswering] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -120,6 +154,94 @@ export default function WorldsScreen() {
     }
   }
 
+  const titleOf = (id: string) => chapters.find((c) => c.id === id)?.title?.trim() || 'It';
+
+  /** A tap on a question's own button: made with Undo, and the question gone everywhere. */
+  async function answer(q: WorldsQuestion, act: AskAct) {
+    setSheet(null);
+    setAnswering(true);
+    drop([q.id]);
+    const name = q.proposal.type === 'start' ? q.proposal.title : titleOf(q.proposal.chapter_id);
+    try {
+      let undo: Undo;
+      let line: string;
+      if (act === 'start') {
+        const made = await startIt(q, { worldId: proposedWorld(q, worlds) });
+        undo = made.undo;
+        line = `${made.chapter.title} is in motion now.`;
+      } else if (act === 'no') {
+        undo = await notNow(q);
+        line = 'Left as it is. Gremly will not suggest it again.';
+      } else if (act === 'close') {
+        undo = await closeIt(q);
+        line = `${name} is closed and part of your story.`;
+      } else if (act === 'move') {
+        undo = await moveIt(q);
+        line = `${name} has its new dates.`;
+      } else {
+        undo = await stillGoing(q, today);
+        line = `${name} stays open.`;
+      }
+      showSnack(line, async () => {
+        await undo();
+        restore([q]);
+      });
+    } catch (err) {
+      restore([q]);
+      showFailed('That answer', err);
+    } finally {
+      setAnswering(false);
+    }
+  }
+
+  /** Their own words: the pipeline reads them and acts, as it does in the brief. */
+  async function tell(q: WorldsQuestion, said: string) {
+    setSheet(null);
+    drop([q.id]);
+    if (await tellGremly(q, said)) showSnack('Sent to Gremly. He will take it from there.');
+    else {
+      restore([q]);
+      showSnack('That did not send. Check your connection and try again.');
+    }
+  }
+
+  /** The welcome back: each Chapter as picked, all at once, with one Undo. */
+  async function acceptAway() {
+    const list = away;
+    setAnswering(true);
+    const done: Undo[] = [];
+    try {
+      for (const q of list) {
+        const pick = awayPicks[q.id] ?? guessPick(q);
+        done.push(
+          pick === 'close'
+            ? await closeIt(q)
+            : pick === 'move'
+              ? await moveIt(q)
+              : await stillGoing(q, today),
+        );
+      }
+      drop(list.map((q) => q.id));
+      showSnack('Done. Each one is as you picked, and nothing in them is lost.', async () => {
+        for (const u of [...done].reverse()) await u();
+        restore(list);
+      });
+    } catch (err) {
+      for (const u of [...done].reverse()) await u().catch(() => undefined);
+      showFailed('Settling what passed', err);
+    } finally {
+      setAnswering(false);
+    }
+  }
+
+  const awayOpen = away.length > 0 && !awayLater;
+  const chip =
+    away.length && awayLater
+      ? { label: 'Tidy what passed?', onPress: () => setAwayLater(false) }
+      : ask
+        ? { label: askWords(ask, chapters).chip, onPress: () => setSheet({ kind: 'ask', q: ask }) }
+        : null;
+
   const firstDay = !shown.length && !chapters.length && !hidden.length;
   const updated = story.header.writtenAt
     ? getDateService().extractLocalDate(story.header.writtenAt)
@@ -128,7 +250,10 @@ export default function WorldsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']} testID="worlds-screen">
       <ScrollView
-        contentContainerStyle={styles.body}
+        contentContainerStyle={[
+          styles.body,
+          chip ? { paddingBottom: BODY_END + CHIP_SPACE } : null,
+        ]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={W.moss} />
         }
@@ -191,6 +316,19 @@ export default function WorldsScreen() {
                 start one.
               </NoneYet>
             )}
+
+            {awayOpen ? (
+              <WelcomeBack
+                questions={away}
+                chapters={chapters}
+                picks={awayPicks}
+                today={today}
+                busy={answering}
+                onPick={(q) => setSheet({ kind: 'away', q })}
+                onAcceptAll={() => void acceptAway()}
+                onLater={() => setAwayLater(true)}
+              />
+            ) : null}
 
             {also.length ? (
               <>
@@ -275,7 +413,13 @@ export default function WorldsScreen() {
       <Sheet
         visible={!!sheet}
         onClose={() => setSheet(null)}
-        label={sheet?.kind === 'hidden' ? 'Bring a World back' : 'Start something new'}
+        label={
+          sheet?.kind === 'hidden'
+            ? 'Bring a World back'
+            : sheet?.kind === 'ask' || sheet?.kind === 'away'
+              ? 'Gremly asks'
+              : 'Start something new'
+        }
       >
         {sheet?.kind === 'start' ? (
           <StartSomething
@@ -310,20 +454,55 @@ export default function WorldsScreen() {
             worlds={hidden}
             onPick={bringBack}
           />
+        ) : sheet?.kind === 'ask' ? (
+          <AskCard
+            question={sheet.q}
+            busy={answering}
+            onAct={(act) => void answer(sheet.q, act)}
+            onTell={(said) => void tell(sheet.q, said)}
+          />
+        ) : sheet?.kind === 'away' ? (
+          <View>
+            <SheetTitle>
+              {sheet.q.proposal.type === 'start' ? '' : titleOf(sheet.q.proposal.chapter_id)}
+            </SheetTitle>
+            <View style={{ height: 8 }} />
+            {picksFor(sheet.q).map((p) => (
+              <MenuRow
+                key={p}
+                title={PICK_WORDS[p]}
+                sub={
+                  p === 'close'
+                    ? 'Its memory is written for your story'
+                    : p === 'move'
+                      ? 'To the days Gremly found'
+                      : 'It stays open'
+                }
+                selected={(awayPicks[sheet.q.id] ?? guessPick(sheet.q)) === p}
+                onPress={() => {
+                  setAwayPicks((m) => ({ ...m, [sheet.q.id]: p }));
+                  setSheet(null);
+                }}
+                testID={`away-to-${p}`}
+              />
+            ))}
+          </View>
         ) : null}
       </Sheet>
 
-      <GremlyBox slug="gremly-mascot" onPress={() => setChatOpen(true)} above={72} />
+      <GremlyBox slug="gremly-mascot" onPress={() => setChatOpen(true)} above={72} chip={chip} />
       <PageChat visible={chatOpen} kind="home" onClose={closeChat} />
 
-      <UndoSnack bottom={72 + BOX_SPACE + 12} />
+      <UndoSnack bottom={72 + BOX_SPACE + (chip ? CHIP_SPACE : 0) + 12} />
     </SafeAreaView>
   );
 }
 
+const BODY_END = TAB_BAR_SPACE + BOX_SPACE + 24;
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: W.linen },
-  body: { paddingHorizontal: 20, paddingTop: 2, paddingBottom: TAB_BAR_SPACE + BOX_SPACE + 24 },
+  body: { paddingHorizontal: 20, paddingTop: 2, paddingBottom: BODY_END },
   top: {
     flexDirection: 'row',
     alignItems: 'center',
