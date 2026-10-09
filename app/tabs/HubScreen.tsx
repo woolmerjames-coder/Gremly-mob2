@@ -1398,10 +1398,10 @@ export default function HubScreen() {
                 <Text style={[typeStyles.h2, { marginBottom: spacing.md }]}>People</Text>
                 <PeopleList
                   people={peopleWithCounts}
-                  onPersonPress={(person) => {
-                    // Future: Navigate to person detail view
-                    console.log('[HubScreen] Person pressed:', person.name);
-                  }}
+                  onPersonPress={(person) =>
+                    // their page (Worlds rebuild, stage 5), found by the name shown
+                    navigation.navigate('PersonDetail', { personName: person.name })
+                  }
                   testID="people-list"
                 />
               </View>

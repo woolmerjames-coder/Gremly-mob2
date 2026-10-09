@@ -19,7 +19,8 @@ import CardDeckScreen from '../app/screens/CardDeckScreen';
 import OnboardingScreen from '../app/screens/OnboardingScreen';
 import TrialIntroScreen from '../app/screens/TrialIntroScreen';
 import TrialEndPaywallScreen from '../app/screens/TrialEndPaywallScreen';
-import PersonDetailScreen from '../app/people/PersonDetailScreen';
+import PersonScreen from '../app/people/PersonScreen';
+import PeopleScreen from '../app/people/PeopleScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
@@ -70,7 +71,13 @@ export type RootStackParamList = {
   DevTools: undefined;
   RecentItems: undefined;
   CatchAllNotepad: undefined;
-  PersonDetail: { personName: string; personEmail?: string };
+  /**
+   * A person's page (Worlds rebuild, stage 5): by their record, or by a name
+   * as it appears on a screen, which the page finds among the people Gremly keeps
+   */
+  PersonDetail: { personId?: string; personName?: string };
+  /** Everyone in their life Gremly keeps, from the People row on Worlds */
+  People: undefined;
   Lists: undefined;
   /**
    * The decision cards on their own, opened from today's thread, each
@@ -185,9 +192,10 @@ export default function RootNavigator() {
           />
           <Stack.Screen
             name="PersonDetail"
-            component={PersonDetailScreen}
+            component={PersonScreen}
             options={{ title: 'Person', headerShown: false }}
           />
+          <Stack.Screen name="People" component={PeopleScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="Lists"
             component={ListsScreen}

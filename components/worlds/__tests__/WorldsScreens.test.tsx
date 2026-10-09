@@ -53,6 +53,13 @@ jest.mock('../../../lib/story/useStory', () => ({
   }),
 }));
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: () => null }));
+// the people they keep (stage 5): the People row on the home, the people on a Chapter
+let mockPeople: any[] = [];
+let mockChapterPeople: any[] = [];
+jest.mock('../../../lib/people/usePeople', () => ({
+  usePeople: () => mockPeople,
+  useChapterPeople: () => mockChapterPeople,
+}));
 // Gremly's guesses when a Chapter is started by hand (stage 3)
 jest.mock('../../../lib/worlds/guess', () => ({ guessChapter: jest.fn() }));
 // Gremly's questions (stage 3): read from the database, and answered through their own module
@@ -396,6 +403,18 @@ describe('Worlds home', () => {
     );
   });
 
+  it('has a People row beside Your story once someone is known, which opens People', () => {
+    mockPeople = [
+      { id: 'p1', name: 'Sam', relationship: 'sister', names: [], who_private: false },
+      { id: 'p2', name: null, relationship: 'mum', names: [], who_private: false },
+    ];
+    const r = render(<WorldsScreen />);
+    expect(r.getByTestId('worlds-people')).toHaveTextContent(/Sam and Your mum/);
+    fireEvent.press(r.getByTestId('worlds-people'));
+    expect(mockNav.navigate).toHaveBeenCalledWith('People');
+    mockPeople = [];
+  });
+
   it('greets a first day with nothing in it', () => {
     store.setState({ worlds: [], chapters: [] });
     const r = render(<WorldsScreen />);
@@ -548,6 +567,31 @@ describe('Gremly asks, on the Worlds home', () => {
 });
 
 describe('A Chapter', () => {
+  it('opens the page of someone on it, by their record or by the name it was with', () => {
+    mockParams = { chapterId: 'c1' };
+    mockChapterPeople = [{ id: 'p-sam', title: 'Sam', names: ['Sammy'] }];
+    store.setState({
+      chapters: store.getState().chapters.map((c: any) =>
+        c.id === 'c1'
+          ? {
+              ...c,
+              with_you: [
+                { name: 'Sammy', confidence: 1 },
+                { name: 'Dan', confidence: 1 },
+              ],
+            }
+          : c,
+      ),
+    });
+    const r = render(<ChapterDetailScreen />);
+    fireEvent.press(r.getByTestId('person-chip-p-sam'));
+    expect(mockNav.navigate).toHaveBeenCalledWith('PersonDetail', { personId: 'p-sam' });
+    fireEvent.press(r.getByTestId('person-chip-Dan'));
+    expect(mockNav.navigate).toHaveBeenCalledWith('PersonDetail', { personName: 'Dan' });
+    expect(r.queryByTestId('person-chip-Sammy')).toBeNull();
+    mockChapterPeople = [];
+  });
+
   it('shows when it is, the countdown and its steps', () => {
     mockParams = { chapterId: 'c1' };
     const r = render(<ChapterDetailScreen />);

@@ -1750,6 +1750,54 @@ export async function callChapterMemory(chapterId: string): Promise<
 }
 
 /**
+ * The people page (Worlds rebuild, stage 5), one request for both: a merge
+ * Gremly proposed, made or kept apart by their tap or put back (type
+ * person-merge), and the page's words, written again when what they rest on
+ * has changed and returned as they stand (type person-page).
+ */
+async function callPeople<T>(body: Record<string, unknown>): Promise<CortexClientResult<T>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    // only the people handlers answer ok: an older cortex falls through to chat
+    if (data?.ok !== true) return { ok: false, error: 'cortex did not answer', status: res.status };
+    return { ok: true, data: data as T };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+export function callPersonMerge(input: { mergeId: string; act: 'merge' | 'decline' | 'undo' }) {
+  return callPeople<{ ok: true; kept_id: string; merged_id: string }>({
+    type: 'person-merge',
+    merge_id: input.mergeId,
+    act: input.act,
+  });
+}
+
+export function callPersonPage(personId: string) {
+  return callPeople<{
+    ok: true;
+    person_id: string;
+    fresh: boolean;
+    page: {
+      days: { fact_id: string; label: string }[];
+      remember: { text: string; fact_ids: string[] }[];
+    } | null;
+  }>({ type: 'person-page', person_id: personId });
+}
+
+/**
  * Forget Everything (What Gremly knows), after the person said yes: Gremly
  * forgets what he learned about them (workers/cortex/context/forget.js). The
  * reply says how much of each kind was forgotten.

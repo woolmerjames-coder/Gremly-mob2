@@ -14,6 +14,7 @@ import { ChevronRight, Plus } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAppEventOnFocus } from '../../lib/appEvents';
 import { useStory } from '../../lib/story/useStory';
+import { usePeople } from '../../lib/people/usePeople';
 import { getDateService } from '../../lib/date/DateService';
 import { resolveMascotAsset } from '../../lib/store/mascotRegistry';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -46,6 +47,7 @@ import { BOX_SPACE, CHIP_SPACE, GremlyBox } from '../../components/worlds/Gremly
 import { PageChat } from '../../components/worlds/PageChat';
 import { lightTap } from '../../components/worlds/usePageActions';
 import { AskCard } from '../../components/worlds/AskCard';
+import { PeopleRow } from '../../components/worlds/PeopleRow';
 import {
   PICK_WORDS,
   WelcomeBack,
@@ -88,6 +90,7 @@ export default function WorldsScreen() {
   const makeWorld = useGremlyStore((s) => s.makeWorld);
   const unhideWorld = useGremlyStore((s) => s.unhideWorld);
   const { data: story } = useStory();
+  const people = usePeople();
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<HomeSheet>(null);
   // the box's chat, over Worlds: fresh each time it opens
@@ -374,6 +377,9 @@ export default function WorldsScreen() {
               </View>
               <ChevronRight size={18} color={W.linen} />
             </Pressable>
+            {people?.length ? (
+              <PeopleRow people={people} onOpen={() => nav.navigate('People')} />
+            ) : null}
             {closed.length ? (
               <View style={styles.lb}>
                 {closed.map((c, i) => (

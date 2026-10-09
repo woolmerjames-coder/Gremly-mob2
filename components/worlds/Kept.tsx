@@ -156,16 +156,33 @@ export function HabitRows({
   );
 }
 
-export function PeopleChips({ names, tint }: { names: string[]; tint: WorldTint }) {
+/** The people on a Chapter. A tap opens their page (Worlds rebuild, stage 5). */
+export function PeopleChips({
+  people,
+  tint,
+  onOpen,
+}: {
+  people: { name: string; id?: string }[];
+  tint: WorldTint;
+  onOpen?: (p: { name: string; id?: string }) => void;
+}) {
   return (
     <View style={styles.ppl}>
-      {names.map((p) => (
-        <View key={p} style={styles.pp}>
+      {people.map((p) => (
+        <Pressable
+          key={p.id || p.name}
+          onPress={onOpen ? () => onOpen(p) : undefined}
+          disabled={!onOpen}
+          style={({ pressed }) => [styles.pp, pressed && { opacity: 0.85 }]}
+          accessibilityRole={onOpen ? 'button' : 'text'}
+          accessibilityLabel={onOpen ? `Open ${p.name}` : p.name}
+          testID={`person-chip-${p.id || p.name}`}
+        >
           <View style={[styles.ppI, { backgroundColor: TINT[tint].wash }]}>
-            <Text style={[styles.ppIText, { color: TINT[tint].ink }]}>{p.charAt(0)}</Text>
+            <Text style={[styles.ppIText, { color: TINT[tint].ink }]}>{p.name.charAt(0)}</Text>
           </View>
-          <Text style={styles.ppText}>{p}</Text>
-        </View>
+          <Text style={styles.ppText}>{p.name}</Text>
+        </Pressable>
       ))}
     </View>
   );

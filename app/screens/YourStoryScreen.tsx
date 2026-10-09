@@ -279,7 +279,14 @@ export default function YourStoryScreen() {
                   const [name, ...rest] = p.title.split(', ');
                   const pal = AVATARS[i % AVATARS.length];
                   return (
-                    <View key={p.id} style={styles.person}>
+                    <Pressable
+                      key={p.id}
+                      onPress={() => nav.navigate('PersonDetail', { personName: name })}
+                      style={({ pressed }) => [styles.person, pressed && { opacity: 0.8 }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${name}`}
+                      testID={`story-person-${p.id}`}
+                    >
                       <View style={[styles.avatar, { backgroundColor: pal.bg }]}>
                         <Text style={[styles.avatarText, { color: pal.fg }]}>
                           {name.slice(0, 1).toUpperCase()}
@@ -293,7 +300,7 @@ export default function YourStoryScreen() {
                           {rest.join(', ')}
                         </Text>
                       ) : null}
-                    </View>
+                    </Pressable>
                   );
                 })}
               </View>
