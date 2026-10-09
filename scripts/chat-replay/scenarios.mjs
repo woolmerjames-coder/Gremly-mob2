@@ -704,6 +704,58 @@ SCENARIOS.push(
     ...P,
     expect: { keep: { place: 'wHealth', minLines: 4 } },
   },
+  // things that belong in a World and in none of its Chapters: the button
+  // names the World, so Save does not have to ask where (the place is what
+  // these check; a reply in a paragraph or two keeps one or two lines)
+  {
+    id: 'keep-world-cosy',
+    kind: 'Save from chat',
+    text: 'Give me a few ideas to make the flat feel cosier this winter',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wHome', minLines: 3 } },
+  },
+  {
+    id: 'keep-world-review',
+    kind: 'Save from chat',
+    text: 'Give me a few tips for my performance review next week',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wWork', minLines: 1 } },
+  },
+  {
+    id: 'keep-world-breakfasts',
+    kind: 'Save from chat',
+    text: 'Give me five quick high protein breakfasts',
+    items: [],
+    ...P,
+    expect: { keep: { place: ['wHealth', 'wHome'], minLines: 5 } },
+  },
+  {
+    id: 'keep-world-night-in',
+    kind: 'Save from chat',
+    text: 'Any ideas for a fun, low key night in with friends?',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wFriends', minLines: 1 } },
+  },
+  // the World, not a Chapter in it that is about something else
+  {
+    id: 'keep-world-weekend-away',
+    kind: 'Save from chat',
+    text: 'Give me some ideas for a weekend away in the spring',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wTravel', minLines: 3 } },
+  },
+  {
+    id: 'keep-world-shade',
+    kind: 'Save from chat',
+    text: 'What are some easy plants for a shady corner of the garden?',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wHome', minLines: 1 } },
+  },
   {
     id: 'keep-chat-only',
     kind: 'Save from chat',

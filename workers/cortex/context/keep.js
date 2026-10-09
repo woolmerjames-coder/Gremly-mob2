@@ -21,7 +21,7 @@ import { db as dbFor } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { isHidden, isOpen, readPlaces, worldName } from '../agent/places.js';
 
-export const KEEP_VERSION = 'keep-2026-10-09a';
+export const KEEP_VERSION = 'keep-2026-10-17a';
 
 const MOST_LINES = 40;
 const LINE_CHARS = 300;
@@ -39,7 +39,7 @@ function keepPrompt({ message, reply, page, card, worlds, chapters }) {
     : '';
   return `You read a message a person sent to Gremly, their companion app, and Gremly's reply to it. Decide whether the reply gives them something new that they will want to come back to later, with enough in it to keep: a list to work through, or ideas, a plan, steps or what Gremly found out for something of theirs. Most replies are not worth keeping. A reply is not worth keeping when it talks with them, answers a quick question, asks them something, tells them about their own plans, week, things or past, or changes their things, since what is theirs is already kept.
 
-When it is worth keeping, give what is worth keeping as it reads in the reply, without the words around it, each point, item or paragraph as one line, without bullet marks, numbers or bold; a short name for it; whether it is a list, which is things to tick off one by one, or a note, which is anything else; and where it belongs: the id of the open Chapter it is for, or else of the World it belongs in. Leave the place empty only when it belongs in none of their Worlds.
+When it is worth keeping, give what is worth keeping as it reads in the reply, without the words around it, each point, item or paragraph as one line, without bullet marks, numbers or bold; a short name for it; whether it is a list, which is things to tick off one by one, or a note, which is anything else; and where it belongs: the id of an open Chapter only when it is for that Chapter's own aim, or else the id of the World it belongs in, which is where something for a part of their life and for none of its Chapters goes. Leave the place empty only when it belongs in none of their Worlds.
 
 ${withCard}${here}THEIR WORLDS
 ${worlds.map((w) => `${worldName(w)} (id ${w.id})${w.card_subtitle ? `: ${String(w.card_subtitle).slice(0, 120)}` : ''}`).join('\n') || 'none'}
