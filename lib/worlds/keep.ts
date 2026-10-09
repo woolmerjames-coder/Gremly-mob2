@@ -11,6 +11,7 @@ import type { Note } from '../types';
 import type { Chapter, World } from '../supabase/types';
 import { isOpenChapter, isShownWorld, worldName } from './model';
 import type { Undo } from './actions';
+import { markWorldsNew } from './dot';
 
 export interface KeepPlace {
   type: 'world' | 'chapter';
@@ -124,6 +125,7 @@ export async function saveKept(
       await placed();
       await store().deleteNote(note.id);
     });
+    markWorldsNew();
     return note;
   } catch (err) {
     await s.deleteNote(note.id).catch(() => undefined);

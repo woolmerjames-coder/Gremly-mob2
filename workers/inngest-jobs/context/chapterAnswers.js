@@ -10,6 +10,10 @@
  * their word that it is over or not happening; its days moved to the days
  * they give; and one they say is still going kept open, its passed end date
  * taken away. Gremly never starts or closes a Chapter without their answer.
+ *
+ * A Chapter closed on their word gets its memory written, as one closed in
+ * the app does (Worlds rebuild, stage 3, decision 5); a memory that cannot be
+ * written never stops the answer.
  */
 
 import { db, personIdentity } from './db';
@@ -17,6 +21,7 @@ import { jsonCall, modelFor } from './llm';
 import { personBlock } from '../careRules';
 import { personToday } from './filing';
 import { ITEM_TABLE } from './filed';
+import { writeMemory } from './memory';
 
 export const CHAPTER_ANSWER_VERSION = 'chapter-answer-2026-10-18b';
 
@@ -196,7 +201,17 @@ export async function answerChapterQuestion(env, { userId, question, said }) {
       closed_at: nowIso,
       updated_at: nowIso,
     });
-    if (Array.isArray(done) && done.length) result.closed = chapter.id;
+    if (Array.isArray(done) && done.length) {
+      result.closed = chapter.id;
+      // its memory, as when it is closed in the app
+      try {
+        const m = await writeMemory(env, userId, chapter.id);
+        result.memory = m?.outcome || null;
+      } catch (err) {
+        console.warn('[ChapterAnswer] the memory could not be written', String(err?.message || err).slice(0, 200));
+        result.memory = 'failed';
+      }
+    }
   }
   if (plan.dates) {
     const patch = { updated_at: nowIso };

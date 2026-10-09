@@ -15,6 +15,7 @@ import { DEFAULT_MASCOT_SLUG } from '../store/mascotRegistry';
 import { placeBefore, type Change } from './model';
 import type { Undo } from '../worlds/actions';
 import { dateWords } from '../worlds/model';
+import { markWorldsNew } from '../worlds/dot';
 
 export type PlaceType = 'world' | 'chapter';
 
@@ -222,12 +223,14 @@ export async function applyPlace(change: Change): Promise<PlaceOutcome> {
         gremly: f.gremly ?? null,
         items: Array.isArray(f.items) ? f.items : [],
       });
+      markWorldsNew();
       return { ok: true, revert: undo, createdId: chapter.id };
     }
     const { world, undo } = await s.makeWorld({
       name: f.name,
       gremly: f.gremly || DEFAULT_MASCOT_SLUG,
     });
+    markWorldsNew();
     return { ok: true, revert: undo, createdId: world.id };
   }
 

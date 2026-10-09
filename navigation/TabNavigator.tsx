@@ -1,7 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
-import { useEffect } from 'react';
-import { Image, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -19,6 +19,7 @@ import {
   gremlyButtonFillHeight,
 } from '../components/home/gremlyButtonFill';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { firstWorldsArrived, markWorldsNew, useWorldsDot } from '../lib/worlds/dot';
 import type { TalkAboutItem } from '../lib/chat/talkAboutOpeners';
 import type { ThreadStep } from '../lib/brief/pinned';
 import { lightTokens } from '../design/tokens';
@@ -148,6 +149,15 @@ function GremlyTabButton({
 
 export default function TabNavigator() {
   const isTester = useGremlyStore((s) => s.isTester);
+  // the dot on the Worlds tab: something new landed there from somewhere else
+  const worldsNew = useWorldsDot((s) => s.on);
+  const worldCount = useGremlyStore((s) => (s.worlds ?? []).length);
+  const lastCount = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastCount.current !== null && firstWorldsArrived(lastCount.current, worldCount))
+      markWorldsNew();
+    lastCount.current = worldCount;
+  }, [worldCount]);
 
   return (
     <Tab.Navigator
@@ -202,13 +212,19 @@ export default function TabNavigator() {
           component={WorldsScreen}
           options={{
             tabBarIcon: ({ focused }) => (
-              <Image
-                source={WORLDS_ICON}
-                style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
-                resizeMode="contain"
-              />
+              <View>
+                <Image
+                  source={WORLDS_ICON}
+                  style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
+                  resizeMode="contain"
+                />
+                {worldsNew && !focused ? (
+                  <View style={styles.newDot} testID="worlds-tab-dot" />
+                ) : null}
+              </View>
             ),
             tabBarLabel: 'Worlds',
+            tabBarAccessibilityLabel: worldsNew ? 'Worlds, something new' : 'Worlds',
           }}
         />
       ) : (
@@ -231,6 +247,17 @@ export default function TabNavigator() {
 }
 
 const styles = StyleSheet.create({
+  newDot: {
+    position: 'absolute',
+    top: -1,
+    right: -3,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4E9A62',
+    borderWidth: 1.5,
+    borderColor: lightTokens.colors.linenCream,
+  },
   centerTab: {
     alignItems: 'center',
     justifyContent: 'flex-start',

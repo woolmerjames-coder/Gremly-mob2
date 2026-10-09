@@ -10,6 +10,7 @@ import { chapterAnswerPlan, answerChapterQuestion } from '../chapterAnswers.js';
 import { jsonCall } from '../llm.js';
 import { db } from '../db.js';
 import { memoryDb } from './memoryDb.js';
+import { writeMemory } from '../memory.js';
 
 jest.mock('../llm.js', () => ({ jsonCall: jest.fn(), modelFor: (env, job) => ({ model: job }) }));
 jest.mock('../db.js', () => ({
@@ -18,6 +19,7 @@ jest.mock('../db.js', () => ({
   personIdentity: async () => ({ first_name: 'Robin', pronouns: null }),
 }));
 jest.mock('../filing.js', () => ({ personToday: async () => '2026-10-08' }));
+jest.mock('../memory.js', () => ({ writeMemory: jest.fn(async () => ({ outcome: 'written' })) }));
 
 const TODAY = '2026-10-08';
 const open = { id: 'ch-1', title: 'Training for the 10K', phase: 'active', start_date: '2026-01-01', end_date: '2026-05-17', end_date_source: 'synthesis', closed_at: null };
@@ -65,16 +67,32 @@ describe('what an answer does', () => {
 });
 
 describe('answering', () => {
-  beforeEach(() => jsonCall.mockReset());
+  beforeEach(() => {
+    jsonCall.mockReset();
+    writeMemory.mockResolvedValue({ outcome: 'written' });
+  });
 
   it('closes the Chapter on their yes', async () => {
     const mem = memoryDb({ chapters: [{ ...open, owner_id: 'u' }] });
     db.mockReturnValue(mem);
     jsonCall.mockResolvedValue({ output: { answers: true, outcome: 'over', start_date: null, end_date: null }, model: 'm' });
     const r = await answerChapterQuestion({}, { userId: 'u', question: close, said: "Yes, it's over" });
-    expect(r).toMatchObject({ answers: true, closed: 'ch-1' });
+    expect(r).toMatchObject({ answers: true, closed: 'ch-1', memory: 'written' });
     expect(mem.tables.chapters[0]).toMatchObject({ phase: 'closed', closed_at: expect.any(String) });
+    // its memory is written, as when it is closed in the app
+    expect(writeMemory).toHaveBeenCalledWith({}, 'u', 'ch-1');
     expect(jsonCall.mock.calls[0][1].user).toContain('IT WAS ABOUT: the Chapter "Training for the 10K", 2026-01-01 to 2026-05-17');
+  });
+
+  it('a memory that cannot be written never stops the close', async () => {
+    const mem = memoryDb({ chapters: [{ ...open, owner_id: 'u' }] });
+    db.mockReturnValue(mem);
+    writeMemory.mockRejectedValueOnce(new Error('no model'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jsonCall.mockResolvedValue({ output: { answers: true, outcome: 'over', start_date: null, end_date: null }, model: 'm' });
+    const r = await answerChapterQuestion({}, { userId: 'u', question: close, said: 'Done' });
+    expect(r).toMatchObject({ closed: 'ch-1', memory: 'failed' });
+    warn.mockRestore();
   });
 
   it('starts the Chapter they said yes to, with what the suggestion rested on in it', async () => {

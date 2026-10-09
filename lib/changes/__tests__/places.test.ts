@@ -17,6 +17,7 @@ jest.mock('../../brief/todayThread', () => ({
 import { applyChanges } from '../apply';
 import { checkChange, type Change } from '../model';
 import { buttonWords, doneWords, rowWords } from '../words';
+import { clearWorldsNew, useWorldsDot } from '../../worlds/dot';
 
 const undone: string[] = [];
 const undo = (what: string) => jest.fn(async () => void undone.push(what));
@@ -143,7 +144,10 @@ describe('applying', () => {
         items: [{ type: 'todo', id: 't1' }],
       },
     });
+    clearWorldsNew();
     const { outcomes, revertAll } = await applyChanges([c], { source: 'chat' });
+    // something new in Worlds: the dot on its tab
+    expect(useWorldsDot.getState().on).toBe(true);
     expect(mockState.makeChapter).toHaveBeenCalledWith({
       title: 'Half marathon',
       worldId: 'w2',

@@ -8,7 +8,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ChevronRight, Plus } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -54,6 +54,7 @@ import {
   type AwayPick,
 } from '../../components/worlds/WelcomeBack';
 import { useWorldsQuestions } from '../../lib/worlds/useWorldsQuestions';
+import { clearWorldsNew } from '../../lib/worlds/dot';
 import {
   askWords,
   closeIt,
@@ -78,6 +79,8 @@ type HomeSheet =
 
 export default function WorldsScreen() {
   useAppEventOnFocus('world_view', { type: 'worlds_tab' });
+  // the dot on the Worlds tab goes once Worlds is open
+  useFocusEffect(useCallback(() => clearWorldsNew(), []));
   const nav = useNavigation<Nav>();
   const { worlds, chapters, todos, filed, today } = useWorldsData();
   const refreshWorldsGraph = useGremlyStore((s) => s.refreshWorldsGraph);
