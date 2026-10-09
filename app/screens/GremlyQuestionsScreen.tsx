@@ -10,6 +10,10 @@
  * yes for every fact it lists, its no for none, or Some of them for the ones
  * they tick. Not now leaves the question for another day (asked_at), and
  * nothing about their life changes.
+ *
+ * A question about a Chapter is put as the Worlds card, with the items it
+ * rests on and its own two buttons (components/worlds/QuestionAskCard), and
+ * its receipt can put back what the tap did.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,14 +33,20 @@ import { Text } from '../../ui';
 import { useAskQuestions } from '../../lib/questions/useAskQuestions';
 import type { AskQuestion } from '../../lib/questions/askQuestions';
 import { answerQuestion, markQuestionAsked } from '../../lib/story/storyApi';
+import { isChapterQuestionKind } from '../../lib/worlds/questions';
+import type { Undo } from '../../lib/worlds/actions';
+import { QuestionAskCard } from '../../components/worlds/QuestionAskCard';
 
 const C = lightTokens.colors;
 
 const KEPT_ASIDE = 'Gremly just stops treating them as part of your story.';
 const FAILED = 'That didn’t send. Try again in a moment.';
 
-/** What the receipt says once a question is answered. */
-type Receipt = { id: string; title: string; line: string };
+/** What the receipt says once a question is answered, and what puts it back when there is something to. */
+type Receipt = { id: string; title: string; line: string; undo?: Undo; undone?: boolean };
+
+const PUT_BACK = 'Put back as it was.';
+const NOT_PUT_BACK = 'That didn’t undo. Try again in a moment.';
 
 /** The receipt's line for their answer: what they chose, and what it did. Pure. */
 export function receiptLine(
@@ -114,6 +124,30 @@ export default function GremlyQuestionsScreen() {
     next();
   }
 
+  /** The Worlds card answered a question about a Chapter. */
+  function answeredOnCard(done: { line: string; undo?: Undo }) {
+    if (!q) return;
+    setReceipts((r) => [
+      ...r,
+      { id: q.id, title: q.topic || q.question, line: done.line, undo: done.undo },
+    ]);
+    next();
+  }
+
+  async function putBack(id: string) {
+    const r = receipts.find((x) => x.id === id);
+    if (!r?.undo || r.undone) return;
+    const mark = (line: string, undone: boolean) =>
+      setReceipts((all) => all.map((x) => (x.id === id ? { ...x, line, undone } : x)));
+    try {
+      await r.undo();
+      mark(PUT_BACK, true);
+    } catch (err) {
+      console.warn('[Questions] could not put it back:', err);
+      mark(NOT_PUT_BACK, false);
+    }
+  }
+
   async function notNow() {
     if (!q || sending) return;
     // it waits a few days before it is asked anywhere again; nothing about their life changes
@@ -172,6 +206,17 @@ export default function GremlyQuestionsScreen() {
                 <View style={styles.receiptRow}>
                   <Check size={14} color={C.mossGreen} strokeWidth={2.4} />
                   <Text style={styles.receiptText}>{r.line}</Text>
+                  {r.undo && !r.undone ? (
+                    <Pressable
+                      onPress={() => void putBack(r.id)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Undo"
+                      testID={`receipt-undo-${r.id}`}
+                    >
+                      <Text style={styles.receiptUndo}>Undo</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
             ))}
@@ -199,6 +244,7 @@ export default function GremlyQuestionsScreen() {
   }
 
   const tidy = q.tidy;
+  const chapter = isChapterQuestionKind(q.kind);
   const label = tidy ? 'A TIDY UP' : q.weight === 'needs' ? 'NEEDS AN ANSWER' : null;
   const later = list.slice(at + 1, at + 4);
 
@@ -221,178 +267,187 @@ export default function GremlyQuestionsScreen() {
           ))}
         </View>
 
-        <View style={styles.card} testID={`question-${q.id}`}>
-          {label ? <Text style={[styles.label, tidy && styles.labelTidy]}>{label}</Text> : null}
-          <Text style={styles.question}>{q.question}</Text>
-          {!tidy && q.why ? <Text style={styles.why}>{q.why}</Text> : null}
+        {chapter ? (
+          <View style={styles.chapterCard} testID={`question-${q.id}`}>
+            {label ? <Text style={styles.label}>{label}</Text> : null}
+            <QuestionAskCard key={q.id} id={q.id} onDone={answeredOnCard} onGone={next} />
+          </View>
+        ) : (
+          <View style={styles.card} testID={`question-${q.id}`}>
+            {label ? <Text style={[styles.label, tidy && styles.labelTidy]}>{label}</Text> : null}
+            <Text style={styles.question}>{q.question}</Text>
+            {!tidy && q.why ? <Text style={styles.why}>{q.why}</Text> : null}
 
-          {tidy && tidy.statements.length ? (
-            <View style={styles.list}>
-              {tidy.statements.map((s, i) => {
-                const id = tidy.fact_ids[i];
-                const on = ticked.includes(id);
-                const row = (
-                  <>
-                    {mode === 'some' ? (
-                      on ? (
-                        <CircleCheck size={18} color={C.mossGreen} />
-                      ) : (
-                        <Circle size={18} color="rgba(46,85,64,0.35)" />
-                      )
-                    ) : null}
-                    <Text style={styles.listText}>{s}</Text>
-                  </>
-                );
-                return mode === 'some' && id ? (
-                  <Pressable
-                    key={`${i}-${s}`}
-                    style={styles.listRow}
-                    onPress={() => setTicked((t) => (on ? t.filter((x) => x !== id) : [...t, id]))}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: on }}
-                    testID={`tidy-row-${i}`}
-                  >
-                    {row}
-                  </Pressable>
-                ) : (
-                  <View key={`${i}-${s}`} style={styles.listRow}>
-                    {row}
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-          {tidy?.type === 'set_aside' ? (
-            <Text style={styles.why}>
-              {tidy.from_calendar
-                ? `Your calendar keeps them. ${KEPT_ASIDE}`
-                : `Nothing is deleted. ${KEPT_ASIDE}`}
-            </Text>
-          ) : null}
-
-          {failed ? <Text style={styles.failed}>{FAILED}</Text> : null}
-
-          {mode === 'typing' ? (
-            <View style={{ gap: 8 }}>
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder="Your answer"
-                placeholderTextColor="rgba(26,58,40,0.45)"
-                multiline
-                autoFocus
-                style={styles.input}
-                accessibilityLabel={`Answer: ${q.question}`}
-              />
-              <View style={styles.row}>
-                <Pressable
-                  onPress={() => send(text, { typed: true })}
-                  disabled={!text.trim() || sending}
-                  style={[styles.send, (!text.trim() || sending) && { opacity: 0.5 }]}
-                  accessibilityRole="button"
-                >
-                  {sending ? (
-                    <ActivityIndicator color={C.linenCream} />
-                  ) : (
-                    <Text style={styles.sendText}>Send</Text>
-                  )}
-                </Pressable>
-                {q.choices.length ? (
-                  <Pressable
-                    onPress={() => setMode('choose')}
-                    style={styles.ghost}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.ghostText}>Cancel</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            </View>
-          ) : tidy ? (
-            <View style={styles.buttons}>
-              {mode === 'some' ? (
-                <>
-                  <Pressable
-                    onPress={() => send(tidy.yes, { pick: ticked })}
-                    disabled={!ticked.length || sending}
-                    style={[styles.tidyButton, (!ticked.length || sending) && { opacity: 0.5 }]}
-                    accessibilityRole="button"
-                    testID="tidy-some-yes"
-                  >
-                    <Text style={styles.tidyText}>{tidy.yes}</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setMode('choose');
-                      setTicked([]);
-                    }}
-                    style={styles.other}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.otherText}>Cancel</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Pressable
-                    onPress={() => send(tidy.yes)}
-                    disabled={sending}
-                    style={styles.tidyButton}
-                    accessibilityRole="button"
-                    testID="tidy-yes"
-                  >
-                    <Text style={styles.tidyText}>{tidy.yes}</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => send(tidy.no)}
-                    disabled={sending}
-                    style={styles.tidyButton}
-                    accessibilityRole="button"
-                    testID="tidy-no"
-                  >
-                    <Text style={styles.tidyText}>{tidy.no}</Text>
-                  </Pressable>
-                  {tidy.statements.length > 1 ? (
+            {tidy && tidy.statements.length ? (
+              <View style={styles.list}>
+                {tidy.statements.map((s, i) => {
+                  const id = tidy.fact_ids[i];
+                  const on = ticked.includes(id);
+                  const row = (
+                    <>
+                      {mode === 'some' ? (
+                        on ? (
+                          <CircleCheck size={18} color={C.mossGreen} />
+                        ) : (
+                          <Circle size={18} color="rgba(46,85,64,0.35)" />
+                        )
+                      ) : null}
+                      <Text style={styles.listText}>{s}</Text>
+                    </>
+                  );
+                  return mode === 'some' && id ? (
                     <Pressable
-                      onPress={() => setMode('some')}
-                      disabled={sending}
-                      style={styles.other}
-                      accessibilityRole="button"
-                      testID="tidy-some"
+                      key={`${i}-${s}`}
+                      style={styles.listRow}
+                      onPress={() =>
+                        setTicked((t) => (on ? t.filter((x) => x !== id) : [...t, id]))
+                      }
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      testID={`tidy-row-${i}`}
                     >
-                      <Text style={styles.otherText}>Some of them</Text>
+                      {row}
+                    </Pressable>
+                  ) : (
+                    <View key={`${i}-${s}`} style={styles.listRow}>
+                      {row}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+            {tidy?.type === 'set_aside' ? (
+              <Text style={styles.why}>
+                {tidy.from_calendar
+                  ? `Your calendar keeps them. ${KEPT_ASIDE}`
+                  : `Nothing is deleted. ${KEPT_ASIDE}`}
+              </Text>
+            ) : null}
+
+            {failed ? <Text style={styles.failed}>{FAILED}</Text> : null}
+
+            {mode === 'typing' ? (
+              <View style={{ gap: 8 }}>
+                <TextInput
+                  value={text}
+                  onChangeText={setText}
+                  placeholder="Your answer"
+                  placeholderTextColor="rgba(26,58,40,0.45)"
+                  multiline
+                  autoFocus
+                  style={styles.input}
+                  accessibilityLabel={`Answer: ${q.question}`}
+                />
+                <View style={styles.row}>
+                  <Pressable
+                    onPress={() => send(text, { typed: true })}
+                    disabled={!text.trim() || sending}
+                    style={[styles.send, (!text.trim() || sending) && { opacity: 0.5 }]}
+                    accessibilityRole="button"
+                  >
+                    {sending ? (
+                      <ActivityIndicator color={C.linenCream} />
+                    ) : (
+                      <Text style={styles.sendText}>Send</Text>
+                    )}
+                  </Pressable>
+                  {q.choices.length ? (
+                    <Pressable
+                      onPress={() => setMode('choose')}
+                      style={styles.ghost}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.ghostText}>Cancel</Text>
                     </Pressable>
                   ) : null}
-                </>
-              )}
-            </View>
-          ) : (
-            <View style={styles.buttons}>
-              {q.choices.map((c) => (
+                </View>
+              </View>
+            ) : tidy ? (
+              <View style={styles.buttons}>
+                {mode === 'some' ? (
+                  <>
+                    <Pressable
+                      onPress={() => send(tidy.yes, { pick: ticked })}
+                      disabled={!ticked.length || sending}
+                      style={[styles.tidyButton, (!ticked.length || sending) && { opacity: 0.5 }]}
+                      accessibilityRole="button"
+                      testID="tidy-some-yes"
+                    >
+                      <Text style={styles.tidyText}>{tidy.yes}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setMode('choose');
+                        setTicked([]);
+                      }}
+                      style={styles.other}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.otherText}>Cancel</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Pressable
+                      onPress={() => send(tidy.yes)}
+                      disabled={sending}
+                      style={styles.tidyButton}
+                      accessibilityRole="button"
+                      testID="tidy-yes"
+                    >
+                      <Text style={styles.tidyText}>{tidy.yes}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => send(tidy.no)}
+                      disabled={sending}
+                      style={styles.tidyButton}
+                      accessibilityRole="button"
+                      testID="tidy-no"
+                    >
+                      <Text style={styles.tidyText}>{tidy.no}</Text>
+                    </Pressable>
+                    {tidy.statements.length > 1 ? (
+                      <Pressable
+                        onPress={() => setMode('some')}
+                        disabled={sending}
+                        style={styles.other}
+                        accessibilityRole="button"
+                        testID="tidy-some"
+                      >
+                        <Text style={styles.otherText}>Some of them</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            ) : (
+              <View style={styles.buttons}>
+                {q.choices.map((c) => (
+                  <Pressable
+                    key={c}
+                    onPress={() => send(c)}
+                    disabled={sending}
+                    style={styles.choice}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.choiceText}>{c}</Text>
+                  </Pressable>
+                ))}
                 <Pressable
-                  key={c}
-                  onPress={() => send(c)}
+                  onPress={() => setMode('typing')}
                   disabled={sending}
-                  style={styles.choice}
+                  style={styles.other}
                   accessibilityRole="button"
+                  testID="something-else"
                 >
-                  <Text style={styles.choiceText}>{c}</Text>
+                  <Text style={styles.otherText}>
+                    {q.choices.length ? 'Something else' : 'Answer'}
+                  </Text>
                 </Pressable>
-              ))}
-              <Pressable
-                onPress={() => setMode('typing')}
-                disabled={sending}
-                style={styles.other}
-                accessibilityRole="button"
-                testID="something-else"
-              >
-                <Text style={styles.otherText}>
-                  {q.choices.length ? 'Something else' : 'Answer'}
-                </Text>
-              </Pressable>
-            </View>
-          )}
-        </View>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.notNowRow}>
           <Pressable
@@ -402,7 +457,8 @@ export default function GremlyQuestionsScreen() {
             accessibilityRole="button"
             testID="not-now"
           >
-            <Text style={styles.notNowText}>Not now</Text>
+            {/* the card has its own Not now, which means no; this one only leaves it for another day */}
+            <Text style={styles.notNowText}>{chapter ? 'Skip for now' : 'Not now'}</Text>
           </Pressable>
         </View>
 
@@ -451,6 +507,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 14,
   },
+  // the Worlds card brings its own colour and corners
+  chapterCard: { marginTop: 20, marginHorizontal: 16, gap: 10 },
   label: { fontFamily: 'Inter-SemiBold', fontSize: 12, letterSpacing: 0.5, color: '#4A4E7A' },
   labelTidy: { color: '#3C6150' },
   question: { fontFamily: 'Inter-Regular', fontSize: 18, lineHeight: 26, color: C.worldsInk },
@@ -556,6 +614,7 @@ const styles = StyleSheet.create({
   receiptTitle: { fontFamily: 'Inter-Regular', fontSize: 15, lineHeight: 21, color: C.worldsInk },
   receiptRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   receiptText: { flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 13, color: C.mossGreen },
+  receiptUndo: { fontFamily: 'Inter-SemiBold', fontSize: 13, color: C.mossGreen, paddingLeft: 8 },
   doneLine: {
     paddingTop: 24,
     paddingHorizontal: 2,
