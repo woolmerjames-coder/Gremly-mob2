@@ -12,6 +12,7 @@ import {
   nextYearly,
   pageDays,
   pageRemember,
+  sensitive,
   personChapters,
   personTitle,
   personTodos,
@@ -98,6 +99,7 @@ test('the page shows a label beside its fact as it stands now, soonest first, an
     remember: [
       { text: 'Sam is vegetarian.', fact_ids: ['veg'] },
       { text: 'Rests on something put right.', fact_ids: ['veg', 'gone'] },
+      { text: 'Rests on no fact.', fact_ids: [] },
     ],
   };
   expect(pageDays(page, facts, '2026-10-20')).toEqual([
@@ -150,6 +152,31 @@ test('what is going on with them: their todos, the last thing noted and their Ch
     { id: 'c3', title: 'Other', phase: 'active', closed_at: null, with_you: null },
   ] as any[];
   expect(personChapters(chapters, ['c2'], ['Sam']).map((c) => c.id)).toEqual(['c2', 'c1']);
+});
+
+test('nothing private or about health, or not yet read for health, brings an item onto the page', () => {
+  const facts = [
+    fact('f1', { item_table: 'notes', item_id: 'n-private', private: true }),
+    fact('f2', { item_table: 'todos', item_id: 't-health', health: true }),
+    fact('f3', { item_table: 'notes', item_id: 'n-unread', health: null as unknown as boolean }),
+  ];
+  const notes = [
+    // names them, but a private fact rests on it
+    {
+      id: 'n-private',
+      title: 'About Sam',
+      created_at: '2026-10-05T10:00:00Z',
+      views: { people: ['Sam'] },
+    },
+    { id: 'n-unread', title: 'Not read yet', created_at: '2026-10-04T10:00:00Z' },
+  ] as any[];
+  expect(lastNoted(notes, ['Sam'], facts)).toBeNull();
+  const todos = [
+    { id: 't-health', name: 'Pick Sam up', views: { people: ['Sam'] }, completed_at: null },
+  ] as any[];
+  expect(personTodos(todos, ['Sam'], facts)).toEqual([]);
+  expect(sensitive({ private: false, health: false })).toBe(false);
+  expect(sensitive({ private: false, health: null })).toBe(true);
 });
 
 test('a name on a screen finds their record by any name they go by', () => {

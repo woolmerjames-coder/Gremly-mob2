@@ -14,7 +14,7 @@
  * parts on linen. A part with nothing in it is left out. Nothing private or
  * about health is on it (lib/people/people.ts).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -91,6 +91,14 @@ export default function PersonScreen() {
   const [writing, setWriting] = useState(false);
   const [deciding, setDeciding] = useState(false);
   const [notRight, setNotRight] = useState<NotRightTarget | null>(null);
+  // an Undo pressed after the page has gone still puts the merge back, and leaves the page alone
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     let live = true;
@@ -153,6 +161,7 @@ export default function PersonScreen() {
       const undo = async () => {
         const back = await callPersonMerge({ mergeId, act: 'undo' });
         if (!back.ok) throw new Error(back.error);
+        if (!mounted.current) return;
         nav.setParams({ personId: data.person.id, personName: undefined });
         reload();
       };
@@ -189,7 +198,8 @@ export default function PersonScreen() {
     );
   }
 
-  const p = data.person;
+  // who they are, when it came from something private or about health, is not shown
+  const p = data.who_private ? { ...data.person, relationship: null } : data.person;
   const title = personTitle(p);
   const who = whoLine(p);
   const nothing =

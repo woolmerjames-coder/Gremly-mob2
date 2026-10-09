@@ -67,6 +67,8 @@ export interface PersonMerge {
 
 export interface PersonPage {
   person: PersonRecord;
+  /** Who they are came from something private or about health, so it is not shown */
+  who_private: boolean;
   /** Their record and every record merged into it */
   ids: string[];
   names: string[];
@@ -78,6 +80,15 @@ export interface PersonPage {
 
 const RECORD =
   'id,name,relationship,relationship_by,relationship_fact_id,words,matters_rank,merged_into,hidden_at';
+
+/**
+ * Private, or about health: anything marked so, and a fact the kinds pass has
+ * not read for health yet. None of it is shown anywhere on the people page or
+ * the list. Pure.
+ */
+export function sensitive(f: { private?: boolean | null; health?: boolean | null }): boolean {
+  return !!f.private || f.health !== false;
+}
 const OPEN_STATES = ['current', 'planned', 'unconfirmed', 'happened'];
 const lower = (s: unknown) =>
   String(s || '')
@@ -183,7 +194,7 @@ export function pageDays(
   for (const d of page?.days || []) {
     const f = byId.get(d.fact_id);
     // a fact put right or changed since takes its label with it until the page is written again
-    if (!f || !OPEN_STATES.includes(f.state) || f.private || f.health) continue;
+    if (!f || !OPEN_STATES.includes(f.state) || sensitive(f)) continue;
     const day = labelDay(f, today);
     if (day && d.label?.trim())
       out.push({ id: f.id, label: d.label.trim(), day, yearly: f.timing === 'yearly' });
@@ -194,10 +205,16 @@ export function pageDays(
 /** The things to remember whose facts all still stand. Pure. */
 export function pageRemember(page: PersonPageWords | null, facts: PersonFact[]): string[] {
   const standing = new Set(
-    facts.filter((f) => OPEN_STATES.includes(f.state) && !f.private && !f.health).map((f) => f.id),
+    facts.filter((f) => OPEN_STATES.includes(f.state) && !sensitive(f)).map((f) => f.id),
   );
+  // a line rests on at least one fact, and goes when any of them does
   return (page?.remember || [])
-    .filter((r) => r.text?.trim() && (r.fact_ids || []).every((id) => standing.has(id)))
+    .filter(
+      (r) =>
+        r.text?.trim() &&
+        (r.fact_ids || []).length > 0 &&
+        r.fact_ids.every((id) => standing.has(id)),
+    )
     .map((r) => r.text.trim());
 }
 
@@ -213,11 +230,15 @@ function namesOn(views: unknown): string[] {
     : [];
 }
 
-/** Items a fact about them was read from, by table. Pure. */
-function itemIdsOf(facts: PersonFact[], table: string): Set<string> {
-  return new Set(
-    facts.filter((f) => f.item_table === table && f.item_id).map((f) => f.item_id as string),
-  );
+/**
+ * Items a fact about them was read from, by table: those an open fact points
+ * at, and those anything private or about health points at, which are never
+ * shown however they name them. Pure.
+ */
+function itemIdsOf(facts: PersonFact[], table: string): { theirs: Set<string>; kept: Set<string> } {
+  const at = (fs: PersonFact[]) =>
+    new Set(fs.filter((f) => f.item_table === table && f.item_id).map((f) => f.item_id as string));
+  return { theirs: at(facts.filter((f) => !sensitive(f))), kept: at(facts.filter(sensitive)) };
 }
 
 /** Their open todos: from a fact about them, or naming them. Soonest first. Pure. */
@@ -225,8 +246,10 @@ export function personTodos(todos: Todo[], names: string[], facts: PersonFact[])
   const ids = itemIdsOf(facts, 'todos');
   const want = new Set(names.map(lower).filter(Boolean));
   return todos
-    .filter((t) => !t.completed_at && !(t as { archived?: boolean }).archived)
-    .filter((t) => ids.has(t.id) || namesOn(t.views).some((n) => want.has(n)))
+    .filter(
+      (t) => !t.completed_at && !(t as { archived?: boolean }).archived && !ids.kept.has(t.id),
+    )
+    .filter((t) => ids.theirs.has(t.id) || namesOn(t.views).some((n) => want.has(n)))
     .sort((a, b) => String(a.due_day || '9999').localeCompare(String(b.due_day || '9999')));
 }
 
@@ -235,8 +258,8 @@ export function lastNoted(notes: Note[], names: string[], facts: PersonFact[]): 
   const ids = itemIdsOf(facts, 'notes');
   const want = new Set(names.map(lower).filter(Boolean));
   const theirs = notes
-    .filter((n) => !(n as { archived?: boolean }).archived)
-    .filter((n) => ids.has(n.id) || namesOn(n.views).some((x) => want.has(x)))
+    .filter((n) => !(n as { archived?: boolean }).archived && !ids.kept.has(n.id))
+    .filter((n) => ids.theirs.has(n.id) || namesOn(n.views).some((x) => want.has(x)))
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
   return theirs[0] || null;
 }
@@ -298,23 +321,27 @@ export async function fetchPeople(): Promise<PersonListEntry[]> {
   ]);
   const privateFact = new Set(
     ((facts ?? []) as { id: string; private: boolean; health: boolean }[])
-      .filter((f) => f.private || f.health)
+      .filter(sensitive)
       .map((f) => f.id),
   );
   const namesOf = new Map<string, string[]>();
   for (const n of (names ?? []) as { person_id: string; name: string }[])
     namesOf.set(n.person_id, [...(namesOf.get(n.person_id) || []), n.name]);
-  return people
-    .map((p) => ({
-      ...p,
-      who_private: !!p.relationship_fact_id && privateFact.has(p.relationship_fact_id),
-      names: namesOf.get(p.id) || [],
-    }))
-    .sort(
-      (a, b) =>
-        (a.matters_rank ?? 99) - (b.matters_rank ?? 99) ||
-        personTitle(a).localeCompare(personTitle(b)),
-    );
+  return (
+    people
+      .map((p) => ({
+        ...p,
+        who_private: !!p.relationship_fact_id && privateFact.has(p.relationship_fact_id),
+        names: namesOf.get(p.id) || [],
+      }))
+      // someone known only by who they are, when that is private, is not listed
+      .filter((p) => p.name?.trim() || !p.who_private)
+      .sort(
+        (a, b) =>
+          (a.matters_rank ?? 99) - (b.matters_rank ?? 99) ||
+          personTitle(a).localeCompare(personTitle(b)),
+      )
+  );
 }
 
 /**
@@ -335,6 +362,17 @@ export async function fetchPersonPage(personId: string): Promise<PersonPage | nu
     else person = p;
   }
   if (!person) return null;
+  // who they are, when it came from something private or about health, is not shown
+  const whoFact = person.relationship_fact_id
+    ? ((
+        await supabase
+          .from('life_facts')
+          .select('id,private,health')
+          .eq('id', person.relationship_fact_id)
+          .limit(1)
+      ).data ?? [])[0]
+    : null;
+  const who_private = !!whoFact && sensitive(whoFact as { private: boolean; health: boolean });
   const { data: into } = await supabase
     .from('life_people')
     .select('id')
@@ -370,13 +408,37 @@ export async function fetchPersonPage(personId: string): Promise<PersonPage | nu
     ? (((
         await supabase
           .from('life_people')
-          .select('id,name,relationship,relationship_by,merged_into')
+          .select('id,name,relationship,relationship_by,relationship_fact_id,merged_into')
           .in('id', otherIds)
       ).data ?? []) as (PersonRecord & { merged_into: string | null })[])
     : [];
-  const other = new Map(others.filter((o) => !o.merged_into).map((o) => [o.id, o]));
+  // the same for the one Gremly thinks they are
+  const otherFacts = [
+    ...new Set(others.map((o) => o.relationship_fact_id).filter(Boolean)),
+  ] as string[];
+  const privateOther = new Set(
+    otherFacts.length
+      ? (
+          ((await supabase.from('life_facts').select('id,private,health').in('id', otherFacts))
+            .data ?? []) as { id: string; private: boolean; health: boolean }[]
+        )
+          .filter(sensitive)
+          .map((f) => f.id)
+      : [],
+  );
+  const other = new Map(
+    others
+      .filter((o) => !o.merged_into)
+      .map((o) => [
+        o.id,
+        o.relationship_fact_id && privateOther.has(o.relationship_fact_id)
+          ? { ...o, relationship: null }
+          : o,
+      ]),
+  );
   return {
     person,
+    who_private,
     ids,
     names: [
       ...new Set(

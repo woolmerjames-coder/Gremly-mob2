@@ -40,7 +40,7 @@ import {
   problemWords,
 } from '../../shared/check/index.js';
 
-export const PERSON_PAGE_VERSION = 'person-page-2026-10-20d';
+export const PERSON_PAGE_VERSION = 'person-page-2026-10-20e';
 
 /** When the page is read, for the check (at most 80 characters). */
 export const PERSON_PAGE_MOMENT = 'kept on their page about someone, read when they open it';
@@ -181,6 +181,8 @@ export function renderPersonPage({ someone, names = [], facts, today }) {
   }
   const text = `TODAY: ${weekdayName(today)} ${today}.
 
+WHO READS THE PAGE: the person, so every line speaks to them as you, however little there is to say.
+
 RECORDS:
 ${[...records.values()].map((r) => r.label).join('\n')}`;
   return { text, records, ids, days };
@@ -292,6 +294,8 @@ export async function personPageWords(env, { person, someone, names = [], facts,
       .map((x) => x.id);
     return { text: said, fact_ids: [...new Set(factIds)] };
   };
+  // a thing to remember rests on at least one fact, so it goes when that fact does
+  const resting = (k) => (k && k.fact_ids.length ? k : null);
   return {
     days: dayItems
       .map((it) => {
@@ -299,7 +303,7 @@ export async function personPageWords(env, { person, someone, names = [], facts,
         return k ? { fact_id: ids.get(it.day).id, label: k.text } : null;
       })
       .filter(Boolean),
-    remember: lineItems.map((it) => kept(it.key)).filter(Boolean),
+    remember: lineItems.map((it) => resting(kept(it.key))).filter(Boolean),
     model,
     check: { counts: check.counts, details: check.details },
     problems: check.details.map((x) => problemWords(x)),
@@ -315,7 +319,7 @@ export async function loadSomeone(d, userId, personId, { withPage = true } = {})
   for (let i = 0; i < 4; i++) {
     const [p] =
       (await d.select(
-        `life_people?id=eq.${id}&user_id=eq.${userId}&select=id,name,relationship,relationship_by,merged_into,hidden_at${withPage ? ',page' : ''}`,
+        `life_people?id=eq.${id}&user_id=eq.${userId}&select=id,name,relationship,relationship_by,relationship_fact_id,merged_into,hidden_at${withPage ? ',page' : ''}`,
       )) || [];
     if (!p) return null;
     if (!p.merged_into) {
@@ -328,10 +332,21 @@ export async function loadSomeone(d, userId, personId, { withPage = true } = {})
   return null;
 }
 
+/** The someone as the page is written from: without who they are when that came from something private or about health. */
+export async function withoutPrivateWho(d, userId, someone) {
+  if (!someone?.relationship || !someone.relationship_fact_id) return someone;
+  const [f] =
+    (await d.select(
+      `life_facts?id=eq.${someone.relationship_fact_id}&user_id=eq.${userId}&select=id,private,health`,
+    )) || [];
+  return f && (f.private || f.health !== false) ? { ...someone, relationship: null } : someone;
+}
+
 /** Of the facts about someone, those the page is written from: still standing, neither private nor about health, newest first. Pure. */
 export function pageFacts(facts) {
   return (facts || [])
-    .filter((f) => OPEN.includes(f.state) && !f.private && !f.health)
+    // about health only when the kinds pass has said it is not
+    .filter((f) => OPEN.includes(f.state) && !f.private && f.health === false)
     .sort((a, b) => String(b.observed_at || '').localeCompare(String(a.observed_at || '')))
     .slice(0, FACTS_MAX);
 }
@@ -361,7 +376,9 @@ export async function personPage(env, userId, personId, { dryRun = false } = {})
   const d = db(env);
   const found = await loadSomeone(d, userId, personId);
   if (!found) throw new Error('no such person for this person');
-  const { someone, ids } = found;
+  const { ids } = found;
+  // who they are, when it came from something private or about health, is never given
+  const someone = await withoutPrivateWho(d, userId, found.someone);
   const [today, facts, names] = await Promise.all([
     personToday(env, userId),
     loadPageFacts(d, userId, ids),

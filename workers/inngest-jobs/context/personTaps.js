@@ -7,7 +7,9 @@
  *
  * A question asked about the same two records (peopleQuestions.js) is
  * answered by the tap too, so it is never asked after, and Undo opens it
- * again. Cortex forwards the signed in person's tap (type person-merge) to
+ * again. A pair put back by Undo keeps when it was put back (decided_at), so
+ * Gremly never joins it on his own (peopleJoin.js): it is theirs to decide,
+ * and a merge made again is planned afresh from the records as they are. Cortex forwards the signed in person's tap (type person-merge) to
  * POST /api/person-merge.
  */
 
@@ -76,18 +78,20 @@ export async function decidePersonMerge(
     result = rows?.length ? { declined: true } : { declined: false, reason: `already ${m.status}` };
   } else if (m.status === 'merged') {
     result = await undoMerge(d, userId, m.id);
-    // as it was before the tap: proposed, for them to decide again
+    // as it was before the tap: proposed, for them to decide again, with no
+    // plan left from this merge to be used again
     if (result.undone)
       await d.update(`person_merges?id=eq.${m.id}&user_id=eq.${userId}&status=eq.undone`, {
         status: 'proposed',
-        decided_at: null,
+        decided_at: at,
+        moved: null,
       });
   } else if (m.status === 'declined') {
     const rows = await d.update(
       `person_merges?id=eq.${m.id}&user_id=eq.${userId}&status=eq.declined`,
       {
         status: 'proposed',
-        decided_at: null,
+        decided_at: at,
       },
     );
     result = { undone: !!rows?.length };

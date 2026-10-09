@@ -82,6 +82,7 @@ const fact = (id: string, more = {}) => ({
 });
 const PAGE = {
   person: SAM,
+  who_private: false,
   ids: ['p-sam'],
   names: ['Sam', 'Sammy'],
   facts: [
@@ -175,7 +176,7 @@ it('shows the words Gremly wrote again when they were not fresh', async () => {
     data: {
       ok: true,
       fresh: false,
-      page: { days: [], remember: [{ text: 'Sam is training for a half.', fact_ids: [] }] },
+      page: { days: [], remember: [{ text: 'Sam is training for a half.', fact_ids: ['veg'] }] },
     },
   });
   const r = render(<PersonScreen />);
@@ -224,6 +225,13 @@ it('makes a merge Gremly proposed on their tap, follows the record kept, and Und
     fireEvent.press(r.getByText('Undo'));
   });
   expect(callPersonMerge).toHaveBeenLastCalledWith({ mergeId: 'm1', act: 'undo' });
+});
+
+it('leaves who they are off the page when it came from something private', async () => {
+  (fetchPersonPage as jest.Mock).mockResolvedValue({ ...PAGE, who_private: true });
+  const r = render(<PersonScreen />);
+  expect(await r.findByTestId('person-title')).toHaveTextContent('Sam');
+  expect(r.queryByTestId('person-who')).toBeNull();
 });
 
 it('finds someone by the name on the screen, and says when Gremly does not know them yet', async () => {

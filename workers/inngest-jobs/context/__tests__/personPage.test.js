@@ -271,3 +271,29 @@ it('the route wants a person, and says when they are not this person’s', async
   expect(ok.s).toBe(200);
   expect(ok.b.page.remember).toHaveLength(2);
 });
+
+it('never gives who they are when it came from something private or about health', async () => {
+  const tables = world({ relationship: 'counsellor', relationship_fact_id: fid(9) });
+  tables.life_facts = [{ id: fid(9), user_id: U, private: true, health: true }];
+  const asked = answers();
+  await personPage({}, U, SAM);
+  const input = asked.find((a) => a.schema === PAGE_SCHEMA).user;
+  expect(input).not.toContain('counsellor');
+  expect(input).toContain('who they are to them is not recorded');
+});
+
+it('keeps no thing to remember that rests on no fact, and never a fact not yet read for health', async () => {
+  const tables = world();
+  // a fact the kinds pass has not read yet
+  tables.life_facts_now.find((f) => f.id === fid(2)).health = null;
+  const asked = answers({
+    days: [],
+    remember: [
+      { text: 'Sam is your sister.', refs: ['p1'], stated: [{ kind: 'person', value: 'Sam', ref: 'p1' }] },
+      { text: 'You helped Sam paint her flat.', refs: ['f1', 'p1'], stated: [{ kind: 'person', value: 'Sam', ref: 'p1' }] },
+    ],
+  });
+  const r = await personPage({}, U, SAM);
+  expect(asked.find((a) => a.schema === PAGE_SCHEMA).user).not.toContain('vegetarian');
+  expect(r.page.remember.map((x) => x.text)).toEqual(['You helped Sam paint her flat.']);
+});

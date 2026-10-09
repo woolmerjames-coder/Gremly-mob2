@@ -136,7 +136,8 @@ export async function settleProposedJoins(env, userId, { dryRun = false } = {}) 
   const d = db(env);
   const proposed =
     (await d.select(
-      `person_merges?user_id=eq.${userId}&status=eq.proposed&select=id,kept_id,merged_id,reason&limit=40`,
+      // one they decided on the people page and put back with Undo is theirs to decide (personTaps.js)
+      `person_merges?user_id=eq.${userId}&status=eq.proposed&decided_at=is.null&select=id,kept_id,merged_id,reason&limit=40`,
     )) || [];
   if (!proposed.length) return { pairs: 0, joined: 0 };
   // a pair they once kept apart, or a join they undid, is never joined again by Gremly

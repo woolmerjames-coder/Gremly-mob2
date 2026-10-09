@@ -97,8 +97,32 @@ it('Same person makes the two one, answers the question about them, and Undo put
   expect(back).toMatchObject({ ok: true, undone: true });
   expect(row('life_people', MERGED).merged_into).toBeNull();
   expect(row('life_people', KEPT).relationship).toBeNull();
-  expect(row('person_merges', M)).toMatchObject({ status: 'proposed', decided_at: null });
+  // theirs to decide again, with no plan left from the merge
+  expect(row('person_merges', M)).toMatchObject({
+    status: 'proposed',
+    decided_at: AT,
+    moved: null,
+  });
   expect(row('gremly_questions', 'q1')).toMatchObject({ status: 'asked', answer: null });
+});
+
+it('a merge made again after Undo is planned afresh, so what they wrote since stays theirs', async () => {
+  mockDb.current = world();
+  await decidePersonMerge({}, { userId: U, mergeId: M, act: 'merge', at: AT });
+  await decidePersonMerge({}, { userId: U, mergeId: M, act: 'undo', at: AT });
+  // since the Undo they said who Jules is, on Jules's page
+  Object.assign(row('life_people', KEPT), { relationship: 'wife', relationship_by: 'person' });
+  await decidePersonMerge({}, { userId: U, mergeId: M, act: 'merge', at: AT });
+  expect(row('life_people', KEPT)).toMatchObject({
+    relationship: 'wife',
+    relationship_by: 'person',
+  });
+  await decidePersonMerge({}, { userId: U, mergeId: M, act: 'undo', at: AT });
+  expect(row('life_people', KEPT)).toMatchObject({
+    relationship: 'wife',
+    relationship_by: 'person',
+  });
+  expect(row('life_people', MERGED).merged_into).toBeNull();
 });
 
 it('Not the same keeps them apart, and Undo proposes it again', async () => {
