@@ -40,6 +40,7 @@ import {
   weekdayOf,
 } from '../../shared/week.js';
 import { gremlyPut, habitAllowance, habitOpenDays } from '../../shared/weekBoard.js';
+import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 import { easesFrom, pauseSpans } from '../../shared/habitWeek.js';
 import { upNext, upNextWords } from '../../shared/upNext.js';
 import { checkWeekChange, normDay, normMinutes } from '../../shared/changes/check.js';
@@ -432,6 +433,7 @@ export async function gatherRead(env, userId, p) {
   // from the weekly pass, with the switch on: the dated facts ahead that
   // Gremly holds (never one private or about health) and its note on the week
   const fromPass = readFromPass(env);
+  const oldStopped = oldWorldsFieldsStopped(env);
   const [factsAhead, passes] = fromPass
     ? await Promise.all([
         d.select(
@@ -472,7 +474,8 @@ export async function gatherRead(env, userId, p) {
       name: w.display_name || w.name || 'World',
       phase: w.phase,
       summary: w.summary || '',
-      priorities: priorityLines(w.key_priorities),
+      // the old priorities stop being written once the old fields stop, so stale ones are left out
+      priorities: oldStopped ? [] : priorityLines(w.key_priorities),
     })),
     chapters: (chapters || []).map((c) => ({
       id: c.id,
@@ -481,7 +484,7 @@ export async function gatherRead(env, userId, p) {
       start_date: isDay(c.start_date) ? c.start_date : null,
       end_date: isDay(c.end_date) ? c.end_date : null,
       summary: c.summary || '',
-      priorities: priorityLines(c.key_priorities),
+      priorities: oldStopped ? [] : priorityLines(c.key_priorities),
     })),
     todos: open.map(shapeTodo),
     // newest first, so the ones named are the latest when there are many
