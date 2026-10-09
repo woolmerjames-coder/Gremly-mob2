@@ -4,10 +4,7 @@
  */
 
 import {
-  selectSpaceTimeline,
   filterUnsortedForReview,
-  selectSpaceNotes,
-  selectAllMilestonesForSpace,
   selectItemById,
   selectNoteBySourceMessageId,
   selectRecentNotes,
@@ -20,15 +17,8 @@ import {
   selectUnscheduledTodosForMiniSweep,
   selectRecentDrops,
   selectHabitsUpToDateCount,
-  selectEventsForSpace,
-  selectGoalForSpace,
-  selectGoalsForSpace,
-  selectCheckInsForGoal,
   selectItemsLinkedToEvent,
-  selectSpaceHasEvents,
-  selectUpcomingEventsForSpace,
   selectEventsForDate,
-  selectNewSpaceSuggestions,
   selectDco,
   selectBriefHeadline,
   selectDcoTone,
@@ -36,10 +26,8 @@ import {
   selectNamedAnchors,
   selectDcoLoading,
   selectLifeMoment,
-  selectDcoSortedSpaces,
 } from '../selectors';
-import type { Todo, Habit, Note, Space, SpaceSuggestion, DailyContextObject } from '../../types';
-import type { Milestone } from '../../schemas';
+import type { Todo, Habit, Note, DailyContextObject } from '../../types';
 import type { HabitAdaptationRow, HabitProgressRow } from '../useGremlyStore';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -48,7 +36,6 @@ import type { HabitAdaptationRow, HabitProgressRow } from '../useGremlyStore';
 
 const _TODAY = '2025-12-15';
 const _YESTERDAY = '2025-12-14';
-const TOMORROW = '2025-12-16';
 
 function makeTodo(overrides: Partial<Todo> = {}): Todo {
   return {
@@ -97,19 +84,6 @@ function makeNote(overrides: Partial<Note> = {}): Note {
   } as Note;
 }
 
-function makeMilestone(overrides: Partial<Milestone> = {}): Milestone {
-  return {
-    id: `milestone-${Math.random().toString(36).slice(2)}`,
-    space_id: 'space-1',
-    owner_id: 'user-1',
-    title: 'Test Milestone',
-    date: TOMORROW,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    ...overrides,
-  } as Milestone;
-}
-
 function makeHabitProgress(habitId: string, occurredDay: string): HabitProgressRow {
   return {
     id: `progress-${Math.random().toString(36).slice(2)}`,
@@ -146,13 +120,10 @@ function makeState(
     todos: Todo[];
     habits: Habit[];
     notes: Note[];
-    spaces: Space[];
     habitProgress: HabitProgressRow[];
     habitAdaptations: HabitAdaptationRow[];
     // Their weekly day (0 Sunday to 6 Saturday): their week ends on it
     weeklyDay: number;
-    milestones: Milestone[];
-    spaceSuggestions: SpaceSuggestion[];
     // Sweep preferences
     lastSweepCompletedAt: string | null;
     sweepStreak: number;
@@ -170,15 +141,11 @@ function makeState(
     todos: [],
     habits: [],
     notes: [],
-    spaces: [],
     tags: [],
     habitProgress: [],
     habitAdaptations: [],
     weeklyDay: 0,
-    spaceChats: [],
     spaceChatMessages: [],
-    milestones: [],
-    spaceSuggestions: [],
     hiddenTodayIds: [],
     isLoading: false,
     isInitialized: true,
@@ -223,7 +190,7 @@ describe('filterUnsortedForReview', () => {
     expect(result.map((i) => i.id)).toEqual(['t1', 'n1']);
   });
 
-  it('returns catchall items without space_id', () => {
+  it('returns catchall items, in a Space or not', () => {
     const items = [
       makeTodo({ id: 't1', origin: 'catchall', ai_placed: false, space_id: null }),
       makeTodo({ id: 't2', origin: 'catchall', ai_placed: false, space_id: 'space-1' }),
@@ -232,8 +199,7 @@ describe('filterUnsortedForReview', () => {
 
     const result = filterUnsortedForReview(items);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('t1');
+    expect(result.map((i) => i.id)).toEqual(['t1', 't2']);
   });
 
   it('returns empty array when no items match', () => {
@@ -243,83 +209,6 @@ describe('filterUnsortedForReview', () => {
     ];
 
     const result = filterUnsortedForReview(items);
-
-    expect(result).toHaveLength(0);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// selectSpaceNotes
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('selectSpaceNotes', () => {
-  it('returns notes for specified space', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'n1', space_id: 'space-1' }),
-        makeNote({ id: 'n2', space_id: 'space-2' }),
-        makeNote({ id: 'n3', space_id: 'space-1' }),
-      ],
-    });
-
-    const result = selectSpaceNotes(state as any, 'space-1');
-
-    expect(result).toHaveLength(2);
-    expect(result.map((n) => n.id).sort()).toEqual(['n1', 'n3']);
-  });
-
-  it('excludes archived notes', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'n1', space_id: 'space-1', archived: false }),
-        makeNote({ id: 'n2', space_id: 'space-1', archived: true }),
-      ],
-    });
-
-    const result = selectSpaceNotes(state as any, 'space-1');
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('n1');
-  });
-
-  it('returns empty array for null spaceId', () => {
-    const state = makeState({
-      notes: [makeNote({ space_id: 'space-1' })],
-    });
-
-    const result = selectSpaceNotes(state as any, null);
-
-    expect(result).toHaveLength(0);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// selectAllMilestonesForSpace
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('selectAllMilestonesForSpace', () => {
-  it('returns milestones for specified space sorted by date', () => {
-    const state = makeState({
-      milestones: [
-        makeMilestone({ id: 'm1', space_id: 'space-1', date: '2025-12-20' }),
-        makeMilestone({ id: 'm2', space_id: 'space-2', date: '2025-12-15' }),
-        makeMilestone({ id: 'm3', space_id: 'space-1', date: '2025-12-10' }),
-      ],
-    });
-
-    const result = selectAllMilestonesForSpace(state as any, 'space-1');
-
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe('m3'); // Earlier date first
-    expect(result[1].id).toBe('m1');
-  });
-
-  it('returns empty array when no milestones for space', () => {
-    const state = makeState({
-      milestones: [makeMilestone({ space_id: 'space-2' })],
-    });
-
-    const result = selectAllMilestonesForSpace(state as any, 'space-1');
 
     expect(result).toHaveLength(0);
   });
@@ -461,112 +350,6 @@ describe('selectRecentHabits', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0].id).toBe('h2');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// selectSpaceTimeline
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('selectSpaceTimeline', () => {
-  it('returns empty array for null spaceId', () => {
-    const state = makeState({
-      habits: [makeHabit({ space_id: 'space-1' })],
-    });
-
-    const result = selectSpaceTimeline(state as any, null);
-
-    expect(result).toHaveLength(0);
-  });
-
-  it('returns 7 days of timeline data', () => {
-    const state = makeState({
-      habits: [makeHabit({ space_id: 'space-1' })],
-    });
-
-    const result = selectSpaceTimeline(state as any, 'space-1');
-
-    expect(result).toHaveLength(7);
-    result.forEach((day) => {
-      expect(day).toHaveProperty('dateISO');
-      expect(day).toHaveProperty('items');
-      expect(Array.isArray(day.items)).toBe(true);
-    });
-  });
-
-  it('marks habits as done based on habitProgress', () => {
-    const habit = makeHabit({ id: 'habit-1', space_id: 'space-1' });
-    // Get today's ISO date
-    const today = new Date();
-    const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-    const state = makeState({
-      habits: [habit],
-      habitProgress: [makeHabitProgress('habit-1', todayISO)],
-    });
-
-    const result = selectSpaceTimeline(state as any, 'space-1');
-
-    const todayTimeline = result.find((d) => d.dateISO === todayISO);
-    expect(todayTimeline).toBeDefined();
-
-    const habitItem = todayTimeline?.items.find((i) => i.id === 'habit-1');
-    expect(habitItem?.done).toBe(true);
-  });
-
-  describe('their week', () => {
-    beforeEach(() => {
-      jest.useFakeTimers();
-      // Wednesday Dec 17, 2025
-      jest.setSystemTime(new Date('2025-12-17T12:00:00Z'));
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
-    });
-
-    it('runs Monday to Sunday for a Sunday person', () => {
-      const state = makeState({ habits: [makeHabit({ space_id: 'space-1' })] });
-
-      const result = selectSpaceTimeline(state as any, 'space-1');
-
-      expect(result.map((d) => d.dateISO)).toEqual([
-        '2025-12-15',
-        '2025-12-16',
-        '2025-12-17',
-        '2025-12-18',
-        '2025-12-19',
-        '2025-12-20',
-        '2025-12-21',
-      ]);
-    });
-
-    it('runs Thursday to Wednesday for a Wednesday person', () => {
-      const state = makeState({ habits: [makeHabit({ space_id: 'space-1' })], weeklyDay: 3 });
-
-      const result = selectSpaceTimeline(state as any, 'space-1');
-
-      expect(result.map((d) => d.dateISO)).toEqual([
-        '2025-12-11',
-        '2025-12-12',
-        '2025-12-13',
-        '2025-12-14',
-        '2025-12-15',
-        '2025-12-16',
-        '2025-12-17',
-      ]);
-    });
-
-    it('moves on to the next week when the day turns over', () => {
-      const state = makeState({ habits: [makeHabit({ space_id: 'space-1' })] });
-      expect(selectSpaceTimeline(state as any, 'space-1')[0].dateISO).toBe('2025-12-15');
-
-      // the Monday after, with nothing in the space changed
-      jest.setSystemTime(new Date('2025-12-22T12:00:00Z'));
-      expect(selectSpaceTimeline(afterUpdate(state) as any, 'space-1')[0].dateISO).toBe(
-        '2025-12-22',
-      );
-    });
   });
 });
 
@@ -1916,226 +1699,6 @@ describe('selectSweepCandidateCountUnified (SweepPill count)', () => {
 // EVENT NOTE SELECTORS (Key Dates feature)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('selectEventsForSpace', () => {
-  it('returns event notes for the given space', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', target_date: '2025-12-20' }),
-        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1', target_date: '2025-12-18' }),
-        makeNote({ id: 'n1', subtype: 'journal', space_id: 'space-1' }),
-      ],
-    });
-
-    const result = selectEventsForSpace(state as any, 'space-1');
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe('e2'); // sorted by date ascending
-    expect(result[1].id).toBe('e1');
-  });
-
-  it('excludes goals (is_goal=true)', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', is_goal: true }),
-        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1' }),
-      ],
-    });
-
-    const result = selectEventsForSpace(state as any, 'space-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('e2');
-  });
-
-  it('excludes archived events', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', archived: true }),
-        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1' }),
-      ],
-    });
-
-    const result = selectEventsForSpace(state as any, 'space-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('e2');
-  });
-
-  it('excludes events from other spaces', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' }),
-        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-2' }),
-      ],
-    });
-
-    const result = selectEventsForSpace(state as any, 'space-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('e1');
-  });
-
-  it('sorts dateless events to the bottom', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' }), // no target_date
-        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1', target_date: '2025-12-18' }),
-      ],
-    });
-
-    const result = selectEventsForSpace(state as any, 'space-1');
-    expect(result[0].id).toBe('e2');
-    expect(result[1].id).toBe('e1');
-  });
-});
-
-describe('selectGoalForSpace', () => {
-  it('returns the first goal event for a space', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'g1', subtype: 'event', space_id: 'space-1', is_goal: true }),
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' }),
-      ],
-    });
-
-    const result = selectGoalForSpace(state as any, 'space-1');
-    expect(result?.id).toBe('g1');
-  });
-
-  it('returns null when no goal exists', () => {
-    const state = makeState({
-      notes: [makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' })],
-    });
-
-    const result = selectGoalForSpace(state as any, 'space-1');
-    expect(result).toBeNull();
-  });
-
-  it('excludes archived goals', () => {
-    const state = makeState({
-      notes: [
-        makeNote({
-          id: 'g1',
-          subtype: 'event',
-          space_id: 'space-1',
-          is_goal: true,
-          archived: true,
-        }),
-      ],
-    });
-
-    const result = selectGoalForSpace(state as any, 'space-1');
-    expect(result).toBeNull();
-  });
-});
-
-describe('selectGoalsForSpace', () => {
-  it('returns up to 3 goals sorted by created_at', () => {
-    const state = makeState({
-      notes: [
-        makeNote({
-          id: 'g1',
-          subtype: 'event',
-          space_id: 'space-1',
-          is_goal: true,
-          created_at: '2025-12-03T00:00:00Z',
-        }),
-        makeNote({
-          id: 'g2',
-          subtype: 'event',
-          space_id: 'space-1',
-          is_goal: true,
-          created_at: '2025-12-01T00:00:00Z',
-        }),
-        makeNote({
-          id: 'g3',
-          subtype: 'event',
-          space_id: 'space-1',
-          is_goal: true,
-          created_at: '2025-12-02T00:00:00Z',
-        }),
-        makeNote({
-          id: 'g4',
-          subtype: 'event',
-          space_id: 'space-1',
-          is_goal: true,
-          created_at: '2025-12-04T00:00:00Z',
-        }),
-      ],
-    });
-
-    const result = selectGoalsForSpace(state as any, 'space-1');
-    expect(result).toHaveLength(3);
-    expect(result.map((g) => g.id)).toEqual(['g2', 'g3', 'g1']); // sorted asc, max 3
-  });
-
-  it('returns empty array when no goals exist', () => {
-    const state = makeState({ notes: [] });
-    const result = selectGoalsForSpace(state as any, 'space-1');
-    expect(result).toEqual([]);
-  });
-});
-
-describe('selectCheckInsForGoal', () => {
-  it('matches journals by origin=goal_checkin with matching view data', () => {
-    const state = makeState({
-      notes: [
-        makeNote({
-          id: 'j1',
-          subtype: 'journal',
-          space_id: 'space-1',
-          origin: 'goal_checkin',
-          views: { goal_checkin: { goal_name: 'Learn Spanish' } },
-        } as any),
-        makeNote({ id: 'j2', subtype: 'journal', space_id: 'space-1' }),
-      ],
-    });
-
-    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('j1');
-  });
-
-  it('matches journals by title containing goal words', () => {
-    const state = makeState({
-      notes: [
-        makeNote({
-          id: 'j1',
-          subtype: 'journal',
-          space_id: 'space-1',
-          title: 'Progress on learning Spanish today',
-        }),
-      ],
-    });
-
-    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
-    expect(result).toHaveLength(1);
-  });
-
-  it('matches journals by tag containing goal name', () => {
-    const state = makeState({
-      notes: [
-        makeNote({
-          id: 'j1',
-          subtype: 'journal',
-          space_id: 'space-1',
-          tags: ['learn spanish'],
-        }),
-      ],
-    });
-
-    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
-    expect(result).toHaveLength(1);
-  });
-
-  it('returns empty when no matches', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'j1', subtype: 'journal', space_id: 'space-1', title: 'Unrelated entry' }),
-      ],
-    });
-
-    const result = selectCheckInsForGoal(state as any, 'Learn Spanish', 'space-1');
-    expect(result).toHaveLength(0);
-  });
-});
-
 describe('selectItemsLinkedToEvent', () => {
   it('returns todos, notes, and habits linked to an event', () => {
     const state = makeState({
@@ -2179,49 +1742,6 @@ describe('selectItemsLinkedToEvent', () => {
     expect(result.todos).toEqual([]);
     expect(result.notes).toEqual([]);
     expect(result.habits).toEqual([]);
-  });
-});
-
-describe('selectSpaceHasEvents', () => {
-  it('returns true when space has events', () => {
-    const state = makeState({
-      notes: [makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1' })],
-    });
-
-    expect(selectSpaceHasEvents(state as any, 'space-1')).toBe(true);
-  });
-
-  it('returns false when space has no events', () => {
-    const state = makeState({
-      notes: [makeNote({ id: 'n1', subtype: 'journal', space_id: 'space-1' })],
-    });
-
-    expect(selectSpaceHasEvents(state as any, 'space-1')).toBe(false);
-  });
-});
-
-describe('selectUpcomingEventsForSpace', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('returns only future events', () => {
-    const state = makeState({
-      notes: [
-        makeNote({ id: 'e1', subtype: 'event', space_id: 'space-1', target_date: '2025-12-20' }),
-        makeNote({ id: 'e2', subtype: 'event', space_id: 'space-1', target_date: '2025-12-10' }),
-        makeNote({ id: 'e3', subtype: 'event', space_id: 'space-1', target_date: '2025-12-15' }),
-      ],
-    });
-
-    const result = selectUpcomingEventsForSpace(state as any, 'space-1');
-    expect(result).toHaveLength(2);
-    expect(result.map((e) => e.id)).toEqual(['e3', 'e1']); // today + future, sorted by date
   });
 });
 
@@ -2279,59 +1799,6 @@ describe('selectEventsForDate', () => {
 
     const result = selectEventsForDate(state as any, '2025-12-15');
     expect(result).toHaveLength(0);
-  });
-});
-
-describe('selectNewSpaceSuggestions', () => {
-  it('returns pending new_space suggestions', () => {
-    const state = makeState({
-      spaceSuggestions: [
-        {
-          id: 's1',
-          suggestion_type: 'new_space',
-          status: 'pending',
-          suggested_name: 'Fitness',
-          reason: 'Multiple fitness drops',
-          drop_ids: ['d1', 'd2'],
-          confidence: 0.9,
-          created_at: '2025-12-15T00:00:00Z',
-          updated_at: '2025-12-15T00:00:00Z',
-        } as SpaceSuggestion,
-        {
-          id: 's2',
-          suggestion_type: 'assign_to_space',
-          status: 'pending',
-          space_id: 'space-1',
-          suggested_name: null,
-          reason: 'Related to space',
-          drop_ids: ['d3'],
-          confidence: 0.8,
-          created_at: '2025-12-15T00:00:00Z',
-          updated_at: '2025-12-15T00:00:00Z',
-        } as SpaceSuggestion,
-        {
-          id: 's3',
-          suggestion_type: 'new_space',
-          status: 'accepted',
-          suggested_name: 'Cooking',
-          reason: 'Recipe drops',
-          drop_ids: ['d4'],
-          confidence: 0.85,
-          created_at: '2025-12-14T00:00:00Z',
-          updated_at: '2025-12-15T00:00:00Z',
-        } as SpaceSuggestion,
-      ],
-    });
-
-    const result = selectNewSpaceSuggestions(state as any);
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('s1');
-  });
-
-  it('returns empty array when no pending new_space suggestions', () => {
-    const state = makeState({ spaceSuggestions: [] });
-    const result = selectNewSpaceSuggestions(state as any);
-    expect(result).toEqual([]);
   });
 });
 
@@ -2472,66 +1939,6 @@ describe('selectLifeMoment', () => {
   it('returns null when life_moment is null', () => {
     const state = makeState({ dco: makeDco({ life_moment: null }) } as any);
     expect(selectLifeMoment(state as any)).toBeNull();
-  });
-});
-
-describe('selectDcoSortedSpaces', () => {
-  function makeSpace(overrides: Partial<Space> = {}): Space {
-    return {
-      id: `space-${Math.random().toString(36).slice(2)}`,
-      name: 'Test Space',
-      owner_id: 'user-1',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      ...overrides,
-    } as Space;
-  }
-
-  it('sorts spaces matching named anchors to the front', () => {
-    const spaces = [
-      makeSpace({ id: 's1', name: 'Groceries' }),
-      makeSpace({ id: 's2', name: 'Sarah' }),
-      makeSpace({ id: 's3', name: 'Work' }),
-    ];
-    const dco = makeDco({
-      named_anchors: [{ label: 'Sarah', type: 'person', source: 'drop' }],
-    });
-    const state = makeState({ spaces, dco } as any);
-    const result = selectDcoSortedSpaces(state as any);
-    expect(result[0].name).toBe('Sarah');
-  });
-
-  it('returns active spaces when no DCO', () => {
-    const spaces = [
-      makeSpace({ id: 's1', name: 'A' }),
-      makeSpace({ id: 's2', name: 'B', archived_at: '2025-01-01T00:00:00Z' }),
-    ];
-    const state = makeState({ spaces, dco: null } as any);
-    const result = selectDcoSortedSpaces(state as any);
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('A');
-  });
-
-  it('case-insensitive anchor matching', () => {
-    const spaces = [makeSpace({ id: 's1', name: 'sarah' }), makeSpace({ id: 's2', name: 'Work' })];
-    const dco = makeDco({
-      named_anchors: [{ label: 'Sarah', type: 'person', source: 'drop' }],
-    });
-    const state = makeState({ spaces, dco } as any);
-    const result = selectDcoSortedSpaces(state as any);
-    expect(result[0].name).toBe('sarah');
-  });
-
-  it('preserves order for non-matching spaces', () => {
-    const spaces = [
-      makeSpace({ id: 's1', name: 'Alpha' }),
-      makeSpace({ id: 's2', name: 'Beta' }),
-      makeSpace({ id: 's3', name: 'Gamma' }),
-    ];
-    const dco = makeDco({ named_anchors: [] });
-    const state = makeState({ spaces, dco } as any);
-    const result = selectDcoSortedSpaces(state as any);
-    expect(result.map((s) => s.name)).toEqual(['Alpha', 'Beta', 'Gamma']);
   });
 });
 

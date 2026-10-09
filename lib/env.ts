@@ -31,13 +31,13 @@ const raw = {
    * NOW V1 Feature Flag (Phase 7-8)
    *
    * Controls whether to render the new NowScreenV1 (unified NOW page) or fall back
-   * to legacy Today screen variants (TodayV4Lanes, TodayV3, or TodayScreenV2).
+   * to legacy Today screen variants (TodayV4Lanes, or TodayV3).
    *
    * Default: 'off' (uses legacy Today screen)
    * Enable: Set EXPO_PUBLIC_NOW_V1=on in .env.local
    *
    * When enabled, NowScreenV1 takes precedence over all other Today variants.
-   * When disabled, the app falls back to v4Lanes → v3 → v2 based on their flags.
+   * When disabled, the app shows v4Lanes when its flag is on, and v3 otherwise.
    */
   NOW_V1: process.env.EXPO_PUBLIC_NOW_V1 ?? 'off',
 

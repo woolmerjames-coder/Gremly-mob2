@@ -214,10 +214,7 @@ export function getJournalPreview(body: string | null | undefined, maxLength: nu
 // Needs Attention Reason Formatting
 // =============================================================================
 
-export type NeedsAttentionReason =
-  | 'todo_missing_due_date_stale'
-  | 'idea_stale'
-  | 'no_space_assigned';
+export type NeedsAttentionReason = 'todo_missing_due_date_stale' | 'idea_stale';
 
 /**
  * Format the reason label for needs-attention items.
@@ -232,8 +229,6 @@ export function formatReasonLabel(reason: NeedsAttentionReason, ageInDays: numbe
       return `No due date · ${ageInDays} days ago`;
     case 'idea_stale':
       return `Idea · ${ageInDays} days ago`;
-    case 'no_space_assigned':
-      return `No space · ${ageInDays} days ago`;
     default:
       return `${ageInDays} days ago`;
   }

@@ -15,6 +15,8 @@ import {
   offerButtons,
   openingMsgs,
   partialMsgs,
+  questionAgainMsg,
+  questionMsg,
   questionsStartMsgs,
   skippedMsgs,
   sortedMsgs,
@@ -381,5 +383,26 @@ describe('the wrap up in the thread', () => {
       (habitsMsgs([{ id: 'h1', title: 'Run', kind: 'build' }], [], '2026-09-30')[1].meta as any)
         .early,
     ).toBeUndefined();
+  });
+});
+
+describe('a question about a Chapter', () => {
+  it('carries what it is about, and keeps it when its buttons come back', () => {
+    const asked = questionMsg({
+      id: 'q1',
+      kind: 'start_chapter',
+      question: 'Shall I start a Chapter for the move?',
+      choices: [],
+      created_at: '2026-10-01T00:00:00Z',
+      asked_at: null,
+      record_table: null,
+      record_id: null,
+      private: false,
+    }).meta as BriefOfferMeta;
+    expect(asked).toMatchObject({ question_id: 'q1', question_kind: 'start_chapter' });
+    expect(questionAgainMsg(asked).meta).toMatchObject({
+      question_id: 'q1',
+      question_kind: 'start_chapter',
+    });
   });
 });

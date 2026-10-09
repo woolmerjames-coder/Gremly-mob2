@@ -25,7 +25,6 @@ import fs from 'fs';
  * These should be migrated to use DateService.today() or DateService.toLocalDate().
  *
  * Files pending migration (tracked in branch sweep-refinements-1.13):
- * - app/spaces/SpaceHomeScreen.tsx (uses targetDate which is already a Date object)
  * - app/screens/SweepTestScreen.tsx (test/dev file)
  * - app/(dev)/RecentItems.tsx (dev file)
  * - minddrop-voice-bundle/4-backend/cortex-proxy.ts (backend default)
@@ -39,12 +38,10 @@ describe('Date Safety - No timezone-unsafe patterns', () => {
   // 2. Dev/test utilities
   // 3. Pending migration (tracked as tech debt)
   const KNOWN_TECH_DEBT_FILES = [
-    'SpaceHomeScreen.tsx', // Uses Date objects, not current time - lower risk
     'SweepTestScreen.tsx', // Dev/test screen only
     'RecentItems.tsx', // Dev screen
     'cortex-proxy.ts', // Backend fallback default
     'DateService.ts', // Documentation comments explaining the bug
-    'CreateSpaceModal.tsx', // Uses form.targetDate Date object
     'useGremlyStore.ts', // Uses sixtyDaysAgo Date object for since queries
   ];
 

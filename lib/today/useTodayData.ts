@@ -22,8 +22,6 @@ export interface EnrichedHabit {
   dueWindow?: string;
   streakCount?: number;
   tags?: string[];
-  spaceName?: string;
-  spaceId?: string;
 }
 
 export interface EnrichedTodo {
@@ -31,8 +29,6 @@ export interface EnrichedTodo {
   title: string;
   dueTime?: string;
   tags?: string[];
-  spaceName?: string;
-  spaceId?: string;
   overdue?: boolean;
   nearDue?: boolean;
   dueDate?: Date; // For sorting
@@ -324,35 +320,6 @@ function buildSuggestions(ctx: {
     });
   }
 
-  // 2) Prep nudge: if a Space has >3 items due this week and none today
-  if (ctx.weekTodos && ctx.weekTodos.length > 0) {
-    const bySpaceWeekload = new Map<string, number>();
-    ctx.weekTodos.forEach((t) => {
-      if (!t.spaceName) return;
-      bySpaceWeekload.set(t.spaceName, (bySpaceWeekload.get(t.spaceName) ?? 0) + 1);
-    });
-
-    for (const [spaceName, count] of bySpaceWeekload.entries()) {
-      const hasTodayInSpace = ctx.todosDueToday.some((t) => t.spaceName === spaceName);
-      if (count > 3 && !hasTodayInSpace) {
-        out.push({
-          id: `sugg-prep-${spaceName.toLowerCase().replace(/\s+/g, '-')}`,
-          type: 'todo',
-          title: `Prep: review ${spaceName}`,
-          reason: `${count} items due this week`,
-          cta: 'Prep',
-          payload: {
-            type: 'todo',
-            name: `Review ${spaceName}`,
-            notes: "Skim what's coming up this week.",
-            spaceName,
-          },
-        });
-        break; // Only suggest one prep item
-      }
-    }
-  }
-
   // 3) Easy habit surfacing: if streak < 3 days, suggest the shortest/easiest habit first
   if (ctx.streakCount < 3 && ctx.habitsDueToday.length > 0) {
     const easy = ctx.habitsDueToday[0]; // already ordered by dueWindow then name
@@ -594,36 +561,21 @@ export function useTodayData() {
       const habitRecords = dueItems.filter((item): item is Habit => item.type === 'habit');
       const todoRecords = dueItems.filter((item): item is Todo => item.type === 'todo');
 
-      // Enrich habits with space info
       const enrichedHabits: EnrichedHabit[] = await Promise.all(
         habitRecords.map(async (habit) => {
-          let spaceName: string | undefined;
-          if (habit.space_id) {
-            const space = await repo.getSpaceById(habit.space_id);
-            spaceName = space?.name;
-          }
-
           return {
             id: habit.id,
             name: habit.name,
             dueWindow: undefined, // TODO: Calculate from habit schedule
             streakCount: 0, // TODO: Calculate from completion history
             tags: habit.tags?.slice(0, 2) || [], // Limit to 2 tags for now
-            spaceName,
-            spaceId: habit.space_id || undefined,
           };
         }),
       );
 
-      // Enrich todos with space info and due time
+      // Enrich todos with due time
       const enrichedTodos: EnrichedTodo[] = await Promise.all(
         todoRecords.map(async (todo) => {
-          let spaceName: string | undefined;
-          if (todo.space_id) {
-            const space = await repo.getSpaceById(todo.space_id);
-            spaceName = space?.name;
-          }
-
           // Calculate overdue using due_day (canonical field) - avoids timezone issues
           const todayStr = getTodayDayString();
           let overdue = false;
@@ -659,8 +611,6 @@ export function useTodayData() {
                 })()
               : undefined,
             tags: todo.tags?.slice(0, 2) || [],
-            spaceName,
-            spaceId: todo.space_id || undefined,
             overdue,
             nearDue,
             dueDate,

@@ -60,7 +60,9 @@ describe('entity card wording', () => {
     const ds = getDateService();
     expect(formatDay(ds.today())).toBe('Today');
     expect(formatDay(ds.tomorrow())).toBe('Tomorrow');
-    expect(formatDay(ds.today(), { relative: false })).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}$/);
+    expect(formatDay(ds.today(), { relative: false })).toMatch(
+      /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}$/,
+    );
     expect(formatDay(ds.tomorrow(), { relative: false })).not.toBe('Tomorrow');
     expect(formatTime('14:00')).toBe('2:00pm');
     expect(formatTime('14:00:00')).toBe('2:00pm');
@@ -69,12 +71,9 @@ describe('entity card wording', () => {
     expect(formatTime(null)).toBe('');
   });
 
-  test('subtitle per type, with the Space when known, short on an edit card', () => {
+  test('subtitle per type, short on an edit card', () => {
     expect(entitySubtitle(dentist)).toBe('Todo · Wed 1 Oct, 2:00pm');
-    expect(entitySubtitle(dentist, { spaceName: 'Health' })).toBe(
-      'Todo · Health · Wed 1 Oct, 2:00pm',
-    );
-    expect(entitySubtitle(dentist, { spaceName: 'Health', withWhen: false })).toBe('Todo · Health');
+    expect(entitySubtitle(dentist, { withWhen: false })).toBe('Todo');
     expect(entitySubtitle({ id: 'h', type: 'habit', title: 'Run', frequency: 'weekdays' })).toBe(
       'Habit · weekdays',
     );

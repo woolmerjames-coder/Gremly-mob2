@@ -74,7 +74,6 @@ const mockStoreData = {
   habits: [] as any[],
   journals: [] as any[],
   notes: [] as any[],
-  spaces: [] as any[],
   tags: [] as any[],
   unsortedItems: [] as any[],
   isLoading: false,
@@ -89,7 +88,6 @@ jest.mock('../lib/store/selectors', () => ({
   useDiscoveredPeople: () => [],
   useDiscoveredLists: () => [],
   useUnsortedItems: () => mockStoreData.unsortedItems,
-  useActiveSpaces: () => mockStoreData.spaces,
   usePopularTags: () => mockStoreData.tags,
   useAllActiveItemsHub: () => [
     ...mockStoreData.todos,
@@ -201,7 +199,6 @@ describe('HubScreen - Mode Transitions', () => {
     mockStoreData.habits = [];
     mockStoreData.journals = [];
     mockStoreData.notes = [];
-    mockStoreData.spaces = [];
     mockStoreData.tags = [];
     mockStoreData.unsortedItems = [];
     mockStoreData.isLoading = false;
@@ -410,7 +407,6 @@ describe('HubScreen - Needs Attention Section', () => {
     mockStoreData.habits = [];
     mockStoreData.journals = [];
     mockStoreData.notes = [];
-    mockStoreData.spaces = [];
     mockStoreData.tags = [];
     mockStoreData.unsortedItems = [];
     mockStoreData.isLoading = false;
@@ -493,7 +489,6 @@ describe('HubScreen - Search Results', () => {
     mockStoreData.habits = [];
     mockStoreData.journals = [];
     mockStoreData.notes = [];
-    mockStoreData.spaces = [];
     mockStoreData.tags = [];
     mockStoreData.unsortedItems = [];
     mockStoreData.isLoading = false;
@@ -541,7 +536,6 @@ describe('HubScreen - Journal View Data Filtering', () => {
     mockStoreData.habits = [];
     mockStoreData.journals = [];
     mockStoreData.notes = [];
-    mockStoreData.spaces = [];
     mockStoreData.tags = [];
     mockStoreData.unsortedItems = [];
     mockStoreData.isLoading = false;

@@ -124,7 +124,7 @@ export type SweepCandidate = SweepCandidateTodo | SweepCandidateNote | SweepCand
 
 /**
  * Computed display metadata for a Sweep card.
- * Pre-computed from SweepCandidate + Space data for rendering.
+ * Pre-computed from SweepCandidate + World data for rendering.
  */
 export interface SweepCardMeta {
   /** Type chip label: 'Todo', 'Note', or 'Habit' */
@@ -145,13 +145,7 @@ export interface SweepCardMeta {
   /** Formatted date string if resurfacing, e.g. "Dec 8" */
   resurfacingDate: string | null;
 
-  /** Space name if assigned */
-  spaceName: string | null;
-
-  /** Space ID if assigned */
-  spaceId: string | null;
-
-  /** Primary World pill: AI-derived life domain. Separate dimension from space. */
+  /** Primary World pill: AI-derived life domain. */
   world?: { name: string; accentColor: string; extraCount: number };
 
   /** Gremly's contextual response message */

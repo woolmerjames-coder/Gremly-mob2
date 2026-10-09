@@ -159,6 +159,8 @@ export async function writeDailyBrief(env, userId, { reason = 'scheduled', at = 
         type: 'brief-offer',
         kind: 'question',
         question_id: g.question.id,
+        // what it is about: the app puts one about a Chapter as the Worlds card
+        question_kind: g.question.kind || null,
         buttons: questionButtons(choices),
         brief_id: briefId,
       },

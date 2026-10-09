@@ -14,15 +14,12 @@ import DSPreview from '../app/(dev)/DSPreview';
 import DevLogin from '../app/(dev)/DevLogin';
 import RecentItems from '../app/(dev)/RecentItems';
 import DevTools from '../app/(dev)/DevTools';
-import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import CardDeckScreen from '../app/screens/CardDeckScreen';
 import OnboardingScreen from '../app/screens/OnboardingScreen';
 import TrialIntroScreen from '../app/screens/TrialIntroScreen';
 import TrialEndPaywallScreen from '../app/screens/TrialEndPaywallScreen';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
-import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
-import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import CalendarScreen from '../app/screens/CalendarScreen';
@@ -46,14 +43,12 @@ import WorldDetailScreen from '../app/screens/WorldDetailScreen';
 import ChapterDetailScreen from '../app/screens/ChapterDetailScreen';
 import YourStoryScreen from '../app/screens/YourStoryScreen';
 import GremlyQuestionsScreen from '../app/screens/GremlyQuestionsScreen';
-import ScopedChatScreen from '../app/screens/ScopedChatScreen';
 
 // Wrapper to bridge navigation params to HabitBuilderScreen props
 function HabitBuilderWrapper({ navigation, route }: any) {
   return (
     <HabitBuilderScreen
       prefill={route.params?.prefill}
-      spaceId={route.params?.spaceId}
       onClose={() => navigation.goBack()}
       onHabitCreated={() => {
         navigation.goBack();
@@ -74,20 +69,8 @@ export type RootStackParamList = {
   DevLogin: undefined;
   DevTools: undefined;
   RecentItems: undefined;
-  SpaceDetail: { id: string };
   CatchAllNotepad: undefined;
   PersonDetail: { personName: string; personEmail?: string };
-  SpaceHome: { spaceId: string; openKeyDatesModal?: boolean };
-  ChatThread: {
-    spaceId: string;
-    chatId?: string;
-    goalContext?: {
-      goal_id: string;
-      goal_name: string;
-      checkIns?: { title: string; created_at: string }[];
-    };
-    returnToKeyDates?: boolean;
-  };
   Lists: undefined;
   /**
    * The decision cards on their own, opened from today's thread, each
@@ -109,7 +92,7 @@ export type RootStackParamList = {
   TimeBlocksSettings: undefined;
   CalendarSettings: undefined;
   WhatGremlyKnows: undefined;
-  HabitBuilder: { prefill?: string; spaceId?: string } | undefined;
+  HabitBuilder: { prefill?: string } | undefined;
   WeeklySummary: { weekStartDate?: string } | undefined;
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
   WeeklyArchive: undefined;
@@ -118,12 +101,6 @@ export type RootStackParamList = {
   ChapterDetail: { chapterId: string };
   YourStory: undefined;
   GremlyQuestions: undefined;
-  ScopedChat: {
-    scopeType: 'world' | 'chapter';
-    scopeId: string;
-    scopeName: string;
-    chatId?: string;
-  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -202,11 +179,6 @@ export default function RootNavigator() {
           />
           <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
           <Stack.Screen
-            name="SpaceDetail"
-            component={SpaceDetailScreen}
-            options={{ title: 'Space', headerShown: true }}
-          />
-          <Stack.Screen
             name="CatchAllNotepad"
             component={CatchAllNotepad}
             options={{ headerShown: true }}
@@ -215,18 +187,6 @@ export default function RootNavigator() {
             name="PersonDetail"
             component={PersonDetailScreen}
             options={{ title: 'Person', headerShown: false }}
-          />
-          <Stack.Screen
-            name="SpaceHome"
-            component={SpaceHomeScreen}
-            options={{ title: 'Space', headerShown: false }}
-            getId={({ params }) => params?.spaceId}
-          />
-          <Stack.Screen
-            name="ChatThread"
-            component={ChatThreadScreen}
-            options={{ title: 'Chat', headerShown: false }}
-            getId={({ params }) => `${params?.spaceId}-${params?.chatId ?? 'new'}`}
           />
           <Stack.Screen
             name="Lists"
@@ -387,14 +347,6 @@ export default function RootNavigator() {
             name="GremlyQuestions"
             component={GremlyQuestionsScreen}
             options={{ headerShown: false, animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="ScopedChat"
-            component={ScopedChatScreen}
-            options={{ headerShown: false, animation: 'slide_from_right' }}
-            getId={({ params }) =>
-              `${params?.scopeType}-${params?.scopeId}-${params?.chatId ?? 'new'}`
-            }
           />
           {__DEV__ && (
             <Stack.Screen

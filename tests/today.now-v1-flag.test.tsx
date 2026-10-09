@@ -83,14 +83,12 @@ describe('NOW V1 flag disabled', () => {
     expect(screen.getByTestId('today-v3-screen')).toBeTruthy();
   });
 
-  it('falls back to legacy TodayScreenV2 when all flags are disabled', () => {
+  it('falls back to TodayV3View when all flags are disabled', () => {
     setTodayFlags({ nowV1: false, v4Lanes: false, v3: false });
 
     renderWithProviders(<TodayScreen />);
-    // TodayScreenV2 doesn't have a specific testID, but it should render without errors
-    // and NOT render any of the flagged screens
     expect(screen.queryByTestId('now-v1-screen')).toBeNull();
     expect(screen.queryByTestId('today-v4-lanes-screen')).toBeNull();
-    expect(screen.queryByTestId('today-v3-screen')).toBeNull();
+    expect(screen.getByTestId('today-v3-screen')).toBeTruthy();
   });
 });

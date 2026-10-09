@@ -7,18 +7,13 @@ import type {
   Note,
   NoteSubtype,
   HabitSubtype,
-  Space,
-  SpaceMilestone,
-  SpaceMeta,
   Tag,
   Person,
   EntityType,
   LegacyCanonicalType,
   TagsMeta,
-  Habit,
 } from '../types';
 import type { Mood } from '../shared/moods';
-import type { SpaceInsert } from '../schemas';
 
 /**
  * Input for creating a new record.
@@ -117,15 +112,6 @@ export interface ListByTypeOptions {
 }
 
 /**
- * Grouped items by type for Space detail view
- */
-export interface GroupedByType {
-  habits: AppRecord[];
-  todos: AppRecord[];
-  notes: AppRecord[];
-}
-
-/**
  * Repository interface - implemented by both memory and Supabase repos
  * Phase 10.9 (Today v3): extend helpers for merged today view, focus card, progress, sweep.
  */
@@ -143,16 +129,7 @@ export interface IRepo {
   getById(id: ID): Promise<AppRecord | null>;
   getAll(): Promise<AppRecord[]>;
   listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]>;
-  listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]>;
   search(text: string): Promise<AppRecord[]>;
-  /**
-   * Search across items within a specific space and include space chats.
-   * Returns matching items (todos/notes/habits) and chats.
-   */
-  searchInSpace(
-    spaceId: ID,
-    text: string,
-  ): Promise<{ items: AppRecord[]; chats: import('../types').SpaceChat[] }>;
 
   // Hub helpers
   countUnsorted(): Promise<number>; // counts ai_placed = true across all types
@@ -328,72 +305,10 @@ export interface IRepo {
     },
   ): Promise<Note>;
 
-  // Space methods (Phase 5)
-  listSpaces(): Promise<Space[]>;
-  createSpace(input: SpaceInsert): Promise<Space>;
-  getSpaceById(spaceId: string): Promise<Space | null>;
-  updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space>;
-  deleteSpace(spaceId: string): Promise<void>;
-  getSpaceItemCounts(spaceId: string): Promise<{ todos: number; habits: number; notes: number }>;
-  listBySpaceGrouped(spaceId: string, opts?: { tagNames?: string[] }): Promise<GroupedByType>;
-
-  // Spaces v2 methods (Phase 8+)
-  getSpaceSummary(spaceId: string): Promise<string | null>;
-
-  // Phase 12 - Milestone methods
-  listMilestones(spaceId: string): Promise<SpaceMilestone[]>;
-  getActiveMilestone(spaceId: string): Promise<SpaceMilestone | null>;
-  createMilestone(
-    spaceId: string,
-    payload: {
-      name: string;
-      date?: string | null;
-      is_active?: boolean;
-      sort_order?: number;
-      title?: string;
-      note?: string | null;
-    },
-  ): Promise<SpaceMilestone>;
-  updateMilestone(
-    id: string,
-    patch: Partial<{
-      name: string;
-      title: string;
-      date: string | null;
-      note: string | null;
-      completed: boolean;
-      completed_at: string | null;
-      is_active: boolean;
-      sort_order: number;
-    }>,
-  ): Promise<SpaceMilestone>;
-  completeMilestone(milestoneId: string): Promise<SpaceMilestone>;
-  deleteMilestone(milestoneId: string): Promise<void>;
-
-  // Phase 12 - SpaceMeta methods
-  getSpaceMeta(spaceId: string): Promise<SpaceMeta | null>;
-  upsertSpaceMeta(
-    spaceId: string,
-    payload: { success_criteria?: string | null; other_context?: string | null },
-  ): Promise<SpaceMeta>;
-  deleteSpaceMeta(spaceId: string): Promise<void>;
-
   // Phase 12 - Pinned items methods
   toggleTodoPinned(todoId: string, isPinned: boolean): Promise<void>;
   toggleHabitPinned(habitId: string, isPinned: boolean): Promise<void>;
   toggleNotePinned(noteId: string, isPinned: boolean): Promise<void>;
-  getPinnedItemsForSpace(
-    spaceId: string,
-  ): Promise<{ todos: Todo[]; habits: Habit[]; notes: Note[] }>;
-  getPinnedCountForSpace(spaceId: string): Promise<number>;
-
-  // Phase 10.8: Space Insight methods
-  getLatestSpaceInsight(spaceId: string): Promise<{
-    summary: string;
-    summary_at: string;
-    tokens: number;
-  } | null>;
-  getSpaceInsightHistory(spaceId: string, limit?: number): Promise<any[]>;
 
   // Tag and People methods (Phase 7+)
   listTags(): Promise<Tag[]>;
@@ -518,23 +433,6 @@ export interface IRepo {
    * Uses indexed lookup on (owner_id, kind, created_at desc) for queries.
    */
   writeEvent(kind: string, payload: Record<string, any>, opts?: { userId?: string }): Promise<void>;
-
-  // Phase 10.4 - Space defaults for Cortex biasing
-
-  /**
-   * Get defaults_json for a space.
-   * Lightweight JSON config for Cortex biasing + UX hints. Treat as opaque blob.
-   * Returns null if space not found or defaults_json is null.
-   */
-  getSpaceDefaults(spaceId: string): Promise<any | null>;
-
-  /**
-   * Set/update defaults_json for a space (shallow merge).
-   * Lightweight JSON config for Cortex biasing + UX hints. Treat as opaque blob.
-   * Merges patch with existing defaults at one level (no deep merge).
-   * Returns updated defaults_json.
-   */
-  setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any>;
 
   // Phase v3.3 - Notes/Journal methods
   /**

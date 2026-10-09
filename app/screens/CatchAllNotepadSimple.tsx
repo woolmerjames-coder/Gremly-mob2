@@ -85,7 +85,6 @@ export default function CatchAllNotepadSimple(): React.JSX.Element {
               if (action.type === 'add.to.list') {
                 const list = await (repo as any).getOrCreateList(action.payload.listKey, {
                   userId: currentUserId,
-                  spaceId: action.payload.spaceId ?? null,
                 });
                 await (repo as any).addListItem(list.id, action.payload.item);
               } else if (action.type === 'create.todo') {

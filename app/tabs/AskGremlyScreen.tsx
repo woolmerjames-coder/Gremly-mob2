@@ -107,6 +107,7 @@ import type {
   BriefOfferMeta,
   BriefPlanMeta,
   DailyThreadMeta,
+  KeepOfferMeta,
   OfferAction,
   OfferButton,
 } from '../../lib/brief/types';
@@ -152,6 +153,10 @@ import { BriefPlanBlock } from '../../components/brief/BriefPlanBlock';
 import { PlanPickSheet } from '../../components/brief/PlanPickSheet';
 import { HomeChips } from '../../components/home/HomeChips';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
+import { keepOfferFrom, pagePlace } from '../../lib/worlds/keep';
+import { KeepOffer } from '../../components/worlds/KeepOffer';
+import { ChatAskCard } from '../../components/worlds/ChatAskCard';
+import { isChapterQuestionKind } from '../../lib/worlds/questions';
 import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
@@ -171,12 +176,21 @@ function agentTasksOf(chat: SpaceChat): AgentTask[] {
   return Array.isArray(tasks) ? (tasks as AgentTask[]) : [];
 }
 
-/** An item's own chat (components/chat/ItemChatScreen.tsx) */
+/**
+ * An item's own chat (components/chat/ItemChatScreen.tsx), a World's or a
+ * Chapter's (components/worlds/PageChat.tsx), or the box on the Worlds home,
+ * which has no anchor: it opens fresh each time with Gremly's own line, and
+ * keeps no thread of its own (its chats are in Ask Gremly's list).
+ */
 export type ItemChatOptions = {
-  /** The item: every turn is sent with it, and its chat is found by it */
-  anchor: ChatAnchor;
-  /** What the header calls it: Todo, Habit, Event... */
+  /** The item or page: every turn is sent with it, and its chat is found by it; none on the Worlds home */
+  anchor: ChatAnchor | null;
+  /** What the header calls it: Todo, Habit, Event, World, Chapter... */
   label: string;
+  /** The header's title when there is no anchor */
+  title?: string;
+  /** Gremly's first line when there is no anchor */
+  opener?: string;
   /** Sent straight away when the item has no chat yet (a screen asked for it) */
   initialPrompt?: string | null;
   /** The starters for its kind, shown under Gremly's opener */
@@ -187,6 +201,12 @@ export type ItemChatOptions = {
    */
   loadStarters?: () => Promise<ItemStarter[]>;
   onClose: () => void;
+  /**
+   * Shown as a sheet over its page rather than a full screen (a World's or a
+   * Chapter's chat, components/worlds/PageChat.tsx): the sheet's top, from the
+   * top of the screen, so the keyboard is measured against it
+   */
+  sheet?: { top: number };
 };
 
 /** How long a new item chat waits for starters drawn from the item */
@@ -235,6 +255,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const wakeOnInput = useWakeOnInput();
+  // a World's or a Chapter's own chat: what is kept from it goes there unless Gremly says otherwise
+  const keepPageRef = useRef(pagePlace(item?.anchor));
+  keepPageRef.current = pagePlace(item?.anchor);
   // set further down, once the hooks they call exist
   const wrapResumeRef = useRef<() => Promise<void>>(async () => undefined);
   const weekReviewRef = useRef<WeekReview | null>(null);
@@ -284,7 +307,10 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // Chat opened about a drop ("Talk it through"): Gremly's fixed opener shows
   // instead of the greeting, and nothing is sent until the user replies
   const [aboutItem, setAboutItem] = useState<TalkAboutItem | null>(null);
-  const [aboutOpener, setAboutOpener] = useState<string | null>(null);
+  // with no anchor (the box on the Worlds home), Gremly's own line opens it
+  const [aboutOpener, setAboutOpener] = useState<string | null>(
+    item && !item.anchor ? (item.opener ?? null) : null,
+  );
   const aboutRef = useRef<{ item: TalkAboutItem; opener: string } | null>(null);
 
   useEffect(() => {
@@ -780,6 +806,14 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               }
               void keepAgentTasks(chat, agent.tasks ?? []);
             }
+            // the Save button under a reply worth keeping (Worlds rebuild, stage 2)
+            const keep = keepOfferFrom(richResult?.keep, keepPageRef.current);
+            if (keep) {
+              await appendBriefMessage('system', '', {
+                type: 'keep-offer',
+                ...keep,
+              } as unknown as Record<string, unknown>);
+            }
             if (richResult?.entity_card) {
               await appendEntityCard(richResult.entity_card);
             } else if (opts.briefQuestion && isTodaysThread(chat)) {
@@ -978,8 +1012,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   // with a message. Looked up once, when the screen opens.
   const itemRef = useRef(item);
   itemRef.current = item;
-  const itemId = item?.anchor.id ?? null;
-  const [itemReady, setItemReady] = useState(!item);
+  const itemId = item?.anchor?.id ?? null;
+  // with no anchor there is nothing to look up: it opens fresh
+  const [itemReady, setItemReady] = useState(!item || !item.anchor);
   // starters drawn from the item: undefined until asked, null while waiting
   const [itemStarters, setItemStarters] = useState<ItemStarter[] | null | undefined>(undefined);
   const itemLookedUpRef = useRef(false);
@@ -992,7 +1027,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
   useEffect(() => {
     const opened = itemRef.current;
-    if (!opened || !itemId || !userId || itemLookedUpRef.current) return;
+    if (!opened?.anchor || !itemId || !userId || itemLookedUpRef.current) return;
+    const anchor = opened.anchor;
     itemLookedUpRef.current = true;
     (async () => {
       const found = await findItemChat(userId, itemId).catch(() => null);
@@ -1003,8 +1039,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
         setItemReady(true);
         return;
       }
-      const talk: TalkAboutItem = { ...opened.anchor, label: opened.label };
-      const opener = talkAboutOpener(opened.anchor.title);
+      const talk: TalkAboutItem = { ...anchor, label: opened.label };
+      const opener = talkAboutOpener(anchor.title);
       aboutRef.current = { item: talk, opener };
       setAboutItem(talk);
       setAboutOpener(opener);
@@ -1739,7 +1775,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     (target: ChangeRowItem) => {
       if (item) {
         item.onClose();
-        if (item.anchor.id === target.id) return;
+        if (item.anchor?.id === target.id) return;
       }
       openEntity(
         { id: target.id, type: target.type, title: target.title },
@@ -1747,6 +1783,53 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       );
     },
     [item, openEntity],
+  );
+  // the Save button under a reply worth keeping (lib/worlds/keep.ts): the
+  // message keeps where it went, and Open it opens the note it made
+  const renderKeep = useCallback(
+    (message: SpaceChatMessage, meta: KeepOfferMeta) => (
+      <KeepOffer
+        messageId={message.id}
+        meta={meta}
+        onSaved={(saved) => patchMessageMetadata(message.id, { saved })}
+        onUndone={() => patchMessageMetadata(message.id, { saved: null })}
+        onOpen={(id, title) => openChangeItem({ id, type: 'note', title })}
+      />
+    ),
+    [patchMessageMetadata, openChangeItem],
+  );
+  // the newest message for each of Gremly's questions: when the wrap up has
+  // brought a question's buttons back after the app was closed, the card is
+  // drawn there, once
+  const newestAsk = useMemo(() => {
+    const at = new Map<string, string>();
+    for (const r of rows) {
+      const meta = briefMetaOf(r);
+      if (meta?.type === 'brief-offer' && meta.question_id) at.set(meta.question_id, r.id);
+    }
+    return at;
+  }, [rows]);
+  // a question about a Chapter, in the brief or the wrap up: the Worlds card
+  // with its own buttons, in place of answers to tap (components/worlds/ChatAskCard)
+  const renderAsk = useCallback(
+    (message: SpaceChatMessage, meta: BriefOfferMeta) => {
+      if (meta.kind !== 'question' || !meta.question_id) return undefined;
+      if (!isChapterQuestionKind(meta.question_kind)) return undefined;
+      if (newestAsk.get(meta.question_id) !== message.id) return null;
+      return (
+        <ChatAskCard
+          messageId={message.id}
+          meta={meta}
+          patch={(p) => patchMessageMetadata(message.id, p as Record<string, unknown>)}
+          onAnswered={() =>
+            void (meta.wrap
+              ? wrapUpRef.current.answeredByCard(meta)
+              : briefOffersRef.current.answeredByCard())
+          }
+        />
+      );
+    },
+    [newestAsk, patchMessageMetadata],
   );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
   const renderChanges = useRenderChanges(
@@ -1954,6 +2037,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             renderChanges={renderChanges}
             renderWrap={renderWrap}
             renderWeek={renderWeek}
+            renderKeep={renderKeep}
+            renderAsk={renderAsk}
             hiddenActions={hiddenActions}
             showOffer={showOffer}
             renderHabitWeek={renderHabitWeek}
@@ -1986,6 +2071,8 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       renderChanges,
       renderWrap,
       renderWeek,
+      renderKeep,
+      renderAsk,
       hiddenActions,
       showOffer,
       renderHabitWeek,
@@ -1997,22 +2084,54 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
 
   const inConversation = activeChat !== null;
+  // a page's chat as a sheet over its page (the Worlds rebuild's mockup)
+  const sheet = item?.sheet ?? null;
 
   return (
     <SafeAreaView
-      style={[styles.safe, item ? { paddingTop: insets.top } : null]}
+      style={[styles.safe, item && !sheet ? { paddingTop: insets.top } : null]}
       edges={embedded || item ? ['left', 'right'] : ['top', 'left', 'right']}
     >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={sheet ? sheet.top : 0}
         enabled={!embedded}
       >
         {/* Header. Inside the Gremly home the switch above names the page, so
             this is a slim row: history on the left, the chat's title in the
             middle, save and new chat on the right. */}
-        {item ? (
+        {item && sheet ? (
+          // a page's chat as a sheet: Gremly, on the page, and a close
+          <View testID="item-chat-header">
+            <View style={styles.sheetGrab} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle} numberOfLines={1} accessibilityRole="header">
+                {item.anchor?.title ? `Gremly, on ${item.anchor.title}` : 'Gremly'}
+              </Text>
+              {inConversation ? (
+                <TouchableOpacity
+                  style={styles.sheetBtnPlain}
+                  onPress={() => setSaveSheetVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save from this chat"
+                >
+                  <Bookmark size={20} color={MOSS} />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={styles.sheetClose}
+                onPress={item.onClose}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                testID="item-chat-close"
+              >
+                <X size={20} color={MOSS} strokeWidth={2.2} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : item ? (
           // an item's chat: back to the item, the item named in the middle
           <View style={styles.chatHeader} testID="item-chat-header">
             <TouchableOpacity
@@ -2027,7 +2146,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             <View style={styles.chatHeaderCenter}>
               <Text style={styles.itemHeaderLabel}>{item.label}</Text>
               <Text style={styles.itemHeaderTitle} numberOfLines={1}>
-                {item.anchor.title}
+                {item.anchor?.title ?? item.title ?? ''}
               </Text>
             </View>
             {inConversation ? (
@@ -2280,7 +2399,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             </>
           ) : item && !itemReady ? (
             <View style={styles.flex} testID="item-chat-loading" />
-          ) : aboutItem && aboutOpener ? (
+          ) : (aboutItem || (item && !item.anchor)) && aboutOpener ? (
             <View style={styles.aboutOpener} testID="chat-about-opener">
               <ChatBubble
                 message={
@@ -2406,7 +2525,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             ) : null}
           </>
         ) : (
-          <View style={styles.bottomSection}>
+          <View
+            style={[
+              styles.bottomSection,
+              sheet ? { paddingBottom: Math.max(insets.bottom, 12) + 4 } : null,
+            ]}
+          >
             <View style={styles.composerContainer}>
               <SaveIndicatorPill
                 count={extractions.length}
@@ -2434,9 +2558,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 placeholder={
                   awaitingAnswer
                     ? BRIEF_COPY.answerPlaceholder
-                    : inConversation || item
-                      ? 'Type a message...'
-                      : 'Ask Gremly anything...'
+                    : sheet
+                      ? 'Say more'
+                      : inConversation || item
+                        ? 'Type a message...'
+                        : 'Ask Gremly anything...'
                 }
                 initialText={autoSendKey ? undefined : prefillPrompt || undefined}
               />
@@ -2733,6 +2859,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 10,
+  },
+  // a page's chat as a sheet (the Worlds rebuild's mockup)
+  sheetGrab: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(46,85,64,0.16)',
+    marginTop: 8,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 20,
+    paddingRight: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  sheetTitle: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 20,
+    lineHeight: 25,
+    color: '#1A3328',
+  },
+  sheetBtnPlain: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  sheetClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EAF2E8',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chatHeaderBtn: {
     width: 44,

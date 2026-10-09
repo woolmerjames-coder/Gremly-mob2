@@ -38,6 +38,7 @@ import { personNow } from '../../shared/day.js';
 import { spanDays, weeklyDayOf } from '../../shared/week.js';
 import { dayOfWeek, easeOn, unpaused, weekAround } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
+import { stepsOnClosedChapters, withoutClosedSteps } from '../../shared/closedSteps.js';
 import { stateWords, asOfToday } from '../../shared/factTiming.js';
 import {
   SENTENCE_SCHEMA,
@@ -159,10 +160,12 @@ export async function gatherDay(env, userId, tz, today) {
   // else. So habit progress is read from the earliest day a week holding today
   // can begin, and counted from the first day of theirs (renderDay).
   const earliestWeekStart = addDays(today, -6);
+  // steps left on a closed Chapter stay with it, as on Today in the app
+  const leftP = stepsOnClosedChapters(d, userId);
   const [
     calendar,
     noteEvents,
-    openTodos,
+    openRead,
     doneToday,
     habits,
     progress,
@@ -268,6 +271,7 @@ export async function gatherDay(env, userId, tz, today) {
       return { byFact: new Map() };
     }),
   ]);
+  const openTodos = withoutClosedSteps(openRead, await leftP);
   return {
     today,
     weeklyDay: weeklyDayOf(settings?.weekly_day),

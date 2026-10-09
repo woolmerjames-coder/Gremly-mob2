@@ -22,11 +22,9 @@ export type { MessageWithSaveProps } from './MessageWithSave';
 
 // Action Bars & Confirmations
 export { MiniActionBar } from './MiniActionBar';
-export { PersistentActionBar } from './PersistentActionBar';
 export { InlineActionConfirmation } from './InlineActionConfirmation';
 export { MultiIntentConfirmation } from './MultiIntentConfirmation';
 
 // Entry & List Components
 export { EntryCard } from './EntryCard';
-export { SpaceChatListModal } from './SpaceChatListModal';
 export { MessageSearch } from './MessageSearch';

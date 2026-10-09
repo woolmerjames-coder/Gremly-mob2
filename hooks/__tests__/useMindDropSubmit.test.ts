@@ -22,7 +22,6 @@ const mockUpdatePendingDropEnrichment = jest.fn();
 const mockPreviewGaugeDrop = jest.fn().mockReturnValue({ justCrossedFed: false });
 
 const storeState = {
-  spaces: [] as any[],
   addPendingDrop: mockAddPendingDrop,
   removePendingDrop: mockRemovePendingDrop,
   incrementDropCount: mockIncrementDropCount,
@@ -49,11 +48,6 @@ jest.mock('../../lib/minddrop/dropPipeline', () => ({
 const mockHeuristicClassify = jest.fn();
 jest.mock('../../lib/minddrop/heuristicClassify', () => ({
   heuristicClassify: (...args: any[]) => mockHeuristicClassify(...args),
-}));
-
-const mockFindSpaceByName = jest.fn();
-jest.mock('../../lib/minddrop/spacePatterns', () => ({
-  findSpaceByName: (...args: any[]) => mockFindSpaceByName(...args),
 }));
 
 const mockPreparePhotoDropText = jest.fn();
@@ -106,10 +100,7 @@ beforeEach(() => {
   mockHeuristicClassify.mockReturnValue({
     bucket: 'todo',
     subtypeHint: null,
-    spaceHint: null,
-    cleanedText: null,
   });
-  mockFindSpaceByName.mockReturnValue(null);
   mockPreparePhotoDropText.mockImplementation(({ text }: any) => text);
   mockIsPhotoOnlyDrop.mockReturnValue(false);
   mockGetPhotoDropDefaults.mockReturnValue({ bucket: 'note', subtype: null });
@@ -141,6 +132,19 @@ describe('useMindDropSubmit — current architecture', () => {
     expect(mockEnqueue.mock.calls[0][0]).toMatchObject({
       text: 'buy groceries',
       source: 'minddrop',
+    });
+  });
+
+  it('keeps a drop with a colon or an @ as typed', async () => {
+    const { result } = renderHook(() => useMindDropSubmit());
+
+    await act(async () => {
+      await result.current.submit('Dentist: move to 3:00pm @home', { source: 'minddrop' });
+    });
+
+    expect(mockEnqueue.mock.calls[0][0]).toMatchObject({
+      text: 'Dentist: move to 3:00pm @home',
+      spaceId: null,
     });
   });
 

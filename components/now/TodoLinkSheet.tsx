@@ -51,15 +51,6 @@ export default function TodoLinkSheet({ visible, eventId, onClose, onSelect }: T
   const [search, setSearch] = useState('');
 
   const todos = useGremlyStore((s) => s.todos);
-  const spaces = useGremlyStore((s) => s.spaces);
-
-  const spacesMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const space of spaces) {
-      map.set(space.id, space.name);
-    }
-    return map;
-  }, [spaces]);
 
   const filteredTodos = useMemo(() => {
     const active = todos.filter((t): t is Todo => !t.archived && !t.completed_at);
@@ -87,7 +78,6 @@ export default function TodoLinkSheet({ visible, eventId, onClose, onSelect }: T
   const renderItem = useCallback(
     ({ item }: { item: Todo }) => {
       const title = item.name || item.title || 'Untitled';
-      const spaceName = item.space_id ? spacesMap.get(item.space_id) : null;
 
       return (
         <Pressable
@@ -97,17 +87,10 @@ export default function TodoLinkSheet({ visible, eventId, onClose, onSelect }: T
           <Text style={styles.todoTitle} numberOfLines={1}>
             {title}
           </Text>
-          {spaceName && (
-            <View style={styles.spaceTag}>
-              <Text style={styles.spaceTagText} numberOfLines={1}>
-                {spaceName}
-              </Text>
-            </View>
-          )}
         </Pressable>
       );
     },
-    [spacesMap, handleSelect],
+    [handleSelect],
   );
 
   const keyExtractor = useCallback((item: Todo) => item.id, []);
@@ -243,19 +226,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: CHARCOAL,
     flex: 1,
-  },
-  spaceTag: {
-    backgroundColor: SAGE_TINT,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginLeft: 8,
-  },
-  spaceTagText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: MUTED,
-    maxWidth: 80,
   },
   separator: {
     height: 1,

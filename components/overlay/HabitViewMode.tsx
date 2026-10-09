@@ -28,7 +28,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { Folder, Flame, ChevronLeft, ChevronRight, Leaf } from 'lucide-react-native';
+import { Flame, ChevronLeft, ChevronRight, Leaf } from 'lucide-react-native';
 import { format, parseISO } from 'date-fns';
 import type { Habit } from '../../lib/types';
 import type { HabitProgressRow } from '../../lib/store/useGremlyStore';
@@ -57,7 +57,6 @@ const BRAND = {
 interface HabitViewModeProps {
   habit: Habit;
   habitProgress: HabitProgressRow[];
-  spaceName?: string | null;
   onLogToday: () => void;
   onLogDate: (dateIso: string) => void;
   onRemoveDate: (dateIso: string) => void;
@@ -459,7 +458,6 @@ function generateGremlyMessage(
 export default function HabitViewMode({
   habit,
   habitProgress,
-  spaceName,
   onLogToday,
   onLogDate,
   onRemoveDate,
@@ -681,14 +679,6 @@ export default function HabitViewMode({
               </>
             )}
           </View>
-
-          {/* Space badge (if has space) */}
-          {spaceName && (
-            <View style={styles.spaceBadge}>
-              <Folder size={12} color={BRAND.mutedSageText} />
-              <Text style={styles.spaceBadgeText}>{spaceName}</Text>
-            </View>
-          )}
         </View>
       </LinearGradient>
 
@@ -954,22 +944,6 @@ const styles = StyleSheet.create({
   metaSeparator: {
     fontSize: 14,
     color: BRAND.mutedSageText,
-  },
-  spaceBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    marginTop: 4,
-  },
-  spaceBadgeText: {
-    fontSize: 12,
-    color: BRAND.mutedSageText,
-    fontWeight: '500',
   },
 
   // Section styling

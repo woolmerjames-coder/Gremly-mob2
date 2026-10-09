@@ -12,7 +12,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { heuristicClassify } from '../lib/minddrop/heuristicClassify';
-import { findSpaceByName } from '../lib/minddrop/spacePatterns';
 import {
   preparePhotoDropText,
   isPhotoOnlyDrop,
@@ -87,7 +86,6 @@ export function useMindDropSubmit(): {
   submit: (text: string, context: SubmitContext) => Promise<SubmitResult>;
   isSubmitting: boolean;
 } {
-  const spaces = useGremlyStore((s) => s.spaces);
   const incrementDropCount = useGremlyStore((s) => s.incrementDropCount);
   const previewGaugeDrop = useGremlyStore((s) => s.previewGaugeDrop);
 
@@ -154,10 +152,6 @@ export function useMindDropSubmit(): {
         let bucket: MindDropBucket;
         let subtypeHint: LogSubtype | null;
 
-        // Track space hint and cleaned text from heuristic
-        let spaceHint: string | null = null;
-        let cleanedText: string | null = null;
-
         if (isPhotoOnlyDrop({ text, photoUris })) {
           const defaults = getPhotoDropDefaults();
           bucket = defaults.bucket;
@@ -166,30 +160,13 @@ export function useMindDropSubmit(): {
           // Heuristic for immediate optimistic UI
           const heuristic = heuristicClassify(text, {
             hasAttachments: photoUris.length > 0,
-            spaceId: context.spaceId,
           });
           bucket = heuristic.bucket;
           subtypeHint = heuristic.subtypeHint;
-          spaceHint = heuristic.spaceHint;
-          cleanedText = heuristic.cleanedText;
         }
 
-        // Resolve space hint to actual space_id
-        let resolvedSpaceId = context.spaceId ?? null;
-        if (!resolvedSpaceId && spaceHint && spaces.length > 0) {
-          const matchedSpace = findSpaceByName(spaceHint, spaces);
-          if (matchedSpace) {
-            resolvedSpaceId = matchedSpace.id;
-            console.log('[MindDrop:Submit] Resolved space from hint', {
-              hint: spaceHint,
-              spaceId: matchedSpace.id,
-              spaceName: matchedSpace.name,
-            });
-          }
-        }
-
-        // Use cleaned text (with space pattern removed) for entity name if available
-        const entityText = cleanedText || effectiveText;
+        // Saved as typed
+        const entityText = effectiveText;
 
         // ============================================
         // STEP 1: IMMEDIATE (blocking, ~10ms total)
@@ -203,7 +180,7 @@ export function useMindDropSubmit(): {
         const queuedDrop = await enqueue({
           text: entityText,
           attachments: photoUris.length > 0 ? photoUris : undefined,
-          spaceId: resolvedSpaceId,
+          spaceId: context.spaceId ?? null,
           source: context.source,
           dueDayOverride: context.dueDayOverride ?? null,
           prefillDate: context.prefillDate ?? null,
@@ -272,7 +249,7 @@ export function useMindDropSubmit(): {
         };
       }
     },
-    [spaces, incrementDropCount, previewGaugeDrop],
+    [incrementDropCount, previewGaugeDrop],
   );
 
   return { submit, isSubmitting };

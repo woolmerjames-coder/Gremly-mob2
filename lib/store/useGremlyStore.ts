@@ -8,6 +8,7 @@
  * from `lib/store/lifecycleSelectors.ts`.
  */
 
+import { createWorldsActions, type WorldsActions } from '../worlds/actions';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { persist, createJSONStorage } from 'zustand/middleware';
@@ -22,8 +23,6 @@ import type {
   Todo,
   Habit,
   Note,
-  Space,
-  SpaceSuggestion,
   Tag,
   SpaceChat,
   SpaceChatMessage,
@@ -47,7 +46,6 @@ import {
   FED_DAYS_PER_AGE_UP,
   GAUGE_WEIGHTS,
 } from '../constants/soulDocument';
-import type { Milestone } from '../schemas';
 import type {
   World,
   Chapter,
@@ -540,14 +538,13 @@ export type PendingDrop = Record<string, any>;
 // STORE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export interface GremlyState {
+export interface GremlyState extends WorldsActions {
   // ═══════════════════════════════════════════════════════════════════
   // RAW DATA (populated on app start)
   // ═══════════════════════════════════════════════════════════════════
   todos: Todo[];
   habits: Habit[];
   notes: Note[];
-  spaces: Space[];
   tags: Tag[];
   habitProgress: HabitProgressRow[];
   /** Adaptation windows (floor / pause) per habit. Loaded with habits on hydrate. */
@@ -556,7 +553,6 @@ export interface GremlyState {
   habitPlans: HabitPlanRow[];
   /** Historical target changes per habit keyed by effective_from date. */
   habitTargetHistory: HabitTargetHistoryRow[];
-  spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
   generalChats: SpaceChat[];
   activeGeneralChatId: string | null;
@@ -566,7 +562,6 @@ export interface GremlyState {
   generalChatRunningSummary: string | null;
   /** A card the Worker found after the reply (a change to an existing item), for the chat to show once. */
   generalChatLateCard: { card: EntityCard; at: string } | null;
-  milestones: Milestone[];
   queueItems: QueuedDrop[];
 
   // ═══════════════════════════════════════════════════════════════════
@@ -580,12 +575,6 @@ export interface GremlyState {
   dropChapterLinks: DropChapterLink[];
   dropContextLinks: DropContextLink[];
   worldObservations: WorldObservation[];
-
-  // ═══════════════════════════════════════════════════════════════════
-  // SPACE SUGGESTIONS STATE
-  // ═══════════════════════════════════════════════════════════════════
-  spaceSuggestions: SpaceSuggestion[];
-  spaceSuggestionsLoaded: boolean;
 
   // ═══════════════════════════════════════════════════════════════════
   // MORNING BRIEF STATE
@@ -798,9 +787,7 @@ export interface GremlyState {
   completeMorningBrief: () => Promise<void>;
   /** Saying yes to a plan feeds 5% an item, up to three items a day */
   creditPlanItems: (count: number) => Promise<void>;
-  trackSpaceAssign: () => Promise<void>;
   trackSpaceChat: () => Promise<void>;
-  trackSpaceCreate: () => Promise<void>;
   resetDailyGauge: () => void;
   /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
   previewGaugeDrop: () => { justCrossedFed: boolean };
@@ -912,30 +899,9 @@ export interface GremlyState {
   ) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
-  // SPACE MUTATIONS
+  // CHAT MUTATIONS
   // ═══════════════════════════════════════════════════════════════════
-  createSpace: (space: Partial<Space>) => Promise<Space>;
-  updateSpace: (id: string, updates: Partial<Space>) => Promise<void>;
-  deleteSpace: (id: string) => Promise<void>;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // SPACE SUGGESTIONS ACTIONS
-  // ═══════════════════════════════════════════════════════════════════
-  fetchSpaceSuggestions: () => Promise<void>;
-  acceptSuggestion: (suggestionId: string) => Promise<void>;
-  declineSuggestion: (suggestionId: string) => Promise<void>;
-  assignDropsToSpace: (dropIds: string[], spaceId: string) => Promise<void>;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // SPACE CHAT MUTATIONS
-  // ═══════════════════════════════════════════════════════════════════
-  createSpaceChat: (spaceId: string, title: string) => Promise<SpaceChat | null>;
-  createWorldChat: (worldId: string, title: string) => Promise<SpaceChat | null>;
-  createChapterChat: (chapterId: string, title: string) => Promise<SpaceChat | null>;
   updateSpaceChat: (chatId: string, patch: Partial<SpaceChat>) => Promise<void>;
-  syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
-  archiveSpaceChat: (chatId: string) => Promise<void>;
-  deleteSpaceChat: (chatId: string) => Promise<void>;
   createGeneralChat: (title?: string) => Promise<SpaceChat | null>;
   fetchGeneralChats: () => Promise<void>;
   setActiveGeneralChat: (chatId: string | null) => void;
@@ -947,16 +913,6 @@ export interface GremlyState {
     message: Omit<SpaceChatMessage, 'id' | 'created_at'>,
   ) => Promise<SpaceChatMessage | null>;
   loadChatMessages: (chatId: string) => Promise<void>;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // MILESTONE MUTATIONS
-  // ═══════════════════════════════════════════════════════════════════
-  createMilestone: (
-    spaceId: string,
-    data: { name: string; date?: string | null },
-  ) => Promise<Milestone | null>;
-  updateMilestone: (milestoneId: string, patch: Partial<Milestone>) => Promise<void>;
-  deleteMilestone: (milestoneId: string) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // LOG PHOTO MUTATIONS (for Mind Drop attachments)
@@ -1244,7 +1200,6 @@ const initialState = {
   todos: [] as Todo[],
   habits: [] as Habit[],
   notes: [] as Note[],
-  spaces: [] as Space[],
   tags: [] as Tag[],
   habitProgress: [] as HabitProgressRow[],
   habitAdaptations: [] as HabitAdaptationRow[],
@@ -1252,7 +1207,6 @@ const initialState = {
   habitTargetHistory: [] as HabitTargetHistoryRow[],
   habitInsightCache: {} as Record<string, import('../habits/habitInsight').HabitInsightResult>,
   dropFilings: {} as Record<string, import('../minddrop/filing').DropFiling>,
-  spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
   generalChats: [] as SpaceChat[],
   activeGeneralChatId: null as string | null,
@@ -1261,7 +1215,6 @@ const initialState = {
   generalChatAutoTitle: null as string | null,
   generalChatRunningSummary: null as string | null,
   generalChatLateCard: null as { card: EntityCard; at: string } | null,
-  milestones: [] as Milestone[],
   // Worlds & Chapters graph
   worlds: [] as World[],
   chapters: [] as Chapter[],
@@ -1271,9 +1224,6 @@ const initialState = {
   dropChapterLinks: [] as DropChapterLink[],
   dropContextLinks: [] as DropContextLink[],
   worldObservations: [] as WorldObservation[],
-  // Space suggestions
-  spaceSuggestions: [] as SpaceSuggestion[],
-  spaceSuggestionsLoaded: false,
   dailyBrief: null as DailyBrief | null,
   dailyBriefLoading: false,
   weeklySummaries: [] as WeeklySummary[],
@@ -1391,6 +1341,10 @@ export const useGremlyStore = create<GremlyState>()(
       (set, get) => ({
         ...initialState,
 
+        // Everything a person can do to their Worlds and Chapters by hand
+        // (lib/worlds/actions.ts)
+        ...createWorldsActions(set, get),
+
         // ═══════════════════════════════════════════════════════════════════
         // INITIALIZATION
         // ═══════════════════════════════════════════════════════════════════
@@ -1487,14 +1441,11 @@ export const useGremlyStore = create<GremlyState>()(
               habitsRows,
               notesRows,
               calendarEventRows,
-              spacesRes,
               tagsRes,
               progressRes,
               adaptationsRes,
               habitPlansRes,
               habitTargetHistoryRes,
-              chatsRes,
-              milestonesRes,
               dailyBriefRes,
               cortexPrefsRes,
               sweepEventsCountRes,
@@ -1525,8 +1476,7 @@ export const useGremlyStore = create<GremlyState>()(
               ),
               // Calendar events are windowed to [-30d, +90d] by target_date to
               // prevent hydration bloat from long-tail synced events. Calendar
-              // UIs (useEventNotesForDate, space event selectors,
-              // syncCalendarEventsToNotes) still read from state.notes, so the
+              // UIs (useEventNotesForDate, syncCalendarEventsToNotes) still read from state.notes, so the
               // active window must stay hydrated. Long-term: migrate these
               // consumers to CalendarService-backed selectors and drop
               // subtype='event' from the notes store entirely.
@@ -1550,7 +1500,6 @@ export const useGremlyStore = create<GremlyState>()(
                   .eq('archived', false)
                   .order('start_at', { ascending: true }),
               ),
-              supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('habit_adaptations').select('*').eq('owner_id', userId),
@@ -1558,8 +1507,6 @@ export const useGremlyStore = create<GremlyState>()(
               fetchAllPaginated<HabitTargetHistoryRow>(() =>
                 supabase.from('habit_target_history').select('*').eq('owner_id', userId),
               ),
-              supabase.from('scope_chats').select('*').eq('user_id', userId),
-              supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
                 .from('daily_briefs')
                 .select('*')
@@ -1606,8 +1553,7 @@ export const useGremlyStore = create<GremlyState>()(
                 .is('dismissed_at', null),
             ]);
 
-            // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
-            if (spacesRes.error) throw spacesRes.error;
+            // Check for errors
             if (tagsRes.error) throw tagsRes.error;
             if (progressRes.error) throw progressRes.error;
 
@@ -1618,11 +1564,7 @@ export const useGremlyStore = create<GremlyState>()(
                 .map((p) => ({ occurred_day: p.occurred_day, habit_id: p.habit_id })),
             });
 
-            // Log but don't throw for chats/milestones/dailyBrief/sweep prefs
-            if (chatsRes.error)
-              console.warn('[GremlyStore] space_chats fetch error:', chatsRes.error);
-            if (milestonesRes.error)
-              console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
+            // Log but don't throw for dailyBrief/sweep prefs
             if (dailyBriefRes.error)
               console.warn('[GremlyStore] daily_briefs fetch error:', dailyBriefRes.error);
             if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
@@ -1780,7 +1722,6 @@ export const useGremlyStore = create<GremlyState>()(
               calendarEvents: hydratedCalendarEvents,
               calendarLastFetched:
                 calendarEventRows.length > 0 ? nowTimestamp() : get().calendarLastFetched,
-              spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
               habitAdaptations: rowsOrHeld<HabitAdaptationRow>(
@@ -1792,8 +1733,6 @@ export const useGremlyStore = create<GremlyState>()(
                 get().habitPlans,
               ),
               habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
-              spaceChats: chatsRes.data ?? [],
-              milestones: milestonesRes.data ?? [],
               worlds: (worldsRes.data ?? []) as World[],
               chapters: (chaptersRes.data ?? []) as Chapter[],
               lifeContexts: (lifeContextsRes.data ?? []) as LifeContext[],
@@ -1973,10 +1912,7 @@ export const useGremlyStore = create<GremlyState>()(
               todos: todosRows.length,
               habits: habitsRows.length,
               notes: notesRows.length,
-              spaces: spacesRes.data?.length ?? 0,
               habitProgress: progressRes.data?.length ?? 0,
-              spaceChats: chatsRes.data?.length ?? 0,
-              milestones: milestonesRes.data?.length ?? 0,
               dailyBrief: dailyBriefRes.data?.id ?? 'none',
               weeklySummaries: weeklySummariesRes.data?.length ?? 0,
               sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
@@ -2023,15 +1959,12 @@ export const useGremlyStore = create<GremlyState>()(
             todos: [],
             habits: [],
             notes: [],
-            spaces: [],
             tags: [],
             habitProgress: [],
             habitAdaptations: [],
             habitPlans: [],
             habitTargetHistory: [],
-            spaceChats: [],
             spaceChatMessages: [],
-            milestones: [],
             dailyBrief: null,
             dailyBriefLoading: false,
             weeklySummaries: [],
@@ -2685,24 +2618,10 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        trackSpaceAssign: async () => {
-          const count = get().feedingContributions.filter(
-            (c) => c.source === 'space_assign',
-          ).length;
-          if (count >= GAUGE_WEIGHTS.SPACE_ASSIGN_CAP) return;
-          await get().addGaugeContribution('space_assign', GAUGE_WEIGHTS.SPACE_ASSIGN);
-        },
-
         trackSpaceChat: async () => {
           const count = get().feedingContributions.filter((c) => c.source === 'space_chat').length;
           if (count >= GAUGE_WEIGHTS.SPACE_CHAT_CAP) return;
           await get().addGaugeContribution('space_chat', GAUGE_WEIGHTS.SPACE_CHAT);
-        },
-
-        trackSpaceCreate: async () => {
-          const exists = get().feedingContributions.some((c) => c.source === 'space_create');
-          if (exists) return;
-          await get().addGaugeContribution('space_create', GAUGE_WEIGHTS.SPACE_CREATE);
         },
 
         resetDailyGauge: () => {
@@ -4560,272 +4479,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
-        // SPACE MUTATIONS
-        // ═══════════════════════════════════════════════════════════════════
-
-        createSpace: async (space: Partial<Space>) => {
-          const userId = get().userId;
-          if (!userId) throw new Error('Not authenticated');
-
-          const now = nowTimestamp();
-          const payload = {
-            ...space,
-            owner_id: userId,
-            updated_at: now,
-          };
-
-          const { data, error } = await supabase.from('spaces').insert(payload).select().single();
-
-          if (error) {
-            console.error('[GremlyStore] createSpace failed:', error);
-            throw error;
-          }
-
-          // Add to store
-          set((state) => ({
-            spaces: [...state.spaces, data],
-          }));
-
-          eventBus.emit('entity:created', {
-            entity: data,
-            type: 'space',
-            source: STORE_EVENT_SOURCE,
-          });
-          // Track training progress
-          if (!get().graduatedAt) {
-            get()
-              .refreshTrainingReadiness()
-              .catch((err) => {
-                console.warn('[GremlyStore] refreshTrainingReadiness after space failed:', err);
-              });
-          }
-          return data;
-        },
-
-        updateSpace: async (id: string, updates: Partial<Space>) => {
-          const prevSpace = get().spaces.find((s) => s.id === id);
-          const now = nowTimestamp();
-
-          // 1. OPTIMISTIC UPDATE
-          set((state) => ({
-            spaces: state.spaces.map((s) =>
-              s.id === id ? { ...s, ...updates, updated_at: now } : s,
-            ),
-          }));
-
-          // 2. SYNC TO SUPABASE
-          const { error } = await supabase
-            .from('spaces')
-            .update({ ...updates, updated_at: now })
-            .eq('id', id);
-
-          // 3. ROLLBACK ON ERROR
-          if (error) {
-            console.error('[GremlyStore] updateSpace failed:', error);
-            if (prevSpace) {
-              set((state) => ({
-                spaces: state.spaces.map((s) => (s.id === id ? prevSpace : s)),
-              }));
-            }
-            throw error;
-          }
-
-          eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
-        },
-
-        deleteSpace: async (id: string) => {
-          const prevSpace = get().spaces.find((s) => s.id === id);
-
-          // 1. OPTIMISTIC UPDATE
-          set((state) => ({
-            spaces: state.spaces.filter((s) => s.id !== id),
-          }));
-
-          // 2. SYNC TO SUPABASE
-          const { error } = await supabase.from('spaces').delete().eq('id', id);
-
-          // 3. ROLLBACK ON ERROR
-          if (error) {
-            console.error('[GremlyStore] deleteSpace failed:', error);
-            if (prevSpace) {
-              set((state) => ({
-                spaces: [...state.spaces, prevSpace],
-              }));
-            }
-            throw error;
-          }
-
-          eventBus.emit('entity:deleted', { id, type: 'space', source: STORE_EVENT_SOURCE });
-        },
-
-        // ═══════════════════════════════════════════════════════════════════
-        // SPACE SUGGESTIONS ACTIONS
-        // ═══════════════════════════════════════════════════════════════════
-
-        fetchSpaceSuggestions: async () => {
-          const userId = get().userId;
-          if (!userId) {
-            console.log('[GremlyStore] fetchSpaceSuggestions: No userId, skipping');
-            return;
-          }
-
-          // Avoid refetching if already loaded
-          if (get().spaceSuggestionsLoaded) {
-            console.log('[GremlyStore] fetchSpaceSuggestions: Already loaded, skipping');
-            return;
-          }
-
-          console.log('[GremlyStore] Fetching space suggestions for user:', userId);
-
-          try {
-            const { data, error } = await supabase
-              .from('space_suggestions')
-              .select('*')
-              .eq('user_id', userId)
-              .eq('status', 'pending')
-              .order('confidence', { ascending: false });
-
-            if (error) {
-              console.error('[GremlyStore] fetchSpaceSuggestions failed:', error);
-              return;
-            }
-
-            console.log('[GremlyStore] Fetched suggestions:', data?.length || 0);
-            set({ spaceSuggestions: data || [], spaceSuggestionsLoaded: true });
-          } catch (err) {
-            console.error('[GremlyStore] fetchSpaceSuggestions error:', err);
-          }
-        },
-
-        acceptSuggestion: async (suggestionId: string) => {
-          const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
-          if (!suggestion) return;
-
-          const now = nowTimestamp();
-
-          // 1. OPTIMISTIC UPDATE - remove from local state
-          set((state) => ({
-            spaceSuggestions: state.spaceSuggestions.filter((s) => s.id !== suggestionId),
-          }));
-
-          // 2. SYNC TO SUPABASE
-          const { error } = await supabase
-            .from('space_suggestions')
-            .update({ status: 'accepted', updated_at: now })
-            .eq('id', suggestionId);
-
-          if (error) {
-            console.error('[GremlyStore] acceptSuggestion failed:', error);
-            // Rollback on error
-            set((state) => ({
-              spaceSuggestions: [...state.spaceSuggestions, suggestion],
-            }));
-            throw error;
-          }
-        },
-
-        declineSuggestion: async (suggestionId: string) => {
-          const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
-          if (!suggestion) return;
-
-          const now = nowTimestamp();
-
-          // 1. OPTIMISTIC UPDATE - remove from local state
-          set((state) => ({
-            spaceSuggestions: state.spaceSuggestions.filter((s) => s.id !== suggestionId),
-          }));
-
-          // 2. SYNC TO SUPABASE
-          const { error } = await supabase
-            .from('space_suggestions')
-            .update({ status: 'dismissed', updated_at: now })
-            .eq('id', suggestionId);
-
-          if (error) {
-            console.error('[GremlyStore] declineSuggestion failed:', error);
-            // Rollback on error
-            set((state) => ({
-              spaceSuggestions: [...state.spaceSuggestions, suggestion],
-            }));
-            throw error;
-          }
-        },
-
-        assignDropsToSpace: async (dropIds: string[], spaceId: string) => {
-          const now = nowTimestamp();
-          const state = get();
-
-          // Build previous state for rollback
-          const prevTodos = state.todos.filter((t) => dropIds.includes(t.id));
-          const prevNotes = state.notes.filter((n) => dropIds.includes(n.id));
-          const prevHabits = state.habits.filter((h) => dropIds.includes(h.id));
-
-          // 1. OPTIMISTIC UPDATE - update space_id on all matched entities
-          set((state) => ({
-            todos: state.todos.map((t) =>
-              dropIds.includes(t.id) ? { ...t, space_id: spaceId, updated_at: now } : t,
-            ),
-            notes: state.notes.map((n) =>
-              dropIds.includes(n.id) ? { ...n, space_id: spaceId, updated_at: now } : n,
-            ),
-            habits: state.habits.map((h) =>
-              dropIds.includes(h.id) ? { ...h, space_id: spaceId, updated_at: now } : h,
-            ),
-          }));
-
-          // 2. SYNC TO SUPABASE - update each table in sequence
-          // (Using sequential updates for better error handling)
-          const errors: any[] = [];
-
-          // Todos
-          const todoIds = prevTodos.map((t) => t.id);
-          if (todoIds.length > 0) {
-            const { error } = await supabase
-              .from('todos')
-              .update({ space_id: spaceId, updated_at: now })
-              .in('id', todoIds);
-            if (error) errors.push(error);
-          }
-
-          // Notes
-          const noteIds = prevNotes.map((n) => n.id);
-          if (noteIds.length > 0) {
-            const { error } = await supabase
-              .from('notes')
-              .update({ space_id: spaceId, updated_at: now })
-              .in('id', noteIds);
-            if (error) errors.push(error);
-          }
-
-          // Habits
-          const habitIds = prevHabits.map((h) => h.id);
-          if (habitIds.length > 0) {
-            const { error } = await supabase
-              .from('habits')
-              .update({ space_id: spaceId, updated_at: now })
-              .in('id', habitIds);
-            if (error) errors.push(error);
-          }
-
-          if (errors.length > 0) {
-            console.error('[GremlyStore] assignDropsToSpace failed:', errors);
-            // 3. ROLLBACK ON ERROR
-            set((state) => ({
-              todos: state.todos.map((t) => prevTodos.find((pt) => pt.id === t.id) || t),
-              notes: state.notes.map((n) => prevNotes.find((pn) => pn.id === n.id) || n),
-              habits: state.habits.map((h) => prevHabits.find((ph) => ph.id === h.id) || h),
-            }));
-            throw new Error('Failed to assign drops to space');
-          }
-
-          // Emit events for updated entities
-          dropIds.forEach((id) => {
-            eventBus.emit('ItemUpdated', { id, source: STORE_EVENT_SOURCE });
-          });
-        },
-
-        // ═══════════════════════════════════════════════════════════════════
-        // SPACE CHAT MUTATIONS
+        // CHAT MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
 
         createGeneralChat: async (title?: string) => {
@@ -4948,155 +4602,8 @@ export const useGremlyStore = create<GremlyState>()(
             .eq('id', chatId);
         },
 
-        createWorldChat: async (worldId: string, title: string) => {
-          const userId = get().userId;
-          if (!userId) return null;
-          const now = nowTimestamp();
-          const newChat: any = {
-            user_id: userId,
-            scope_id: worldId,
-            chat_type: 'world',
-            title,
-            pinned: false,
-            created_at: now,
-            updated_at: now,
-          };
-          const tempId = `temp-${getDateService().now().getTime()}`;
-          const optimistic = { ...newChat, id: tempId } as SpaceChat;
-          set((s) => ({ spaceChats: [optimistic, ...s.spaceChats] }));
-          try {
-            const { created_at: _ca, ...insertPayload } = newChat;
-            const { data, error } = await supabase
-              .from('scope_chats')
-              .insert(insertPayload)
-              .select()
-              .single();
-            if (error) throw error;
-            set((s) => ({
-              spaceChats: s.spaceChats.map((c) => (c.id === tempId ? data : c)),
-            }));
-            return data;
-          } catch (error) {
-            set((s) => ({
-              spaceChats: s.spaceChats.filter((c) => c.id !== tempId),
-            }));
-            console.error('[GremlyStore] createWorldChat failed:', error);
-            throw error;
-          }
-        },
-
-        createChapterChat: async (chapterId: string, title: string) => {
-          const userId = get().userId;
-          if (!userId) return null;
-          const now = nowTimestamp();
-          const newChat: any = {
-            user_id: userId,
-            scope_id: chapterId,
-            chat_type: 'chapter',
-            title,
-            pinned: false,
-            created_at: now,
-            updated_at: now,
-          };
-          const tempId = `temp-${getDateService().now().getTime()}`;
-          const optimistic = { ...newChat, id: tempId } as SpaceChat;
-          set((s) => ({ spaceChats: [optimistic, ...s.spaceChats] }));
-          try {
-            const { created_at: _ca, ...insertPayload } = newChat;
-            const { data, error } = await supabase
-              .from('scope_chats')
-              .insert(insertPayload)
-              .select()
-              .single();
-            if (error) throw error;
-            set((s) => ({
-              spaceChats: s.spaceChats.map((c) => (c.id === tempId ? data : c)),
-            }));
-            return data;
-          } catch (error) {
-            set((s) => ({
-              spaceChats: s.spaceChats.filter((c) => c.id !== tempId),
-            }));
-            console.error('[GremlyStore] createChapterChat failed:', error);
-            throw error;
-          }
-        },
-
-        createSpaceChat: async (spaceId: string, title: string) => {
-          const userId = get().userId;
-          if (!userId) return null;
-
-          const now = nowTimestamp();
-          const newChat: Partial<SpaceChat> = {
-            scope_id: spaceId,
-            user_id: userId,
-            title,
-            pinned: false,
-            created_at: now,
-            updated_at: now,
-          };
-
-          // Optimistic update with temp ID
-          const tempId = `temp-${getDateService().now().getTime()}`;
-          const optimisticChat = { ...newChat, id: tempId } as SpaceChat;
-          set((state) => ({ spaceChats: [optimisticChat, ...state.spaceChats] }));
-
-          try {
-            const { created_at: _ca, ...insertPayload } = newChat;
-            const { data, error } = await supabase
-              .from('scope_chats')
-              .insert(insertPayload)
-              .select()
-              .single();
-
-            if (error) throw error;
-
-            // Replace temp with real
-            set((state) => ({
-              spaceChats: state.spaceChats.map((c) => (c.id === tempId ? data : c)),
-            }));
-
-            eventBus.emit('entity:created', {
-              type: 'space_chat',
-              entity: data,
-              source: STORE_EVENT_SOURCE,
-            });
-            return data;
-          } catch (error) {
-            // Rollback
-            set((state) => ({
-              spaceChats: state.spaceChats.filter((c) => c.id !== tempId),
-            }));
-            console.error('[GremlyStore] createSpaceChat failed:', error);
-            throw error;
-          }
-        },
-
-        // Sync a chat created externally (e.g., by useChatMessages) - no Supabase write
-        syncSpaceChat: (chat: SpaceChat) => {
-          set((state) => {
-            // Don't add if already exists
-            if (state.spaceChats.some((c) => c.id === chat.id)) {
-              return state;
-            }
-            return {
-              spaceChats: [chat, ...state.spaceChats],
-            };
-          });
-        },
-
         updateSpaceChat: async (chatId: string, patch: Partial<SpaceChat>) => {
-          const prev = get().spaceChats.find((c) => c.id === chatId);
-          if (!prev) return;
-
           const now = nowTimestamp();
-
-          // Optimistic update
-          set((state) => ({
-            spaceChats: state.spaceChats.map((c) =>
-              c.id === chatId ? { ...c, ...patch, updated_at: now } : c,
-            ),
-          }));
 
           try {
             const { error } = await supabase
@@ -5106,50 +4613,13 @@ export const useGremlyStore = create<GremlyState>()(
 
             if (error) throw error;
 
-            // Get the updated entity from store for the event
-            const updated = get().spaceChats.find((c) => c.id === chatId);
             eventBus.emit('entity:updated', {
               type: 'space_chat',
-              entity: updated,
+              entity: { id: chatId, ...patch, updated_at: now },
               source: STORE_EVENT_SOURCE,
             });
           } catch (error) {
-            // Rollback
-            set((state) => ({
-              spaceChats: state.spaceChats.map((c) => (c.id === chatId ? prev : c)),
-            }));
             console.error('[GremlyStore] updateSpaceChat failed:', error);
-            throw error;
-          }
-        },
-
-        archiveSpaceChat: async (chatId: string) => {
-          await get().updateSpaceChat(chatId, { archived_at: nowTimestamp() });
-        },
-
-        deleteSpaceChat: async (chatId: string) => {
-          const prev = get().spaceChats.find((c) => c.id === chatId);
-
-          // Optimistic update - remove chat and its messages
-          set((state) => ({
-            spaceChats: state.spaceChats.filter((c) => c.id !== chatId),
-            spaceChatMessages: state.spaceChatMessages.filter((m) => m.chat_id !== chatId),
-          }));
-
-          try {
-            const { error } = await supabase.from('scope_chats').delete().eq('id', chatId);
-            if (error) throw error;
-            eventBus.emit('entity:deleted', {
-              type: 'space_chat',
-              id: chatId,
-              source: STORE_EVENT_SOURCE,
-            });
-          } catch (error) {
-            // Rollback
-            if (prev) {
-              set((state) => ({ spaceChats: [...state.spaceChats, prev] }));
-            }
-            console.error('[GremlyStore] deleteSpaceChat failed:', error);
             throw error;
           }
         },
@@ -5225,111 +4695,6 @@ export const useGremlyStore = create<GremlyState>()(
             });
           } catch (error) {
             console.error('[GremlyStore] loadChatMessages failed:', error);
-            throw error;
-          }
-        },
-
-        // ═══════════════════════════════════════════════════════════════════
-        // MILESTONE MUTATIONS
-        // ═══════════════════════════════════════════════════════════════════
-
-        createMilestone: async (spaceId: string, data: { name: string; date?: string | null }) => {
-          const userId = get().userId;
-          if (!userId) return null;
-
-          const now = nowTimestamp();
-          const newMilestone = {
-            space_id: spaceId,
-            owner_id: userId,
-            name: data.name,
-            title: data.name, // DB requires title column (NOT NULL)
-            date: data.date ?? null,
-            completed: false,
-            completed_at: null,
-            is_active: true,
-            sort_order: 0,
-            created_at: now,
-            updated_at: now,
-          };
-
-          const tempId = `temp-${getDateService().now().getTime()}`;
-          set((state) => ({
-            milestones: [...state.milestones, { ...newMilestone, id: tempId } as Milestone],
-          }));
-
-          try {
-            const { created_at: _ca, ...insertPayload } = newMilestone;
-            const { data: result, error } = await supabase
-              .from('space_milestones')
-              .insert(insertPayload)
-              .select()
-              .single();
-
-            if (error) throw error;
-
-            set((state) => ({
-              milestones: state.milestones.map((m) => (m.id === tempId ? result : m)),
-            }));
-
-            return result;
-          } catch (error) {
-            set((state) => ({
-              milestones: state.milestones.filter((m) => m.id !== tempId),
-            }));
-            console.error('[GremlyStore] createMilestone failed:', error);
-            throw error;
-          }
-        },
-
-        updateMilestone: async (milestoneId: string, patch: Partial<Milestone>) => {
-          const prev = get().milestones.find((m) => m.id === milestoneId);
-          if (!prev) return;
-
-          const now = nowTimestamp();
-
-          // Sync title with name if name is being updated
-          const syncedPatch = patch.name ? { ...patch, title: patch.name } : patch;
-
-          set((state) => ({
-            milestones: state.milestones.map((m) =>
-              m.id === milestoneId ? { ...m, ...syncedPatch, updated_at: now } : m,
-            ),
-          }));
-
-          try {
-            const { error } = await supabase
-              .from('space_milestones')
-              .update({ ...syncedPatch, updated_at: now })
-              .eq('id', milestoneId);
-
-            if (error) throw error;
-          } catch (error) {
-            set((state) => ({
-              milestones: state.milestones.map((m) => (m.id === milestoneId ? prev : m)),
-            }));
-            console.error('[GremlyStore] updateMilestone failed:', error);
-            throw error;
-          }
-        },
-
-        deleteMilestone: async (milestoneId: string) => {
-          const prev = get().milestones.find((m) => m.id === milestoneId);
-
-          set((state) => ({
-            milestones: state.milestones.filter((m) => m.id !== milestoneId),
-          }));
-
-          try {
-            const { error } = await supabase
-              .from('space_milestones')
-              .delete()
-              .eq('id', milestoneId);
-            if (error) throw error;
-          } catch (error) {
-            if (prev) {
-              set((state) => ({ milestones: [...state.milestones, prev] }));
-            }
-            console.error('[GremlyStore] deleteMilestone failed:', error);
             throw error;
           }
         },
@@ -5991,11 +5356,8 @@ export const useGremlyStore = create<GremlyState>()(
               habitsRows,
               notesRows,
               calendarEventRows,
-              spacesRes,
               tagsRes,
               progressRes,
-              chatsRes,
-              milestonesRes,
               weeklySummariesRes,
               cortexPrefsRes,
               adaptationsRes,
@@ -6037,11 +5399,8 @@ export const useGremlyStore = create<GremlyState>()(
                   .eq('archived', false)
                   .order('start_at', { ascending: true }),
               ),
-              supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
-              supabase.from('scope_chats').select('*').eq('user_id', userId),
-              supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
                 .from('weekly_summaries')
                 .select('*')
@@ -6114,7 +5473,6 @@ export const useGremlyStore = create<GremlyState>()(
               calendarEvents: hydratedCalendarEvents,
               calendarLastFetched:
                 calendarEventRows.length > 0 ? nowTimestamp() : get().calendarLastFetched,
-              spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
               habitAdaptations: rowsOrHeld<HabitAdaptationRow>(
@@ -6130,8 +5488,6 @@ export const useGremlyStore = create<GremlyState>()(
                 ? weeklyDayOf((weeklyDayRes.data as { weekly_day?: number }).weekly_day)
                 : get().weeklyDay,
               habitTargetHistory: (habitTargetHistoryRes ?? []) as HabitTargetHistoryRow[],
-              spaceChats: chatsRes.data ?? [],
-              milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               lastSyncedAt: getDateService().now(),
             });
@@ -7715,13 +7071,6 @@ export const useGremlyStore = create<GremlyState>()(
               } else {
                 console.log('[GremlyStore] Note already exists, skipping:', entity.id);
               }
-            } else if (payload.type === 'space') {
-              if (!state.spaces.some((s) => s.id === entity.id)) {
-                set({ spaces: [...state.spaces, entity as Space] });
-                console.log('[GremlyStore] ✅ Added space from EventBus:', entity.id);
-              } else {
-                console.log('[GremlyStore] Space already exists, skipping:', entity.id);
-              }
             } else {
               console.log('[GremlyStore] Unknown entity type, ignoring:', payload.type);
             }
@@ -7757,11 +7106,6 @@ export const useGremlyStore = create<GremlyState>()(
                 notes: state.notes.map((n) => (n.id === entity.id ? { ...n, ...entity } : n)),
               });
               console.log('[GremlyStore] Updated note from EventBus:', entity.id);
-            } else if (payload.type === 'space') {
-              set({
-                spaces: state.spaces.map((s) => (s.id === entity.id ? { ...s, ...entity } : s)),
-              });
-              console.log('[GremlyStore] Updated space from EventBus:', entity.id);
             }
           };
 
@@ -7787,9 +7131,6 @@ export const useGremlyStore = create<GremlyState>()(
             } else if (type === 'note') {
               set({ notes: state.notes.filter((n) => n.id !== id) });
               console.log('[GremlyStore] Deleted note from EventBus:', id);
-            } else if (type === 'space') {
-              set({ spaces: state.spaces.filter((s) => s.id !== id) });
-              console.log('[GremlyStore] Deleted space from EventBus:', id);
             }
           };
 
@@ -10710,10 +10051,8 @@ export const useGremlyStore = create<GremlyState>()(
           todos: state.todos,
           habits: state.habits,
           notes: state.notes,
-          spaces: state.spaces,
           tags: state.tags,
           habitProgress: state.habitProgress,
-          milestones: state.milestones,
           userId: state.userId,
           lastSweepCompletedAt: state.lastSweepCompletedAt,
           sweepStreak: state.sweepStreak,

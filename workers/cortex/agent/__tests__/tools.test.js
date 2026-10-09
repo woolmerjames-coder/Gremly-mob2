@@ -288,6 +288,29 @@ describe('get_day', () => {
     expect(r.text).toContain(`Habits: Run (id ${HABIT}) daily, not done that day`);
   });
 
+  it('leaves out the steps left on a closed Chapter, as Today does', async () => {
+    const db = fakeDb({
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
+        { id: TODO, name: 'Call Mum', due_time: null, time_estimate_minutes: 15 },
+        { id: 'packed', name: 'Pack the tent', due_time: null, time_estimate_minutes: 20 },
+      ],
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=lt.`]: [
+        { id: 'old', name: 'Tax form', due_day: '2026-09-29' },
+      ],
+      [`chapters?owner_id=eq.${USER}&or=`]: [{ id: 'cCamp' }],
+      [`drop_chapter_links?owner_id=eq.${USER}&drop_type=eq.todo&chapter_id=in.(cCamp)`]: [
+        { drop_id: 'packed' },
+        { drop_id: 'old' },
+      ],
+      'habits?': [],
+      habit_progress: [],
+    });
+    const r = await runTool(ctxWith(db), 'get_day', {});
+    expect(r.text).toContain(`Call Mum (id ${TODO})`);
+    expect(r.text).not.toContain('Pack the tent');
+    expect(r.text).not.toContain('Tax form');
+  });
+
   it("counts a todo put off until a day among that day's todos", async () => {
     const db = fakeDb({
       [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [

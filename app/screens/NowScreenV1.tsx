@@ -81,7 +81,7 @@ import type {
 } from '../../lib/now/nowTypes';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import type { Habit, Todo, Space, Note } from '../../lib/types';
+import type { Habit, Todo, Note } from '../../lib/types';
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { useThisWeek } from '../../lib/week/thisWeek';
@@ -107,10 +107,8 @@ import { getTimeBlockBoundaries } from '../../lib/capacity/capacityHelpers';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Transform raw Todo/Habit to NowActiveItem */
-function toActiveItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowActiveItem {
+function toActiveItem(item: Todo | Habit): NowActiveItem {
   const isHabit = 'cadence' in item;
-  const spaceId = item.space_id ?? null;
-  const space = spaceId ? spacesMap.get(spaceId) : null;
   return {
     id: item.id,
     type: isHabit ? 'habit' : 'todo',
@@ -119,8 +117,6 @@ function toActiveItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowAct
     dueDay: isHabit ? null : ((item as Todo).due_day ?? null),
     dueTime: isHabit ? null : ((item as Todo).due_time ?? null),
     cadence: isHabit ? (item as Habit).cadence : undefined,
-    spaceId,
-    spaceName: space?.name ?? null,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
     frequency: isHabit ? (item as Habit).frequency : undefined,
     timeWindow:
@@ -411,16 +407,6 @@ export default function NowScreenV1() {
   const completedHabitsToday = useHabitsCompletedToday();
   const habitsUpToDate = useHabitsUpToDateCount(); // Habits up to date count for header
 
-  // Spaces - for looking up space names
-  const spaces = useGremlyStore((state) => state.spaces);
-  const spacesMap = useMemo(() => {
-    const map = new Map<string, Space>();
-    for (const space of spaces) {
-      map.set(space.id, space);
-    }
-    return map;
-  }, [spaces]);
-
   // Progress stats
   const progress = useTodayProgress();
   const {
@@ -487,9 +473,9 @@ export default function NowScreenV1() {
 
   // Active items - transform to Now types and apply time window sorting
   const displayActiveItems = useMemo(() => {
-    const transformed = visibleActiveItems.map((item) => toActiveItem(item, spacesMap));
+    const transformed = visibleActiveItems.map((item) => toActiveItem(item));
     return sortActiveItems(transformed);
-  }, [visibleActiveItems, spacesMap]);
+  }, [visibleActiveItems]);
 
   // Sort active items respecting the day's plan sequence
   const sortedActiveItems = useMemo(() => {
@@ -545,8 +531,8 @@ export default function NowScreenV1() {
 
   // Habits for week popup - transform to active items
   const displayHabitsToday = useMemo(() => {
-    return habitsToday.map((item) => toActiveItem(item, spacesMap));
-  }, [habitsToday, spacesMap]);
+    return habitsToday.map((item) => toActiveItem(item));
+  }, [habitsToday]);
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();

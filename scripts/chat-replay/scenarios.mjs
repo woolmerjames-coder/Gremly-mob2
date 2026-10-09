@@ -454,3 +454,385 @@ SCENARIOS.push({
     notSaid: /addict|alcoholi|disorder|relaps|recovery|sobriety journey|problem with|issue with|battle/i,
   },
 });
+
+// Worlds and Chapters (Worlds rebuild, stage 2): an app build that can change
+// them sends worldsCard, and Gremly is told Alex's Worlds and Chapters with
+// ids. James's rules: Gremly suggests and the person taps; a Chapter is offered
+// once for each thing, a maybe gets one short question first and an idea makes
+// nothing; filing is never asked about; nothing is deleted from a card; words
+// and an outfit only when asked. Today is Saturday 3 October 2026.
+export const PLACES = {
+  worlds: [
+    { id: 'wHome', name: 'Home' },
+    { id: 'wWork', name: 'Work' },
+    { id: 'wHealth', name: 'Health and fitness' },
+    { id: 'wTravel', name: 'Travel' },
+    { id: 'wFriends', name: 'Friends' },
+    { id: 'wSide', name: 'Side project' },
+    { id: 'wBand', name: 'Old band', hidden: true },
+  ],
+  chapters: [
+    { id: 'cLisbon', title: 'Lisbon trip', world: 'wTravel', start: '2026-11-20', end: '2026-11-22' },
+    { id: 'cFence', title: 'Garden fence', world: 'wHome', end: '2026-09-30' },
+    { id: 'cBook', title: 'Book club', world: 'wWork' },
+    { id: 'cMove', title: 'Summer move', world: 'wHome', end: '2026-08-30', closed: true },
+  ],
+};
+const P = PLACES;
+// a reply that asks them where something belongs, which Gremly never does
+const ASKS_WHERE = /which (world|chapter)|what (world|chapter)|where should (i|this|that|it) (go|live|sit)/i;
+
+SCENARIOS.push(
+  {
+    id: 'places-start-mention',
+    kind: 'Worlds and Chapters',
+    text: "I've signed up for the Oakland half marathon on Sunday 15 November, so I need to start training properly",
+    items: [
+      { id: 'shoes', kind: 'todo', title: 'Buy running shoes' },
+      { id: 'run', kind: 'habit', title: 'Run 3 times a week' },
+    ],
+    ...P,
+    expect: {
+      askOrRows: true,
+      some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHealth' && c.fields?.end_day === '2026-11-15',
+      notSaid: ASKS_WHERE,
+    },
+  },
+  {
+    id: 'places-vague',
+    kind: 'Worlds and Chapters',
+    text: "Maybe one day I'll learn the piano, it would be nice",
+    items: [],
+    ...P,
+    expect: { rows: 0, notSaid: ASKS_WHERE },
+  },
+  {
+    id: 'places-only-idea',
+    kind: 'Worlds and Chapters',
+    history: [
+      { role: 'user', content: "I keep thinking about turning the spare room into a studio" },
+      { role: 'assistant', content: 'That sounds lovely. Is it something you are planning to do soon, or more of an idea for now?' },
+    ],
+    text: "Just an idea for now, not happening anytime soon",
+    items: [],
+    ...P,
+    expect: { rows: 0 },
+  },
+  {
+    id: 'places-rename',
+    kind: 'Worlds and Chapters',
+    text: 'Can you rename my Lisbon trip chapter to Portugal trip? We are doing Porto too',
+    items: [],
+    ...P,
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && /portugal trip/i.test(c.fields?.name || '') },
+  },
+  {
+    id: 'places-dates-moved',
+    kind: 'Worlds and Chapters',
+    text: "The Lisbon trip moved, it's now the 27th to the 29th of November",
+    items: [],
+    ...P,
+    expect: {
+      keep: false,
+      rows: 1,
+      row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && c.fields?.start_day === '2026-11-27' && c.fields?.end_day === '2026-11-29',
+    },
+  },
+  {
+    id: 'places-done',
+    kind: 'Worlds and Chapters',
+    text: 'The garden fence is finally finished!',
+    items: [],
+    ...P,
+    expect: { rows: 1, row: (c) => c.op === 'close' && c.type === 'chapter' && c.id === 'cFence' },
+  },
+  {
+    id: 'places-move',
+    kind: 'Worlds and Chapters',
+    text: 'Book club should be under Friends really, not Work',
+    items: [],
+    ...P,
+    expect: { rows: 1, row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cBook' && c.fields?.world === 'wFriends' },
+  },
+  {
+    id: 'places-merge',
+    kind: 'Worlds and Chapters',
+    text: 'Merge my Side project world into Work, it is all the same thing now',
+    items: [],
+    ...P,
+    expect: { rows: 1, row: (c) => c.op === 'merge' && c.type === 'world' && c.id === 'wSide' && c.into === 'wWork' },
+  },
+  {
+    id: 'places-hide',
+    kind: 'Worlds and Chapters',
+    text: "I'm not in the band any more, can you hide that world",
+    items: [],
+    worlds: [...P.worlds.filter((w) => w.id !== 'wBand'), { id: 'wBand', name: 'Old band' }],
+    chapters: P.chapters,
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'archive' && c.type === 'world' && c.id === 'wBand' },
+  },
+  {
+    id: 'places-delete',
+    kind: 'Worlds and Chapters',
+    text: 'Delete the Summer move chapter, I do not need it',
+    items: [],
+    ...P,
+    // nothing is deleted from a card: they are told they can delete it from its page
+    expect: { maxRows: 0, mentions: /page|yourself|by hand/i, notSaid: /\b(deleted|removed)\b/i },
+  },
+  {
+    id: 'places-todo-no-asking',
+    kind: 'Worlds and Chapters',
+    text: 'Add a todo to book the ferry from Lisbon to Porto, sometime next week',
+    items: [],
+    ...P,
+    expect: { askOrRows: true, some: (c) => c.op === 'add' && c.type === 'todo', notSaid: ASKS_WHERE },
+  },
+  {
+    id: 'places-declined',
+    kind: 'Worlds and Chapters',
+    text: "I'm thinking of redoing the kitchen next spring, we've been talking about it a lot",
+    items: [],
+    ...P,
+    declined: ['Kitchen redo'],
+    expect: { rows: 0 },
+  },
+  {
+    id: 'places-words-unasked',
+    kind: 'Worlds and Chapters',
+    text: 'So excited for Lisbon, it is going to be the best trip',
+    items: [],
+    ...P,
+    expect: { rows: 0 },
+  },
+);
+
+// A World's or a Chapter's own chat (Worlds rebuild, stage 2): the chat is on
+// the page, so "this" is the page, and what is on it comes with every turn
+// (cortex context/pageDetail.js). page names it; links say which items are in
+// which World or Chapter.
+SCENARIOS.push(
+  {
+    id: 'page-chapter-done',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cFence', title: 'Garden fence' },
+    text: 'This is done!',
+    items: [],
+    ...P,
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'close' && c.type === 'chapter' && c.id === 'cFence' },
+  },
+  {
+    id: 'page-chapter-dates',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: "The dates changed, it's now the 27th to the 29th",
+    items: [],
+    ...P,
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'change' && c.type === 'chapter' && c.id === 'cLisbon' && c.fields?.start_day === '2026-11-27' && c.fields?.end_day === '2026-11-29',
+    },
+  },
+  {
+    id: 'page-chapter-step',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'Add a step to book the airport taxi',
+    items: [{ id: 'flights', kind: 'todo', title: 'Book flights', due_day: '2026-10-09' }],
+    links: [{ item: 'flights', chapter: 'cLisbon', world: 'wTravel' }],
+    ...P,
+    // a step added on a Chapter's page belongs to that Chapter
+    expect: { askOrRows: true, rows: 1, row: (c) => c.op === 'add' && c.type === 'todo' && (c.fields?.chapters?.add || []).includes('cLisbon') },
+  },
+  {
+    id: 'page-chapter-tick',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'I booked the flights',
+    items: [{ id: 'flights', kind: 'todo', title: 'Book flights', due_day: '2026-10-09' }],
+    links: [{ item: 'flights', chapter: 'cLisbon', world: 'wTravel' }],
+    ...P,
+    expect: { keep: false, rows: 1, row: (c) => c.op === 'done' && c.id === 'flights' },
+  },
+  {
+    id: 'page-world-start',
+    kind: 'A page of its own',
+    page: { type: 'world', id: 'wHome', title: 'Home' },
+    text: 'Start a chapter here for repainting the hallway, I want it done before Christmas',
+    items: [],
+    ...P,
+    expect: {
+      askOrRows: true,
+      some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHome',
+    },
+  },
+);
+
+// Save from chat (Worlds rebuild, stage 2, decision 3): under a reply worth
+// keeping, a Save button naming the Chapter or World it belongs in. Gremly
+// judges which replies are worth keeping (cortex context/keep.js, after every
+// reply). On a page's own chat a button with no place names the page, so no
+// place passes there.
+SCENARIOS.push(
+  {
+    id: 'keep-packing-page',
+    kind: 'Save from chat',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'Make me a packing list for this',
+    items: [],
+    ...P,
+    // the agent may make the list itself, on the card, in this Chapter; a list in the reply has the Save button
+    expect: {
+      maxRows: 1,
+      keepOr: (c) => c.op === 'add' && c.type === 'note' && (c.fields?.chapters?.add || []).includes('cLisbon'),
+      keep: { kind: 'list', place: ['cLisbon', null], minLines: 5 },
+    },
+  },
+  {
+    id: 'keep-ideas-home',
+    kind: 'Save from chat',
+    text: 'What should we do in Lisbon? Give me a few ideas',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'cLisbon', minLines: 3 } },
+  },
+  {
+    id: 'keep-plan-world',
+    kind: 'Save from chat',
+    text: 'Can you give me a simple four week plan to get back into running? Nothing too hard',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wHealth', minLines: 4 } },
+  },
+  // things that belong in a World and in none of its Chapters: the button
+  // names the World, so Save does not have to ask where (the place is what
+  // these check; a reply in a paragraph or two keeps one or two lines)
+  {
+    id: 'keep-world-cosy',
+    kind: 'Save from chat',
+    text: 'Give me a few ideas to make the flat feel cosier this winter',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wHome', minLines: 1 } },
+  },
+  {
+    id: 'keep-world-review',
+    kind: 'Save from chat',
+    text: 'Give me a few tips for my performance review next week',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wWork', minLines: 1 } },
+  },
+  {
+    id: 'keep-world-breakfasts',
+    kind: 'Save from chat',
+    text: 'Give me five quick high protein breakfasts',
+    items: [],
+    ...P,
+    expect: { keep: { place: ['wHealth', 'wHome'], minLines: 5 } },
+  },
+  {
+    id: 'keep-world-night-in',
+    kind: 'Save from chat',
+    text: 'Any ideas for a fun, low key night in with friends?',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wFriends', minLines: 1 } },
+  },
+  // the World, not a Chapter in it that is about something else
+  {
+    id: 'keep-world-weekend-away',
+    kind: 'Save from chat',
+    text: 'Give me some ideas for a weekend away in the spring',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wTravel', minLines: 3 } },
+  },
+  {
+    id: 'keep-world-shade',
+    kind: 'Save from chat',
+    text: 'What are some easy plants for a shady corner of the garden?',
+    items: [],
+    ...P,
+    expect: { keep: { place: 'wHome', minLines: 1 } },
+  },
+  {
+    id: 'keep-chat-only',
+    kind: 'Save from chat',
+    text: 'Ugh, long day. Work was a lot',
+    items: [],
+    ...P,
+    expect: { rows: 0, keep: false },
+  },
+  {
+    id: 'keep-quick-answer',
+    kind: 'Save from chat',
+    page: { type: 'chapter', id: 'cLisbon', title: 'Lisbon trip' },
+    text: 'Is Lisbon an hour ahead of London or the same?',
+    items: [],
+    ...P,
+    expect: { rows: 0, keep: false },
+  },
+  {
+    // a Chapter they said no to is never offered again, but when they ask for it, it is made
+    id: 'places-declined-asked',
+    kind: 'Worlds and Chapters',
+    text: 'Actually we are doing the kitchen redo after all. Start a chapter for it, starting in March',
+    items: [],
+    ...P,
+    declined: ['Kitchen redo'],
+    expect: { askOrRows: true, some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHome' },
+  },
+);
+
+// Putting things they already have into a World or Chapter, when they ask
+// (James, 9 Oct: on a Chapter's page Gremly named two todos that belonged and
+// then said it could not put them there). Each item is moved on the card by
+// its chapters; on a page, here is that page.
+const PARTY = {
+  worlds: P.worlds,
+  chapters: [...P.chapters, { id: 'cParty', title: "Sam's 40th in Rome", world: 'wFriends', end: '2026-10-24' }],
+};
+const PARTY_ITEMS = [
+  { id: 'ali', kind: 'todo', title: "Talk to Ali about Sam's birthday", due_day: '2026-10-10' },
+  { id: 'rome', kind: 'todo', title: 'Look into Rome flights if we go', due_day: '2026-10-13' },
+  { id: 'dentist', kind: 'todo', title: 'Book the dentist', due_day: '2026-10-15' },
+];
+const INTO_PARTY = (c) =>
+  c.op === 'change' && c.type === 'todo' && ['ali', 'rome'].includes(c.id) && (c.fields?.chapters?.add || []).includes('cParty');
+SCENARIOS.push(
+  {
+    id: 'page-chapter-gather',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cParty', title: "Sam's 40th in Rome" },
+    text: 'Aren’t there todos to put in here?',
+    items: PARTY_ITEMS,
+    ...PARTY,
+    expect: { keep: false, minRows: 1, row: INTO_PARTY },
+  },
+  {
+    id: 'page-chapter-gather-yes',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cParty', title: "Sam's 40th in Rome" },
+    history: [
+      { role: 'user', content: 'Aren’t there todos to put in here?' },
+      {
+        role: 'assistant',
+        content:
+          "There are two that go with it: talking to Ali about Sam's birthday, due Saturday 10 October, and looking into Rome flights if you go, due Tuesday 13 October.",
+      },
+    ],
+    text: 'Ok so do it',
+    items: PARTY_ITEMS,
+    ...PARTY,
+    expect: { keep: false, rows: 2, row: INTO_PARTY },
+  },
+  {
+    id: 'places-file-asked',
+    kind: 'Worlds and Chapters',
+    text: 'Put the Rome flights todo in the Sam’s 40th chapter',
+    items: PARTY_ITEMS,
+    ...PARTY,
+    expect: { keep: false, rows: 1, row: (c) => INTO_PARTY(c) && c.id === 'rome' },
+  },
+);

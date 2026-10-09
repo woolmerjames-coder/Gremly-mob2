@@ -116,7 +116,6 @@
  * - Preset action support (break_down, research, think_through, whats_blocking, etc.)
  * - Sweep context support (times_moved, days_unscheduled, is_overdue)
  * - Save detection in responses (notes, checklists)
- * - Space promotion detection for complex tasks
  * - Streaming and non-streaming support
  *
  * v5.0 (2026-02-16):
@@ -165,6 +164,10 @@ import {
   lastUserText,
 } from './context/chatProjection.js';
 import { checkTurn } from './context/corrections.js';
+import { fetchPageDetail, pageAnchorFrom } from './context/pageDetail.js';
+import { rememberChapterNo } from './context/saidNo.js';
+import { judgeKeep } from './context/keep.js';
+import { guessChapter } from './context/chapterGuess.js';
 import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
@@ -2291,6 +2294,30 @@ function truncateAtSentence(text, maxChars) {
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** The World or Chapter a chat is on, as checkTurn takes it, or null. */
+function pageScopeOf(body) {
+  const page = pageAnchorFrom(body?.anchorEntity);
+  return page ? { kind: page.type, id: page.id } : null;
+}
+
+/**
+ * The Save button under a reply worth keeping (Worlds rebuild, stage 2,
+ * context/keep.js), for an app build that can show it, in Ask Gremly, a
+ * World's or a Chapter's chat or the box on Worlds. Null when there is none.
+ */
+function keepCheck(env, body, userId, reply, card = false) {
+  if (!userId || body?.worldsCard !== true || body?.chatSurface === 'brief' || !reply)
+    return Promise.resolve(null);
+  return judgeKeep({
+    env,
+    userId,
+    message: lastUserText(body),
+    reply,
+    page: pageAnchorFrom(body?.anchorEntity),
+    card,
+  }).catch(() => null);
+}
+
 /**
  * One Ask Gremly message answered by the agent (agent/chat.js): status lines
  * while it works, then its reply and its card on the chat's stream, then what
@@ -2320,6 +2347,8 @@ async function answerWithAgent({
     preload,
     // their week, from an app build that can show the weekly review's button
     week: body.week && typeof body.week === 'object' ? body.week : null,
+    // their Worlds and Chapters, for an app build that can apply changes to them (Worlds rebuild, stage 2)
+    worlds: body.worldsCard === true,
     onStatus: (line) => {
       send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
     },
@@ -2334,12 +2363,16 @@ async function answerWithAgent({
   }
   const reply = turn.reply;
   const latency = Date.now() - t0;
+  // whether the reply is worth a Save button, read while it goes out
+  const keepP = keepCheck(env, body, userId, reply, (turn.card || []).length > 0);
   await send({ delta: reply, done: false });
+  const keep = await keepP;
   await send({
     done: true,
     full_content: reply,
     save_suggestion: null,
     entity_card: null,
+    ...(keep ? { keep } : {}),
     // the agent offers anything new on its card, so no Save items pill follows
     extraction: 'skipped',
     agent: {
@@ -2421,6 +2454,8 @@ async function answerWithAgent({
     chatId: body.chatId,
     userId,
     surface: 'chat',
+    // a correction said in a World's or Chapter's own chat reaches that page's words
+    scope: pageScopeOf(body),
     tag: 'GeneralChat:Agent',
   });
   return true;
@@ -3367,6 +3402,8 @@ const cortexHandler = {
         'forget-me',
         'chapter-memory',
         'worlds-changed',
+        'chapter-said-no',
+        'chapter-guess',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -4069,7 +4106,6 @@ When you have enough to propose something concrete, propose it. When the convers
 === CONTEXT AWARENESS ===
 You receive context about the user's existing habits, life situation, and capacity. Use it naturally — don't dump all context at once, weave it in where relevant:
 - If they have many daily habits, lean toward suggesting weekly or 2-3x/week for the new one.
-- If they have a Space that matches the habit domain, mention it as a natural home for the habit.
 - If their life context is relevant (major transition, busy period, etc.), factor it into your suggestions.
 - If they have a habit that conflicts with or complements what they're building, reference it.
 
@@ -4294,18 +4330,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
             .map((h) => {
               let desc = `- "${h.name}" (${h.subtype === 'break_habit' ? 'break' : 'build'})`;
               if (h.frequency) desc += ` — ${h.frequency}`;
-              if (h.space_name) desc += ` [${h.space_name}]`;
               return desc;
             })
             .join('\n');
           contextParts.push(`\n=== EXISTING HABITS ===\n${habitList}`);
         } else {
           contextParts.push('\n=== EXISTING HABITS ===\nNone yet — this is their first habit.');
-        }
-
-        if (context.spaces && context.spaces.length > 0) {
-          const spaceList = context.spaces.map((s) => `- "${s.name}"`).join('\n');
-          contextParts.push(`\n=== USER'S SPACES ===\n${spaceList}`);
         }
 
         if (context.prefill) {
@@ -4804,7 +4834,6 @@ After the user confirms and locks in a habit, check the existing habits listed i
         if (entity.frequency) entityContextParts.push(`Frequency: ${entity.frequency}`);
         if (entity.time_estimate)
           entityContextParts.push(`Time estimate: ${entity.time_estimate} minutes`);
-        if (entity.space_name) entityContextParts.push(`Space: ${entity.space_name}`);
         if (entity.days_since_created !== undefined)
           entityContextParts.push(`Created: ${entity.days_since_created} days ago`);
         if (entity.times_swept)
@@ -5701,9 +5730,6 @@ Almost never suggest creating a Space. Only if ALL true:
                 // Use cleaned content (without suggestion block) for display
                 fullContent = cleanContent;
 
-                // Detect space promotion suggestion
-                const promotion = detectSpacePromotion(fullContent, messages.length);
-
                 const latency = Date.now() - t0;
                 // Strip SAVE comment and markdown images before sending to client
                 const displayContent = fullContent
@@ -5716,7 +5742,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   full_content: displayContent,
                   saveable,
                   save_suggestion,
-                  promotion,
                   latency_ms: latency,
                   sources: sources,
                   images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
@@ -5729,7 +5754,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   latency_ms: latency,
                   content_length: fullContent.length,
                   has_saveable: saveable?.detected,
-                  has_promotion: promotion?.suggested,
                   used_search: !!searchQuery,
                   images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
                 });
@@ -6039,14 +6063,10 @@ Almost never suggest creating a Space. Only if ALL true:
             .replace(/<!--SAVE:.*$/s, '')
             .trim();
 
-          // Detect space promotion suggestion
-          const promotion = detectSpacePromotion(content, messages.length);
-
           console.log('[EntityChat] Complete', {
             latency_ms: latency,
             content_length: content.length,
             has_saveable: saveable?.detected,
-            has_promotion: promotion?.suggested,
             used_search: !!searchQuery,
           });
 
@@ -6095,7 +6115,6 @@ Almost never suggest creating a Space. Only if ALL true:
             content,
             saveable,
             save_suggestion,
-            promotion,
             latency_ms: latency,
             sources,
             search_query: searchQuery,
@@ -6683,38 +6702,6 @@ Return ONLY valid JSON:
           type: isChecklist ? 'checklist' : 'note',
           checklist_items: checklistItems,
           has_save_suggestion: false,
-        };
-      }
-
-      // Helper: Detect space promotion suggestion
-      function detectSpacePromotion(content, messageCount) {
-        if (!content) return { suggested: false };
-
-        const lower = content.toLowerCase();
-
-        // Check if AI suggested a space
-        const spacePatterns = [
-          'create a space',
-          'set up a space',
-          'make a space',
-          'becoming a project',
-          'becoming a solid project',
-          'want me to set up a space',
-          'want me to create a space',
-        ];
-
-        const aiSuggested = spacePatterns.some((pattern) => lower.includes(pattern));
-
-        // Only surface promotion if AI explicitly suggested it
-        // Don't auto-suggest based on message count alone
-        if (!aiSuggested) {
-          return { suggested: false };
-        }
-
-        return {
-          suggested: true,
-          reason: 'AI detected this may work better as a Space with multiple tracked items.',
-          source: 'ai_suggested',
         };
       }
 
@@ -7675,6 +7662,24 @@ ${assistantMessage.substring(0, 2000)}
         ).catch(() => null);
         if (!res) return j({ error: 'could not reach the pipeline' }, 502);
         return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : res.status);
+      }
+
+      // chapter-said-no: a Chapter Gremly offered in chat that they said no to
+      // (Worlds rebuild, stage 2), kept so it is never offered again
+      if (type === 'chapter-said-no') {
+        return j(await rememberChapterNo(env, authenticatedUserId, body.chapters));
+      }
+
+      // chapter-guess: Gremly fills in a Chapter started by hand from its one
+      // line (Worlds rebuild, stage 3); nothing is made until they start it
+      if (type === 'chapter-guess') {
+        return j(
+          await guessChapter(env, authenticatedUserId, {
+            line: body.line,
+            // their day, which the app sends; the guess falls back to today in UTC
+            today: body.today,
+          }),
+        );
       }
 
       // =========================
@@ -11689,6 +11694,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const previousExchange = extractPreviousExchange(messages);
             // the item this chat was opened about ("Talk it through"), sent with every turn
             const anchorEntity = anchorFrom(body.anchorEntity);
+            // or the World or Chapter page it was opened from, and what is on it (Worlds rebuild, stage 2)
+            const pageAnchor = pageAnchorFrom(body.anchorEntity);
+            const pageDetailPromise =
+              authenticatedUserId && pageAnchor
+                ? fetchPageDetail(env, authenticatedUserId, pageAnchor, todayIsoIn(userTimezone))
+                : Promise.resolve('');
             // and what that item holds, read alongside triage and the matcher
             const anchorDetailPromise =
               authenticatedUserId && anchorEntity
@@ -11781,6 +11792,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   sessionContext: sessionContextStr,
                   week: contextKeep.week,
                   found: agentFound,
+                  // the World or Chapter page this chat is on, with what is on it
+                  page: pageDetailPromise,
                   // its mode and how personal it is, as the quick lane's writer is told them
                   triage: triageFromClassifier,
                   today: await theirDayRead,
@@ -11848,6 +11861,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               // a habit's count this week is made in it
               weeklyDay: weeklyDayOf(body?.week?.weekly_day ?? body?.weekly_day),
             });
+            // a World's or a Chapter's own chat: what is on its page
+            if (pageAnchor) {
+              const pageText = await pageDetailPromise;
+              if (pageText) genConfig.systemPrompt += `\n\n${pageText}`;
+            }
             // today's thread: the reply to the brief's question (a card's own
             // instructions come first when one is shown)
             if (!entityCard) genConfig.systemPrompt += briefQuestionSection(body.briefQuestion);
@@ -12160,6 +12178,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               const save_suggestion = smartSuggestion || null;
 
               const latency = Date.now() - t0;
+              // the Save button under a reply worth keeping (Worlds rebuild, stage 2)
+              const keep = await keepCheck(env, body, authenticatedUserId, fullContent);
               await writer.write(
                 encoder.encode(
                   `data: ${JSON.stringify({
@@ -12167,6 +12187,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     full_content: fullContent,
                     save_suggestion,
                     entity_card: entityCard || null,
+                    ...(keep ? { keep } : {}),
                     // whether the Save items pill and a late card may follow, so the
                     // app knows to wait for them (it watches for this turn's marker)
                     extraction:
@@ -12208,6 +12229,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 chatId: body.chatId,
                 userId: authenticatedUserId,
                 surface: body.chatSurface === 'brief' ? 'brief' : 'chat',
+                // a correction said in a World's or Chapter's own chat reaches that page's words
+                scope: pageScopeOf(body),
                 tag: 'GeneralChat',
               });
 

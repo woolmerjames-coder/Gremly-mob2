@@ -8,7 +8,7 @@ import { render, fireEvent } from '@testing-library/react-native';
 import AllItemsTable from '../AllItemsTable';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { resetDateService, createDateService } from '../../../lib/date';
-import type { Todo, Habit, Note, Space } from '../../../lib/types';
+import type { Todo, Habit, Note } from '../../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TEST SETUP
@@ -83,29 +83,12 @@ function makeNote(overrides: Partial<Note> = {}): Note {
   } as Note;
 }
 
-function makeSpace(overrides: Partial<Space> = {}): Space {
-  return {
-    id: `space-${Math.random().toString(36).slice(2)}`,
-    owner_id: 'user-1',
-    name: 'Test Space',
-    created_at: `${TODAY}T10:00:00Z`,
-    updated_at: `${TODAY}T10:00:00Z`,
-    ...overrides,
-  } as Space;
-}
-
-function setupMockStore(data: {
-  todos?: Todo[];
-  habits?: Habit[];
-  notes?: Note[];
-  spaces?: Space[];
-}) {
+function setupMockStore(data: { todos?: Todo[]; habits?: Habit[]; notes?: Note[] }) {
   mockUseGremlyStore.mockImplementation((selector: any) => {
     const state = {
       todos: data.todos || [],
       habits: data.habits || [],
       notes: data.notes || [],
-      spaces: data.spaces || [],
     };
     return selector(state);
   });
@@ -337,32 +320,6 @@ describe('AllItemsTable', () => {
 
       // Completed items don't appear in sweep
       expect(getAllByText('-').length).toBeGreaterThan(0);
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // SPACE DISPLAY TESTS
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  describe('space display', () => {
-    it('shows space chip for items with space', () => {
-      const space = makeSpace({ id: 'space-1', name: 'Work' });
-      const todo = makeTodo({ space_id: 'space-1' });
-      setupMockStore({ todos: [todo], spaces: [space] });
-
-      const { getByText } = render(<AllItemsTable onItemPress={jest.fn()} />);
-
-      expect(getByText('Work')).toBeTruthy();
-    });
-
-    it('does not show space chip for items without space', () => {
-      const todo = makeTodo({ space_id: undefined });
-      setupMockStore({ todos: [todo] });
-
-      const { queryByText } = render(<AllItemsTable onItemPress={jest.fn()} />);
-
-      // No space text should appear
-      expect(queryByText('Test Space')).toBeNull();
     });
   });
 

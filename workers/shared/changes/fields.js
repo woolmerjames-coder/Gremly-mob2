@@ -19,7 +19,9 @@
  * Off limits, whatever is asked: anything synced from a calendar, bookkeeping
  * (ids, owners, timestamps, Sweep's marks, the classifier's flags, the
  * planner's own slots), lock ins and commitments, buddies, stacking and taper
- * plans, and Worlds and Chapters themselves. None of them appear here.
+ * plans. None of them appear here. Worlds and Chapters themselves have their
+ * own list below (PLACE_TYPES), offered only to an app build that can apply
+ * those changes.
  */
 
 export const FIELDS_VERSION = 1;
@@ -80,6 +82,128 @@ export const WEEK_OPS = {
 export const EASE_OPS = {
   ease: 'pause a habit for a stretch of days, give it a lighter version for one, or set it back to usual',
 };
+
+/**
+ * Worlds and Chapters themselves (Worlds rebuild, stage 2): the changes Gremly
+ * may put on a card to a person's Worlds and Chapters. A World is a lasting
+ * part of their life; a Chapter is something with a shape inside one, a trip,
+ * a goal, a project, with its own dates. Kept apart from TYPES and OPS on
+ * purpose, like the week's operations and a habit's ease: every surface's tool
+ * list is built from those, and these are offered only to an app build that
+ * can apply them, which says so with its request (worldsCard). Nothing here
+ * deletes a World or a Chapter: deleting stays something the person does by
+ * hand (James, 8 Oct). Their check is checkPlaceChange in check.js; the app
+ * applies them in lib/changes/places.ts with the same actions the Worlds
+ * screens use (lib/worlds/actions.ts).
+ *
+ * Field kinds of their own: world (one of their Worlds, by id), items (their
+ * todos, habits and notes by kind and id, gathered into a new Chapter) and
+ * gremly (one of the Gremly outfits, workers/shared/gremlys.js).
+ */
+export const PLACE_OPS = {
+  close: 'close a Chapter that is finished, so it becomes part of their story',
+  merge: 'merge one World into another, so everything in it moves across',
+};
+
+const PLACE_NAME_MAX = 120;
+const PLACE_WORDS_MAX = 300;
+
+export const PLACE_TYPES = {
+  chapter: {
+    ops: ['add', 'change', 'close', 'reopen'],
+    fields: {
+      name: {
+        kind: 'text',
+        group: 'main',
+        column: 'title',
+        max: PLACE_NAME_MAX,
+        about: 'what it is called',
+      },
+      end_day: {
+        kind: 'day',
+        group: 'main',
+        column: 'end_date',
+        clear: true,
+        about:
+          'its date: the day it happens or is due by, or its last day when it runs over several days',
+      },
+      start_day: {
+        kind: 'day',
+        group: 'main',
+        column: 'start_date',
+        clear: true,
+        about: 'its first day, only when it runs over several days or began on a day of its own',
+      },
+      world: {
+        kind: 'world',
+        group: 'main',
+        column: 'primary_world_id',
+        about: 'the World it belongs in',
+      },
+      items: {
+        kind: 'items',
+        group: 'main',
+        column: null,
+        add_only: true,
+        about: 'for a new one, the items of theirs that belong in it, which move in with it',
+      },
+      words: {
+        kind: 'text',
+        group: 'asked',
+        column: 'card_subtitle',
+        max: PLACE_WORDS_MAX,
+        clear: true,
+        about: 'a line or two about it in their own words',
+      },
+      gremly: {
+        kind: 'gremly',
+        group: 'asked',
+        column: 'mascot_slug',
+        clear: true,
+        new_main: true,
+        about:
+          "the Gremly outfit it wears, which Gremly may choose for a new one when one fits; cleared, it wears its World's",
+      },
+    },
+  },
+  world: {
+    ops: ['add', 'change', 'merge', 'archive', 'restore'],
+    fields: {
+      name: {
+        kind: 'text',
+        group: 'main',
+        column: 'name',
+        max: PLACE_NAME_MAX,
+        about: 'what it is called',
+      },
+      words: {
+        kind: 'text',
+        group: 'asked',
+        column: 'card_subtitle',
+        max: PLACE_WORDS_MAX,
+        clear: true,
+        about: 'a line about it in their own words',
+      },
+      gremly: {
+        kind: 'gremly',
+        group: 'asked',
+        column: 'mascot_slug',
+        new_main: true,
+        about: 'the Gremly outfit it wears, which Gremly chooses for a new one',
+      },
+    },
+  },
+};
+
+/** What archive and restore mean for a World: hidden, and brought back. */
+export const PLACE_OP_WORDS = {
+  archive: 'hide a World; nothing in it is deleted and it can be brought back',
+  restore: 'bring back a hidden World',
+};
+
+export function placeFieldDef(type, field) {
+  return PLACE_TYPES[type]?.fields?.[field] || null;
+}
 
 /** What a milestone's step is: a todo to do, or a check in Gremly holds in an evening wrap up. */
 export const STEP_KINDS = ['todo', 'check_in'];

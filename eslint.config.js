@@ -221,16 +221,4 @@ module.exports = [
       '@typescript-eslint/no-explicit-any': 'off', // Type adapters need any for flexibility
     },
   },
-  {
-    // Phase F: Legacy files still using className (deprecated, won't work without NativeWind)
-    // These are kept for reference but should not be actively used (FLAGS.USE_DS_UI = true)
-    // NOTE: Most legacy files are now ignored via top-level ignores (app/(dev)/**, **/*.legacy.tsx, _archive/**)
-    files: [
-      'app/screens/SpaceDetailScreen.tsx', // TODO: Migrate to DS or rename to .legacy.tsx
-    ],
-    rules: {
-      'no-restricted-syntax': 'off',
-      '@typescript-eslint/ban-ts-comment': 'off',
-    },
-  },
 ];

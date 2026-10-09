@@ -30,7 +30,11 @@ import { checkChange, type Change } from '../model';
 import { contextFor } from '../snapshot';
 import { rowWords, doneWords, scheduleWords } from '../words';
 import { changeLogOf } from '../../chat/changeHistory';
-import { upsertDropWorldLinks, deleteDropWorldLink } from '../../repo/linkingRepo';
+import {
+  upsertDropWorldLinks,
+  deleteDropWorldLink,
+  upsertDropChapterLinks,
+} from '../../repo/linkingRepo';
 
 function updater(list: string) {
   return jest.fn(async (id: string, updates: any) => {
@@ -330,6 +334,35 @@ describe('a card', () => {
     await revertAll();
     expect(mockState.todos).toHaveLength(1);
     expect(mockState.todos[0]).toMatchObject({ due_day: '2026-10-02', due_time: '10:00' });
+  });
+});
+
+describe('an item added into a Chapter', () => {
+  const into = {
+    cid: 'c1',
+    op: 'add',
+    type: 'todo',
+    id: null,
+    title: 'Pack',
+    fields: { name: 'Pack', day: '2026-10-09', chapters: { add: ['ch1'], remove: [] } },
+  } as any;
+
+  it('is made and filed in it', async () => {
+    const { outcomes } = await applyChanges([into], { source: 'chat' });
+    expect(outcomes[0]).toMatchObject({ ok: true });
+    expect(upsertDropChapterLinks).toHaveBeenCalledWith([
+      expect.objectContaining({ drop_type: 'todo', chapter_id: 'ch1', assigned_by: 'user' }),
+    ]);
+  });
+
+  it('when it cannot be filed there, it is not kept at all, and the row says so', async () => {
+    const before = mockState.todos.length;
+    (upsertDropChapterLinks as jest.Mock).mockRejectedValueOnce(new Error('no unique constraint'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { outcomes } = await applyChanges([into], { source: 'chat' });
+    expect(outcomes[0]).toMatchObject({ ok: false, reason: 'failed' });
+    expect(mockState.todos).toHaveLength(before);
+    warn.mockRestore();
   });
 });
 

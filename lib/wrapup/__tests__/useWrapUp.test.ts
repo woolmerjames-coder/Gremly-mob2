@@ -1036,6 +1036,29 @@ describe("the wrap up: Gremly's questions", () => {
     expect(currentWrap()?.step).toBe('close');
   });
 
+  it('a question about a Chapter carries its kind, and answered on its card the next one follows, once', async () => {
+    const fence = {
+      ...Q1,
+      kind: 'close_chapter',
+      question: 'Is the fence done now?',
+      record_table: 'chapters',
+      record_id: 'c3',
+    };
+    mockFetchQuestions.mockResolvedValue([fence, Q2]);
+    const t = await clearNight();
+    await toQuestions(t);
+    const asked = t.last().metadata_json as unknown as BriefOfferMeta;
+    expect(asked).toMatchObject({ question_id: 'q1', question_kind: 'close_chapter' });
+    // the card made the change and marked it answered itself (ChatAskCard)
+    await act(() => t.hook.result.current.answeredByCard(asked));
+    expect(mockAnswer).not.toHaveBeenCalled();
+    expect(t.last().content).toBe(Q2.question);
+    // answered again on the card after its Undo: the wrap up does not move on twice
+    await act(() => t.hook.result.current.answeredByCard(asked));
+    expect(t.last().content).toBe(Q2.question);
+    expect(currentWrap()?.step).toBe('questions');
+  });
+
   it('a skipped question waits a few days, and the next one is asked', async () => {
     const t = await clearNight();
     await toQuestions(t);

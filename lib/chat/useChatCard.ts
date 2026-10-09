@@ -6,6 +6,8 @@
  * through the change model (lib/changes) and adds "Updated 3 things"; Undo
  * puts them back. What they did with a card goes into Gremly's history as a
  * line of the conversation (chatHistoryOf), so it never offers it again.
+ * A Chapter it offered that they turn down (the card set aside, its row left
+ * unticked, or its start undone) is kept everywhere (lib/worlds/saidNo.ts).
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -20,6 +22,7 @@ import { cardOutcomeWords, DAY_TURN_COPY } from '../brief/useDayTurn';
 import { useTodayThread } from '../brief/todayThread';
 import { getDateService } from '../date/DateService';
 import type { BriefChangesMeta, DailyThreadMeta } from '../brief/types';
+import { sayNoToChapters } from '../worlds/saidNo';
 
 const CHECKLIST: Record<string, 'proposed' | 'needs_answer' | 'not_possible' | 'noted'> = {
   proposed: 'proposed',
@@ -61,6 +64,15 @@ export function chatHistoryOf(
       if (words) out.push({ role: 'user', content: words });
       continue;
     }
+    // what they kept from a reply, and where (lib/worlds/keep.ts)
+    if (meta?.type === 'keep-offer') {
+      if (meta.saved)
+        out.push({
+          role: 'user',
+          content: `(They saved “${meta.title}” from Gremly's reply to ${meta.saved.place.name || 'their Worlds'}.)`,
+        });
+      continue;
+    }
     if ((m.role === 'user' || m.role === 'assistant') && m.content) {
       out.push({ role: m.role, content: m.content });
     }
@@ -92,7 +104,9 @@ export function useChatCard(deps: ChatCardDeps) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   // what each applied card can put back, while this screen is open
-  const undoRef = useRef(new Map<string, { revert: () => Promise<void>; count: number }>());
+  const undoRef = useRef(
+    new Map<string, { revert: () => Promise<void>; count: number; rows: Change[] }>(),
+  );
   const [undoable, setUndoable] = useState<string[]>([]);
 
   const hold = useCallback(async (work: () => Promise<void>) => {
@@ -128,8 +142,13 @@ export function useChatCard(deps: ChatCardDeps) {
             if (o.createdId) created[o.cid] = o.createdId;
             Object.assign(created, o.createdParts ?? {});
           }
+          sayNoToChapters(meta.card.filter((c) => unticked.includes(c.cid)));
           if (done.length) {
-            undoRef.current.set(message.id, { revert: revertAll, count: done.length });
+            undoRef.current.set(message.id, {
+              revert: revertAll,
+              count: done.length,
+              rows: rows.filter((r) => done.includes(r.cid)),
+            });
             setUndoable((u) => [...u, message.id]);
           }
           await d.patchMessageMetadata(message.id, {
@@ -160,6 +179,7 @@ export function useChatCard(deps: ChatCardDeps) {
         const meta = briefMetaOf(message);
         if (meta?.type !== 'brief-changes' || meta.status !== 'open') return;
         await d.patchMessageMetadata(message.id, { status: 'dismissed' });
+        sayNoToChapters(meta.card ?? []);
         await d.say(DAY_TURN_COPY.dismissed);
       }),
     [hold],
@@ -174,6 +194,7 @@ export function useChatCard(deps: ChatCardDeps) {
         if (meta?.type !== 'brief-changes' || meta.status !== 'applied' || !entry) return;
         try {
           await entry.revert();
+          sayNoToChapters(entry.rows);
           undoRef.current.delete(message.id);
           setUndoable((u) => u.filter((x) => x !== message.id));
           await d.patchMessageMetadata(message.id, { status: 'undone' });

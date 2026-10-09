@@ -77,7 +77,6 @@ function makeRequest(): HabitBuilderRequest {
       currentDate: '2025-12-15',
       dayOfWeek: 'Monday',
       existingHabits: [],
-      spaces: [],
       prefill: undefined,
     },
   };

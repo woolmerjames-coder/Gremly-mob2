@@ -76,16 +76,16 @@ describe('a card further on', () => {
   it('reads as its item is now', () => {
     const snap = card('dentist', 'note', { event_time: '15:00' }, 'event');
     const moved = card('dentist', 'note', { event_time: '16:00' }, 'event');
-    expect(sweepCardNow(snap, [moved], null, []).candidate.raw).toMatchObject({
+    expect(sweepCardNow(snap, [moved], null).candidate.raw).toMatchObject({
       event_time: '16:00',
     });
     // unchanged: the same card
-    expect(sweepCardNow(snap, [snap], null, [])).toBe(snap);
+    expect(sweepCardNow(snap, [snap], null)).toBe(snap);
   });
 
   it('keeps its place with fresh details when it is no longer a candidate', () => {
     const snap = card('t1', 'todo', { due_day: null });
-    const now = sweepCardNow(snap, [], { id: 't1', due_day: '2026-10-09' }, []);
+    const now = sweepCardNow(snap, [], { id: 't1', due_day: '2026-10-09' });
     expect(now.candidate.raw).toMatchObject({ due_day: '2026-10-09' });
     expect(now.meta.world).toEqual(snap.meta.world);
   });

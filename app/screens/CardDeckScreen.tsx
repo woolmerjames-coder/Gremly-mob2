@@ -32,11 +32,7 @@ import { getDateService } from '../../lib/date';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { useCanCreate } from '../../lib/store/lifecycleSelectors';
-import {
-  useActiveSpaces,
-  useIsLoading,
-  useSweepCandidatesUnified,
-} from '../../lib/store/selectors';
+import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
 
 import { env, getEnv } from '../../lib/env';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
@@ -218,7 +214,6 @@ function CardDeck({
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
   const habits = useGremlyStore((state) => state.habits);
-  const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
   // a todo card's days: how full each already is, and the day a Later comes back
   const cardDays = useCardDays();
@@ -846,14 +841,13 @@ function CardDeck({
 
   /**
    * Handle confirmed note action (fine / resurface / event reminder)
-   * Called by SweepCardNew on swipe right for notes. Bundles noteAction, dates, and spaceId.
+   * Called by SweepCardNew on swipe right for notes. Bundles noteAction and dates.
    */
   const handleConfirmNoteAction = useCallback(
     (action: {
       noteAction: 'fine' | 'resurface';
       resurfaceDateStr?: string;
       reminderDateStr?: string;
-      spaceId?: string;
       resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
       eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
     }) => {
@@ -875,7 +869,6 @@ function CardDeck({
         noteAction: action.noteAction,
         resurfaceDateStr: action.resurfaceDateStr,
         reminderDateStr: action.reminderDateStr,
-        spaceId: action.spaceId,
         resurfaceTiming: action.resurfaceTiming,
         eventReminder: action.eventReminder,
       });
@@ -942,7 +935,6 @@ function CardDeck({
     (action: {
       reminderDateStr: string;
       reminderTime?: string;
-      spaceId?: string;
       eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
       prepTodoText?: string;
     }) => {
@@ -963,7 +955,6 @@ function CardDeck({
         action: 'keep',
         reminderDateStr: action.reminderDateStr,
         reminderTime: action.reminderTime || '09:00',
-        spaceId: action.spaceId,
         eventReminder: action.eventReminder,
         prepTodoText: action.prepTodoText,
       });
@@ -1108,7 +1099,6 @@ function CardDeck({
       snap,
       allCandidates,
       entityNow(snap.candidate, { todos, notes, habits }),
-      spaces,
     );
 
     // Check if this candidate was just converted (e.g., note -> todo, note -> habit)
@@ -1129,7 +1119,7 @@ function CardDeck({
             isCreatedToday: true,
             raw: newTodo as any,
           };
-          const newMeta = computeSweepCardMeta(convertedTodoCandidate, spaces);
+          const newMeta = computeSweepCardMeta(convertedTodoCandidate);
           return {
             ...base,
             candidate: convertedTodoCandidate,
@@ -1152,7 +1142,7 @@ function CardDeck({
             isCreatedToday: true,
             raw: newHabit as any,
           };
-          const newMeta = computeSweepCardMeta(convertedHabitCandidate, spaces);
+          const newMeta = computeSweepCardMeta(convertedHabitCandidate);
           return {
             ...base,
             candidate: convertedHabitCandidate,
@@ -1177,7 +1167,7 @@ function CardDeck({
             isEventPassed: false,
             daysUntilEvent: null,
           };
-          const newMeta = computeSweepCardMeta(convertedNoteCandidate, spaces);
+          const newMeta = computeSweepCardMeta(convertedNoteCandidate);
           return {
             ...base,
             candidate: convertedNoteCandidate,
@@ -1189,16 +1179,7 @@ function CardDeck({
     }
 
     return base;
-  }, [
-    currentIndex,
-    candidatesWithMeta,
-    convertedCandidate,
-    todos,
-    habits,
-    notes,
-    spaces,
-    allCandidates,
-  ]);
+  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits, notes, allCandidates]);
 
   // Loading state
   if (isLoading) {
@@ -1653,14 +1634,12 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
       const views = note.views as {
         dominant_bucket?: string;
         dominant_subtype?: string;
-        space_id?: string | null;
         multi_items?: Array<{ text: string }>;
       } | null;
 
       const dominantBucket = views?.dominant_bucket;
       const dominantSubtype = views?.dominant_subtype;
       const originalText = note.body || note.title || '';
-      const spaceId = views?.space_id ?? null;
 
       // Determine target bucket and subtype
       const targetBucket =
@@ -1683,7 +1662,6 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
             const newTodo = await createTodo?.({
               name: note.title || originalText,
               body: originalText,
-              space_id: spaceId,
               origin: 'sweep',
               views: {
                 minddrop_stage: 'classified',
@@ -1706,7 +1684,6 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
               notes: originalText,
               frequency: 'daily',
               subtype: 'start_habit',
-              space_id: spaceId,
               origin: 'sweep',
               views: {
                 minddrop_stage: 'classified',

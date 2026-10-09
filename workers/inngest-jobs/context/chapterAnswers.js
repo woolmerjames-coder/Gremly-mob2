@@ -10,6 +10,10 @@
  * their word that it is over or not happening; its days moved to the days
  * they give; and one they say is still going kept open, its passed end date
  * taken away. Gremly never starts or closes a Chapter without their answer.
+ *
+ * A Chapter closed on their word gets its memory written, as one closed in
+ * the app does (Worlds rebuild, stage 3, decision 5); a memory that cannot be
+ * written never stops the answer.
  */
 
 import { db, personIdentity } from './db';
@@ -17,6 +21,7 @@ import { jsonCall, modelFor } from './llm';
 import { personBlock } from '../careRules';
 import { personToday } from './filing';
 import { ITEM_TABLE } from './filed';
+import { writeMemory } from './memory';
 
 export const CHAPTER_ANSWER_VERSION = 'chapter-answer-2026-10-18b';
 
@@ -175,9 +180,21 @@ export async function answerChapterQuestion(env, { userId, question, said }) {
         [{ chapter_id: id, world_id: plan.start.world_id, owner_id: userId, relevance_score: 1 }],
         'chapter_id,world_id',
       );
-    // what the suggestion rested on goes into the Chapter they said yes to
-    const links = (Array.isArray(question.rests_on) ? question.rests_on : [])
+    // what the suggestion rested on goes into the Chapter they said yes to:
+    // its items, and the items the facts it rests on were read from
+    const rests = Array.isArray(question.rests_on) ? question.rests_on : [];
+    const factIds = rests.filter((r) => r?.table === 'life_facts' && r.id).map((r) => r.id);
+    const sources = factIds.length
+      ? (await d
+          .select(
+            `life_facts?user_id=eq.${userId}&id=in.(${factIds.join(',')})&source_table=in.(${Object.keys(TYPE_OF_TABLE).join(',')})&select=source_table,source_id`,
+          )
+          .catch(() => [])) || []
+      : [];
+    const items = [...rests, ...sources.map((f) => ({ table: f.source_table, id: f.source_id }))]
       .filter((r) => TYPE_OF_TABLE[r?.table] && r.id)
+      .filter((r, i, all) => all.findIndex((x) => x.table === r.table && x.id === r.id) === i);
+    const links = items
       .map((r) => ({
         drop_id: r.id,
         drop_type: TYPE_OF_TABLE[r.table],
@@ -196,7 +213,17 @@ export async function answerChapterQuestion(env, { userId, question, said }) {
       closed_at: nowIso,
       updated_at: nowIso,
     });
-    if (Array.isArray(done) && done.length) result.closed = chapter.id;
+    if (Array.isArray(done) && done.length) {
+      result.closed = chapter.id;
+      // its memory, as when it is closed in the app
+      try {
+        const m = await writeMemory(env, userId, chapter.id);
+        result.memory = m?.outcome || null;
+      } catch (err) {
+        console.warn('[ChapterAnswer] the memory could not be written', String(err?.message || err).slice(0, 200));
+        result.memory = 'failed';
+      }
+    }
   }
   if (plan.dates) {
     const patch = { updated_at: nowIso };

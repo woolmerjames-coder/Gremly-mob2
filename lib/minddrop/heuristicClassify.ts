@@ -12,7 +12,6 @@
 
 import { MindDropBucket, LogSubtype } from './types';
 import type { HabitSubtype } from '../types';
-import { extractSpacePattern } from './spacePatterns';
 
 /**
  * Context passed to heuristic classifier for additional signals
@@ -20,8 +19,6 @@ import { extractSpacePattern } from './spacePatterns';
 export interface ClassifyContext {
   /** Whether the drop has photo/file attachments */
   hasAttachments?: boolean;
-  /** Associated space ID (null if global/catch-all) */
-  spaceId?: string | null;
 }
 
 /**
@@ -38,10 +35,6 @@ export interface HeuristicResult {
   confidence: number;
   /** Debug signals showing which patterns matched */
   signals: string[];
-  /** Extracted space name hint from patterns like "add to Fitness:" or "@Work" */
-  spaceHint: string | null;
-  /** Text with space pattern removed (use for classification) */
-  cleanedText: string;
 }
 
 // =============================================================================
@@ -156,21 +149,13 @@ function detectHabitSubtype(text: string): HabitSubtype {
  * Provides instant classification for optimistic UI before AI completes.
  *
  * @param text - The raw text to classify
- * @param context - Additional context (attachments, space)
+ * @param context - Additional context (attachments)
  * @returns Classification result with bucket, confidence, and debug signals
  */
 export function heuristicClassify(text: string, context: ClassifyContext = {}): HeuristicResult {
-  // Extract space pattern first ("add to Fitness:", "@Work", etc.)
-  const spaceResult = extractSpacePattern(text);
-  const textToClassify = spaceResult.hasSpacePattern ? spaceResult.cleanedText : text;
-
+  const textToClassify = text;
   const lowerText = textToClassify.toLowerCase();
   const signals: string[] = [];
-
-  // Track space pattern in signals if detected
-  if (spaceResult.hasSpacePattern) {
-    signals.push(`spacePattern:${spaceResult.patternType}`);
-  }
 
   // ==========================================================================
   // EARLY EXIT: Phrasal verbs that are one-time TODO actions
@@ -184,8 +169,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.7,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -200,8 +183,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.6,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -216,8 +197,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.5,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -232,8 +211,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.5,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -249,8 +226,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: 'start_habit', // Coping habits are positive behaviors to build
       confidence: 0.7,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -266,8 +241,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.7,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -282,8 +255,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: null,
       confidence: 0.6,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
 
@@ -300,8 +271,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
       habitSubtypeHint: habitSubtype,
       confidence: 0.6,
       signals,
-      spaceHint: spaceResult.spaceName,
-      cleanedText: spaceResult.cleanedText,
     };
   }
   // ==========================================================================
@@ -361,8 +330,6 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
         habitSubtypeHint: null,
         confidence: 0.5,
         signals,
-        spaceHint: spaceResult.spaceName,
-        cleanedText: spaceResult.cleanedText,
       };
     } else {
       // Behavior change verb but unclear target - slight habit lean
@@ -437,7 +404,5 @@ export function heuristicClassify(text: string, context: ClassifyContext = {}): 
     habitSubtypeHint,
     confidence,
     signals,
-    spaceHint: spaceResult.spaceName,
-    cleanedText: spaceResult.cleanedText,
   };
 }

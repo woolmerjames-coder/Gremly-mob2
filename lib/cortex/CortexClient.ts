@@ -49,7 +49,6 @@ export interface SpaceChatStreamingResult {
   /** The Worker's clock for this turn: triage, card, time before the reply, reply */
   timing?: { triage_ms: number; card_ms: number; pre_ms: number; reply_ms: number } | null;
   saveable?: any | null;
-  promotion?: any | null;
   latency_ms?: number;
   sources?: Array<{ title: string; url: string }>;
   search_query?: string;
@@ -67,6 +66,11 @@ export interface SpaceChatStreamingResult {
     offer?: { kind: 'week'; done: boolean };
     prompt_version?: string;
   } | null;
+  /**
+   * Something in the reply worth keeping, with where it belongs (Worlds
+   * rebuild, stage 2; cortex context/keep.js), for an app build with Worlds
+   */
+  keep?: import('../worlds/keep').KeepOffer | null;
 }
 
 /**
@@ -491,7 +495,6 @@ export function callSpaceChatStreaming(
           entity_card: data.entity_card ?? null,
           timing: data.timing ?? null,
           saveable: data.saveable ?? null,
-          promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
           sources: data.sources,
           search_query: data.search_query,
@@ -592,6 +595,9 @@ export function callGeneralChatStreaming(
       briefQuestion: opts.briefQuestion ?? null,
       // this build draws the agent's card, so lookups and changes can go to it
       agentCard: true,
+      // and changes to Worlds and Chapters, for someone who has the Worlds tab
+      // every build from the Worlds rebuild can show and change Worlds and Chapters (stage 4)
+      worldsCard: true,
       agentTasks: opts.agentTasks ?? [],
       ...(opts.week ? { week: opts.week } : {}),
       userId: opts.userId,
@@ -636,235 +642,15 @@ export function callGeneralChatStreaming(
           entity_card: data.entity_card ?? null,
           timing: data.timing ?? null,
           saveable: data.saveable ?? null,
-          promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
           sources: data.sources,
           search_query: data.search_query,
           fetchedUrl: data.fetchedUrl ?? null,
           extraction: data.extraction,
           agent: data.agent ?? null,
+          keep: data.keep ?? null,
         };
         log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
-        (callbacks.onComplete as any)(finalContent, richResult);
-        es.close();
-      }
-    } catch {
-      /* Ignore parse errors */
-    }
-  });
-
-  es.addEventListener('error', (event: any) => {
-    callbacks.onError(event.message || 'Stream error', fullText);
-    es.close();
-  });
-
-  return { close: () => es.close() };
-}
-
-/**
- * Stream a world-scoped chat via Cortex (world_chat lane).
- */
-export function callWorldChatStreaming(
-  messages: ChatMessage[],
-  opts: {
-    scopeId: string;
-    scopeName: string;
-    chatId: string;
-    userId?: string;
-    recentEntity?: import('../types').RecentEntity | null;
-  },
-  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
-): { close: () => void } {
-  const baseUrl = readCortexUrl();
-  if (!baseUrl) {
-    callbacks.onError('Missing CORTEX_URL', '');
-    return { close: () => {} };
-  }
-  if (isAiDisabled()) {
-    callbacks.onError('AI disabled', '');
-    return { close: () => {} };
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const sessionToken = getSessionTokenSync();
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  let fullText = '';
-
-  const es = new EventSource(baseUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      type: 'chat',
-      messages,
-      lane: 'world_chat',
-      stream: true,
-      scopeId: opts.scopeId,
-      scopeName: opts.scopeName,
-      chatId: opts.chatId,
-      // the item on the last entity card in this chat, so "move it" can mean it
-      recentEntity: opts.recentEntity ?? null,
-      userId: opts.userId,
-      currentTime: nowTimestamp(),
-      timezone: getDateService().getTimezone(),
-      // their weekly day, so a habit's count this week is made in their own week
-      weekly_day: weeklyDayNow(),
-    }),
-    lineEndingCharacter: '\n',
-  });
-
-  es.addEventListener('message', (event: any) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        es.close();
-        return;
-      }
-      if (data.error) {
-        callbacks.onError(data.error, fullText);
-        es.close();
-        return;
-      }
-      if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
-        return;
-      }
-      if (data.fetching !== undefined) {
-        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
-        return;
-      }
-      if (data.delta) {
-        fullText += data.delta;
-        callbacks.onChunk(data.delta, fullText);
-      }
-      if (data.done) {
-        const finalContent = data.full_content || fullText;
-        const richResult: SpaceChatStreamingResult = {
-          content: finalContent,
-          save_suggestion: data.save_suggestion ?? null,
-          entity_card: data.entity_card ?? null,
-          timing: data.timing ?? null,
-          saveable: data.saveable ?? null,
-          promotion: data.promotion ?? null,
-          latency_ms: data.latency_ms,
-          sources: data.sources,
-          search_query: data.search_query,
-          fetchedUrl: data.fetchedUrl ?? null,
-        };
-        log('WORLD_CHAT_STREAM_DONE', { contentLength: finalContent.length });
-        (callbacks.onComplete as any)(finalContent, richResult);
-        es.close();
-      }
-    } catch {
-      /* Ignore parse errors */
-    }
-  });
-
-  es.addEventListener('error', (event: any) => {
-    callbacks.onError(event.message || 'Stream error', fullText);
-    es.close();
-  });
-
-  return { close: () => es.close() };
-}
-
-/**
- * Stream a chapter-scoped chat via Cortex (chapter_chat lane).
- */
-export function callChapterChatStreaming(
-  messages: ChatMessage[],
-  opts: {
-    scopeId: string;
-    scopeName: string;
-    chatId: string;
-    userId?: string;
-    recentEntity?: import('../types').RecentEntity | null;
-  },
-  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
-): { close: () => void } {
-  const baseUrl = readCortexUrl();
-  if (!baseUrl) {
-    callbacks.onError('Missing CORTEX_URL', '');
-    return { close: () => {} };
-  }
-  if (isAiDisabled()) {
-    callbacks.onError('AI disabled', '');
-    return { close: () => {} };
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const sessionToken = getSessionTokenSync();
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  let fullText = '';
-
-  const es = new EventSource(baseUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      type: 'chat',
-      messages,
-      lane: 'chapter_chat',
-      stream: true,
-      scopeId: opts.scopeId,
-      scopeName: opts.scopeName,
-      chatId: opts.chatId,
-      // the item on the last entity card in this chat, so "move it" can mean it
-      recentEntity: opts.recentEntity ?? null,
-      userId: opts.userId,
-      currentTime: nowTimestamp(),
-      timezone: getDateService().getTimezone(),
-      // their weekly day, so a habit's count this week is made in their own week
-      weekly_day: weeklyDayNow(),
-    }),
-    lineEndingCharacter: '\n',
-  });
-
-  es.addEventListener('message', (event: any) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        es.close();
-        return;
-      }
-      if (data.error) {
-        callbacks.onError(data.error, fullText);
-        es.close();
-        return;
-      }
-      if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
-        return;
-      }
-      if (data.fetching !== undefined) {
-        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
-        return;
-      }
-      if (data.delta) {
-        fullText += data.delta;
-        callbacks.onChunk(data.delta, fullText);
-      }
-      if (data.done) {
-        const finalContent = data.full_content || fullText;
-        const richResult: SpaceChatStreamingResult = {
-          content: finalContent,
-          save_suggestion: data.save_suggestion ?? null,
-          entity_card: data.entity_card ?? null,
-          timing: data.timing ?? null,
-          saveable: data.saveable ?? null,
-          promotion: data.promotion ?? null,
-          latency_ms: data.latency_ms,
-          sources: data.sources,
-          search_query: data.search_query,
-          fetchedUrl: data.fetchedUrl ?? null,
-        };
-        log('CHAPTER_CHAT_STREAM_DONE', { contentLength: finalContent.length });
         (callbacks.onComplete as any)(finalContent, richResult);
         es.close();
       }
@@ -2072,8 +1858,6 @@ export const CortexClient = {
   callSpaceChat,
   callSpaceChatStreaming,
   callGeneralChatStreaming,
-  callWorldChatStreaming,
-  callChapterChatStreaming,
   callGeneralGreeting,
   callSpaceChatSave,
   callEnrichPhase2,
@@ -2145,6 +1929,77 @@ export async function callWorldsChanged(input: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ type: 'worlds-changed', table: input.table, id: input.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Chapters Gremly offered in a chat that the person said no to (Worlds
+ * rebuild, stage 2): set the card aside, left the row unticked, or undid the
+ * start. Cortex keeps each in the same list as the brief's own suggestions,
+ * so neither offers it again. Nothing waits on the reply.
+ */
+export async function callChapterSaidNo(
+  chapters: {
+    title: string;
+    world_id: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    items: { type: string; id: string }[];
+  }[],
+): Promise<CortexClientResult<{ kept?: number }>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'chapter-said-no', chapters }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
+ * Gremly's guesses for a Chapter started by hand from one line (Worlds
+ * rebuild, stage 3): its name, World or a new one, the days the line gives, a
+ * Gremly to wear and which of their things belong. Nothing is made; the
+ * sheet shows each to change. guessed is false when there was none in time.
+ */
+export async function callChapterGuess(input: { line: string; today: string }): Promise<
+  CortexClientResult<{
+    guessed: boolean;
+    title?: string;
+    world_id?: string | null;
+    new_world?: { name: string; gremly: string } | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    gremly?: string | null;
+    items?: { type: string; id: string }[];
+  }>
+> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'chapter-guess', line: input.line, today: input.today }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.error)

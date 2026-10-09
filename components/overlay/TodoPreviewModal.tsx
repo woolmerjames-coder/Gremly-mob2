@@ -17,8 +17,6 @@ import type { ExtractedListItem } from '../../lib/lists';
 interface TodoPreviewModalProps {
   visible: boolean;
   items: ExtractedListItem[];
-  spaceName: string;
-  spaceId: string;
   onConfirm: (selectedItems: ExtractedListItem[]) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -27,8 +25,6 @@ interface TodoPreviewModalProps {
 export function TodoPreviewModal({
   visible,
   items,
-  spaceName,
-  spaceId: _spaceId,
   onConfirm,
   onCancel,
   isLoading = false,
@@ -115,8 +111,7 @@ export function TodoPreviewModal({
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>
-            {selectedCount} {selectedCount === 1 ? 'task' : 'tasks'} will be added to{' '}
-            <Text style={styles.spaceName}>{spaceName}</Text>
+            {selectedCount} {selectedCount === 1 ? 'task' : 'tasks'} will be added
           </Text>
 
           <View style={styles.buttonRow}>
@@ -231,10 +226,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginBottom: 16,
-  },
-  spaceName: {
-    fontWeight: '600',
-    color: lightTokens.colors.mossGreen,
   },
   buttonRow: {
     flexDirection: 'row',

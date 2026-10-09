@@ -1,14 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Pressable,
-  Modal,
-  ScrollView,
-  Switch,
-  Platform,
-  StyleSheet,
-  FlatList,
-} from 'react-native';
+import { View, Pressable, Modal, ScrollView, Switch, Platform, StyleSheet } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, addDays, subDays, setHours, setMinutes } from 'date-fns';
 import {
@@ -25,7 +16,6 @@ import { BRAND } from '../../design/brand';
 import { parseDayString } from '../../lib/date/computeDueDay';
 import { getDateService } from '../../lib/date';
 import { tomorrowLabel } from '../../lib/wrapup/day';
-import { useActiveSpaces } from '../../lib/store/selectors';
 import { SweepCardShell } from './SweepCardShell';
 import { TodoActionZone, type TodoAction } from './TodoActionZone';
 import { IdeaActionZone } from './IdeaActionZone';
@@ -100,7 +90,6 @@ type SweepCardNewProps = {
   onConfirmEventAction?: (action: {
     reminderDateStr: string;
     reminderTime?: string;
-    spaceId?: string;
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
     prepTodoText?: string;
   }) => void;
@@ -108,7 +97,6 @@ type SweepCardNewProps = {
     noteAction: 'fine' | 'resurface';
     resurfaceDateStr?: string;
     reminderDateStr?: string;
-    spaceId?: string;
     resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
@@ -147,7 +135,6 @@ export function SweepCardNew({
   dayLoad,
   laterDay = null,
 }: SweepCardNewProps) {
-  const spaces = useActiveSpaces();
   // ── Action zone state ──
   const [selectedAction, setSelectedAction] = useState<TodoAction>(
     sweepIntent === 'today' ? 'today' : 'tomorrow',
@@ -193,9 +180,6 @@ export function SweepCardNew({
   );
   const [confirmedEventReminderDate, setConfirmedEventReminderDate] = useState<Date | null>(null);
   const [overriddenEventDate, setOverriddenEventDate] = useState<Date | null>(null);
-  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
-  const [selectedSpaceName, setSelectedSpaceName] = useState<string | null>(null);
-  const [showSpacePicker, setShowSpacePicker] = useState(false);
   const [showPrepTodoInput, setShowPrepTodoInput] = useState(false);
   const [prepTodoText, setPrepTodoText] = useState('');
   const [showWorldPicker, setShowWorldPicker] = useState(false);
@@ -219,9 +203,6 @@ export function SweepCardNew({
     setConfirmedResurfaceDate(null);
     setEventReminder('daybefore');
     setConfirmedEventReminderDate(null);
-    setSelectedSpaceId(null);
-    setSelectedSpaceName(null);
-    setShowSpacePicker(false);
     setShowPrepTodoInput(false);
     setPrepTodoText('');
     setShowWorldPicker(false);
@@ -347,7 +328,6 @@ export function SweepCardNew({
       onConfirmEventAction?.({
         reminderDateStr,
         reminderTime: '09:00',
-        spaceId: selectedSpaceId ?? undefined,
         eventReminder,
         prepTodoText: prepTodoText.trim() || undefined,
       });
@@ -369,15 +349,11 @@ export function SweepCardNew({
         onConfirmNoteAction?.({
           noteAction: 'resurface',
           resurfaceDateStr,
-          spaceId: selectedSpaceId ?? undefined,
           resurfaceTiming: resurfaceTiming ?? undefined,
         });
       } else {
-        // fine — mark as swept with optional space
-        onConfirmNoteAction?.({
-          noteAction: 'fine',
-          spaceId: selectedSpaceId ?? undefined,
-        });
+        // fine: mark as swept
+        onConfirmNoteAction?.({ noteAction: 'fine' });
       }
     } else {
       // Unsupported kind (e.g. habit) — skip
@@ -399,7 +375,6 @@ export function SweepCardNew({
     confirmedResurfaceDate,
     eventReminder,
     confirmedEventReminderDate,
-    selectedSpaceId,
     prepTodoText,
     onConfirmTodoAction,
     onConfirmEventAction,
@@ -532,13 +507,6 @@ export function SweepCardNew({
                 setDatePickerMode('resurface');
                 setShowDatePicker(true);
               }}
-              selectedSpaceId={selectedSpaceId}
-              selectedSpaceName={selectedSpaceName}
-              onRequestSpacePicker={() => setShowSpacePicker(true)}
-              onClearSpace={() => {
-                setSelectedSpaceId(null);
-                setSelectedSpaceName(null);
-              }}
             />
           )}
           {candidate.kind === 'note' && meta.noteCardType === 'general' && (
@@ -560,13 +528,6 @@ export function SweepCardNew({
               onRequestResurfaceDatePicker={() => {
                 setDatePickerMode('resurface');
                 setShowDatePicker(true);
-              }}
-              selectedSpaceId={selectedSpaceId}
-              selectedSpaceName={selectedSpaceName}
-              onRequestSpacePicker={() => setShowSpacePicker(true)}
-              onClearSpace={() => {
-                setSelectedSpaceId(null);
-                setSelectedSpaceName(null);
               }}
             />
           )}
@@ -597,13 +558,6 @@ export function SweepCardNew({
                     )
                   : undefined
               }
-              selectedSpaceId={selectedSpaceId}
-              selectedSpaceName={selectedSpaceName}
-              onRequestSpacePicker={() => setShowSpacePicker(true)}
-              onClearSpace={() => {
-                setSelectedSpaceId(null);
-                setSelectedSpaceName(null);
-              }}
               prepTodoText={prepTodoText}
               onPrepTodoTextChange={setPrepTodoText}
               showPrepTodoInput={showPrepTodoInput}
@@ -629,13 +583,6 @@ export function SweepCardNew({
               onRequestResurfaceDatePicker={() => {
                 setDatePickerMode('resurface');
                 setShowDatePicker(true);
-              }}
-              selectedSpaceId={selectedSpaceId}
-              selectedSpaceName={selectedSpaceName}
-              onRequestSpacePicker={() => setShowSpacePicker(true)}
-              onClearSpace={() => {
-                setSelectedSpaceId(null);
-                setSelectedSpaceName(null);
               }}
             />
           )}
@@ -871,52 +818,6 @@ export function SweepCardNew({
           </Pressable>
         </Pressable>
       </Modal>
-
-      {/* Space picker modal */}
-      <Modal visible={showSpacePicker} transparent animationType="fade">
-        <Pressable style={styles.dateModalBackdrop} onPress={() => setShowSpacePicker(false)}>
-          <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={[styles.dateModalContent, { maxHeight: 400 }]}
-          >
-            <Text style={styles.dateModalTitle}>Add to space</Text>
-            <FlatList
-              data={spaces}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => {
-                    setSelectedSpaceId(item.id);
-                    setSelectedSpaceName(item.name);
-                    setShowSpacePicker(false);
-                  }}
-                  style={({ pressed }) => [
-                    styles.spacePickerRow,
-                    pressed && { opacity: 0.7 },
-                    selectedSpaceId === item.id && styles.spacePickerRowSelected,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.spacePickerText,
-                      selectedSpaceId === item.id && styles.spacePickerTextSelected,
-                    ]}
-                  >
-                    {item.name}
-                  </Text>
-                </Pressable>
-              )}
-              ListEmptyComponent={<Text style={styles.spacePickerEmpty}>No spaces yet</Text>}
-            />
-            <Pressable
-              style={styles.dateModalCancelButton}
-              onPress={() => setShowSpacePicker(false)}
-            >
-              <Text style={styles.dateModalCancelText}>Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </>
   );
 }
@@ -1092,29 +993,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  spacePickerRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: BRAND.radius.sm,
-    marginBottom: 4,
-  },
-  spacePickerRowSelected: {
-    backgroundColor: 'rgba(46,85,64,0.08)',
-  },
-  spacePickerText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  spacePickerTextSelected: {
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
-  },
-  spacePickerEmpty: {
-    fontSize: 14,
-    color: BRAND.colors.inkSubtle,
-    textAlign: 'center',
-    paddingVertical: 24,
   },
 });

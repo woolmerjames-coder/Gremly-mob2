@@ -163,7 +163,6 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
 // ─── Props ───────────────────────────────────────────────────────────
 export interface HabitBuilderScreenProps {
   prefill?: string;
-  spaceId?: string;
   onClose: () => void;
   onHabitCreated?: (habitId: string) => void;
 }
@@ -206,12 +205,7 @@ let messageIdCounter = 0;
 const nextId = () => `hb-msg-${getDateService().now().getTime()}-${++messageIdCounter}`;
 
 // ─── Component ───────────────────────────────────────────────────────
-export function HabitBuilderScreen({
-  prefill,
-  spaceId,
-  onClose,
-  onHabitCreated,
-}: HabitBuilderScreenProps) {
+export function HabitBuilderScreen({ prefill, onClose, onHabitCreated }: HabitBuilderScreenProps) {
   // ─── Auth & Store ───────────────────────────────────────────────
   const { user } = useAuth();
   const userName = useMemo(() => {
@@ -221,7 +215,6 @@ export function HabitBuilderScreen({
   }, [user]);
 
   const habits = useGremlyStore((s) => s.habits);
-  const spaces = useGremlyStore((s) => s.spaces);
   const userId = useGremlyStore((s) => s.userId);
   const createHabit = useGremlyStore((s) => s.createHabit);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
@@ -273,11 +266,9 @@ export function HabitBuilderScreen({
           name: h.name,
           subtype: h.subtype || 'start_habit',
           frequency: h.frequency || undefined,
-          space_name: spaces.find((s) => s.id === h.space_id)?.name,
           cadence: h.cadence || undefined,
           time_window: h.time_window || undefined,
         })),
-      spaces: spaces.filter((s) => !s.archived_at).map((s) => ({ id: s.id, name: s.name })),
       prefill: prefill || undefined,
       habitCapacity: {
         totalActive: habits.filter((h) => !h.archived_at).length,
@@ -287,7 +278,7 @@ export function HabitBuilderScreen({
       currentMode,
       turnNumber,
     };
-  }, [habits, spaces, userName, prefill, currentMode, turnNumber]);
+  }, [habits, userName, prefill, currentMode, turnNumber]);
 
   // ─── Send message ─────────────────────────────────────────────
   const handleSendMessage = useCallback(
@@ -568,15 +559,6 @@ export function HabitBuilderScreen({
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     try {
-      // Resolve space_id from space_name if provided
-      let resolvedSpaceId = spaceId || null;
-      if (resolved.space_name && !resolvedSpaceId) {
-        const matchedSpace = spaces.find(
-          (s) => s.name.toLowerCase() === resolved.space_name!.toLowerCase(),
-        );
-        if (matchedSpace) resolvedSpaceId = matchedSpace.id;
-      }
-
       const habitData = {
         name: resolved.name,
         subtype: (resolved.habit_type === 'break' ? 'break_habit' : 'start_habit') as HabitSubtype,
@@ -588,7 +570,6 @@ export function HabitBuilderScreen({
               resolved.time_window
             ]
           : null,
-        space_id: resolvedSpaceId,
         notes: resolved.notes || null,
         end_date: resolved.end_date || null,
         time_estimate_minutes: resolved.time_estimate_minutes || null,
@@ -670,7 +651,7 @@ export function HabitBuilderScreen({
         },
       ]);
     }
-  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage, currentMode]);
+  }, [resolved, isCreating, userId, createHabit, handleSendMessage, currentMode]);
 
   // ─── Save tips to habit ──────────────────────────────────────
   const handleSaveTips = useCallback(async () => {
@@ -711,9 +692,8 @@ export function HabitBuilderScreen({
 
     overlayController.openEdit({
       record: habitRecord as any, // AppRecord
-      spaceId: spaceId || undefined,
     });
-  }, [habits, spaceId, overlayController]);
+  }, [habits, overlayController]);
 
   // ─── Handle chip tap ─────────────────────────────────────────
   const handleChipTap = useCallback(
@@ -938,7 +918,7 @@ export function HabitBuilderScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#D4E4D4', // Sage green — matches Spaces Chat
+    backgroundColor: '#D4E4D4', // Sage green
   },
   keyboardAvoid: {
     flex: 1,

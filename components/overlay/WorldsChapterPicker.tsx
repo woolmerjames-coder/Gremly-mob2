@@ -25,6 +25,8 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import type { DropType } from '../../lib/supabase/types';
 import { nowTimestamp } from '../../lib/date/DateService';
+import { noteTakenOut } from '../../lib/worlds/removals';
+import type { FiledItem } from '../../lib/worlds/actions';
 import {
   deleteDropChapterLink,
   deleteDropWorldLink,
@@ -194,6 +196,17 @@ export function WorldsChapterPicker({
       for (const chapterId of chaptersToRemove) {
         await deleteDropChapterLink(entityId, chapterId);
       }
+      // what they took out is remembered, so Gremly's filing never puts it back (lib/worlds/removals.ts)
+      await noteTakenOut(userId, { id: entityId, type: entityDropType } as FiledItem, {
+        out: [
+          ...worldsToRemove.map((id) => ({ type: 'world' as const, id })),
+          ...chaptersToRemove.map((id) => ({ type: 'chapter' as const, id })),
+        ],
+        in: [
+          ...worldsToAdd.map((id) => ({ type: 'world' as const, id })),
+          ...chaptersToAdd.map((id) => ({ type: 'chapter' as const, id })),
+        ],
+      });
 
       // Update Zustand immediately so chips re-render without a full store reload
       useGremlyStore.setState((state) => {

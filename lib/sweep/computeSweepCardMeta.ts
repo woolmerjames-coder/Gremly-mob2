@@ -13,23 +13,21 @@
 
 import { format } from 'date-fns';
 import type { SweepCandidate, SweepCardMeta } from './types';
-import type { Space } from '../types';
 import type { WorldForEntity } from '../store/worldsSelectors';
 import { getGremlyResponse } from './gremlyResponses';
 import { getDateService } from '../date';
 
 /**
  * Pre-computes all display metadata for a Sweep card from a candidate
- * and the user's spaces. This keeps the render component declarative
+ * and the Worlds it belongs to. This keeps the render component declarative
  * and moves all conditional logic to a single, testable function.
  *
  * @param candidate - The sweep candidate item
- * @param spaces - Array of user's spaces for name lookup
+ * @param worldsForEntity - The Worlds the item is linked to, for the World pill
  * @returns Computed metadata for rendering the card
  */
 export function computeSweepCardMeta(
   candidate: SweepCandidate,
-  spaces: Space[],
   worldsForEntity: WorldForEntity[] = [],
 ): SweepCardMeta {
   // ─────────────────────────────────────────────────────────────────────────
@@ -103,18 +101,6 @@ export function computeSweepCardMeta(
       resurfacingDate = format(new Date(candidate.skippedInSweepAt), 'MMM d');
     } catch {
       resurfacingDate = null;
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Space lookup
-  // ─────────────────────────────────────────────────────────────────────────
-  const spaceId = candidate.raw.space_id || null;
-  let spaceName: string | null = null;
-  if (spaceId && spaces.length > 0) {
-    const space = spaces.find((s) => s.id === spaceId);
-    if (space) {
-      spaceName = space.name;
     }
   }
 
@@ -209,8 +195,6 @@ export function computeSweepCardMeta(
     habitStatus,
     isNew,
     resurfacingDate,
-    spaceName,
-    spaceId,
     gremlyResponse,
     rescheduleCount,
     noteCardType,

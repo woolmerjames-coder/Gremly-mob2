@@ -33,17 +33,6 @@ jest.mock('../../app/tabs/HubScreen', () => {
   };
 });
 
-jest.mock('../../app/tabs/SpacesScreen', () => {
-  const { View, Text } = require('react-native');
-  return function MockSpacesScreen() {
-    return (
-      <View testID="spaces-screen">
-        <Text>Spaces Screen</Text>
-      </View>
-    );
-  };
-});
-
 jest.mock('../../app/screens/CatchAllNotepad', () => {
   const { View, Text } = require('react-native');
   return function MockCatchAllNotepad() {

@@ -60,7 +60,7 @@ import { parseSearchTokens } from '../../lib/tags/parseSearch';
 // Types
 // =============================================================================
 
-type ArchivedTypeFilter = 'todo' | 'habit' | 'note' | 'space';
+type ArchivedTypeFilter = 'todo' | 'habit' | 'note';
 
 const TIME_RANGE_LABELS: Record<ArchivedTimeRange, string> = {
   week: 'This Week',
@@ -124,7 +124,7 @@ export default function ArchivedItemsScreen() {
 
   // Filter state
   const [selectedTypes, setSelectedTypes] = useState<Set<ArchivedTypeFilter>>(
-    new Set(['todo', 'habit', 'note', 'space']),
+    new Set(['todo', 'habit', 'note']),
   );
   const [timeRange, setTimeRange] = useState<ArchivedTimeRange>('all');
   const [statusFilter, setStatusFilter] = useState<ArchivedStatusFilter>('archived');
@@ -184,10 +184,6 @@ export default function ArchivedItemsScreen() {
         const notes = await repo.listByType('note', queryOptions);
         results.push(...notes);
       }
-
-      // Note: Spaces don't typically have archived status in the same way,
-      // but we include them if selected and repo supports it
-      // (For now, spaces are excluded from archived filtering)
 
       // Sort by created_at descending (most recent first)
       results.sort((a, b) => {
@@ -491,23 +487,6 @@ export default function ArchivedItemsScreen() {
                 ]}
               >
                 Logs
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.filterChip, selectedTypes.has('space') && styles.filterChipActive]}
-              onPress={() => toggleTypeFilter('space')}
-              testID="archived-filter-type-space"
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selectedTypes.has('space') }}
-              accessibilityLabel="Filter by Spaces"
-            >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  selectedTypes.has('space') && styles.filterChipTextActive,
-                ]}
-              >
-                Spaces
               </Text>
             </TouchableOpacity>
           </ScrollView>

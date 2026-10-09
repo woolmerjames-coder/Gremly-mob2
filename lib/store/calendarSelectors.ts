@@ -7,7 +7,7 @@
 
 import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date';
-import type { Todo, Habit, Note, Space } from '../types';
+import type { Todo, Habit, Note } from '../types';
 import type { CalendarEvent } from '../calendar/CalendarClient';
 import {
   getEventsForDate,
@@ -31,11 +31,6 @@ export interface CalendarItem {
   isExternal?: boolean; // True for calendar events
   provider?: 'outlook' | 'google' | 'ics';
   location?: string | null;
-  space: {
-    id: string;
-    name: string;
-    theme: string | null;
-  } | null;
   milestone: {
     id: string;
     name: string;
@@ -106,21 +101,6 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// HELPER: Get space info for an item
-// ═══════════════════════════════════════════════════════════════════
-
-function getSpaceInfo(spaceId: string | null | undefined, spaces: Space[]): CalendarItem['space'] {
-  if (!spaceId) return null;
-  const space = spaces.find((s) => s.id === spaceId);
-  if (!space) return null;
-  return {
-    id: space.id,
-    name: space.name,
-    theme: space.theme || null,
-  };
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // MAIN SELECTOR: Get all items for a date
 // ═══════════════════════════════════════════════════════════════════
 
@@ -129,7 +109,6 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const notes = useGremlyStore((s) => s.notes);
-  const spaces = useGremlyStore((s) => s.spaces);
   // Subscribe to calendarEvents and userCalendarEvents for reactivity —
   // CalendarService reads imperatively, but these subscriptions ensure the
   // hook re-runs when the underlying data changes.
@@ -160,7 +139,6 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
       time: todo.due_time || null,
       isCompleted,
       isOverdue,
-      space: getSpaceInfo(todo.space_id, spaces),
       milestone: null, // TODO: Add milestone lookup if needed
       tags: todo.tags || [],
       raw: todo,
@@ -185,7 +163,6 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
       time: null, // Habits don't have specific times (yet)
       isCompleted: !!isCompleted,
       isOverdue: false, // Habits don't have "overdue" concept
-      space: getSpaceInfo(habit.space_id, spaces),
       milestone: null,
       tags: habit.tags || [],
       raw: habit,
@@ -216,7 +193,6 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
       time: null,
       isCompleted: false,
       isOverdue: false,
-      space: getSpaceInfo(note.space_id, spaces),
       milestone: null,
       tags: note.tags || [],
       raw: note,
@@ -260,8 +236,6 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
       isExternal,
       provider: svcItem.provider as 'outlook' | 'google' | 'ics' | undefined,
       location: svcItem.location || null,
-      space:
-        svcItem.source === 'gremly_event' ? getSpaceInfo((raw as Note)?.space_id, spaces) : null,
       milestone: null,
       tags: svcItem.source === 'gremly_event' ? (raw as Note)?.tags || [] : [],
       raw,

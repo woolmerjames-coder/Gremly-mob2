@@ -293,6 +293,21 @@ describe('an item chat outside any screen', () => {
     });
   });
 
+  it("a page's chat as a sheet over its page: Gremly, on it, a close, and no room for the clock", async () => {
+    mockFindItemChat.mockResolvedValue(null);
+    const opened = item({
+      anchor: { id: 'c1', type: 'chapter', title: 'Lisbon trip' },
+      label: 'Chapter',
+      sheet: { top: 120 },
+    });
+    const { getByTestId, getByText, findByTestId } = render(<AskGremlyScreen item={opened} />);
+    await findByTestId('chat-about-opener');
+    expect(getByText('Gremly, on Lisbon trip')).toBeTruthy();
+    expect(StyleSheet.flatten(getByTestId('safe-area').props.style).paddingTop).toBeUndefined();
+    fireEvent.press(getByTestId('item-chat-close'));
+    expect(opened.onClose).toHaveBeenCalled();
+  });
+
   it('close goes back to the item', () => {
     mockFindItemChat.mockResolvedValue(null);
     const opened = item();
