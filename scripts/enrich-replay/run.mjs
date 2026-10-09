@@ -2,10 +2,11 @@
  * Mind Drop's enrichment, replayed (18 Oct): the rules enrich-phase2 gives
  * the model (workers/cortex/enrichRules.js) for how long a todo takes and who
  * an item mentions, each beside the rules it replaced when given, on made up
- * items, on the model enrich-phase2 runs (HELPER_MODEL, gpt-4.1-mini, at 0.2).
+ * items, called as enrich-phase2 calls them (aiClassify on the mini tier,
+ * HELPER_MODEL gpt-6-luna as cortex's wrangler.toml sets it).
  *
- *   node scripts/enrich-replay/run.mjs time   [--old <file with the old rules>] [--repeat n]
- *   node scripts/enrich-replay/run.mjs people [--old <file with the old rules>] [--repeat n]
+ *   scripts/enrich-replay/run.sh time   [--old <file with the old rules>] [--repeat n]
+ *   scripts/enrich-replay/run.sh people [--old <file with the old rules>] [--repeat n]
  *
  * Each time task carries the span a careful person would accept, and each
  * item the people it mentions. Every item is made up. OPENAI_API_KEY comes
@@ -16,6 +17,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from '../../workers/cortex/enrichRules.js';
+import { aiClassify, getProviders } from '../../workers/cortex/aiProvider.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -25,7 +27,7 @@ const flag = (name) => {
   return i >= 0 ? args[i + 1] : null;
 };
 const repeat = Math.max(1, Number(flag('--repeat') || 1));
-const MODEL = flag('--model') || 'gpt-4.1-mini';
+const MODEL = flag('--model') || 'gpt-6-luna';
 const oldRules = flag('--old') ? readFileSync(flag('--old'), 'utf8').trim() : null;
 if (!['time', 'people'].includes(part)) {
   console.error('which part: time or people');
@@ -104,28 +106,16 @@ ${rules}
 Return ONLY valid JSON: ${out}`;
 }
 
+// as enrich-phase2 calls it: the mini tier, HELPER_MODEL first (cortex's wrangler.toml)
+const env = {
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  GEMINI_API_KEY: process.env.GEMINI_TEST_API_KEY,
+  GOOGLE_API_KEY: process.env.GEMINI_TEST_API_KEY,
+  HELPER_MODEL: MODEL,
+};
 async function ask(system, text) {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0.2,
-      max_tokens: 300,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: text },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
-  const j = await res.json();
-  try {
-    return JSON.parse(j.choices[0].message.content);
-  } catch {
-    return 'unreadable';
-  }
+  const r = await aiClassify({ mode: 'realtime', ...getProviders('mini', env), env, systemPrompt: system, messages: [{ role: 'user', content: text }], temperature: 0.2, maxOutputTokens: 300, endpoint: 'replay' });
+  return r.parsed ?? 'unreadable';
 }
 
 const sides = [['new', part === 'time' ? TIME_ESTIMATE_RULES : PEOPLE_RULES], ...(oldRules ? [['old', oldRules]] : [])];

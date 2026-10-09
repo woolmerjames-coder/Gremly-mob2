@@ -7,11 +7,11 @@
 import { executeTavilySearch, formatSearchBrief } from '../../webSearch.js';
 import { obj, str } from './schema.js';
 
-const DESCRIPTION = `Search the web for current facts the person asks about or needs, that are not in their own records: opening hours, prices, news, how to do something. Returns a short answer and sources; say which source a fact came from.`;
+export const WEB_SEARCH_DESCRIPTION = `Search the web for current facts about the world outside them that the person asks about or needs to know. Never for their own items, plans or day, which are in their records. Returns a short answer and sources; say which source a fact came from.`;
 
 export const webSearch = {
   name: 'web_search',
-  description: DESCRIPTION,
+  description: WEB_SEARCH_DESCRIPTION,
   parameters: obj({ query: str('what to search for, as a search engine query') }, ['query']),
 
   async run(ctx, input = {}) {

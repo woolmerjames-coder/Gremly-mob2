@@ -6,7 +6,7 @@
  * each to what the rules it replaced gave, on made up items.
  */
 export const TIME_ESTIMATE_RULES = `1. time_estimate_minutes
-How long the task will really take them from start to finish, in minutes: a multiple of 5 from 5 to 240.
+How long the task will really take them from start to finish, in minutes: a multiple of 5 from 5 to 240. Every todo and every habit being built gets one, however little it says.
 - When they say how long it takes, use what they said.
 - Otherwise start from how long the action itself takes when nothing goes wrong. A message or a payment on a screen takes minutes; a call, a form, a chore or an errand takes tens of minutes; an appointment, a meeting or time spent with someone takes most of an hour or more; work that needs focus, writing or making something takes one to three hours; a big clear out or project block takes longer still.
 - Then add what comes with it in real life, each as it applies, and add them together:

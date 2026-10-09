@@ -61,6 +61,7 @@ others. The words question is given the person's own pronouns.
 | The memory, `context/memory.js` | a closed Chapter's memory (`epigraph`) | Luna | the Chapter page, a World's eras |
 | First Worlds, `context/firstWorlds.js` | a new person's first Worlds | Luna | Worlds |
 | The weekly pass, `context/weekly.js` | the Life Map, the profile, Gremly's notes on Worlds and Chapters, what each Chapter was begun for, a Chapter forming offered as a question, questions, the week note, the summary plan, the week's counts, notes on people, what it is not sure of, who someone is when the records make it plain, and who matters most (`context/unsure.js`). It reads the whole of their life together: up to 400 open facts, what changed lately, the week's journal, chat and list, and since 18 Oct everything they added in the last four weeks with the World or Chapter each is filed in. It never changes a World's phase | Sonnet, Luna when it fails | everything that reads the Life Map; the summary; the line about a person; the week's questions |
+| One person, one record, `context/peopleJoin.js` | in the weekly people step: two records Gremly proposed may be one person are joined when the records make it plain (the same name with nothing setting them apart, or a record stating the name and the tie of the other), marked as Gremly's in `person_merges.moved.by`; the rest stay proposed and are asked. A pair they kept apart, or a join they undid, is never joined again. A correction that says they are two puts them apart (`joined_wrong`, `undoMerge`). James, 18 Oct: no more duplicate people unless they are clearly different | Luna at medium effort | everything that reads people |
 | The week's questions, `context/peopleQuestions.js` | one set of up to five questions a week about the people in their life and what Gremly is not sure of, the people who matter most first, what Gremly thinks offered as the first answer | Luna | the brief, the wrap up and Ask Gremly's questions |
 | Gremly's Chapter questions, `context/chapterQuestions.js` | once a day: whether a Chapter past its end, or long quiet, is over; and the welcome back after time away. A question about a Chapter no longer open is put away. Suggesting a new Chapter moved to the weekly pass on 18 Oct: this daily suggester saw only drops filed in no Chapter, so a launch worked on inside a World was never offered | Luna | Ask Gremly's questions, and the brief for the welcome back |
 | Their answer about a Chapter, `context/chapterAnswers.js` | on their answer only: a Chapter started with what the suggestion rested on filed in it, one closed, its days moved, or a passed end taken away when they say it is still going | Luna | Worlds |
@@ -167,9 +168,11 @@ runner reads live through a read only role and writes nothing.
 | `scripts/people-questions-replay`, `chapter-questions-replay`, `review-replay`, `correction-replay` | Gremly's questions and their answers; `chapter-questions-replay --answers` reads made up answers to the Chapter questions |
 | `scripts/chat-correction-replay` | the chat correction check: what puts something right, a delete, and what never does (a plan they change, a question, how Gremly talks, an earlier message) |
 | `scripts/weekly-replay`, `week-replay`, `worlds-parity`, `classifier-replay` | the weekly pass and summary, the weekly read, the classifier. The weekly replay's `unsure` week, its `judge` step and its `questions` step cover what Gremly is not sure of and the week's set of questions; its full week holds a Chapter whose race has passed, to check its end date; its six forming weeks (made up people, three with something forming inside a World, a Chapter or nowhere, three with nothing to offer) check a Chapter forming |
-| `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark, a delete and something said to matter little, a yes and a no to something Gremly was not sure of, and who Gremly understood someone to be, put right or kept |
+| `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark, a delete and something said to matter little, a yes and a no to something Gremly was not sure of, and who Gremly understood someone to be, put right or kept, and two records Gremly joined, put apart or kept as one |
 | `scripts/chat-replay`, `ask-replay`, `writer-test` | Ask Gremly |
-| `scripts/enrich-replay` | Mind Drop's enrichment rules (`workers/cortex/enrichRules.js`): `time` holds the time estimates to a span on made up tasks, `people` who an item mentions; each beside the rules they replaced with `--old`. On 18 Oct: time 91 of 96 against 93, people 48 of 48 against 48 |
+| `scripts/enrich-replay` | Mind Drop's enrichment rules (`workers/cortex/enrichRules.js`) alone: `time` holds the time estimates to a span on made up tasks, `people` who an item mentions; each beside the rules they replaced with `--old`. On 18 Oct, on gpt-6-luna as it ships: time 91 of 96 against 93, people 48 of 48 against 48 |
+| `scripts/minddrop-prompt-replay` | the prompts in `workers/cortex/minddropPrompts.js` and the agent's web search tool, called as the worker calls them, beside the old ones (`--old`, a module made from the tree before). On 18 Oct: details 66 of 66 against 61, time through the whole details prompt 65 of 68 against 58 (the old one gave no estimate for appointments), the reclassified drop's kind and dates 18 of 18 both with its reaction judged in voice 16 of 18 against 8, the reaction for a drop judged in voice 23 of 32 against 12 with titles and lengths within two of the old either way, the running summary judged no worse on any question, and searching right 49 of 50 both |
+| `scripts/people-replay`, `people-join-replay` | the people a record is about (a husband named three ways is one record; two Sams never are), and the join of records the records make plainly one person: 21 of 21, no wrong join |
 | `scripts/habit-builder-replay --stage` | the habit builder with Gremly's voice for how long it has known them (`context/gremlyAge.js`) |
 
 `scripts/shadow/background-compare.sh` runs the narrower writers for real
@@ -206,19 +209,27 @@ summary writer's prompts carry a word list.
 
 Any table or column that goes with them is James's SQL to write and apply.
 
-Real data still in the repo, from before the data fabric, for James to remove
-(and from history, if he wants): `analyst-output.json`,
-`analyst-v2-result.json`, `summary-v2-result.json`, `vibe-philosopher.json`,
-`vibe2-philosopher.json`, `workers/inngest-jobs/analyst-check.json`,
-`workers/inngest-jobs/summary-v2-stale-all.json`, the built `dist-cortex`, the
-old copy in `gremly-handoff-jan26`, and the data and results under
-`scripts/minddrop-audit` and `scripts/chat-audit` (196 files).
-`workers/cortex/context/contextBuilder.js` is read by nothing. The tests, the
-day and chat replays and the Mind Drop prompts no longer hold James's names or
-his own tasks (18 Oct). The older Mind Drop and chat prompts in
-`workers/cortex/cortex-index.js` still carry examples and dashes (over 300);
-only the time estimate and people rules have been rewritten, with
-`scripts/enrich-replay`, and the rest wants the same, prompt by prompt.
+Real data from before the data fabric was taken out of the repo on 18 Oct:
+the analyst, summary, vibe and corpus outputs, the observations about Dave,
+`dist-cortex`, `gremly-handoff-jan26`, and the real Mind Drops and chats with
+their results under `scripts/minddrop-audit` and `scripts/chat-audit`; the
+ignore rules keep such outputs out. They are still in the git history until
+James rewrites it. `workers/cortex/context/contextBuilder.js` is read by
+nothing.
+
+The chat worker's prompts (`workers/cortex/cortex-index.js`), from what its
+model calls show since logging began on 3 Oct. Rewritten on 18 Oct as semantic
+rules, each with `scripts/minddrop-prompt-replay` or `scripts/enrich-replay`:
+Mind Drop's title, card note and reaction, the same after a clarification,
+a drop's details (time, dates, effort, state, mood, habit days, people), the
+running summary of a long chat, and the agent's web search tool. Still with
+examples and dashes, to rewrite the same way when they run: the habit
+builder's three prompts, saving a Space chat, the full and the item chat
+summaries, the second enrichment pass, the web search tool of Space, World,
+Chapter and item chat (`makeWebSearchTool`), and the eleven prompts of Mind
+Drop's v2 fallback, which runs only when classify-v3 fails. Seven more are
+dead: weekly-summary, organize-day, sweep-headline, classify-phase1,
+journal-analyze, floor-suggest and the old item chat.
 
 ## What to watch
 
