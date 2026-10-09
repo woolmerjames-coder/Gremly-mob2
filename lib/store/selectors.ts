@@ -19,6 +19,7 @@ import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
 import { dayOfWeek, pausedOn, weekAround } from '../week/habitWeek';
+import { filedIndex, stepsOnClosedChapters } from '../worlds/model';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -517,6 +518,23 @@ export const selectActiveTodos = createSelector([selectTodos], (todos): Todo[] =
 );
 
 /**
+ * Steps left on a closed Chapter: they stay with it and leave every day list,
+ * Today, Sweep and the wrap up (James's call, Worlds round two). Bringing one
+ * back from the Chapter's page returns it.
+ */
+export const selectStepsOnClosedChapters = createSelector(
+  [(state: GremlyState) => state.chapters, (state: GremlyState) => state.dropChapterLinks],
+  (chapters, links): Set<string> =>
+    stepsOnClosedChapters(chapters ?? [], filedIndex([], links ?? [])),
+);
+
+/** The todos the day lists read from: active, and not left on a closed Chapter */
+export const selectDayTodos = createSelector(
+  [selectActiveTodos, selectStepsOnClosedChapters],
+  (todos, left): Todo[] => (left.size ? todos.filter((t) => !left.has(t.id)) : todos),
+);
+
+/**
  * Todos on Today: the ones due today, and the ones put off (Later) whose day
  * to come back is today. A Later has no day of its own, so its back day is
  * what puts it here. Once that day has gone by it waits in the wrap up's
@@ -524,7 +542,7 @@ export const selectActiveTodos = createSelector([selectTodos], (todos): Todo[] =
  * not hidden.
  */
 export const selectTodosDueToday = createSelector(
-  [selectActiveTodos, selectHiddenTodayIds],
+  [selectDayTodos, selectHiddenTodayIds],
   (todos, hiddenIds): Todo[] => {
     const today = getTodayDayString();
     return todos.filter(
@@ -536,7 +554,7 @@ export const selectTodosDueToday = createSelector(
 );
 
 /** Overdue todos (due_day < today, not completed, not archived) */
-export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
+export const selectOverdueTodos = createSelector([selectDayTodos], (todos): Todo[] => {
   const today = getTodayDayString();
   const result = todos.filter((t) => {
     if (!t.due_day || t.due_day >= today) return false;
@@ -562,7 +580,7 @@ export const selectRolledOverTodos = selectOverdueTodos;
 
 /** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days, not skipped today */
 export const selectUnscheduledTodosForMiniSweep = createSelector(
-  [selectActiveTodos],
+  [selectDayTodos],
   (todos): Todo[] => {
     const today = getTodayDayString();
     const threeDaysAgo = getDaysAgoDayString(3);
@@ -599,7 +617,7 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
 });
 
 /** Undated todos (no due_day, for triage) */
-export const selectUndatedTodos = createSelector([selectActiveTodos], (todos): Todo[] =>
+export const selectUndatedTodos = createSelector([selectDayTodos], (todos): Todo[] =>
   todos.filter((t) => !t.due_day),
 );
 
@@ -729,14 +747,15 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectWorlds, selectDropWorldLinks],
+  [selectTodos, selectNotes, selectWorlds, selectDropWorldLinks, selectStepsOnClosedChapters],
   (
     todos,
     notes,
     worlds,
     dropWorldLinks,
+    left,
   ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> =>
-    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString()),
+    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString(), left),
 );
 
 /**
@@ -750,6 +769,8 @@ export function sweepCandidatesAsOf(
   worlds: ReturnType<typeof selectWorlds>,
   dropWorldLinks: ReturnType<typeof selectDropWorldLinks>,
   today: string,
+  /** Steps left on a closed Chapter, which stay with it (selectStepsOnClosedChapters) */
+  left: Set<string> = new Set(),
 ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> {
   {
     const sevenDaysAgo = ds().addDays(today, -7);
@@ -757,7 +778,7 @@ export function sweepCandidatesAsOf(
 
     // Process todos
     for (const todo of todos) {
-      if (todo.archived || todo.completed_at) {
+      if (todo.archived || todo.completed_at || left.has(todo.id)) {
         continue;
       }
 
@@ -940,10 +961,11 @@ export const selectWrapUp = createSelector(
     selectDropWorldLinks,
     // the person's day as the store has it, so the cards are worked out again when it rolls over
     (state: GremlyState) => state.currentDate,
+    selectStepsOnClosedChapters,
   ],
-  (todos, notes, worlds, dropWorldLinks) => {
+  (todos, notes, worlds, dropWorldLinks, _day, left) => {
     const day = ds().ritualDay();
-    return { cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day) };
+    return { cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day, left) };
   },
 );
 

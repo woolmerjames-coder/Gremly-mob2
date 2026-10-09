@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { db } from '../../shared/db.js';
+import { stepsOnClosedChapters, withoutClosedSteps } from '../../shared/closedSteps.js';
 import { localDateOf, meetingsFrom, syncedOn, syncedRange } from '../../shared/calendar.js';
 import { addDays, clock, dayWords, trim } from '../agent/tools/words.js';
 
@@ -43,7 +44,9 @@ export async function readWeekAhead(
   const d = db(env);
   const u = userId;
   try {
-    const [synced, noteEvents, quickEvents, todos, overdue] = await Promise.all([
+    // steps left on a closed Chapter stay with it, as on Today in the app
+    const leftP = stepsOnClosedChapters(d, u);
+    const [synced, noteEvents, quickEvents, todosRead, overdueRead] = await Promise.all([
       syncedRange(d, u, tz, first, last),
       d.select(
         `notes?owner_id=eq.${u}&subtype=eq.event&archived=eq.false&external_source=is.null&or=(target_date.gte.${first},end_date.gte.${first})&target_date=lte.${last}&select=id,title,event_time,target_date,end_date&limit=200`,
@@ -58,6 +61,9 @@ export async function readWeekAhead(
         `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=lt.${first}&select=id,name,title,due_day&order=due_day.desc&limit=15`,
       ),
     ]);
+    const left = await leftP;
+    const todos = withoutClosedSteps(todosRead, left);
+    const overdue = withoutClosedSteps(overdueRead, left);
     // today's cancelled entries, as the daily context found them (may be a promise)
     const ids = await Promise.resolve(cancelledIds).catch(() => []);
     return weekFrom({

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
 import {
+  selectDayTodos,
   selectHabitsDueToday,
   selectQuickSweepCandidates,
   selectTodosDueToday,
@@ -169,6 +170,8 @@ export function useDayCard(date: string): DayCardData {
   // the quick sweep: what still needs a decision, the number the brief names
   const quickSweep = useGremlyStore(selectQuickSweepCandidates);
   const todos = useGremlyStore((s) => s.todos);
+  // another day's todos leave out the steps left on a closed Chapter, as Today does
+  const dayTodos = useGremlyStore(selectDayTodos);
   const habits = useGremlyStore((s) => s.habits);
   const progress = useGremlyStore((s) => s.habitProgress);
   const habitPlans = useGremlyStore((s) => s.habitPlans);
@@ -183,8 +186,8 @@ export function useDayCard(date: string): DayCardData {
   // another day (planning tomorrow) holds its own todos and habits, not today's
   const isToday = date === getDateService().today();
   const todosDue = useMemo(
-    () => (isToday ? todosDueToday : todosDueOn(todos, date)),
-    [isToday, todosDueToday, todos, date],
+    () => (isToday ? todosDueToday : todosDueOn(dayTodos, date)),
+    [isToday, todosDueToday, dayTodos, date],
   );
   // A habit they are breaking is never one of the day's habits to do: Due
   // today, the card's count and the pick sheet leave it out. Today keeps it in
