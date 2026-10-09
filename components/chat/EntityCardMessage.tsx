@@ -3,7 +3,7 @@
  *
  * The card Gremly shows, inside its own reply, when the user refers to one of
  * their items in chat. Mockup is spec (Entity Card in Chat canvas, September
- * 2026): the item with its kind and Space, the change laid out as now and
+ * 2026): the item with its kind, the change laid out as now and
  * change to, one tap either way. Nothing is changed until Yes is tapped; the
  * closing line carries an Undo for a short while afterwards. A view card opens
  * the item. Choose cards list the nearest candidates when there was no clear
@@ -20,7 +20,6 @@ import {
   StickyNote,
 } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
-import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
   EntityCard,
   EntityCardEntity,
@@ -61,12 +60,6 @@ function TypeIcon({ type }: { type: EntityCardEntity['type'] }) {
   return <CalendarCheck size={18} color={color} />;
 }
 
-function useSpaceName(spaceId?: string | null): string | null {
-  const spaces = useGremlyStore((s) => s.spaces);
-  if (!spaceId) return null;
-  return spaces.find((s) => s.id === spaceId)?.name ?? null;
-}
-
 function EntityHeader({
   entity,
   withWhen,
@@ -76,7 +69,6 @@ function EntityHeader({
   withWhen: boolean;
   right?: React.ReactNode;
 }) {
-  const spaceName = useSpaceName(entity.space_id);
   return (
     <View style={styles.header}>
       <View style={styles.iconWrap}>
@@ -87,7 +79,7 @@ function EntityHeader({
           {entity.title}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
-          {entitySubtitle(entity, { spaceName, withWhen })}
+          {entitySubtitle(entity, { withWhen })}
         </Text>
       </View>
       {right}

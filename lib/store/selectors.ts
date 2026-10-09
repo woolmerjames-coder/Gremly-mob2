@@ -1452,9 +1452,9 @@ export const selectHubNotes = createSelector([selectActiveNotes], (notes) =>
     ),
 );
 
-/** Unsorted items - ai_placed = true, no space assigned */
+/** Unsorted items - ai_placed = true */
 export const selectUnsortedItems = createSelector([selectAllItems], (items) =>
-  items.filter((item) => item.ai_placed === true && !item.space_id && !item.archived),
+  items.filter((item) => item.ai_placed === true && !item.archived),
 );
 
 /** All active items combined (for Hub V1 overview) */
@@ -2200,7 +2200,7 @@ export function filterUnsortedForReview(items: (Todo | Habit | Note)[]): (Todo |
     // AI-placed items awaiting confirmation
     if (item.ai_placed === true) return true;
     // Items from catchall that haven't been moved (still in catch-all limbo)
-    if (item.origin === 'catchall' && item.ai_placed === false && !item.space_id) return true;
+    if (item.origin === 'catchall' && item.ai_placed === false) return true;
     return false;
   });
 }

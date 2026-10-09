@@ -5,7 +5,6 @@ import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { ActionPill } from './ActionPill';
 import { ContextHeader } from './ContextHeader';
-import { SpaceButton } from './SpaceButton';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 
 type EventActionZoneProps = {
@@ -22,10 +21,6 @@ type EventActionZoneProps = {
   onPrepTodoTextChange: (text: string) => void;
   showPrepTodoInput: boolean;
   onTogglePrepTodo: () => void;
-  selectedSpaceId: string | null;
-  selectedSpaceName: string | null;
-  onRequestSpacePicker: () => void;
-  onClearSpace: () => void;
 };
 
 export function EventActionZone({
@@ -42,10 +37,6 @@ export function EventActionZone({
   onPrepTodoTextChange,
   showPrepTodoInput,
   onTogglePrepTodo,
-  selectedSpaceId,
-  selectedSpaceName,
-  onRequestSpacePicker,
-  onClearSpace,
 }: EventActionZoneProps) {
   const daysUntil = daysUntilEventOverride ?? meta.daysUntilEvent;
   const eventDateLabel = eventDateOverride ?? meta.eventDateFormatted;
@@ -132,12 +123,6 @@ export function EventActionZone({
           />
         )}
       </View>
-
-      <SpaceButton
-        active={selectedSpaceId !== null}
-        spaceName={selectedSpaceName}
-        onPress={selectedSpaceId !== null ? onClearSpace : onRequestSpacePicker}
-      />
     </View>
   );
 }

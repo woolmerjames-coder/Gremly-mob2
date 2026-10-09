@@ -87,12 +87,10 @@ function isInToday(item: Todo | Note, todayDate: string | undefined): boolean {
 }
 
 /**
- * Check if item has no tags and no space (unorganized)
+ * Check if item has no tags (unorganized)
  */
 function isUnorganized(item: Todo | Note): boolean {
-  const hasTags = item.tags && item.tags.length > 0;
-  const hasSpace = !!item.space_id;
-  return !hasTags && !hasSpace;
+  return !(item.tags && item.tags.length > 0);
 }
 
 // =============================================================================

@@ -49,12 +49,6 @@ export interface WeeklySummaryPayload {
     lastTouchedAt: string;
   }>;
 
-  spaceActivity: Array<{
-    spaceName: string;
-    itemCount: number;
-    lastInteraction: string;
-  }>;
-
   completionsByDay: Record<string, number>;
   completionsByTimeBlock: {
     morning: number;
@@ -70,10 +64,8 @@ export interface WeeklySummaryPayload {
     isRecurring: boolean;
     isUserCreated: boolean;
     hasGremlyInteraction: boolean;
-    spaceId?: string;
     linkedTodoCount: number;
     source?: 'calendar' | 'gremly_entity' | 'user_calendar';
-    spaceName?: string;
     location?: string;
     endDate?: string;
   }>;
@@ -123,15 +115,6 @@ function hourFromTimestamp(ts: string): number {
 /** Check if a YYYY-MM-DD string falls in [start, end] inclusive. */
 function dayInRange(day: string, start: string, end: string): boolean {
   return day >= start && day <= end;
-}
-
-/** Most-recent non-null ISO timestamp from a list. */
-function latestTimestamp(...timestamps: (string | null | undefined)[]): string {
-  let latest = '';
-  for (const t of timestamps) {
-    if (t && t > latest) latest = t;
-  }
-  return latest;
 }
 
 /** Display title for an item (prefers `title`, falls back to `name`). */
@@ -184,7 +167,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
   const habits: Habit[] = state.habits ?? [];
   const habitProgress: HabitProgressRow[] = state.habitProgress ?? [];
   const notes: Note[] = state.notes ?? [];
-  const spaces = state.spaces ?? [];
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 1. Todos completed this week
@@ -445,28 +427,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
     });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 11. Space activity
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  const spaceActivity = spaces.map((space) => {
-    const spaceItems = [
-      ...todos.filter((t) => t.space_id === space.id && !t.archived),
-      ...habits.filter((h) => h.space_id === space.id && !h.archived),
-      ...notes.filter((n) => n.space_id === space.id && !n.archived),
-    ];
-
-    const lastInteraction = spaceItems.reduce((max, item) => {
-      const ts = latestTimestamp(item.updated_at, item.created_at);
-      return ts > max ? ts : max;
-    }, space.created_at);
-
-    return {
-      spaceName: space.name,
-      itemCount: spaceItems.length,
-      lastInteraction,
-    };
-  });
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 12. Completions by day
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const completionsByDay: Record<string, number> = {};
@@ -518,11 +478,8 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
     return true;
   });
 
-  // Build lookups for enrichment (spaceId, linkedTodoCount, etc.)
-  const spaceMap = new Map(spaces.map((s) => [s.id, s.name]));
+  // Build lookups for enrichment (linkedTodoCount, etc.)
   const notesById = new Map(notes.filter((n) => n.subtype === 'event').map((n) => [n.id, n]));
-  const freshUce = useGremlyStore.getState().userCalendarEvents ?? [];
-  const uceById = new Map(freshUce.map((e) => [e.id, e]));
 
   const sourceMap: Record<string, 'calendar' | 'gremly_entity' | 'user_calendar'> = {
     synced: 'calendar',
@@ -533,7 +490,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
   const upcomingEvents: WeeklySummaryPayload['upcomingEvents'] = dedupedItems
     .map((item) => {
       const note = item.source === 'gremly_event' ? notesById.get(item.originalId) : undefined;
-      const uce = item.source === 'user_calendar' ? uceById.get(item.originalId) : undefined;
 
       const linkedTodoCount = note
         ? todos.filter((t) => !t.archived && !t.completed_at && t.linked_event_id === note.id)
@@ -547,14 +503,9 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
         isAllDay: item.isAllDay,
         isRecurring: false,
         isUserCreated: item.source !== 'synced',
-        hasGremlyInteraction: item.source === 'gremly_event' || !!uce?.space_id,
-        spaceId: note?.space_id ?? uce?.space_id ?? undefined,
+        hasGremlyInteraction: item.source === 'gremly_event',
         linkedTodoCount,
         source: sourceMap[item.source] ?? 'calendar',
-        spaceName:
-          (note?.space_id ?? uce?.space_id)
-            ? (spaceMap.get(note?.space_id ?? uce?.space_id ?? '') ?? undefined)
-            : undefined,
         location: item.location,
         endDate: note?.end_date ?? undefined,
       };
@@ -629,7 +580,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
 
     completedTodos: completedTodosDetail,
     staleItems,
-    spaceActivity,
     completionsByDay,
     completionsByTimeBlock,
     upcomingEvents,
@@ -648,7 +598,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
     mindDropsCreated: payload.stats.mindDropsCreated,
     mindDropsSwept: payload.stats.mindDropsSwept,
     staleItems: payload.staleItems.length,
-    spaceActivity: payload.spaceActivity.length,
     upcomingEvents: payload.upcomingEvents.length,
     upcomingTodos: payload.upcomingTodos.length,
     recentJournalExcerpts: payload.recentJournalExcerpts.length,

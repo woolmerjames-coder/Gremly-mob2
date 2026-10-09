@@ -30,10 +30,6 @@ export interface NowLockedItem {
   completedAt?: string | null;
   /** Human-readable frequency like "3 times a week" */
   frequency?: string;
-  /** Space ID for this item */
-  spaceId?: string | null;
-  /** Space name for display */
-  spaceName?: string | null;
 }
 
 /**
@@ -60,10 +56,6 @@ export interface NowActiveItem {
   frequency?: string;
   /** Whether this is a break habit (awareness item, no time estimate) */
   isBreakHabit?: boolean;
-  /** Space ID for this item */
-  spaceId?: string | null;
-  /** Space name for display */
-  spaceName?: string | null;
 }
 
 /**

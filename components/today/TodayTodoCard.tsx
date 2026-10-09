@@ -1,7 +1,6 @@
 /**
  * TodayTodoCard - Phase 9: Energy & Momentum
  * Todo card for Today v2 screen
- * Step 4: Adds grouped prop for space-grouped display
  */
 
 import React, { useMemo } from 'react';
@@ -17,10 +16,9 @@ export interface TodayTodoCardProps {
   title: string;
   dueTime?: string;
   tags?: string[];
-  spaceName?: string;
   overdue?: boolean;
   nearDue?: boolean;
-  grouped?: boolean; // Whether this card is in a space group
+  grouped?: boolean;
   onComplete: (id: string) => void;
   onLongPress?: (id: string) => void;
   reducedMotion?: boolean;
@@ -31,7 +29,6 @@ export default function TodayTodoCard({
   title,
   dueTime,
   tags = [],
-  spaceName,
   overdue = false,
   nearDue = false,
   grouped = false,
@@ -112,11 +109,6 @@ export default function TodayTodoCard({
 
             {/* Chips row */}
             <View style={styles.chipsRow}>
-              {spaceName && (
-                <View style={[styles.chip, { backgroundColor: t.colors.surface }]}>
-                  <Text style={[styles.chipText, { color: t.colors.subtle }]}>{spaceName}</Text>
-                </View>
-              )}
               {tags.slice(0, 2).map((tag, idx) => (
                 <View key={idx} style={[styles.chip, { backgroundColor: t.colors.surface }]}>
                   <Text style={[styles.chipText, { color: t.colors.subtle }]}>{tag}</Text>

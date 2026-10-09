@@ -3,7 +3,7 @@
  *
  * Replaces AllItemsTable as the default Hub view. Groups items by the day
  * they were dropped ("Today", "Yesterday", "Feb 6", etc.) with type filter
- * pills and compact item rows showing type dot, title, space, and metadata.
+ * pills and compact item rows showing type dot, title and metadata.
  *
  * Hub V2 (Feb 2026)
  */
@@ -13,7 +13,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date';
 import { format } from 'date-fns';
-import type { Todo, Habit, Note, Space } from '../../lib/types';
+import type { Todo, Habit, Note } from '../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
 // BRAND COLORS (matches AllItemsTable / brand.ts)
@@ -46,8 +46,6 @@ type TimelineItem = {
   subtitle?: string;
   createdAt: string; // ISO string
   dateKey: string; // YYYY-MM-DD for grouping
-  spaceName: string | null;
-  spaceId: string | null;
   tags: string[];
   status: 'active' | 'completed' | 'overdue';
   /** Note subtype for icon differentiation */
@@ -67,7 +65,6 @@ type DayGroup = {
 
 export interface TimelineViewProps {
   onItemPress: (item: Todo | Habit | Note) => void;
-  onSpacePress?: (spaceId: string) => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -186,27 +183,17 @@ const MOOD_COLORS: Record<string, string> = {
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-export default function TimelineView({ onItemPress, onSpacePress }: TimelineViewProps) {
+export default function TimelineView({ onItemPress }: TimelineViewProps) {
   const [filter, setFilter] = useState<FilterType>('all');
 
   // Get data from store
   const todos = useGremlyStore((s): Todo[] => s.todos) ?? [];
   const habits = useGremlyStore((s): Habit[] => s.habits) ?? [];
   const notes = useGremlyStore((s): Note[] => s.notes) ?? [];
-  const spaces = useGremlyStore((s): Space[] => s.spaces) ?? [];
 
   const dateService = getDateService();
   const todayKey = dateService.today();
   const yesterdayKey = getYesterdayKey();
-
-  // Space lookup
-  const spaceMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const space of spaces) {
-      map.set(space.id, space.name);
-    }
-    return map;
-  }, [spaces]);
 
   // Build unified timeline items
   const allItems = useMemo<TimelineItem[]>(() => {
@@ -220,8 +207,6 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
         title: todo.name || 'Untitled',
         createdAt: todo.created_at ?? '',
         dateKey: getDateKey(todo.created_at ?? ''),
-        spaceName: todo.space_id ? (spaceMap.get(todo.space_id) ?? null) : null,
-        spaceId: todo.space_id ?? null,
         tags: todo.tags ?? [],
         status: getStatus(todo),
         raw: todo,
@@ -236,8 +221,6 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
         title: habit.name || 'Untitled',
         createdAt: habit.created_at ?? '',
         dateKey: getDateKey(habit.created_at ?? ''),
-        spaceName: null,
-        spaceId: null,
         tags: habit.tags ?? [],
         status: getStatus(habit),
         raw: habit,
@@ -257,8 +240,6 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
             : undefined,
         createdAt: note.created_at ?? '',
         dateKey: getDateKey(note.created_at ?? ''),
-        spaceName: note.space_id ? (spaceMap.get(note.space_id) ?? null) : null,
-        spaceId: note.space_id ?? null,
         tags: note.tags ?? [],
         status: getStatus(note),
         subtype: note.subtype,
@@ -270,7 +251,7 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
     // Sort newest first
     items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return items;
-  }, [todos, habits, notes, spaceMap]);
+  }, [todos, habits, notes]);
 
   // Apply type filter
   const filteredItems = useMemo(() => {
@@ -429,7 +410,7 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
                       </Text>
                     )}
 
-                    {/* Metadata row: mood, space, overdue badge */}
+                    {/* Metadata row: mood, overdue badge */}
                     <View style={styles.metaRow}>
                       {/* Mood chips */}
                       {item.mood &&
@@ -452,20 +433,6 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
                             <Text style={styles.moodText}>{m}</Text>
                           </View>
                         ))}
-
-                      {/* Space chip */}
-                      {item.spaceName && (
-                        <TouchableOpacity
-                          style={styles.spaceChip}
-                          onPress={() => item.spaceId && onSpacePress?.(item.spaceId)}
-                          activeOpacity={0.7}
-                          disabled={!onSpacePress}
-                        >
-                          <Text style={styles.spaceText} numberOfLines={1}>
-                            {item.spaceName}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
 
                       {/* Overdue badge */}
                       {item.status === 'overdue' && (
@@ -642,18 +609,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: BRAND.mutedSageText,
-  },
-  spaceChip: {
-    backgroundColor: `${BRAND.mossGreen}10`,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    maxWidth: 100,
-  },
-  spaceText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: BRAND.mossGreen,
   },
   overdueChip: {
     backgroundColor: `${BRAND.goldenPear}25`,

@@ -313,19 +313,16 @@ describe('a note', () => {
       candidateKind: 'note',
       action: 'keep',
       noteAction: 'fine',
-      spaceId: 'sp1',
     });
     if (!out.ok) throw new Error(out.message);
     expect(note('n1')).toMatchObject({
       swept_at: ds.nowTimestamp(),
       skipped_in_sweep_at: null,
       resurface_at: null,
-      space_id: 'sp1',
     });
     expect(out.record).toMatchObject({ op: 'keep', out: 'kept', label: 'Kept as it is' });
     await out.revert();
     expect(note('n1').swept_at).toBeNull();
-    expect(note('n1').space_id).toBeNull();
   });
 
   it('brought back later gets its day, with no reminder', async () => {

@@ -5,18 +5,15 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import DSPreview from '../app/(dev)/DSPreview';
-import CreateSpaceModal from './CreateSpaceModal';
 import { OverlayComponent } from './overlay';
 import { eventBus } from '../lib/events/EventBus';
 import { useGlobalOverlay } from '../contexts/OverlayContext';
 import { Box, Text, Button } from '../ui';
 import { lightTokens } from '../design/tokens';
 import { useRepo } from '../providers/RepoProvider';
-import { useEntityMutations } from '../hooks/useEntityMutations';
-import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
+import type { AppRecord, NoteSubtype, Note, Habit, Todo } from '../lib/types';
 import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
 import { emitOverlaySaved, type OverlaySavedPayload } from '../lib/events/overlaySaved';
-import SpaceAssignmentActionSheet from './spaces/SpaceAssignmentActionSheet';
 
 registerSheet('demo-sheet', ({ sheetId }) => {
   return (
@@ -33,9 +30,6 @@ registerSheet('demo-sheet', ({ sheetId }) => {
     </ActionSheet>
   );
 });
-
-// Space assignment bottom sheet - shown when entering a Space with pending suggestions
-registerSheet('space-assignment', SpaceAssignmentActionSheet);
 
 type DestinationPickerPayload = {
   itemId: string;
@@ -133,24 +127,7 @@ function DestinationPickerSheet({
   payload: DestinationPickerPayload;
 }) {
   const repo = useRepo();
-  const entityMutations = useEntityMutations();
-  const [spaces, setSpaces] = React.useState<Space[]>([]);
   const { itemId, itemType, itemSubtype, origin } = payload;
-
-  React.useEffect(() => {
-    let isMounted = true;
-    repo
-      .listSpaces()
-      .then((result) => {
-        if (isMounted) setSpaces(result);
-      })
-      .catch((err) => {
-        console.error('[DestinationPickerSheet] Failed to load spaces', err);
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [repo]);
 
   function fallbackTitle(item: Partial<AppRecord>): string {
     const titleField =
@@ -276,42 +253,6 @@ function DestinationPickerSheet({
     }
   }
 
-  async function moveToSpace(spaceId: string): Promise<void> {
-    if (!itemId) return;
-    try {
-      // Get current item for before state
-      const currentItem = await repo.getById(itemId);
-      const beforeState = currentItem
-        ? {
-            in_today: false,
-            space_id: (currentItem as any).space_id ?? null,
-            archived: (currentItem as any).archived ?? false,
-            dueDay: (currentItem as any).due_day ?? null,
-          }
-        : undefined;
-
-      // Use entity mutations with test logging
-      const result = await entityMutations.assignToSpace(itemId, spaceId, itemType, beforeState);
-
-      if (result.success) {
-        if (origin === 'catchall') {
-          ActivityLog.recordCatchAllMove({
-            itemId,
-            destination: 'space',
-            itemTitle: payload.itemTitle,
-          });
-        }
-        console.log('[DestinationPickerSheet] Moved to space:', spaceId);
-      } else {
-        console.error('[DestinationPickerSheet] Move to space failed', result.error);
-      }
-
-      await SheetManager.hide(sheetId);
-    } catch (e) {
-      console.error('[DestinationPickerSheet] Move to space failed', e);
-    }
-  }
-
   return (
     <ActionSheet id={sheetId} gestureEnabled>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -349,26 +290,6 @@ function DestinationPickerSheet({
             onPress={() => moveToDestination('list')}
           />
         </Box>
-
-        {spaces.length > 0 && (
-          <>
-            <Text variant="label" style={{ marginTop: 24, marginBottom: 8 }}>
-              Or place in a Space
-            </Text>
-            <Box gap={2}>
-              {spaces.map((sp: Space) => (
-                <Button
-                  key={sp.id}
-                  title={sp.name}
-                  variant="neutral"
-                  size="md"
-                  testID={`dest-space-${sp.id}`}
-                  onPress={() => moveToSpace(sp.id)}
-                />
-              ))}
-            </Box>
-          </>
-        )}
       </ScrollView>
     </ActionSheet>
   );
@@ -438,8 +359,6 @@ export const OverlayHost = () => {
 
   return (
     <>
-      <CreateSpaceModal />
-
       {/* Global Unified Overlay - single instance for entire app
           Mount the overlay into a top-level absolute container so it renders
           above app content without dimming or modal backdrop. The overlay

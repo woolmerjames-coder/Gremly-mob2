@@ -462,9 +462,6 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
         ambiguityType: drop.ambiguityType,
         ambiguityReason: drop.ambiguityReason,
         bucket: drop.bucket as 'todo' | 'habit' | 'log' | undefined,
-        userSpaces: Array.from(useGremlyStore.getState().spaces?.values?.() ?? []).map(
-          (sp: any) => sp.name,
-        ),
         timeoutMs: CLARIFY_TIMEOUT_MS,
       })
     : Promise.resolve(null);

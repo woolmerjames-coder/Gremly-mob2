@@ -107,11 +107,6 @@ describe('TodayHabitCard', () => {
     expect(getByText(/🔥 5/)).toBeTruthy();
   });
 
-  it('should render space name when provided', () => {
-    const { getByText } = render(<TodayHabitCard {...defaultProps} spaceName="Work" />);
-    expect(getByText('Work')).toBeTruthy();
-  });
-
   it('should render tags (max 2)', () => {
     const { getByText } = render(
       <TodayHabitCard {...defaultProps} tags={['health', 'morning', 'wellness']} />,
@@ -197,11 +192,6 @@ describe('TodayTodoCard', () => {
     const card = getByTestId('todo-card-todo-456');
     expect(card).toBeTruthy();
     // Card exists but without extra glow styling
-  });
-
-  it('should render space name when provided', () => {
-    const { getByText } = render(<TodayTodoCard {...defaultProps} spaceName="Work" />);
-    expect(getByText('Work')).toBeTruthy();
   });
 
   it('should render tags (max 2)', () => {

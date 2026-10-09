@@ -223,7 +223,7 @@ describe('filterUnsortedForReview', () => {
     expect(result.map((i) => i.id)).toEqual(['t1', 'n1']);
   });
 
-  it('returns catchall items without space_id', () => {
+  it('returns catchall items, in a Space or not', () => {
     const items = [
       makeTodo({ id: 't1', origin: 'catchall', ai_placed: false, space_id: null }),
       makeTodo({ id: 't2', origin: 'catchall', ai_placed: false, space_id: 'space-1' }),
@@ -232,8 +232,7 @@ describe('filterUnsortedForReview', () => {
 
     const result = filterUnsortedForReview(items);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('t1');
+    expect(result.map((i) => i.id)).toEqual(['t1', 't2']);
   });
 
   it('returns empty array when no items match', () => {

@@ -11,7 +11,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import celebrationController from '../app/features/celebration/CelebrationController';
 import TodayScreen from '../app/tabs/TodayScreen';
-import SpacesScreen from '../app/tabs/SpacesScreen';
 import WorldsScreen from '../app/tabs/WorldsScreen';
 import GremlyHomeScreen from '../app/tabs/GremlyHomeScreen';
 import {
@@ -26,7 +25,6 @@ import { lightTokens } from '../design/tokens';
 
 // Tab bar icon images (v1.20 brand refresh)
 import TODAY_ICON from '../assets/todayicon1.22.png';
-import SPACES_ICON from '../assets/spacesicon1.20.png';
 import WORLDS_ICON from '../assets/worldicon4.28.png';
 import GREMLY_BUTTON from '../assets/buttonforHP.png';
 import GREMLY_BUTTON_GREY from '../assets/buttonforHP-grey.png';
@@ -61,7 +59,6 @@ export type TabParamList = {
         threadKey?: string;
       }
     | undefined;
-  Spaces: undefined;
   Worlds: undefined;
 };
 
@@ -143,12 +140,10 @@ function GremlyTabButton({
  * Three tabs:
  * - Today: Daily view with todos, habits, and schedule
  * - Gremly (centre): Drop and Chat, switched with DROP | CHAT or a swipe
- * - Spaces: Browse and manage Spaces (non-testers)
- * - Worlds: Worlds & Chapters index (testers only)
+ * - Worlds: Worlds and Chapters, for everyone (Worlds rebuild, stage 4; Spaces are gone)
  */
 
 export default function TabNavigator() {
-  const isTester = useGremlyStore((s) => s.isTester);
   // the dot on the Worlds tab: something new landed there from somewhere else
   const worldsNew = useWorldsDot((s) => s.on);
   const worldCount = useGremlyStore((s) => (s.worlds ?? []).length);
@@ -206,42 +201,26 @@ export default function TabNavigator() {
           tabBarButton: GremlyTabButton,
         }}
       />
-      {isTester ? (
-        <Tab.Screen
-          name="Worlds"
-          component={WorldsScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <View>
-                <Image
-                  source={WORLDS_ICON}
-                  style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
-                  resizeMode="contain"
-                />
-                {worldsNew && !focused ? (
-                  <View style={styles.newDot} testID="worlds-tab-dot" />
-                ) : null}
-              </View>
-            ),
-            tabBarLabel: 'Worlds',
-            tabBarAccessibilityLabel: worldsNew ? 'Worlds, something new' : 'Worlds',
-          }}
-        />
-      ) : (
-        <Tab.Screen
-          name="Spaces"
-          component={SpacesScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
+      <Tab.Screen
+        name="Worlds"
+        component={WorldsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <View>
               <Image
-                source={SPACES_ICON}
+                source={WORLDS_ICON}
                 style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
                 resizeMode="contain"
               />
-            ),
-          }}
-        />
-      )}
+              {worldsNew && !focused ? (
+                <View style={styles.newDot} testID="worlds-tab-dot" />
+              ) : null}
+            </View>
+          ),
+          tabBarLabel: 'Worlds',
+          tabBarAccessibilityLabel: worldsNew ? 'Worlds, something new' : 'Worlds',
+        }}
+      />
     </Tab.Navigator>
   );
 }

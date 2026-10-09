@@ -2,7 +2,7 @@
  * Today Screen - Phase 9: Energy & Momentum
  * Enhanced with mascot header, sections, and smart cards
  * Step 2: Adds repo persistence, undo with timer, show more buttons, evening teaser
- * Step 4: Adds space grouping, pull-to-refresh, session collapse state
+ * Step 4: Adds pull-to-refresh, session collapse state
  * Step 5: Adds suggestion heuristics with prefilled overlay and analytics
  */
 
@@ -44,30 +44,6 @@ const COMMITMENTS_FEATURE_ENABLED = (() => {
 })();
 
 // UndoState removed - now using PendingCompletionInfo from useTodayInteractions
-
-// Helper types and functions for space grouping
-type Group<T> = { key: string; items: T[] };
-
-function groupBy<T>(arr: T[], getKey: (t: T) => string): Group<T>[] {
-  const map = new Map<string, T[]>();
-  for (const it of arr) {
-    const k = getKey(it) || 'No Space';
-    if (!map.has(k)) map.set(k, []);
-    map.get(k)!.push(it);
-  }
-  // Sort groups: alphabetically, but "No Space" always last
-  const entries = Array.from(map.entries());
-  entries.sort(([a], [b]) => {
-    if (a === 'No Space') return 1;
-    if (b === 'No Space') return -1;
-    return a.localeCompare(b);
-  });
-  return entries.map(([key, items]) => ({ key, items }));
-}
-
-function toKebabCase(str: string): string {
-  return str.toLowerCase().replace(/\s+/g, '-');
-}
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -276,8 +252,6 @@ function TodayScreenV2() {
   const visibleHabits = habitsToShow.filter((h) => !interactions.completedHabitIds.has(h.id));
   const visibleTodos = todosToShow.filter((t) => !interactions.completedTodoIds.has(t.id));
 
-  // Group todos by space
-  const todoGroups = groupBy(visibleTodos, (t) => t.spaceName || '');
   const commitments = COMMITMENTS_FEATURE_ENABLED ? (todayData.commitments ?? []) : [];
   const hasCommitments = COMMITMENTS_FEATURE_ENABLED && commitments.length > 0;
 
@@ -461,7 +435,6 @@ function TodayScreenV2() {
                     dueWindow={habit.dueWindow}
                     streakCount={habit.streakCount}
                     tags={habit.tags}
-                    spaceName={habit.spaceName}
                     onComplete={handleHabitComplete}
                     onLongPress={handleLongPress}
                     reducedMotion={todayData.reducedMotion}
@@ -489,62 +462,24 @@ function TodayScreenV2() {
               }
             >
               <Box gap={3} testID="today-section-due-today">
-                {todoGroups.length === 0 && (
+                {visibleTodos.length === 0 && (
                   <Text variant="subtle" style={{ textAlign: 'center', padding: 16 }}>
                     All clear for now
                   </Text>
                 )}
-                {todoGroups.map((group) => (
-                  <Box key={group.key} gap={2}>
-                    {/* Group header */}
-                    <Box
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 8,
-                        paddingHorizontal: 4,
-                      }}
-                      testID={`due-group-${toKebabCase(group.key)}`}
-                    >
-                      <Text variant="subtle" style={{ fontSize: 12, fontWeight: '600' }}>
-                        {group.key}
-                      </Text>
-                      <View
-                        style={{
-                          backgroundColor: theme.colors.deepTeal.DEFAULT,
-                          borderRadius: 12,
-                          paddingHorizontal: 8,
-                          paddingVertical: 2,
-                          minWidth: 24,
-                          alignItems: 'center',
-                        }}
-                        testID={`due-group-count-${toKebabCase(group.key)}`}
-                      >
-                        <Text
-                          style={{ fontSize: 11, color: theme.colors.cream, fontWeight: '600' }}
-                        >
-                          {group.items.length}
-                        </Text>
-                      </View>
-                    </Box>
-                    {/* Group items */}
-                    {group.items.map((todo) => (
-                      <TodayTodoCard
-                        key={todo.id}
-                        id={todo.id}
-                        title={todo.title}
-                        dueTime={todo.dueTime}
-                        tags={todo.tags}
-                        spaceName={todo.spaceName}
-                        overdue={todo.overdue}
-                        nearDue={todo.nearDue}
-                        grouped
-                        onComplete={handleTodoComplete}
-                        onLongPress={handleLongPress}
-                        reducedMotion={todayData.reducedMotion}
-                      />
-                    ))}
-                  </Box>
+                {visibleTodos.map((todo) => (
+                  <TodayTodoCard
+                    key={todo.id}
+                    id={todo.id}
+                    title={todo.title}
+                    dueTime={todo.dueTime}
+                    tags={todo.tags}
+                    overdue={todo.overdue}
+                    nearDue={todo.nearDue}
+                    onComplete={handleTodoComplete}
+                    onLongPress={handleLongPress}
+                    reducedMotion={todayData.reducedMotion}
+                  />
                 ))}
               </Box>
             </TodaySection>

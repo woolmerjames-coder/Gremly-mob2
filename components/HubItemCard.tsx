@@ -17,9 +17,6 @@ export type HubItem = {
   date?: string; // ISO or pretty
   placedBy?: Placement; // 'ai' => show sparkle
   tags?: Tag[]; // Up to 2 tags to display
-  spaceName?: string; // Space name to display (only when scope is "Everywhere")
-  showSpaceChip?: boolean; // Whether to show space chip (true when scope is Everywhere)
-  spaceId?: string | null; // Space ID for navigation
   private?: boolean; // Phase L7: Private mode for logs
 };
 
@@ -34,14 +31,12 @@ export default function HubItemCard({
   onPress,
   onMove,
   showMove,
-  onSpacePress,
   testID,
 }: {
   item: HubItem;
   onPress?: () => void;
   onMove?: () => void;
   showMove?: boolean;
-  onSpacePress?: (spaceId: string) => void;
   testID?: string;
 }) {
   return (
@@ -59,7 +54,7 @@ export default function HubItemCard({
               <Lock size={12} color="#777" style={{ marginLeft: 4 }} />
             )}
           </View>
-          {/* Meta row: [AI badge] [Space chip] [Tag chips] [Date] */}
+          {/* Meta row: [AI badge] [Tag chips] [Date] */}
           <View style={styles.metaRow}>
             {/* AI badge */}
             {item.placedBy === 'ai' && (
@@ -67,18 +62,6 @@ export default function HubItemCard({
                 <Icon name="Sparkles" size="xs" color={colors.white} />
                 <Text style={styles.aiBadgeText}>AI</Text>
               </View>
-            )}
-
-            {/* Space chip (only when showSpaceChip is true and spaceName exists) */}
-            {item.showSpaceChip && item.spaceName && item.spaceId && (
-              <TouchableOpacity
-                style={styles.spaceChip}
-                onPress={() => onSpacePress?.(item.spaceId!)}
-                testID="space-chip"
-              >
-                <Icon name="MapPin" size="xs" color={colors.deepTeal} />
-                <Text style={styles.spaceChipText}>{item.spaceName}</Text>
-              </TouchableOpacity>
             )}
 
             {/* Tag chips (show up to 2) */}
@@ -158,22 +141,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   aiBadgeText: { fontSize: 10, color: colors.white, fontWeight: '600' },
-  spaceChip: {
-    backgroundColor: colors.mint,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 2,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.mint,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  spaceChipText: {
-    fontSize: 10,
-    color: colors.deepTeal,
-    fontWeight: '600',
-  },
   tagChip: {
     backgroundColor: colors.deepTeal,
     paddingHorizontal: spacing.xs,

@@ -458,22 +458,17 @@ describe('buildWeeklySummaryPayload', () => {
     expect(total).toBe(4);
   });
 
-  // ── Space activity ────────────────────────────────────────────────────────
+  // ── No Spaces ─────────────────────────────────────────────────────────────
 
-  it('computes space activity counts', async () => {
+  it('sends nothing about Spaces, even for items still in one', async () => {
     const state = makeBaseState({
       spaces: [{ id: 'space-1', name: 'Work', created_at: '2025-12-01T00:00:00Z' }],
-      todos: [
-        makeTodo({ space_id: 'space-1' }),
-        makeTodo({ space_id: 'space-1' }),
-        makeTodo({ space_id: 'other-space' }),
-      ],
+      todos: [makeTodo({ space_id: 'space-1' })],
     });
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
-    expect(result!.spaceActivity).toHaveLength(1);
-    expect(result!.spaceActivity[0].spaceName).toBe('Work');
-    expect(result!.spaceActivity[0].itemCount).toBe(2);
+    expect(result).not.toHaveProperty('spaceActivity');
+    expect(JSON.stringify(result)).not.toContain('Work');
   });
 
   // ── Journal excerpts ──────────────────────────────────────────────────────
@@ -508,7 +503,6 @@ describe('buildWeeklySummaryPayload', () => {
     expect(result!.stats.mindDropsSwept).toBe(0);
     expect(result!.completedTodos).toEqual([]);
     expect(result!.staleItems).toEqual([]);
-    expect(result!.spaceActivity).toEqual([]);
     expect(result!.upcomingTodos).toEqual([]);
     expect(result!.recentJournalExcerpts).toEqual([]);
     expect(result!.recentNotesTitles).toEqual([]);
@@ -572,8 +566,7 @@ describe('buildWeeklySummaryPayload', () => {
     expect(entityEvent!.source).toBe('gremly_entity');
     expect(entityEvent!.isUserCreated).toBe(true);
     expect(entityEvent!.hasGremlyInteraction).toBe(true);
-    expect(entityEvent!.spaceId).toBe('space-trip');
-    expect(entityEvent!.spaceName).toBe('LA Trip');
+    expect(entityEvent).not.toHaveProperty('spaceName');
     expect(entityEvent!.location).toBe('LAX Airport');
     expect(entityEvent!.startTime).toBe('14:30');
     expect(entityEvent!.isAllDay).toBe(false);

@@ -67,7 +67,6 @@ describe('Today Screen - Grouping Features', () => {
       id: 't1',
       title: 'Work task',
       dueTime: '09:00',
-      spaceName: 'Work',
       tags: [],
       overdue: false,
       nearDue: false,
@@ -76,7 +75,6 @@ describe('Today Screen - Grouping Features', () => {
       id: 't2',
       title: 'Mexico planning',
       dueTime: '10:00',
-      spaceName: 'Mexico Trip',
       tags: [],
       overdue: false,
       nearDue: false,
@@ -85,7 +83,6 @@ describe('Today Screen - Grouping Features', () => {
       id: 't3',
       title: 'Another work task',
       dueTime: '11:00',
-      spaceName: 'Work',
       tags: [],
       overdue: false,
       nearDue: false,
@@ -94,7 +91,6 @@ describe('Today Screen - Grouping Features', () => {
       id: 't4',
       title: 'Personal errand',
       dueTime: '14:00',
-      spaceName: undefined,
       tags: [],
       overdue: false,
       nearDue: false,
@@ -138,97 +134,6 @@ describe('Today Screen - Grouping Features', () => {
 
   afterEach(() => {
     delete process.env.JEST_WORKAROUND;
-  });
-
-  describe('Space Grouping', () => {
-    it('renders group headers with correct testIDs', () => {
-      const { getByTestId } = renderWithProviders(<TodayScreen />);
-
-      expect(getByTestId('due-group-work')).toBeTruthy();
-      expect(getByTestId('due-group-mexico-trip')).toBeTruthy();
-      expect(getByTestId('due-group-no-space')).toBeTruthy();
-    });
-
-    it('displays correct item counts in group headers', () => {
-      const { getByTestId } = renderWithProviders(<TodayScreen />);
-
-      // Work has 2 todos
-      const workCount = getByTestId('due-group-count-work');
-      expect(workCount).toBeTruthy();
-      // The View contains a Text element with the count
-      const workCountText = workCount.props.children;
-      expect(workCountText.props.children).toBe(2);
-
-      // Mexico Trip has 1 todo
-      const mexicoCount = getByTestId('due-group-count-mexico-trip');
-      expect(mexicoCount).toBeTruthy();
-      const mexicoCountText = mexicoCount.props.children;
-      expect(mexicoCountText.props.children).toBe(1);
-    });
-
-    it('orders groups alphabetically with "No Space" last', () => {
-      const { queryAllByTestId } = renderWithProviders(<TodayScreen />);
-
-      const groupHeaders = queryAllByTestId(/due-group-/);
-      const groupIds = groupHeaders.map((header) => header.props.testID);
-
-      // Mexico Trip, Work, No Space (alphabetical, then No Space)
-      expect(groupIds.indexOf('due-group-mexico-trip')).toBeLessThan(
-        groupIds.indexOf('due-group-work'),
-      );
-      expect(groupIds.indexOf('due-group-work')).toBeLessThan(
-        groupIds.indexOf('due-group-no-space'),
-      );
-    });
-
-    it('removes empty groups after completion', async () => {
-      // Mock data with single todo in a group
-      const singleTodoData = {
-        ...defaultMockData,
-        todos: [
-          {
-            id: 't1',
-            title: 'Work task',
-            dueTime: '09:00',
-            spaceName: 'Work',
-            tags: [],
-            overdue: false,
-            nearDue: false,
-          },
-        ],
-        visible: {
-          habits: [],
-          todos: [
-            {
-              id: 't1',
-              title: 'Work task',
-              dueTime: '09:00',
-              spaceName: 'Work',
-              tags: [],
-              overdue: false,
-              nearDue: false,
-            },
-          ],
-          suggestions: [],
-        },
-      };
-
-      mockUseTodayData.mockReturnValue(singleTodoData);
-
-      const { getByTestId, queryByTestId } = renderWithProviders(<TodayScreen />);
-
-      // Verify group exists initially
-      expect(getByTestId('due-group-work')).toBeTruthy();
-
-      // Complete the todo (checkbox) - use the correct testID
-      const checkbox = getByTestId('todo-complete-t1');
-      fireEvent.press(checkbox);
-
-      // Group should be hidden (optimistic UI removes todo from display)
-      await waitFor(() => {
-        expect(queryByTestId('due-group-work')).toBeNull();
-      });
-    });
   });
 
   describe('Pull-to-Refresh', () => {

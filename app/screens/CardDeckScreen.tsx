@@ -846,14 +846,13 @@ function CardDeck({
 
   /**
    * Handle confirmed note action (fine / resurface / event reminder)
-   * Called by SweepCardNew on swipe right for notes. Bundles noteAction, dates, and spaceId.
+   * Called by SweepCardNew on swipe right for notes. Bundles noteAction and dates.
    */
   const handleConfirmNoteAction = useCallback(
     (action: {
       noteAction: 'fine' | 'resurface';
       resurfaceDateStr?: string;
       reminderDateStr?: string;
-      spaceId?: string;
       resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
       eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
     }) => {
@@ -875,7 +874,6 @@ function CardDeck({
         noteAction: action.noteAction,
         resurfaceDateStr: action.resurfaceDateStr,
         reminderDateStr: action.reminderDateStr,
-        spaceId: action.spaceId,
         resurfaceTiming: action.resurfaceTiming,
         eventReminder: action.eventReminder,
       });
@@ -942,7 +940,6 @@ function CardDeck({
     (action: {
       reminderDateStr: string;
       reminderTime?: string;
-      spaceId?: string;
       eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
       prepTodoText?: string;
     }) => {
@@ -963,7 +960,6 @@ function CardDeck({
         action: 'keep',
         reminderDateStr: action.reminderDateStr,
         reminderTime: action.reminderTime || '09:00',
-        spaceId: action.spaceId,
         eventReminder: action.eventReminder,
         prepTodoText: action.prepTodoText,
       });
@@ -1653,14 +1649,12 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
       const views = note.views as {
         dominant_bucket?: string;
         dominant_subtype?: string;
-        space_id?: string | null;
         multi_items?: Array<{ text: string }>;
       } | null;
 
       const dominantBucket = views?.dominant_bucket;
       const dominantSubtype = views?.dominant_subtype;
       const originalText = note.body || note.title || '';
-      const spaceId = views?.space_id ?? null;
 
       // Determine target bucket and subtype
       const targetBucket =
@@ -1683,7 +1677,6 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
             const newTodo = await createTodo?.({
               name: note.title || originalText,
               body: originalText,
-              space_id: spaceId,
               origin: 'sweep',
               views: {
                 minddrop_stage: 'classified',
@@ -1706,7 +1699,6 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
               notes: originalText,
               frequency: 'daily',
               subtype: 'start_habit',
-              space_id: spaceId,
               origin: 'sweep',
               views: {
                 minddrop_stage: 'classified',

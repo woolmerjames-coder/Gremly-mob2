@@ -17,7 +17,6 @@ export interface TodayHabitCardProps {
   dueWindow?: string;
   streakCount?: number;
   tags?: string[];
-  spaceName?: string;
   onComplete: (id: string) => void;
   onLongPress?: (id: string) => void;
   reducedMotion?: boolean;
@@ -29,7 +28,6 @@ export default function TodayHabitCard({
   dueWindow,
   streakCount,
   tags = [],
-  spaceName,
   onComplete,
   onLongPress,
   reducedMotion,
@@ -85,11 +83,6 @@ export default function TodayHabitCard({
 
             {/* Chips row */}
             <View style={styles.chipsRow}>
-              {spaceName && (
-                <View style={[styles.chip, { backgroundColor: t.colors.surface }]}>
-                  <Text style={[styles.chipText, { color: t.colors.subtle }]}>{spaceName}</Text>
-                </View>
-              )}
               {tags.slice(0, 2).map((tag, idx) => (
                 <View key={idx} style={[styles.chip, { backgroundColor: t.colors.surface }]}>
                   <Text style={[styles.chipText, { color: t.colors.subtle }]}>{tag}</Text>
