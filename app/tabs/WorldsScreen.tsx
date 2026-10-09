@@ -55,13 +55,11 @@ import {
 } from '../../components/worlds/WelcomeBack';
 import { useWorldsQuestions } from '../../lib/worlds/useWorldsQuestions';
 import { clearWorldsNew } from '../../lib/worlds/dot';
+import { actOn } from '../../lib/worlds/askAct';
 import {
   askWords,
   closeIt,
   moveIt,
-  notNow,
-  proposedWorld,
-  startIt,
   stillGoing,
   tellGremly,
   type AskAct,
@@ -164,27 +162,8 @@ export default function WorldsScreen() {
     setSheet(null);
     setAnswering(true);
     drop([q.id]);
-    const name = q.proposal.type === 'start' ? q.proposal.title : titleOf(q.proposal.chapter_id);
     try {
-      let undo: Undo;
-      let line: string;
-      if (act === 'start') {
-        const made = await startIt(q, { worldId: proposedWorld(q, worlds) });
-        undo = made.undo;
-        line = `${made.chapter.title} is in motion now.`;
-      } else if (act === 'no') {
-        undo = await notNow(q);
-        line = 'Left as it is. Gremly will not suggest it again.';
-      } else if (act === 'close') {
-        undo = await closeIt(q);
-        line = `${name} is closed and part of your story.`;
-      } else if (act === 'move') {
-        undo = await moveIt(q);
-        line = `${name} has its new dates.`;
-      } else {
-        undo = await stillGoing(q, today);
-        line = `${name} stays open.`;
-      }
+      const { undo, line } = await actOn(q, act, { today, worlds, chapters });
       showSnack(line, async () => {
         await undo();
         restore([q]);

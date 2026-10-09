@@ -155,6 +155,8 @@ import { HomeChips } from '../../components/home/HomeChips';
 import { chatCardMeta, chatHistoryOf, useChatCard } from '../../lib/chat/useChatCard';
 import { keepOfferFrom, pagePlace } from '../../lib/worlds/keep';
 import { KeepOffer } from '../../components/worlds/KeepOffer';
+import { ChatAskCard } from '../../components/worlds/ChatAskCard';
+import { isChapterQuestionKind } from '../../lib/worlds/questions';
 import type { AgentTask } from '../../lib/cortex/CortexClient';
 import { useKeyboardOpen } from '../../hooks/useKeyboardOpen';
 import { chipPrompt, homeChipsFor, homePhase, type HomeChipKey } from '../../lib/chat/homeChips';
@@ -1796,6 +1798,39 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
     ),
     [patchMessageMetadata, openChangeItem],
   );
+  // the newest message for each of Gremly's questions: when the wrap up has
+  // brought a question's buttons back after the app was closed, the card is
+  // drawn there, once
+  const newestAsk = useMemo(() => {
+    const at = new Map<string, string>();
+    for (const r of rows) {
+      const meta = briefMetaOf(r);
+      if (meta?.type === 'brief-offer' && meta.question_id) at.set(meta.question_id, r.id);
+    }
+    return at;
+  }, [rows]);
+  // a question about a Chapter, in the brief or the wrap up: the Worlds card
+  // with its own buttons, in place of answers to tap (components/worlds/ChatAskCard)
+  const renderAsk = useCallback(
+    (message: SpaceChatMessage, meta: BriefOfferMeta) => {
+      if (meta.kind !== 'question' || !meta.question_id) return undefined;
+      if (!isChapterQuestionKind(meta.question_kind)) return undefined;
+      if (newestAsk.get(meta.question_id) !== message.id) return null;
+      return (
+        <ChatAskCard
+          messageId={message.id}
+          meta={meta}
+          patch={(p) => patchMessageMetadata(message.id, p as Record<string, unknown>)}
+          onAnswered={() =>
+            void (meta.wrap
+              ? wrapUpRef.current.answeredByCard(meta)
+              : briefOffersRef.current.answeredByCard())
+          }
+        />
+      );
+    },
+    [newestAsk, patchMessageMetadata],
+  );
   // drawn again when saving ends and when Undo becomes possible (ChangeCard.tsx)
   const renderChanges = useRenderChanges(
     { ...changeActions, apply: applyAndFollow },
@@ -2003,6 +2038,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             renderWrap={renderWrap}
             renderWeek={renderWeek}
             renderKeep={renderKeep}
+            renderAsk={renderAsk}
             hiddenActions={hiddenActions}
             showOffer={showOffer}
             renderHabitWeek={renderHabitWeek}
@@ -2036,6 +2072,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
       renderWrap,
       renderWeek,
       renderKeep,
+      renderAsk,
       hiddenActions,
       showOffer,
       renderHabitWeek,

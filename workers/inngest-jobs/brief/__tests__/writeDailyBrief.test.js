@@ -169,6 +169,8 @@ describe('writing the brief', () => {
         .filter((b) => b.action === 'answer')
         .map((b) => b.label);
       expect(answers).toEqual(want);
+      // what it is about goes with it: the app puts one about a Chapter as the Worlds card
+      expect(q.metadata_json.question_kind).toBe(kind);
     }
   });
 

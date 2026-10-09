@@ -310,7 +310,8 @@ export function moodAskMsgs(
  * not one of Gremly's questions and has no id among them.
  */
 export function questionFacts(q: WrapQuestion): Partial<BriefOfferMeta> {
-  if (!q.checkin) return { question_id: q.id };
+  // what it is about goes with it, so one about a Chapter is put as the Worlds card
+  if (!q.checkin) return { question_id: q.id, ...(q.kind ? { question_kind: q.kind } : {}) };
   const c = q.checkin;
   return {
     milestone_checkin: { row_id: c.row_id, id: c.id, goal: c.goal, goal_date: c.goal_date },
@@ -327,10 +328,11 @@ export function questionMsg(q: WrapQuestion): WrapMsg {
  * one of them is still waiting for its answer.
  */
 export function questionAgainMsg(
-  asked: Pick<BriefOfferMeta, 'buttons' | 'question_id' | 'milestone_checkin'>,
+  asked: Pick<BriefOfferMeta, 'buttons' | 'question_id' | 'question_kind' | 'milestone_checkin'>,
 ): WrapMsg {
   return offer('', 'question', asked.buttons, {
     ...(asked.question_id ? { question_id: asked.question_id } : {}),
+    ...(asked.question_kind ? { question_kind: asked.question_kind } : {}),
     ...(asked.milestone_checkin ? { milestone_checkin: asked.milestone_checkin } : {}),
   });
 }

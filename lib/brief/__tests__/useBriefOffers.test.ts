@@ -154,6 +154,20 @@ describe('the brief’s buttons', () => {
     ]);
   });
 
+  it('a question about a Chapter answered on its card: nothing to the pipeline, the held offer follows', async () => {
+    // the card has made the change and marked the question answered itself (ChatAskCard)
+    const { hook, added } = setup([QUESTION, HELD]);
+    await act(async () => {
+      await hook.result.current.answeredByCard();
+    });
+    expect(answerQuestion).not.toHaveBeenCalled();
+    expect(added.map((a) => a.content)).toEqual([
+      'A few things are waiting in Sweep. Want to sort them first?',
+    ]);
+    expect(added[0].meta).toMatchObject({ type: 'brief-offer', revealed_from: 'held' });
+    expect(creditFirstReply).toHaveBeenCalledWith('t1');
+  });
+
   it('hands Sweep first and planning to the screen after the reply', async () => {
     const onSweep = jest.fn();
     const onPlan = jest.fn();

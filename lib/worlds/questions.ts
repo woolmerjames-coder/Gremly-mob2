@@ -152,22 +152,52 @@ export function withFactItems(
   return rests.length === q.rests_on.length ? q : { ...q, rests_on: rests };
 }
 
+const QUESTION_COLUMNS =
+  'id,kind,status,question,choices,weight,created_at,asked_at,hold_until,record_table,record_id,proposed_change,rests_on,set_id';
+
+/** The kinds of question the card puts, wherever it is (Worlds, the brief, the wrap up). */
+export function isChapterQuestionKind(kind: unknown): boolean {
+  return kind === 'start_chapter' || kind === 'close_chapter';
+}
+
 /** Their open questions about Chapters, those that need an answer first, then oldest first. */
 export async function fetchWorldsQuestions(): Promise<WorldsQuestion[]> {
   const { data, error } = await supabase
     .from('gremly_questions')
-    .select(
-      'id,kind,status,question,choices,weight,created_at,asked_at,hold_until,record_table,record_id,proposed_change,rests_on,set_id',
-    )
+    .select(QUESTION_COLUMNS)
     .in('kind', [...KINDS])
     .in('status', ['open', 'asked'])
     .order('weight', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: true })
     .limit(30);
   if (error) throw error;
-  const questions = ((data ?? []) as Record<string, any>[])
-    .map(worldsQuestionFrom)
-    .filter((q): q is WorldsQuestion => !!q);
+  return withSources(
+    ((data ?? []) as Record<string, any>[])
+      .map(worldsQuestionFrom)
+      .filter((q): q is WorldsQuestion => !!q),
+  );
+}
+
+/**
+ * One question about a Chapter, by its id, while it is still open: for the
+ * brief and the wrap up, whose message keeps only the id. Null when it has
+ * been answered or put aside since, or is not one the card can put.
+ */
+export async function fetchWorldsQuestion(id: string): Promise<WorldsQuestion | null> {
+  const { data, error } = await supabase
+    .from('gremly_questions')
+    .select(QUESTION_COLUMNS)
+    .eq('id', id)
+    .in('kind', [...KINDS])
+    .in('status', ['open', 'asked'])
+    .limit(1);
+  if (error) throw error;
+  const q = worldsQuestionFrom(((data ?? []) as Record<string, any>[])[0] ?? {});
+  return q ? ((await withSources([q]))[0] ?? null) : null;
+}
+
+/** The questions with the items the facts they rest on were taken from. */
+async function withSources(questions: WorldsQuestion[]): Promise<WorldsQuestion[]> {
   const factIds = [...new Set(questions.flatMap((q) => q.rests_on_facts))];
   if (!factIds.length) return questions;
   // the items those facts were read from; without them a suggestion shows

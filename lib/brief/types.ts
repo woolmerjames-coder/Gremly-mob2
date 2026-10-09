@@ -173,6 +173,17 @@ export interface BriefOfferMeta extends BriefMetaBase {
   buttons: OfferButton[];
   /** The gremly_questions row, for kind 'question' */
   question_id?: string;
+  /**
+   * What the question is about (gremly_questions.kind): one about a Chapter
+   * is put as the Worlds card, with its own buttons (components/worlds/ChatAskCard)
+   */
+  question_kind?: string | null;
+  /**
+   * What the card's own buttons did: the line that says so, or, once Undo
+   * was tapped, undone, and the card is there to answer again. The brief or
+   * the wrap up carried on the first time, and does not again.
+   */
+  card?: { act: string; line: string } | { undone: true } | null;
   /** The button tapped, once one has been; the buttons go after that */
   chosen?: { id: string; at: string } | null;
   /** Waiting for the question to be answered or skipped; not shown until then */

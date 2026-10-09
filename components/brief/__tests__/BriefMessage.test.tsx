@@ -193,6 +193,33 @@ describe('BriefMessage', () => {
   it('never draws a replaced line', () => {
     expect(renderAt(7, null).toJSON()).toBeNull();
   });
+
+  it('puts a question about a Chapter as the card under Gremly’s words, in place of its answers', () => {
+    const q = msg('q1', 'assistant', 'Shall I start a Chapter for the move?', {
+      type: 'brief-offer',
+      kind: 'question',
+      question_id: 'gq1',
+      question_kind: 'start_chapter',
+      buttons: [{ id: 'answer_0', label: 'Yes', action: 'answer', value: 'Yes' }],
+    });
+    const renderAsk = jest.fn((_m: SpaceChatMessage, meta: any) =>
+      meta.question_kind === 'start_chapter' ? <Text>the card</Text> : undefined,
+    );
+    const r = render(<BriefMessage message={q} liveOfferId="q1" renderAsk={renderAsk} />);
+    expect(r.getByText('Shall I start a Chapter for the move?')).toBeTruthy();
+    expect(r.getByText('the card')).toBeTruthy();
+    expect(r.queryByText('Yes')).toBeNull();
+    // any other question keeps its answers to tap
+    const other = msg('q2', 'assistant', 'Is the haircut Friday?', {
+      type: 'brief-offer',
+      kind: 'question',
+      question_id: 'gq2',
+      question_kind: 'fact',
+      buttons: [{ id: 'answer_0', label: 'Friday', action: 'answer', value: 'Friday' }],
+    });
+    const o = render(<BriefMessage message={other} liveOfferId="q2" renderAsk={renderAsk} />);
+    expect(o.getByText('Friday')).toBeTruthy();
+  });
 });
 
 describe('BriefMessage: the evening wrap up', () => {

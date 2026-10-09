@@ -42,6 +42,12 @@ export type BriefMessageProps = {
   renderWeek?: (message: SpaceChatMessage, meta: BriefMeta) => React.ReactNode;
   /** The Save button under a reply worth keeping (lib/worlds/keep.ts), drawn by the chat it is in */
   renderKeep?: (message: SpaceChatMessage, meta: KeepOfferMeta) => React.ReactNode;
+  /**
+   * A question about a Chapter, put as the Worlds card under Gremly's words
+   * in place of the buttons (components/worlds/ChatAskCard). Undefined for a
+   * question the card does not put, which keeps its buttons.
+   */
+  renderAsk?: (message: SpaceChatMessage, meta: BriefOfferMeta) => React.ReactNode | undefined;
   /** Buttons left out of a live offer for now (Write a few lines, while the box already saves to the journal) */
   hiddenActions?: OfferAction[];
   /**
@@ -66,6 +72,7 @@ function BriefMessageInner({
   renderWrap,
   renderWeek,
   renderKeep,
+  renderAsk,
   hiddenActions,
   showOffer,
   renderHabitWeek,
@@ -101,6 +108,15 @@ function BriefMessageInner({
       };
       const shown =
         view.content === message.content ? message : { ...message, content: view.content };
+      const ask = renderAsk?.(message, meta);
+      if (ask !== undefined) {
+        return (
+          <View style={styles.message} testID={`brief-offer-${message.id}`}>
+            {view.content ? <ChatBubble message={shown} hideMark={followsGremly(prev)} /> : null}
+            {ask ? <View style={styles.card}>{ask}</View> : null}
+          </View>
+        );
+      }
       return (
         <View style={styles.message} testID={`brief-offer-${message.id}`}>
           {view.content ? <ChatBubble message={shown} hideMark={followsGremly(prev)} /> : null}

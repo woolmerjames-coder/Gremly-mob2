@@ -3,6 +3,10 @@
  * 3, the mockup's "Gremly noticed"): a suggestion with the items it rests on,
  * or a Chapter that looks finished, with the card's own two buttons and a line
  * to answer in their own words (lib/worlds/questions.ts).
+ *
+ * In the chat (the brief and the wrap up, ChatAskCard) Gremly has just asked
+ * it in his own words above the card, so the card leaves the question out,
+ * and their own words go in the chat's box, which answers it there.
  */
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -18,14 +22,17 @@ import { ItemRow, useItemRows } from './ItemRows';
 export function AskCard({
   question: q,
   busy,
+  inChat = false,
   onAct,
   onTell,
 }: {
   question: WorldsQuestion;
   busy?: boolean;
+  /** Under Gremly's own words in the chat, whose box takes their own words */
+  inChat?: boolean;
   onAct: (act: AskAct) => void;
   /** Their own words, for the pipeline to read */
-  onTell: (said: string) => void;
+  onTell?: (said: string) => void;
 }) {
   const chapters = useGremlyStore((s) => s.chapters) ?? [];
   const words = askWords(q, chapters);
@@ -47,11 +54,18 @@ export function AskCard({
       <Text style={styles.title} accessibilityRole="header">
         {words.title}
       </Text>
-      <Text style={[styles.body, { color: start ? W.periInk : W.pearInk }]}>
-        {when ? `${when}. ` : ''}
-        {q.question}
-        {closes ? ' Closing it writes its memory for your story, and nothing in it is lost.' : ''}
-      </Text>
+      {(() => {
+        const body = [
+          when ? `${when}.` : '',
+          inChat ? '' : q.question,
+          closes ? 'Closing it writes its memory for your story, and nothing in it is lost.' : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+        return body ? (
+          <Text style={[styles.body, { color: start ? W.periInk : W.pearInk }]}>{body}</Text>
+        ) : null;
+      })()}
       {items.length ? (
         <View style={styles.items} accessibilityLabel="What it rests on">
           {items.map((r) => (
@@ -78,34 +92,40 @@ export function AskCard({
           />
         </View>
       </View>
-      <View style={styles.say}>
-        <TextInput
-          value={said}
-          onChangeText={setSaid}
-          placeholder="Or tell Gremly in your own words"
-          placeholderTextColor={W.faint}
-          style={styles.sayInput}
-          multiline
-          editable={!busy}
-          accessibilityLabel="Answer in your own words"
-          testID="ask-say"
-        />
-        <Pressable
-          onPress={() => {
-            const s = said.trim();
-            if (!s || busy) return;
-            setSaid('');
-            onTell(s);
-          }}
-          disabled={!said.trim() || busy}
-          style={[styles.send, said.trim() ? styles.sendReady : null]}
-          accessibilityRole="button"
-          accessibilityLabel="Send to Gremly"
-          testID="ask-send"
-        >
-          <ArrowUp size={18} color={said.trim() ? W.linen : W.moss} />
-        </Pressable>
-      </View>
+      {inChat ? (
+        <Text style={styles.hint} testID="ask-hint">
+          Or answer in your own words in the box below.
+        </Text>
+      ) : (
+        <View style={styles.say}>
+          <TextInput
+            value={said}
+            onChangeText={setSaid}
+            placeholder="Or tell Gremly in your own words"
+            placeholderTextColor={W.faint}
+            style={styles.sayInput}
+            multiline
+            editable={!busy}
+            accessibilityLabel="Answer in your own words"
+            testID="ask-say"
+          />
+          <Pressable
+            onPress={() => {
+              const s = said.trim();
+              if (!s || busy) return;
+              setSaid('');
+              onTell?.(s);
+            }}
+            disabled={!said.trim() || busy}
+            style={[styles.send, said.trim() ? styles.sendReady : null]}
+            accessibilityRole="button"
+            accessibilityLabel="Send to Gremly"
+            testID="ask-send"
+          >
+            <ArrowUp size={18} color={said.trim() ? W.linen : W.moss} />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -158,4 +178,5 @@ const styles = StyleSheet.create({
     backgroundColor: W.sageWash,
   },
   sendReady: { backgroundColor: W.moss },
+  hint: { fontFamily: F.body, fontSize: 13.5, lineHeight: 19, color: W.muted, marginTop: 12 },
 });
