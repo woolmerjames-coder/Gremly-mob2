@@ -16,9 +16,10 @@ export async function upsertDropWorldLinks(
     reason: null;
   }>,
 ): Promise<void> {
+  // merged, so a place Gremly had filed it in becomes theirs when they choose it,
+  // and his filing never moves it again (inngest-jobs context/filing.js)
   const { error } = await supabase.from('drop_world_links').upsert(rows, {
     onConflict: WORLD_LINK_KEY,
-    ignoreDuplicates: true,
   });
 
   if (error) {
@@ -49,9 +50,9 @@ export async function upsertDropChapterLinks(
     reason: null;
   }>,
 ): Promise<void> {
+  // merged, as above: their choice of a Chapter Gremly filed it in becomes theirs
   const { error } = await supabase.from('drop_chapter_links').upsert(rows, {
     onConflict: CHAPTER_LINK_KEY,
-    ignoreDuplicates: true,
   });
 
   if (error) {

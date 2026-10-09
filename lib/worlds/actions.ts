@@ -18,6 +18,7 @@ import { callChapterMemory, callWorldsChanged } from '../cortex/CortexClient';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import type { Chapter, DropChapterLink, DropWorldLink, World } from '../supabase/types';
 import { dayOf } from './model';
+import { noteTakenOut } from './removals';
 
 /** Puts a change back. */
 export type Undo = () => Promise<void>;
@@ -291,6 +292,13 @@ export function createWorldsActions(set: SetFn, get: GetFn): WorldsActions {
       : undefined;
     if (worldId) await addWorldLinks([placedWorldLink(item, worldId, now)]);
     if (chapter) await addChapterLinks([placedChapterLink(item, chapter.id, now)]);
+    // put there by hand: no longer something they took out of it
+    await noteTakenOut(get().userId, item, {
+      in: [
+        ...(worldId ? [{ type: 'world' as const, id: worldId }] : []),
+        ...(chapter ? [{ type: 'chapter' as const, id: chapter.id }] : []),
+      ],
+    });
     if (chapter) tellGremly('chapters', chapter.id);
     else if (worldId) tellGremly('worlds', worldId);
     return async () => {
@@ -327,11 +335,23 @@ export function createWorldsActions(set: SetFn, get: GetFn): WorldsActions {
       : [];
     for (const l of goneChapter) await removeChapterLink(item, l.chapter_id);
     for (const l of goneWorld) await removeWorldLink(item, l.world_id);
+    // remembered, so Gremly's filing never puts it back there (lib/worlds/removals.ts)
+    const out = [
+      ...(where.worldId ? [{ type: 'world' as const, id: where.worldId }] : []),
+      ...[
+        ...new Set([
+          ...(where.chapterId ? [where.chapterId] : []),
+          ...goneChapter.map((l) => l.chapter_id),
+        ]),
+      ].map((id) => ({ type: 'chapter' as const, id })),
+    ];
+    await noteTakenOut(s.userId, item, { out });
     if (where.chapterId) tellGremly('chapters', where.chapterId);
     if (where.worldId) tellGremly('worlds', where.worldId);
     return async () => {
       await addChapterLinks(goneChapter);
       await addWorldLinks(goneWorld);
+      await noteTakenOut(get().userId, item, { in: out });
     };
   }
 

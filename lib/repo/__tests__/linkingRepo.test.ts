@@ -1,7 +1,8 @@
 /**
  * Linking an item to a World or a Chapter: the upsert names the links' whole
  * key (drop_id, drop_type and the World or Chapter), or the database refuses
- * it, and nothing is filed.
+ * it, and nothing is filed. A place Gremly had filed it in is merged, so their
+ * choice of it becomes theirs and his filing never moves it again.
  */
 import { upsertDropChapterLinks, upsertDropWorldLinks } from '../linkingRepo';
 
@@ -26,17 +27,17 @@ const base = {
   reason: null,
 };
 
-it('names the whole key of each kind of link', async () => {
+it('names the whole key of each kind of link, and makes a place they chose theirs', async () => {
   await upsertDropWorldLinks([{ ...base, world_id: 'w1' }]);
   await upsertDropChapterLinks([{ ...base, chapter_id: 'c1' }]);
   expect(mockCalls).toEqual([
     {
       table: 'drop_world_links',
-      opts: { onConflict: 'drop_id,drop_type,world_id', ignoreDuplicates: true },
+      opts: { onConflict: 'drop_id,drop_type,world_id' },
     },
     {
       table: 'drop_chapter_links',
-      opts: { onConflict: 'drop_id,drop_type,chapter_id', ignoreDuplicates: true },
+      opts: { onConflict: 'drop_id,drop_type,chapter_id' },
     },
   ]);
 });

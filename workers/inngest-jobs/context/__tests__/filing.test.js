@@ -257,13 +257,49 @@ describe('filing a drop', () => {
     expect(filingReply(f)).toMatchObject({ skipped: true, skipped_reason: 'write_failed' });
   });
 
-  it("reads only the person's own rows for where they placed a drop", async () => {
+  it("reads only the person's own rows for where they placed a drop, or took it out", async () => {
     const { reads } = fakeDb({ tables: graphTables });
     jsonCall.mockResolvedValue({ output: answer(), model: 'm' });
     await fileDrop({}, { userId: 'u1', drop, today: '2026-10-07' });
     const placedReads = reads.filter((r) => r.includes(`drop_id=eq.${DROP}`));
-    expect(placedReads).toHaveLength(2);
+    expect(placedReads.map((r) => r.split('?')[0])).toEqual([
+      'drop_world_links',
+      'drop_chapter_links',
+      'drop_link_removals',
+    ]);
     for (const r of placedReads) expect(r).toContain('owner_id=eq.u1&');
+  });
+
+  it('never puts a drop back in a place they took it out of, nor in a Chapter of a World they took it out of', async () => {
+    fakeDb({
+      tables: {
+        ...graphTables,
+        drop_link_removals: [{ place_type: 'world', place_id: W_HOME }],
+      },
+    });
+    jsonCall.mockResolvedValue({ output: answer({ world_ref: 'w1', chapter_ref: null }), model: 'm' });
+    await fileDrop({}, { userId: 'u1', drop, today: '2026-10-07' });
+    const asked = jsonCall.mock.calls[0][1].user;
+    expect(asked).toContain('| Work |');
+    expect(asked).not.toContain('| Home |');
+    expect(asked).not.toContain('Porto in November');
+
+    jsonCall.mockClear();
+    fakeDb({
+      tables: { ...graphTables, drop_link_removals: [{ place_type: 'chapter', place_id: C_TRIP }] },
+    });
+    jsonCall.mockResolvedValue({ output: answer({ chapter_ref: null }), model: 'm' });
+    await fileDrop({}, { userId: 'u1', drop, today: '2026-10-07' });
+    expect(jsonCall.mock.calls[0][1].user).toContain('| Home |');
+    expect(jsonCall.mock.calls[0][1].user).not.toContain('Porto in November');
+  });
+
+  it('files as before when what was taken out cannot be read', async () => {
+    const { writes } = fakeDb({ tables: graphTables, failOn: 'drop_link_removals' });
+    jsonCall.mockResolvedValue({ output: answer(), model: 'm' });
+    const f = await fileDrop({}, { userId: 'u1', drop, today: '2026-10-07' });
+    expect(f).toMatchObject({ by: 'gremly', chapter: { id: C_TRIP, title: 'Porto in November' } });
+    expect(writes.some((w) => w.op === 'upsert')).toBe(true);
   });
 
   it('once the old fields stop, reads no suggested rows or contexts and writes no context', async () => {

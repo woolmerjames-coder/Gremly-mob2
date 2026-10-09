@@ -28,6 +28,10 @@ jest.mock('../../supabase/client', () => ({
           op.where.push([k, v]);
           return chain;
         },
+        in: (k: string, v: unknown) => {
+          op.where.push([k, v]);
+          return chain;
+        },
         then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
           const out =
             mockFail.kind === op.kind
@@ -294,6 +298,86 @@ describe('placing an item', () => {
     await undo();
     expect(get().dropChapterLinks).toEqual([before]);
     expect(get().dropWorldLinks).toEqual([]);
+  });
+});
+
+describe('taking an item out', () => {
+  const removals = () => mockOps.filter((o) => o.table === 'drop_link_removals');
+
+  it('is remembered, so Gremly never files it back there, and Undo forgets it', async () => {
+    const link = {
+      drop_id: 't1',
+      drop_type: 'todo',
+      chapter_id: 'c1',
+      assigned_by: 'classifier',
+    } as DropChapterLink;
+    const { actions, get } = store({
+      worlds: [world({})],
+      chapters: [chapter({ primary_world_id: 'w1' })],
+      dropChapterLinks: [link],
+    });
+    const undo = await actions.takeItemOut({ id: 't1', type: 'todo' }, { chapterId: 'c1' });
+    expect(get().dropChapterLinks).toEqual([]);
+    expect(removals()).toMatchObject([
+      {
+        kind: 'upsert',
+        payload: [
+          {
+            owner_id: 'u1',
+            drop_id: 't1',
+            drop_type: 'todo',
+            place_type: 'chapter',
+            place_id: 'c1',
+          },
+        ],
+      },
+    ]);
+    await undo();
+    expect(get().dropChapterLinks).toEqual([link]);
+    expect(removals()[1]).toMatchObject({ kind: 'delete' });
+    expect(removals()[1].where).toEqual(
+      expect.arrayContaining([
+        ['drop_id', 't1'],
+        ['place_type', 'chapter'],
+        ['place_id', ['c1']],
+      ]),
+    );
+  });
+
+  it('out of a World: the World and the Chapters of it the item was in', async () => {
+    const { actions } = store({
+      worlds: [world({})],
+      chapters: [chapter({ primary_world_id: 'w1' })],
+      dropWorldLinks: [{ drop_id: 't1', drop_type: 'todo', world_id: 'w1' } as DropWorldLink],
+      dropChapterLinks: [{ drop_id: 't1', drop_type: 'todo', chapter_id: 'c1' } as DropChapterLink],
+    });
+    await actions.takeItemOut({ id: 't1', type: 'todo' }, { worldId: 'w1' });
+    expect((removals()[0].payload as any[]).map((r) => [r.place_type, r.place_id])).toEqual([
+      ['world', 'w1'],
+      ['chapter', 'c1'],
+    ]);
+  });
+
+  it('placed there again by hand, it is no longer something they took out', async () => {
+    const { actions } = store({
+      worlds: [world({})],
+      chapters: [chapter({ primary_world_id: 'w1' })],
+    });
+    await actions.placeItem({ id: 't1', type: 'todo' }, { chapterId: 'c1' });
+    expect(removals()).toHaveLength(2);
+    expect(removals().every((o) => o.kind === 'delete')).toBe(true);
+  });
+
+  it('when it cannot be remembered, taking it out still stands', async () => {
+    mockFail.kind = 'upsert';
+    const { actions, get } = store({
+      chapters: [chapter({})],
+      dropChapterLinks: [{ drop_id: 't1', drop_type: 'todo', chapter_id: 'c1' } as DropChapterLink],
+    });
+    await expect(
+      actions.takeItemOut({ id: 't1', type: 'todo' }, { chapterId: 'c1' }),
+    ).resolves.toEqual(expect.any(Function));
+    expect(get().dropChapterLinks).toEqual([]);
   });
 });
 

@@ -12,7 +12,10 @@
  * ref, and writes.
  *
  * It never moves something the person placed: a drop they filed themselves is
- * left as it is and no call is made. It never makes a World or a Chapter, and
+ * left as it is and no call is made. Nor does it put a drop back in a World
+ * or a Chapter they took it out of (drop_link_removals, takenOutOf), nor in a
+ * Chapter of a World they took it out of: those are left out of what it is
+ * shown. It never makes a World or a Chapter, and
  * never asks anything. It can say that a drop fits nothing and looks like the
  * start of something, which the reply carries (stage 4b reads it). The items
  * a person placed in each World and Chapter themselves are shown to it as a
@@ -347,6 +350,42 @@ async function placedByPerson(d, userId, drop) {
   };
 }
 
+/**
+ * The Worlds and Chapters the person took this drop out of themselves
+ * (drop_link_removals, written by the app). Never throws: when it cannot be
+ * read, none are known, as before the table.
+ */
+export async function takenOutOf(d, userId, drop) {
+  const none = { worlds: new Set(), chapters: new Set() };
+  try {
+    const rows = await d.select(
+      `drop_link_removals?owner_id=eq.${userId}&drop_id=eq.${drop.id}&drop_type=eq.${drop.entity_type}&select=place_type,place_id`,
+    );
+    for (const r of rows || []) {
+      if (r.place_type === 'world') none.worlds.add(r.place_id);
+      else if (r.place_type === 'chapter') none.chapters.add(r.place_id);
+    }
+  } catch (err) {
+    console.warn(`[filing] what was taken out could not be read: ${err.message}`);
+  }
+  return none;
+}
+
+/**
+ * The graph without the places a drop was taken out of: those Worlds, those
+ * Chapters, and the Chapters of those Worlds. Pure.
+ */
+export function withoutTakenOut(graph, out) {
+  if (!out || (!out.worlds.size && !out.chapters.size)) return graph;
+  return {
+    ...graph,
+    worlds: graph.worlds.filter((w) => !out.worlds.has(w.id)),
+    chapters: graph.chapters.filter(
+      (c) => !out.chapters.has(c.id) && !out.worlds.has(c.primary_world_id),
+    ),
+  };
+}
+
 // ── the one run ──────────────────────────────────────────────────────────
 
 /** An empty answer, with why. */
@@ -403,6 +442,8 @@ export async function fileDrop(env, { userId, drop, today = null, graph = null, 
     console.warn(`[filing] reading the graph failed: ${err.message}`);
     return skipped('graph_load_failed');
   }
+  // never back in a place they took it out of
+  g = withoutTakenOut(g, await takenOutOf(d, userId, drop));
   if (!g.worlds.length && !g.chapters.length && !g.contexts.length) return skipped('empty_graph');
 
   const day = today || localDate(await userTimezone(env, userId).catch(() => 'UTC'));
