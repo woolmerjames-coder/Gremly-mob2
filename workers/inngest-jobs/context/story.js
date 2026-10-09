@@ -23,7 +23,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { STATED_RULES, SENTENCE_SCHEMA } from '../../shared/check/stated.js';
 import { runCheck, checkRunRow } from '../../shared/check/run.js';
 
-export const STORY_PROMPT_VERSION = 'story-2026-10-16a';
+export const STORY_PROMPT_VERSION = 'story-2026-10-16b';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -221,8 +221,9 @@ export async function gatherStory(env, userId) {
       `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,happened,changed,unconfirmed)&select=id,statement,subject,timing,about_date,about_date_end,state,observed_at,private&order=observed_at.asc&limit=800`,
     ),
     recentCorrections(env, userId, 3650),
+    // Their Chapters, with no kind: the Worlds rebuild has none (stage 4e)
     d.select(
-      `chapters?owner_id=eq.${userId}&select=id,title,chapter_type,phase,start_date,end_date,summary,card_subtitle&order=start_date.asc.nullslast&limit=60`,
+      `chapters?owner_id=eq.${userId}&select=id,title,phase,start_date,end_date,summary,card_subtitle&order=start_date.asc.nullslast&limit=60`,
     ),
     // Gremly's note on each week, from the weekly pass (data fabric stage 5),
     // in place of the summaries' weekly themes, which were never written
@@ -264,7 +265,7 @@ export function renderStory(g, today) {
   });
   const chapterLines = g.chapters.map((c) => {
     const ref = add('c', { type: 'chapter', id: c.id });
-    return `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'now')} | ${trim(c.summary || c.card_subtitle, 240)}`;
+    return `${ref} | ${trim(c.title, 80)} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'now')} | ${trim(c.summary || c.card_subtitle, 240)}`;
   });
   // one note a week: a week passed over again keeps its latest note
   const notes = new Map();
@@ -288,7 +289,7 @@ export function renderStory(g, today) {
     '',
     `CORRECTIONS THE PERSON MADE (always win): ${g.corrections.map((c) => `${String(c.corrected_at).slice(0, 10)}: "${trim(c.statement, 160)}" is wrong; they said "${trim(c.correction_text, 200)}"`).join('; ') || 'none'}`,
     '',
-    `CHAPTERS (ref | title | kind | phase | dates | summary):\n${chapterLines.join('\n') || '(none)'}`,
+    `CHAPTERS (ref | title | phase | dates | summary):\n${chapterLines.join('\n') || '(none)'}`,
     '',
     `GREMLY'S NOTE ON EACH WEEK, OLDEST FIRST:\n${weekLines.join('\n') || '(none yet)'}`,
     '',

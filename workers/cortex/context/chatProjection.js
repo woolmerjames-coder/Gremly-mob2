@@ -907,7 +907,7 @@ export async function fetchWorldEntities(userId, worldId, env) {
     // Fetch world metadata and its drop links in parallel
     const [worldRes, linksRes] = await Promise.all([
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/worlds?id=eq.${worldId}&owner_id=eq.${userId}&select=id,name,archetypes&limit=1`,
+        `${env.SUPABASE_URL}/rest/v1/worlds?id=eq.${worldId}&owner_id=eq.${userId}&select=id,name&limit=1`,
         { headers },
       )
         .then((r) => r.json())
@@ -984,9 +984,6 @@ export function formatWorldEntities(worldData) {
   const { world, todos = [], habits = [], notes = [] } = worldData;
 
   const parts = [`=== WORLD: "${world.name}" ===`];
-  if (world.archetypes?.length > 0) {
-    parts.push(`Archetypes: ${world.archetypes.join(', ')}`);
-  }
 
   const events = notes.filter((n) => n.subtype === 'event');
   const otherNotes = notes.filter((n) => n.subtype !== 'event');
@@ -1057,7 +1054,7 @@ export async function fetchChapterEntities(userId, chapterId, env) {
     // Fetch chapter metadata (owner check) and drop links in parallel
     const [chapterRes, linksRes] = await Promise.all([
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/chapters?id=eq.${chapterId}&owner_id=eq.${userId}&select=id,title,summary,target_description,phase,start_date,end_date&limit=1`,
+        `${env.SUPABASE_URL}/rest/v1/chapters?id=eq.${chapterId}&owner_id=eq.${userId}&select=id,title,summary,phase,start_date,end_date&limit=1`,
         { headers },
       )
         .then((r) => r.json())
@@ -1135,7 +1132,6 @@ export function formatChapterEntities(chapterData) {
 
   const parts = [`=== CHAPTER: "${chapter.title}" ===`];
   if (chapter.summary) parts.push(chapter.summary);
-  if (chapter.target_description) parts.push(`Goal: ${chapter.target_description}`);
   if (chapter.phase) parts.push(`Phase: ${chapter.phase}`);
 
   const dateRange = [chapter.start_date, chapter.end_date].filter(Boolean);
