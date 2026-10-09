@@ -13,6 +13,8 @@ import {
   getEventsForDate,
   type CalendarItem as ServiceCalendarItem,
 } from '../calendar/CalendarService';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, todoDayOf } from '../../workers/shared/todoDay';
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -118,19 +120,22 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   const items: CalendarItem[] = [];
 
   // ─────────────────────────────────────────────────────────────────
-  // TODOS: due on this date OR completed on this date
+  // TODOS: due on this date (planned for it, or with no day planned its
+  // deadline) OR completed on this date
   // ─────────────────────────────────────────────────────────────────
   todos.forEach((todo) => {
     if (todo.archived) return;
 
-    const isDueOnDate = todo.due_day === dateStr;
+    const isDueOnDate = isTodoOn(todo, dateStr);
     const isCompletedOnDate =
       todo.completed_at && dateService.toLocalDate(new Date(todo.completed_at)) === dateStr;
 
     if (!isDueOnDate && !isCompletedOnDate) return;
 
     const isCompleted = !!todo.completed_at;
-    const isOverdue = !isCompleted && todo.due_day ? dateService.isPast(todo.due_day) : false;
+    // overdue once its day has passed: its planned day, or with none its deadline
+    const day = todoDayOf(todo);
+    const isOverdue = !isCompleted && day ? dateService.isPast(day) : false;
 
     items.push({
       id: todo.id,
@@ -284,7 +289,7 @@ export function useDatesWithItems(startDate: string, endDate: string): Set<strin
     const hasTodo = todos.some(
       (t) =>
         !t.archived &&
-        (t.due_day === current ||
+        (isTodoOn(t, current) ||
           (t.completed_at && dateService.toLocalDate(new Date(t.completed_at)) === current)),
     );
 

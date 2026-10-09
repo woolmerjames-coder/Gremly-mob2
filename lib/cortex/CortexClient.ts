@@ -1978,6 +1978,8 @@ export interface DayTurnRequest {
     kind: 'todo' | 'habit';
     title: string;
     due_day: string | null;
+    /** Its deadline, when it has no day planned: it is on that day (workers/shared/todoDay.js) */
+    deadline?: string | null;
     due_time: string | null;
     minutes: number | null;
     note: string;

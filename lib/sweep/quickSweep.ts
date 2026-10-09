@@ -16,6 +16,8 @@
  * sweepCount.js, quickSweepItems): keep the two in step.
  */
 import { sweepCardAsks } from './sweepOrder';
+// A planned day: due_day, else scheduled_date (stage 2c, 9 Oct 2026)
+import { plannedDayOf } from '../../workers/shared/todoDay';
 import type { SweepCandidate, SweepCardMeta } from './types';
 
 type Row = Record<string, unknown>;
@@ -28,7 +30,9 @@ export function needsDecision(c: SweepCandidate, today: string): boolean {
   const resurfacesToday = !!resurface && resurface <= today;
   if (c.kind === 'todo') {
     if (c.isOverdue || skipped || resurfacesToday) return true;
-    return !raw.due_day && !raw.decided_at;
+    // no day planned and never decided; a deadline only todo is asked too, as
+    // a deadline is not a day to do it (workers/shared/todoDay.js)
+    return !plannedDayOf(raw) && !raw.decided_at;
   }
   if (c.kind === 'note') {
     if (skipped || resurfacesToday) return true;

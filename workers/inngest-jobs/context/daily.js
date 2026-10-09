@@ -55,6 +55,14 @@ import {
 } from '../../shared/questionRules.js';
 import { loadUpNext } from '../../shared/upNext.js';
 import { whoSaid } from '../../shared/whoSaid.js';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import {
+  isTodoOn,
+  isTodoOverdue,
+  isTodoUndated,
+  todoDayKind,
+  todoDayOf,
+} from '../../shared/todoDay.js';
 
 export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-18b';
 
@@ -197,7 +205,7 @@ export async function gatherDay(env, userId, tz, today) {
       `notes?owner_id=eq.${userId}&external_source=is.null&subtype=eq.event&archived=eq.false&or=(target_date.gte.${today},end_date.gte.${today})&target_date=lte.${addDays(today, 3)}&select=id,title,body,target_date,event_time,end_date,created_at&order=target_date.asc&limit=50`,
     ),
     d.select(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,due_day,scheduled_date,time_estimate_minutes,priority_kind,created_at,skipped_in_sweep_at&order=due_day.asc.nullslast&limit=1000`,
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,title,due_day,scheduled_date,target_date,time_estimate_minutes,priority_kind,created_at,skipped_in_sweep_at&order=due_day.asc.nullslast&limit=1000`,
     ),
     d.select(
       `todos?owner_id=eq.${userId}&completed_at=gte.${encodeURIComponent(dayStart)}&select=id,title&limit=50`,
@@ -463,28 +471,28 @@ export function renderDay(g, tz) {
   const free = freeWindows(todayTimed);
   const meetingsToday = todayTimed.length;
 
-  // Items with a possible claim on today.
-  const dueToday = g.openTodos.filter((t) => t.due_day === today || t.scheduled_date === today);
-  const overdue = g.openTodos.filter(
-    (t) => t.due_day && t.due_day < today && t.scheduled_date !== today,
-  );
-  const undated = g.openTodos.filter((t) => !t.due_day && !t.scheduled_date);
+  // Items with a possible claim on today. A todo's day is its planned day, or
+  // with none its deadline (shared/todoDay.js): due on it, overdue after.
+  const dueToday = g.openTodos.filter((t) => isTodoOn(t, today));
+  const overdue = g.openTodos.filter((t) => isTodoOverdue(t, today));
+  const undated = g.openTodos.filter((t) => isTodoUndated(t));
   const comingUp = g.openTodos
-    .filter(
-      (t) =>
-        (t.due_day && t.due_day > today && t.due_day <= addDays(today, 14)) ||
-        (t.scheduled_date && t.scheduled_date > today && t.scheduled_date <= addDays(today, 14)),
-    )
-    .sort((a, b) => ((a.due_day || a.scheduled_date) < (b.due_day || b.scheduled_date) ? -1 : 1));
+    .filter((t) => {
+      const day = todoDayOf(t);
+      return !!day && day > today && day <= addDays(today, 14);
+    })
+    .sort((a, b) => (todoDayOf(a) < todoDayOf(b) ? -1 : 1));
+  // a todo on its day by its deadline, with no day planned, is said to be one
+  const byDeadline = (t) => todoDayKind(t) === 'deadline';
   const todoLine = (t, note) => {
     const ref = addRef('t', { type: 'todo', id: t.id, title: t.title });
     return hold(
       ref,
       {
-        dates: [t.due_day, t.scheduled_date].filter(Boolean),
+        dates: [t.due_day, t.scheduled_date, t.target_date].filter(Boolean),
         numbers: [
           t.time_estimate_minutes,
-          ...dayDistance(today, t.due_day || t.scheduled_date || t.created_at),
+          ...dayDistance(today, todoDayOf(t) || t.created_at),
         ].filter((x) => Number.isFinite(x)),
         // a todo's title is their words, and may hold a day or a number
         exact: [],
@@ -492,16 +500,22 @@ export function renderDay(g, tz) {
       `${ref} | ${trim(t.title, 120)}${t.time_estimate_minutes ? ` | about ${t.time_estimate_minutes} min` : ''}${note ? ` | ${note}` : ''}`,
     );
   };
-  const dueLines = dueToday.slice(0, 25).map((t) => todoLine(t, 'due today'));
-  const overdueLines = overdue
-    .slice(0, 15)
-    .map((t) => todoLine(t, `was due ${t.due_day} (${relativeDay(t.due_day, today)})`));
-  const comingLines = comingUp.slice(0, 20).map((t) => {
-    const when = t.due_day || t.scheduled_date;
+  const dueLines = dueToday
+    .slice(0, 25)
+    .map((t) =>
+      todoLine(t, byDeadline(t) ? 'due today, its deadline, no day planned' : 'due today'),
+    );
+  const overdueLines = overdue.slice(0, 15).map((t) => {
+    const day = todoDayOf(t);
     return todoLine(
       t,
-      `${t.due_day ? 'due' : 'planned for'} ${when} (${relativeDay(when, today)})`,
+      `was due ${day} (${relativeDay(day, today)})${byDeadline(t) ? ', its deadline, no day planned' : ''}`,
     );
+  });
+  const comingLines = comingUp.slice(0, 20).map((t) => {
+    const when = todoDayOf(t);
+    const how = byDeadline(t) ? 'deadline' : t.due_day ? 'due' : 'planned for';
+    return todoLine(t, `${how} ${when} (${relativeDay(when, today)})`);
   });
   const undatedLines = undated
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))

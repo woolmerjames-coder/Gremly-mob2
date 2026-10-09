@@ -355,3 +355,12 @@ describe('the pieces the screens added', () => {
     expect(isDateNote({ target_date: null })).toBe(false);
   });
 });
+
+describe('a step with a deadline and no day planned (stage 2c)', () => {
+  it('is due on its deadline, and was due once it has passed', () => {
+    expect(dueWords({ due_day: null, target_date: TODAY }, TODAY)).toBe('Due today');
+    expect(dueWords({ due_day: null, target_date: '2026-10-01' }, TODAY)).toBe('Was due Thu 1 Oct');
+    // a planned day wins
+    expect(dueWords({ due_day: '2026-10-09', target_date: TODAY }, TODAY)).toBe('Due tomorrow');
+  });
+});

@@ -632,3 +632,27 @@ describe.skip('useCalendarItemsForDate — event notes (now in CalendarService)'
     expect(result.current).toHaveLength(0);
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  const deadline = (target_date: string) =>
+    makeTodo({ name: 'Send the report', due_day: null, target_date } as Partial<Todo>);
+
+  it('is on its deadline day, and not on the day before', () => {
+    setupMockStore({ todos: [deadline(TODAY)] });
+    expect(renderHook(() => useCalendarItemsForDate(TODAY)).result.current).toHaveLength(1);
+    expect(renderHook(() => useCalendarItemsForDate(YESTERDAY)).result.current).toHaveLength(0);
+  });
+
+  it('is overdue once its deadline has passed', () => {
+    setupMockStore({ todos: [deadline(YESTERDAY)] });
+    const { result } = renderHook(() => useCalendarItemsForDate(YESTERDAY));
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].isOverdue).toBe(true);
+  });
+
+  it('marks its deadline day as a day with items', () => {
+    setupMockStore({ todos: [deadline(TOMORROW)] });
+    const { result } = renderHook(() => useDatesWithItems(TODAY, TOMORROW));
+    expect([...result.current]).toEqual([TOMORROW]);
+  });
+});

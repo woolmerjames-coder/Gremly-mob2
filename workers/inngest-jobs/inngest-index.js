@@ -47,6 +47,8 @@ import {
   summaryFromPassMode,
 } from './summaryFromPass';
 import { jsonCall, modelFor } from './context/llm';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOverdue, todoDayOf } from '../shared/todoDay.js';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -2125,7 +2127,8 @@ function bucketTodayFacts(gathered) {
   const milestonesArr = safeArr(milestones);
   const moodNotesArr = safeArr(moodNotes);
 
-  const todoDay = (t) => t?.scheduled_date || t?.due_day || t?.target_date || null;
+  // its planned day, else its deadline (shared/todoDay.js)
+  const todoDay = (t) => todoDayOf(t);
 
   const projectTodo = (t) => ({
     title: t.title || t.name,
@@ -2717,7 +2720,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const queries = [
     // 0: Todos — within window
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${windowStartStr}&select=id,title,name,status,completed_at,target_date,space_id,created_at,tags,archived,due_day&order=created_at.desc&limit=500`,
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${windowStartStr}&select=id,title,name,status,completed_at,target_date,space_id,created_at,tags,archived,due_day,scheduled_date&order=created_at.desc&limit=500`,
       { headers },
     ).then((r) => r.json()),
 
@@ -3076,8 +3079,9 @@ function snapshotDeduplicateEvents(events) {
 }
 
 function snapshotComputeTodoStats(todos, targetDate) {
+  // overdue once its day has passed: its planned day, or with none its deadline
   const overdue = todos.filter(
-    (t) => t.target_date && t.target_date < targetDate && t.status !== 'completed' && !t.archived,
+    (t) => isTodoOverdue(t, targetDate) && t.status !== 'completed' && !t.archived,
   ).length;
   const active = todos.filter((t) => t.status === 'active' && !t.archived).length;
   const completedRecently = todos.filter((t) => t.completed_at).length;

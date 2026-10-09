@@ -25,7 +25,7 @@ import {
   selectRecentDrops,
   selectUndatedTodos,
 } from '../../store/selectors';
-import type { SweepCandidate } from '../sweepSelectors';
+import { candidateDays, type SweepCandidate } from '../sweepSelectors';
 import { getTodayDayString, computeDueDay } from '../../date/computeDueDay';
 import { nowTimestamp } from '../../date/DateService';
 import { probeMembership } from '../../config/surfaceProbe';
@@ -254,21 +254,25 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
     const sweepCandidates: SweepCandidate[] = sweepCandidatesWithMeta
       .map(({ candidate: c }) => c)
       .filter((c) => c.kind === 'todo')
-      .map((c) => ({
-        id: c.id,
-        type: 'todo' as const,
-        name: (c.raw as any)?.name || (c.raw as any)?.title || '',
-        due_day: (c.raw as any)?.due_day,
-        due_date: (c.raw as any)?.due_date,
-        status: 'active' as const,
-        carry_forward: (c.raw as any)?.carry_forward ?? false,
-        completed_at: null,
-        archived: false,
-        created_at: c.createdAt,
-        isOverdue: c.isOverdue,
-        hasUnscheduledDeadline: false,
-        daysUntilDeadline: null,
-      }));
+      .map((c) => {
+        const raw = (c.raw ?? {}) as any;
+        // its day is the planned day, else the deadline (workers/shared/todoDay.js)
+        const days = candidateDays({ id: c.id, name: '', ...raw }, todayDayString);
+        return {
+          id: c.id,
+          type: 'todo' as const,
+          name: raw.name || raw.title || '',
+          due_day: raw.due_day,
+          due_date: raw.due_date,
+          status: 'active' as const,
+          carry_forward: raw.carry_forward ?? false,
+          completed_at: null,
+          archived: false,
+          created_at: c.createdAt,
+          ...days,
+          isOverdue: c.isOverdue,
+        };
+      });
     const sweepCandidateCount = sweepCandidates.length;
 
     // Derive overdueTodos from store selector
@@ -283,9 +287,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       completed_at: null,
       archived: false,
       created_at: todo.created_at,
-      isOverdue: true,
-      hasUnscheduledDeadline: false,
-      daysUntilDeadline: null,
+      ...candidateDays(todo as any, todayDayString),
     }));
 
     // Recent drops from store
@@ -300,9 +302,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       completed_at: null,
       archived: false,
       created_at: todo.created_at,
-      isOverdue: false,
-      hasUnscheduledDeadline: false,
-      daysUntilDeadline: null,
+      ...candidateDays(todo as any, todayDayString),
     }));
 
     // Build completion summary for progress header

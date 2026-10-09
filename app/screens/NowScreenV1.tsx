@@ -79,7 +79,7 @@ import type {
   NowFutureItem,
   NowCompletedItem,
 } from '../../lib/now/nowTypes';
-import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+import { candidateDays, type SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Note } from '../../lib/types';
 import { useBriefUnread } from '../../lib/brief/todayThread';
@@ -138,33 +138,24 @@ function toCompletedItem(item: Todo | Habit): NowCompletedItem {
   };
 }
 
-/** Transform raw Todo to SweepCandidate */
+/**
+ * Transform raw Todo to SweepCandidate. Its day is the planned day, else the
+ * deadline (workers/shared/todoDay.js), so a deadline only todo reads as due
+ * on its deadline and overdue once it has passed.
+ */
 function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
-  const dueDay = todo.due_day ?? null;
-  const targetDate = (todo as any).target_date ?? null;
-  const isOverdue = dueDay !== null && dueDay < todayDayString;
-  const hasUnscheduledDeadline = targetDate !== null && dueDay === null;
-
-  // Calculate days until deadline
-  let daysUntilDeadline: number | null = null;
-  if (targetDate) {
-    daysUntilDeadline = getDateService().daysBetween(todayDayString, targetDate);
-  }
-
   return {
     id: todo.id,
     name: todo.name,
     type: 'todo',
-    due_day: dueDay,
+    due_day: todo.due_day ?? null,
     due_date: todo.due_date ?? null,
     status: 'active',
     carry_forward: (todo as any).carry_forward ?? false,
     completed_at: todo.completed_at ?? null,
     archived: todo.archived ?? false,
     created_at: todo.created_at ?? null,
-    isOverdue,
-    hasUnscheduledDeadline,
-    daysUntilDeadline,
+    ...candidateDays(todo as any, todayDayString),
     space_id: todo.space_id ?? null,
   };
 }

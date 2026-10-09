@@ -24,6 +24,8 @@ import type {
   NowWeekHealth,
 } from './nowTypes';
 import { getTodayDayString } from '../date/computeDueDay';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, todoDayOf } from '../../workers/shared/todoDay';
 import { getDateService } from '../date';
 import {
   jsonToFrequency,
@@ -202,35 +204,18 @@ function getTodayString(date: Date = getDateService().dayNow()): string {
 }
 
 /**
- * Check if a todo is due today using ONLY due_day (canonical field)
- * GREMLY TODO DATE MODEL:
- * - Uses ONLY due_day (YYYY-MM-DD) for filtering
- * - Todos with null/undefined due_day are NOT shown in Today
- * - No fallback to due_date or due_at timestamps (avoids timezone drift)
- * @param todo - The todo to check
- * @param todayStr - Today's date as YYYY-MM-DD string
+ * Is a todo on Today: its planned day (due_day, then scheduled_date) is today,
+ * or it has no planned day and its deadline (target_date) is today
+ * (workers/shared/todoDay.js). Date strings only, no timestamps.
  */
 function isTodoDueToday(todo: Todo, todayStr: string): boolean {
-  // ONLY use due_day - no fallbacks to avoid timezone issues
-  // Todos without due_day are NOT shown in Today's Focus
-  if (!todo.due_day) {
-    return false;
-  }
-  return todo.due_day === todayStr;
+  return isTodoOn(todo, todayStr);
 }
 
-/**
- * Check if a todo is in the future (due after today)
- * GREMLY TODO DATE MODEL: Uses ONLY due_day for comparison
- * @param todo - The todo to check
- * @param todayStr - Today's date as YYYY-MM-DD string
- */
+/** Is a todo on a day after today: its planned day, else its deadline. */
 function isTodoDueFuture(todo: Todo, todayStr: string): boolean {
-  // ONLY use due_day - no fallbacks
-  if (!todo.due_day) {
-    return false;
-  }
-  return todo.due_day > todayStr;
+  const day = todoDayOf(todo);
+  return day !== null && day > todayStr;
 }
 
 /**

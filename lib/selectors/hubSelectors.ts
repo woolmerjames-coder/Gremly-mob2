@@ -7,6 +7,8 @@
 
 import type { Todo, Note } from '../types';
 import { getDateService } from '../date';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, isTodoUndated } from '../../workers/shared/todoDay';
 
 // =============================================================================
 // Types
@@ -75,13 +77,14 @@ function isArchived(item: Todo | Note): boolean {
 }
 
 /**
- * Check if item is scheduled for today
+ * Check if item is on Today: a todo's planned day, or with none its deadline,
+ * is today
  */
 function isInToday(item: Todo | Note, todayDate: string | undefined): boolean {
   if (!todayDate) return false;
   if (item.type === 'todo') {
     const todo = item as Todo;
-    return todo.due_day === todayDate;
+    return isTodoOn(todo, todayDate);
   }
   return false;
 }
@@ -106,7 +109,7 @@ function isUnorganized(item: Todo | Note): boolean {
  * Base filters (all items must pass):
  * - Not archived
  * - Not completed
- * - Not scheduled for today (due_day !== todayDate)
+ * - Not on Today (its planned day, or with none its deadline, is not todayDate)
  *
  * Qualifying rules (item must match ONE of):
  * 1. Todo with no due date AND created_at > todoStaleDays (default: 7)
@@ -143,8 +146,8 @@ export function selectNeedsAttentionItems(
 
     const ageInDays = getDaysBetween(todo.created_at, nowIso);
 
-    // Rule 1: Todo with no due date, older than threshold
-    if (!todo.due_day && !todo.due_date && ageInDays >= todoStaleDays) {
+    // Rule 1: Todo with no due date (no planned day and no deadline), older than threshold
+    if (isTodoUndated(todo) && !todo.due_date && ageInDays >= todoStaleDays) {
       results.push({
         item: todo,
         reason: 'todo_missing_due_date_stale',

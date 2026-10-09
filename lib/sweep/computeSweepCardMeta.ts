@@ -16,6 +16,8 @@ import type { SweepCandidate, SweepCardMeta } from './types';
 import type { WorldForEntity } from '../store/worldsSelectors';
 import { getGremlyResponse } from './gremlyResponses';
 import { getDateService } from '../date';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { plannedDayOf, todoDayKind, todoDayOf } from '../../workers/shared/todoDay';
 
 /**
  * Pre-computes all display metadata for a Sweep card from a candidate
@@ -40,7 +42,10 @@ export function computeSweepCardMeta(
   // Todo status (only for todos)
   // ─────────────────────────────────────────────────────────────────────────
   let todoStatus: SweepCardMeta['todoStatus'] = null;
+  // on its day by its deadline, with no day planned: the card words it as a deadline
+  let byDeadline = false;
   if (candidate.kind === 'todo') {
+    byDeadline = todoDayKind(candidate.raw) === 'deadline';
     // Check for reminder first (resurfacing from "remind me later")
     // Cast to access resurface_at which may not be in Supabase generated types yet
     const resurfaceAt = (candidate.raw as { resurface_at?: string | null }).resurface_at;
@@ -51,8 +56,8 @@ export function computeSweepCardMeta(
     } else if (candidate.isDueToday) {
       todoStatus = 'due_today';
     } else {
-      // Check if due tomorrow
-      const dueDay = candidate.raw.due_day;
+      // Check if due tomorrow: its planned day, else its deadline
+      const dueDay = todoDayOf(candidate.raw);
       if (dueDay) {
         const ds = getDateService();
         const tomorrowStr = ds.addDays(ds.today(), 1);
@@ -60,7 +65,7 @@ export function computeSweepCardMeta(
           todoStatus = 'due_tomorrow';
         }
       }
-      if (!todoStatus && !dueDay) {
+      if (!todoStatus && !plannedDayOf(candidate.raw)) {
         todoStatus = 'unscheduled';
       }
     }
@@ -191,6 +196,7 @@ export function computeSweepCardMeta(
   return {
     typeChip,
     todoStatus,
+    byDeadline,
     logSubtype,
     habitStatus,
     isNew,

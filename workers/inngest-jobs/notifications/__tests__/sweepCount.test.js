@@ -252,3 +252,33 @@ describe("the evening wrap up's cards", () => {
     expect(countBoth({ todos, notes: [], today: '2026-10-01', tz }).evening).toBe(2);
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is a Sweep card before, on and after its deadline, as Sweep asks for a day', () => {
+    const todos = ['2026-10-05', today, '2026-09-30'].map((target_date) => todo({ target_date }));
+    expect(countSweep({ todos, today, tz })).toBe(3);
+  });
+
+  it('is past its day in the quick sweep once its deadline has passed', () => {
+    const decided = { decided_at: '2026-09-20T18:00:00Z' };
+    const q = quickSweepItems({
+      todos: [
+        todo({ target_date: '2026-09-30', ...decided }),
+        todo({ target_date: today, ...decided }),
+        todo({ target_date: '2026-10-05' }),
+      ],
+      today,
+      tz,
+    });
+    expect([q.pastDay.length, q.noDay.length, q.other.length]).toEqual([1, 1, 0]);
+  });
+
+  it('a planned day wins over the deadline', () => {
+    const q = quickSweepItems({
+      todos: [todo({ due_day: '2026-10-03', target_date: '2026-09-30' })],
+      today,
+      tz,
+    });
+    expect(q.pastDay).toHaveLength(0);
+  });
+});

@@ -9,6 +9,8 @@
  */
 
 import { db, localDate } from './db';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { todoDayOf, todoDayRangeFilter } from '../../shared/todoDay.js';
 
 /** The days from start to end, both included, as YYYY-MM-DD. */
 function daysOf(start, end) {
@@ -28,8 +30,9 @@ const DUE_FIELDS = ['due_day', 'due_date', 'scheduled_date'];
  * The counts, from rows already read. Pure.
  * @param threads daily threads: { metadata_json: { ritual_day, answered_at, plan_locked_at, sweep } }
  * @param changes item_changes rows by the person: { table_name, row_id, op, fields, at }
- * @param dueTodos todos due in the week: { id, due_day, status, completed_at }; one archived
- *   was taken off their list and is not counted as due
+ * @param dueTodos todos due in the week, on their planned day or with none their deadline
+ *   (shared/todoDay.js): { id, due_day, scheduled_date, target_date, status, completed_at };
+ *   one archived was taken off their list and is not counted as due
  * @param habits { id, name, title, cadence, target_per_period, kind }
  * @param progress habit_progress rows: { habit_id, occurred_day }
  * @param notHeld habit_not_held rows: { habit_id, day }
@@ -80,9 +83,7 @@ export function countWeek({
       (c.fields || []).some((f) => DUE_FIELDS.includes(f)),
   );
   const movedItems = new Set(moves.map((c) => c.row_id));
-  const due = dueTodos.filter(
-    (t) => t.status !== 'archived' && inWeek(String(t.due_day || '').slice(0, 10)),
-  );
+  const due = dueTodos.filter((t) => t.status !== 'archived' && inWeek(todoDayOf(t)));
   const dueDone = due.filter((t) => t.status === 'completed' || !!t.completed_at);
   const held = new Map();
   for (const p of progress)
@@ -188,7 +189,7 @@ export async function gatherWeekCounts(
       `item_changes?owner_id=eq.${userId}&by=eq.person&table_name=eq.todos&at=gte.${encodeURIComponent(wideFrom)}&at=lte.${encodeURIComponent(wideTo)}&select=table_name,row_id,op,fields,at&limit=2000`,
     ),
     d.select(
-      `todos?owner_id=eq.${userId}&due_day=gte.${periodStart}&due_day=lte.${periodEnd}&select=id,due_day,status,completed_at&limit=500`,
+      `todos?owner_id=eq.${userId}&or=(${todoDayRangeFilter(periodStart, periodEnd)})&select=id,due_day,scheduled_date,target_date,status,completed_at&limit=500`,
     ),
     d.select(
       `habit_not_held?owner_id=eq.${userId}&day=gte.${periodStart}&day=lte.${periodEnd}&select=habit_id,day&limit=500`,

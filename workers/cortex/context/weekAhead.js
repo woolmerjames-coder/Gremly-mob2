@@ -15,6 +15,14 @@ import { db } from '../../shared/db.js';
 import { stepsOnClosedChapters, withoutClosedSteps } from '../../shared/closedSteps.js';
 import { localDateOf, meetingsFrom, syncedOn, syncedRange } from '../../shared/calendar.js';
 import { addDays, clock, dayWords, trim } from '../agent/tools/words.js';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import {
+  isTodoOn,
+  todoDayFilter,
+  todoDayKind,
+  todoDayOf,
+  todoDayRangeFilter,
+} from '../../shared/todoDay.js';
 
 export const WEEK_DAYS = 7;
 const MOST_A_DAY = 15;
@@ -55,15 +63,18 @@ export async function readWeekAhead(
         `calendar_events?owner_id=eq.${u}&event_date=gte.${first}&event_date=lte.${last}&select=id,title,event_time,duration_minutes,event_date&limit=200`,
       ),
       d.select(
-        `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=gte.${first}&due_day=lte.${last}&select=id,name,title,due_day,due_time&order=due_day.asc,due_time.asc.nullslast&limit=200`,
+        `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&or=(${todoDayRangeFilter(first, last)})&select=id,name,title,due_day,scheduled_date,target_date,due_time&order=due_day.asc.nullslast,due_time.asc.nullslast&limit=200`,
       ),
+      // past their day, planned or deadline: the most recent fifteen are kept below
       d.select(
-        `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=lt.${first}&select=id,name,title,due_day&order=due_day.desc&limit=15`,
+        `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&or=(${todoDayFilter('lt', first)})&select=id,name,title,due_day,scheduled_date,target_date&order=due_day.desc.nullslast,target_date.desc.nullslast&limit=30`,
       ),
     ]);
     const left = await leftP;
     const todos = withoutClosedSteps(todosRead, left);
-    const overdue = withoutClosedSteps(overdueRead, left);
+    const overdue = withoutClosedSteps(overdueRead, left)
+      .sort((a, b) => String(todoDayOf(b)).localeCompare(String(todoDayOf(a))))
+      .slice(0, 15);
     // today's cancelled entries, as the daily context found them (may be a promise)
     const ids = await Promise.resolve(cancelledIds).catch(() => []);
     return weekFrom({
@@ -112,9 +123,15 @@ export function weekFrom({
       date,
       meetings,
       allDay,
+      // on the day: planned for it, or with no day planned its deadline is that day
       todos: (todos || [])
-        .filter((t) => t.due_day === date)
-        .map((t) => ({ id: t.id || null, title: title(t), due_time: t.due_time || null })),
+        .filter((t) => isTodoOn(t, date))
+        .map((t) => ({
+          id: t.id || null,
+          title: title(t),
+          due_time: t.due_time || null,
+          ...(todoDayKind(t) === 'deadline' ? { deadline: true } : {}),
+        })),
     });
   }
   return {
@@ -123,7 +140,8 @@ export function weekFrom({
     overdue: (overdue || []).map((t) => ({
       id: t.id || null,
       title: title(t),
-      due_day: t.due_day,
+      due_day: todoDayOf(t),
+      ...(todoDayKind(t) === 'deadline' ? { deadline: true } : {}),
     })),
   };
 }
@@ -166,7 +184,7 @@ export function formatWeekAhead(week, { ids = false } = {}) {
     }
     if (day.todos.length)
       parts.push(
-        `  todos planned for it (${day.todos.length}): ${some(day.todos, MOST_TODOS_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}`)}`,
+        `  todos planned for it (${day.todos.length}): ${some(day.todos, MOST_TODOS_A_DAY, (t) => `${trim(t.title, 60)}${idOf(t)}${t.due_time ? ` at ${clock(t.due_time)}` : ''}${t.deadline ? ', due by its deadline, no day planned' : ''}`)}`,
       );
     lines.push(
       parts.length
@@ -176,7 +194,7 @@ export function formatWeekAhead(week, { ids = false } = {}) {
   }
   if (week.overdue.length)
     lines.push(
-      `Still open from before today: ${some(week.overdue, 10, (t) => `${trim(t.title, 60)}${idOf(t)} (was ${dayWords(t.due_day)})`)}`,
+      `Still open from before today: ${some(week.overdue, 10, (t) => `${trim(t.title, 60)}${idOf(t)} (was ${dayWords(t.due_day)}${t.deadline ? ', its deadline' : ''})`)}`,
     );
   return lines.join('\n');
 }

@@ -49,6 +49,13 @@ import { isBreakHabit } from '../plan/candidatePool';
 import { dayRecordFromStore, meetingsFromStore } from '../plan/storePlan';
 import type { PlanChange } from '../plan/usePlanFlow';
 import type { BriefChangesMeta, BriefPlanMeta, DailyThreadMeta } from './types';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import {
+  deadlineOf,
+  hasUnscheduledDeadline,
+  plannedDayOf,
+  todoDayOf,
+} from '../../workers/shared/todoDay';
 
 export const DAY_TURN_COPY = {
   fallbackReply: "Here's what I'd change.",
@@ -184,24 +191,34 @@ const dayPart = (v: unknown): string | null =>
 
 /**
  * Where a todo stands on a day, for the note Gremly reads: null leaves it out
- * (a day far ahead, or no day and not new). A Later has no day of its own, so
- * its day to come back says where it stands: back today, back since an
- * earlier day, or still put off until a day in the next two weeks.
+ * (a day far ahead, or no day and not new). Its day is the planned day, or
+ * with none its deadline (workers/shared/todoDay.js). A Later has no day of
+ * its own, so its day to come back says where it stands: back today, back
+ * since an earlier day, or still put off until a day in the next two weeks.
  */
 export function todoStanding(
-  t: { due_day?: string | null; resurface_at?: string | null; created_at?: string | null },
+  t: {
+    due_day?: string | null;
+    scheduled_date?: string | null;
+    target_date?: string | null;
+    resurface_at?: string | null;
+    created_at?: string | null;
+  },
   p: { date: string; soon: string; recent: string; inPlan: boolean },
 ): { state: string; note: string } | null {
-  const due = dayPart(t.due_day);
-  const back = due ? null : dayPart(t.resurface_at);
+  const planned = plannedDayOf(t);
+  const due = todoDayOf(t, planned);
+  const back = planned ? null : dayPart(t.resurface_at);
   const as = (state: string, note: string = state) => ({ state, note });
   if (p.inPlan) return as(DAY_NOTES.inPlan);
   if (due === p.date) return as(DAY_NOTES.dueToday);
   if (back === p.date) return as(DAY_NOTES.backToday);
   if (due && due < p.date) return as(DAY_NOTES.pastDay);
   if (back && back < p.date) return as(DAY_NOTES.backEarlier, `${DAY_NOTES.backEarlier} ${back}`);
+  // a Later says when it comes back; with that far off, its deadline may still be near
+  if (back && back <= p.soon) return as(DAY_NOTES.putOff, `${DAY_NOTES.putOff} ${back}`);
   if (due) return due <= p.soon ? as(DAY_NOTES.upcoming) : null;
-  if (back) return back <= p.soon ? as(DAY_NOTES.putOff, `${DAY_NOTES.putOff} ${back}`) : null;
+  if (back) return null;
   return t.created_at && (localDateOf(t.created_at) ?? '') >= p.recent ? as(DAY_NOTES.noDay) : null;
 }
 
@@ -303,6 +320,8 @@ export function buildDayTurnRequest(
             kind: 'todo' as const,
             title: t.name || t.title || 'Untitled',
             due_day: due,
+            // no day planned: the deadline it is due on
+            deadline: hasUnscheduledDeadline(t) ? deadlineOf(t) : null,
             due_time: (t as { due_time?: string | null }).due_time ?? null,
             minutes: t.time_estimate_minutes ?? null,
             note: stands.note,

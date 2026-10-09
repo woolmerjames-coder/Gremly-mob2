@@ -23,6 +23,9 @@
  * fetchers, Promise.all orchestration) so it drops into workers/inngest-jobs/ cleanly.
  */
 
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOverdue } from '../shared/todoDay.js';
+
 export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
@@ -775,8 +778,9 @@ function snapshotComputeTodoStats(
   todos: TodoEntry[],
   targetDate: string,
 ): { overdue: number; active: number; completedRecently: number } {
+  // overdue once its day has passed: its planned day, or with none its deadline
   const overdue = todos.filter(
-    (t) => t.target_date && t.target_date < targetDate && t.status !== 'completed' && !t.archived,
+    (t) => isTodoOverdue(t, targetDate) && t.status !== 'completed' && !t.archived,
   ).length;
   const active = todos.filter((t) => t.status === 'active' && !t.archived).length;
   const completedRecently = todos.filter((t) => t.completed_at).length;

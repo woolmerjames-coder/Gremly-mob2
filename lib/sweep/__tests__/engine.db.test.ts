@@ -11,6 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../../types/supabase';
 import { fetchSweepCandidatesForUser, applySweepAction, SweepAction } from '../engine';
+import { getDateService } from '../../date';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Helpers
@@ -563,5 +564,38 @@ describe('applySweepAction', () => {
       // All 3 errors were logged
       expect(console.error).toHaveBeenCalledTimes(3);
     });
+  });
+});
+
+describe('fetchSweepCandidatesForUser: a todo with a deadline and no day planned (stage 2c)', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('is due today on its deadline, and overdue after', async () => {
+    const ds = getDateService();
+    const today = ds.today();
+    const row = (id: string, target_date: string) => ({
+      id,
+      owner_id: 'user-1',
+      created_at: '2025-12-03T10:00:00Z',
+      drop_id: null,
+      skipped_in_sweep_at: null,
+      archived: false,
+      due_day: null,
+      scheduled_date: null,
+      target_date,
+    });
+    const { client } = createMockSupabaseClient({
+      todos: { data: [row('due-today', today), row('passed', ds.addDays(today, -1))], error: null },
+    });
+    const candidates = await fetchSweepCandidatesForUser('user-1', client);
+    const by = (id: string) => candidates.find((c) => c.id === id)!;
+    expect(by('due-today')).toMatchObject({ isDueToday: true, isOverdue: false });
+    expect(by('passed')).toMatchObject({ isDueToday: false, isOverdue: true });
   });
 });

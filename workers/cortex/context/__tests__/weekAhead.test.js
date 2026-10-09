@@ -262,10 +262,14 @@ test('the week starts on their day when it is given: after midnight that is stil
   ]);
   // so "tomorrow" is the Sunday, and the todos read start from their day
   expect(formatWeekAhead(theirs)).toContain('Sun 4 Oct (tomorrow)');
+  // a todo is on its planned day, or with none its deadline (shared/todoDay.js)
   const todosRead = asked.find(
-    (u) => u.pathname.endsWith('/todos') && u.searchParams.getAll('due_day').length === 2,
+    (u) =>
+      u.pathname.endsWith('/todos') && (u.searchParams.get('or') || '').includes('due_day.gte.'),
   );
-  expect(todosRead.searchParams.getAll('due_day')).toEqual(['gte.2026-10-03', 'lte.2026-10-09']);
+  expect(todosRead.searchParams.get('or')).toBe(
+    '(and(due_day.gte.2026-10-03,due_day.lte.2026-10-09),and(due_day.is.null,scheduled_date.gte.2026-10-03,scheduled_date.lte.2026-10-09),and(due_day.is.null,scheduled_date.is.null,target_date.gte.2026-10-03,target_date.lte.2026-10-09))',
+  );
 
   // with no day given, and with one that could not be read, it is the calendar's date
   expect((await readWeekAhead('u1', TZ, env)).first).toBe('2026-10-04');
@@ -304,4 +308,29 @@ test('every todo planned for a day is named, so the whole list can be given when
   expect(over).toContain('Thing 50');
   expect(over).not.toContain('Thing 51');
   expect(over).toContain('and 3 more (53 in all)');
+});
+
+test('a todo with a deadline and no day planned is on its deadline day, and past it after (stage 2c)', () => {
+  const w = weekFrom({
+    first: FIRST,
+    tz: TZ,
+    synced: { timed: [], allDay: [] },
+    noteEvents: [],
+    quickEvents: [],
+    todos: [
+      { id: 'r', name: 'Send the report', due_day: null, target_date: '2026-10-06' },
+      { id: 'p', name: 'Planned', due_day: '2026-10-05', target_date: '2026-10-06' },
+    ],
+    overdue: [{ id: 'o', name: 'Pay the bill', due_day: null, target_date: '2026-10-01' }],
+    cancelledIds: [],
+  });
+  const on = (date) => w.days.find((d) => d.date === date).todos.map((t) => t.id);
+  expect(on('2026-10-06')).toEqual(['r']);
+  expect(on('2026-10-05')).toEqual(['p']);
+  expect(w.overdue).toEqual([
+    { id: 'o', title: 'Pay the bill', due_day: '2026-10-01', deadline: true },
+  ]);
+  const text = formatWeekAhead(w);
+  expect(text).toContain('Send the report, due by its deadline, no day planned');
+  expect(text).toContain(', its deadline)');
 });

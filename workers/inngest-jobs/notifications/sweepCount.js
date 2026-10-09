@@ -4,7 +4,9 @@
  * selectSweepCandidatesUnified in lib/store/selectors.ts: keep the two in step.
  *
  * Todos: open, not resurfacing later; overdue, due
- * today, undated, skipped in an earlier Sweep, or resurfacing today.
+ * today, undated, skipped in an earlier Sweep, or resurfacing today. A todo's
+ * day is its planned day, or with none its deadline (shared/todoDay.js); one
+ * with no day planned is always a card, as Sweep asks for a day.
  * Notes: an unanswered "is this one you already have?", an idea from the last
  * week, a list, reference or catch all made today, an upcoming event Gremly
  * holds, a skipped one, or one resurfacing today. Swept notes stay out.
@@ -13,6 +15,8 @@ import { db } from '../context/db';
 import { addDays, localDateOf } from './reminderTimes';
 import { minutesIn } from '../../shared/calendar.js';
 import { DEFAULT_DAY_END_HOUR, personDay } from '../../shared/day.js';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOnOrBefore, isTodoOverdue, plannedDayOf } from '../../shared/todoDay.js';
 
 const relationPending = (rel) =>
   !!rel && typeof rel === 'object' && !!rel.classified && rel.status === 'pending';
@@ -37,8 +41,12 @@ export function sweepItems({
     if (t.archived || t.completed_at) continue;
     const resurface = t.resurface_at || null;
     if (resurface && resurface > today) continue;
-    const due = t.due_day || null;
-    if (!due || due <= today || t.skipped_in_sweep_at || (resurface && resurface <= today)) {
+    if (
+      !plannedDayOf(t) ||
+      isTodoOnOrBefore(t, today) ||
+      t.skipped_in_sweep_at ||
+      (resurface && resurface <= today)
+    ) {
       outTodos.push(t);
     }
   }
@@ -101,8 +109,9 @@ export function eveningItems(input) {
 
 /**
  * The quick sweep (lib/sweep/quickSweep.ts, needsDecision): of Sweep's cards,
- * only what still needs a decision. Todos past their day, with no day and
- * never decided, skipped before or resurfacing; notes with a question, skipped
+ * only what still needs a decision. Todos past their day (planned, or with
+ * none their deadline), with no day planned and never decided, skipped before
+ * or resurfacing; notes with a question, skipped
  * or resurfacing, or not yet swept (an upcoming event only waits for a
  * reminder). Keep the two in step.
  *
@@ -117,8 +126,8 @@ export function quickSweepItems(input) {
   const noDay = [];
   const other = [];
   for (const t of todos) {
-    if (t.due_day && t.due_day < today) pastDay.push(t);
-    else if (!t.due_day && !t.decided_at) noDay.push(t);
+    if (isTodoOverdue(t, today)) pastDay.push(t);
+    else if (!plannedDayOf(t) && !t.decided_at) noDay.push(t);
     else if (asks(t) || t.skipped_in_sweep_at || resurfacing(t)) other.push(t);
   }
   const quickNotes = notes.filter(
@@ -136,7 +145,7 @@ export function quickSweepItems(input) {
 }
 
 const TODO_COLS =
-  'id,created_at,due_day,resurface_at,skipped_in_sweep_at,needs_clarification,clarification_resolved,v_needs:views->needs_clarification,v_resolved:views->clarification_resolved';
+  'id,created_at,due_day,scheduled_date,target_date,resurface_at,skipped_in_sweep_at,needs_clarification,clarification_resolved,v_needs:views->needs_clarification,v_resolved:views->clarification_resolved';
 
 async function readSweepRows(env, userId) {
   const d = db(env);

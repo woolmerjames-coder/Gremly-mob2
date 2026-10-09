@@ -113,6 +113,26 @@ describe('their week, for the brief', () => {
     expect(g.candidates).toBe(2);
   });
 
+  it('counts a todo with a deadline and no day planned as due on its deadline, and overdue after (stage 2c)', async () => {
+    const { g, paths } = await gather(
+      rows({
+        todos: [
+          { id: 'deadline', name: 'Send the report', due_day: null, target_date: '2026-10-05' },
+          { id: 'passed', name: 'Pay the bill', due_day: null, target_date: '2026-10-04' },
+          { id: 'ahead', name: 'Book the hall', due_day: null, target_date: '2026-10-09' },
+          { id: 'planned', name: 'Planned', due_day: '2026-10-07', target_date: '2026-10-05' },
+        ],
+      }),
+    );
+    expect(g.todosDue.map((t) => t.id)).toEqual(['deadline']);
+    expect(g.overdue).toBe(1);
+    // the one with its deadline still ahead waits for a day
+    expect(g.unsorted).toBe(1);
+    expect(paths.find((p) => p.startsWith('todos'))).toContain(
+      'due_day,scheduled_date,target_date',
+    );
+  });
+
   it('does not count a habit they are breaking as one for today, something to plan, or planned', async () => {
     const { g } = await gather(
       rows({

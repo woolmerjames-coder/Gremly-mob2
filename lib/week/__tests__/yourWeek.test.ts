@@ -268,3 +268,17 @@ describe('your week, read back', () => {
     ]);
   });
 });
+
+describe('your week: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is open on its deadline day, and on no other', () => {
+    const todos = [
+      ...TODOS,
+      todo('report', 'Send the report', { due_day: null, target_date: FRI }),
+    ];
+    const w = yourWeekOf(input({ todos }));
+    expect(states(w, FRI)).toContainEqual(['report', 'open', null, false]);
+    for (const d of [MON, TUE, WED, THU, SAT, SUN]) {
+      expect(states(w, d).map((x) => x[0])).not.toContain('report');
+    }
+  });
+});

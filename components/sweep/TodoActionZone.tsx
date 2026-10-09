@@ -44,7 +44,13 @@ export const KEEP_OR_LET_GO = "You've put this off twice now. Keep it, or let it
 
 type ReminderKey = 'daybefore' | 'morning' | 'custom';
 
-function getStatus(meta: SweepCardMeta): 'new' | 'unscheduled' | 'overdue' | 'due_today' {
+/** What the card's header says of a todo's day. */
+export function todoCardStatus(
+  meta: SweepCardMeta,
+): 'new' | 'unscheduled' | 'overdue' | 'due_today' | 'deadline_today' | 'deadline_passed' {
+  // a todo here by its deadline is worded as one: due today, then overdue
+  if (meta.byDeadline && meta.todoStatus === 'overdue') return 'deadline_passed';
+  if (meta.byDeadline && meta.todoStatus === 'due_today') return 'deadline_today';
   if (meta.isNew) return 'new';
   if (meta.todoStatus === 'overdue') return 'overdue';
   if (meta.todoStatus === 'due_today') return 'due_today';
@@ -75,7 +81,7 @@ export function TodoActionZone({
   labels,
   asking = false,
 }: TodoActionZoneProps) {
-  const status = getStatus(meta);
+  const status = todoCardStatus(meta);
 
   const bellColor = reminderEnabled ? '#2E5540' : 'rgba(34,34,34,0.45)';
   const chevronColor = bellColor;

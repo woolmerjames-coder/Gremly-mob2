@@ -85,6 +85,8 @@ import {
   type ClarificationWhen,
 } from '../minddrop/clarification';
 import type { TimeBlockPreferences } from '../capacity';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn } from '../../workers/shared/todoDay';
 
 // In-flight ensureEntityClarification calls, keyed by `${type}:${id}`
 const ensureClarificationInflight = new Map<
@@ -5192,7 +5194,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           for (const todo of get().todos) {
             if (todo.archived || todo.completed_at) continue;
-            if (todo.due_day !== today) continue;
+            if (!isTodoOn(todo, today)) continue;
             const eb = todo.daily_block ?? todo.time_window;
             if (eb && eb !== 'any' && !todo.scheduled_start_iso) {
               unpositioned.push({

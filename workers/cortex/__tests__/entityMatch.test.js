@@ -1937,3 +1937,20 @@ test("the pill gives a new todo the day their words give, and a todo's day is a 
   ).toEqual(['2026-10-04', null, null, null]);
   expect(withValidDays(null)).toEqual([]);
 });
+
+test('a todo with a deadline and no day planned is due on its deadline and overdue after (stage 2c)', () => {
+  const items = [
+    { id: 'due', type: 'todo', title: 'Send the report', due_day: null, deadline: '2026-09-30' },
+    { id: 'passed', type: 'todo', title: 'Pay the bill', due_day: null, deadline: '2026-09-27' },
+    { id: 'none', type: 'todo', title: 'No day', due_day: null, deadline: null },
+  ];
+  const attention = attentionItems(items, '2026-09-29');
+  expect(attention.map((c) => [c.id, c.overdue])).toEqual([
+    ['due', false],
+    ['passed', true],
+  ]);
+  const sec = theirItemsPromptSection({ related: [], attention }, '2026-09-29');
+  expect(sec).toContain('"Send the report", due tomorrow');
+  expect(sec).toContain(', its deadline, no day set');
+  expect(sec).toContain('(overdue)');
+});

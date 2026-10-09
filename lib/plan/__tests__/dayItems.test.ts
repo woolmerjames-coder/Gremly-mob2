@@ -94,3 +94,17 @@ describe('why a todo is on a day', () => {
     expect(todoDayWords({ due_day: '2026-10-06' }, '2026-10-06', '2026-10-05')).toBe('Due Tuesday');
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  const deadline = (id: string, target_date: string) => ({ id, due_day: null, target_date });
+
+  it('is on its deadline day, and on no other', () => {
+    const todos = [deadline('due', '2026-10-12'), deadline('ahead', '2026-10-13')];
+    expect(todosDueOn(todos, '2026-10-12').map((t) => t.id)).toEqual(['due']);
+  });
+
+  it('says Due today on its deadline, before Back from Later', () => {
+    const t = { ...deadline('d', '2026-10-12'), resurface_at: '2026-10-12' };
+    expect(todoDayWords(t, '2026-10-12', '2026-10-12')).toBe('Due today');
+  });
+});

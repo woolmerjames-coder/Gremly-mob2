@@ -109,3 +109,26 @@ describe('needsDecision: notes', () => {
     expect(needsDecision(back.candidate, today)).toBe(true);
   });
 });
+
+describe('needsDecision: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('needs a day, as a deadline is not a day to do it', () => {
+    const c = card('d', 'todo', { due_day: null, target_date: '2026-10-05' });
+    expect(needsDecision(c.candidate, today)).toBe(true);
+  });
+
+  it('once decided it waits, until its deadline passes and it is overdue', () => {
+    const decided = {
+      due_day: null,
+      target_date: '2026-10-02',
+      decided_at: '2026-10-01T20:00:00Z',
+    };
+    expect(needsDecision(card('on', 'todo', decided, false).candidate, today)).toBe(false);
+    const passed = { ...decided, target_date: '2026-10-01' };
+    expect(needsDecision(card('over', 'todo', passed, true).candidate, today)).toBe(true);
+  });
+
+  it('a todo with only scheduled_date has a day', () => {
+    const c = card('s', 'todo', { due_day: null, scheduled_date: '2026-10-04' });
+    expect(needsDecision(c.candidate, today)).toBe(false);
+  });
+});

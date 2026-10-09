@@ -185,3 +185,13 @@ describe('what he has said tonight', () => {
     expect(questionsIntroOf(null, [q])).toBeNull();
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is among the todos for its deadline day, and no other', () => {
+    const todos = [
+      { id: '1', name: 'Send the report', due_day: null, target_date: '2026-10-04' },
+      { id: '2', name: 'Pay the bill', due_day: null, target_date: '2026-10-05' },
+    ];
+    expect(todosPlannedFor(todos, '2026-10-04')).toEqual(['Send the report']);
+  });
+});

@@ -490,3 +490,27 @@ describe('RolledOverSection', () => {
     });
   });
 });
+
+describe('RolledOverSection: a todo here by its deadline, with no day planned (stage 2c)', () => {
+  it('says Overdue on its row, and a todo past its planned day does not', () => {
+    const items = [
+      createMockSweepCandidate({
+        id: 'deadline',
+        name: 'Send the report',
+        target_date: '2025-12-04',
+        isOverdue: true,
+        hasUnscheduledDeadline: true,
+      }),
+      createMockSweepCandidate({
+        id: 'planned',
+        name: 'Call the bank',
+        due_day: '2025-12-04',
+        isOverdue: true,
+      }),
+    ];
+    render(<RolledOverSection items={items} onPressItem={jest.fn()} />);
+    fireEvent.press(screen.getByTestId('rolled-over-section-header'));
+    expect(screen.getAllByText('Overdue')).toHaveLength(1);
+    expect(screen.getByTestId('overdue-deadline-0')).toBeTruthy();
+  });
+});

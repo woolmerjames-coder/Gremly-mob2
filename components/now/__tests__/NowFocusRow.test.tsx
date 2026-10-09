@@ -95,6 +95,38 @@ describe('NowFocusRow', () => {
     });
   });
 
+  describe('a todo here by its deadline, with no day planned (stage 2c)', () => {
+    const TODAY = '2026-10-07';
+    const withTodo = (todo: Record<string, unknown>) =>
+      mockUseGremlyStore.mockImplementation((selector: any) =>
+        selector({
+          habitProgress: [],
+          habits: [],
+          todos: [{ id: 'todo-1', name: 'Send the report', ...todo }],
+          currentDate: TODAY,
+        }),
+      );
+    const item: NowActiveItem = {
+      id: 'todo-1',
+      type: 'todo',
+      name: 'Send the report',
+      locked: false,
+    };
+
+    it('says Due today on its deadline day, with its estimate', () => {
+      withTodo({ due_day: null, target_date: TODAY, time_estimate_minutes: 30 });
+      render(<NowFocusRow item={item} />);
+      expect(screen.getByText('Due today · ~30 min')).toBeTruthy();
+    });
+
+    it('says nothing of a deadline when it has a planned day', () => {
+      withTodo({ due_day: TODAY, target_date: TODAY, time_estimate_minutes: 30 });
+      render(<NowFocusRow item={item} />);
+      expect(screen.queryByText(/Due today/)).toBeNull();
+      expect(screen.getByText('~30 min')).toBeTruthy();
+    });
+  });
+
   describe('rendering', () => {
     it('renders item name', () => {
       render(<NowFocusRow item={mockLockedItem} />);

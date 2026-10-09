@@ -20,6 +20,13 @@ import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
 import { dayOfWeek, pausedOn, weekAround } from '../week/habitWeek';
 import { filedIndex, stepsOnClosedChapters } from '../worlds/model';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import {
+  isTodoOn,
+  isTodoOnOrBefore,
+  isTodoOverdue,
+  plannedDayOf,
+} from '../../workers/shared/todoDay';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -547,17 +554,20 @@ export const selectTodosDueToday = createSelector(
     const today = getTodayDayString();
     return todos.filter(
       (t) =>
-        (t.due_day === today || (!t.due_day && (t as any).resurface_at === today)) &&
+        (isTodoOn(t, today) || (!plannedDayOf(t) && (t as any).resurface_at === today)) &&
         !hiddenIds.includes(t.id),
     );
   },
 );
 
-/** Overdue todos (due_day < today, not completed, not archived) */
+/**
+ * Overdue todos: their day has passed, the planned day or, with none, the
+ * deadline (workers/shared/todoDay.js). Not completed, not archived.
+ */
 export const selectOverdueTodos = createSelector([selectDayTodos], (todos): Todo[] => {
   const today = getTodayDayString();
   const result = todos.filter((t) => {
-    if (!t.due_day || t.due_day >= today) return false;
+    if (!isTodoOverdue(t, today)) return false;
     // Check if skipped today
     const skippedDay = ds().dayOf(t.skipped_in_sweep_at);
     if (skippedDay === today) {
@@ -578,14 +588,18 @@ export const selectOverdueTodos = createSelector([selectDayTodos], (todos): Todo
 /** Rolled over todos - alias for overdue (for Mini-Sweep clarity) */
 export const selectRolledOverTodos = selectOverdueTodos;
 
-/** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days, not skipped today */
+/**
+ * Unscheduled todos for Mini-Sweep: no planned day and not yet due (a deadline
+ * only todo joins Today on its deadline), created in the last 3 days, not
+ * skipped today
+ */
 export const selectUnscheduledTodosForMiniSweep = createSelector(
   [selectDayTodos],
   (todos): Todo[] => {
     const today = getTodayDayString();
     const threeDaysAgo = getDaysAgoDayString(3);
     const result = todos.filter((t) => {
-      if (t.due_day) return false; // Must be unscheduled
+      if (plannedDayOf(t) || isTodoOnOrBefore(t, today)) return false; // Must be unscheduled and not yet due
       const createdDay = ds().dayOf(t.created_at);
       if (!createdDay || createdDay < threeDaysAgo) return false;
       // Check if skipped today
@@ -616,10 +630,15 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
   return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
-/** Undated todos (no due_day, for triage) */
-export const selectUndatedTodos = createSelector([selectDayTodos], (todos): Todo[] =>
-  todos.filter((t) => !t.due_day),
-);
+/**
+ * Undated todos, for triage: no planned day, and not yet due. A deadline only
+ * todo is here until its deadline, then on Today, then overdue
+ * (workers/shared/todoDay.js).
+ */
+export const selectUndatedTodos = createSelector([selectDayTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => !plannedDayOf(t) && !isTodoOnOrBefore(t, today));
+});
 
 /** Recent drops: undated todos created in last 3 days */
 export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): Todo[] => {
@@ -789,10 +808,11 @@ export function sweepCandidatesAsOf(
         continue;
       }
 
-      const dueDay = todo.due_day;
-      const isOverdue = dueDay ? dueDay < today : false;
-      const isDueToday = dueDay === today;
-      const isUndated = !dueDay;
+      // On its planned day, else its deadline (workers/shared/todoDay.js). With
+      // no planned day it still needs one, so Sweep keeps asking.
+      const isOverdue = isTodoOverdue(todo, today);
+      const isDueToday = isTodoOn(todo, today);
+      const isUndated = !plannedDayOf(todo);
       const isCreatedToday = ds().isTimestampToday(todo.created_at);
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
