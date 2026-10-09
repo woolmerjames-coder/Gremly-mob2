@@ -177,18 +177,30 @@ describe('the check on the pass', () => {
     const o = output();
     // the week note leans on the physio visit, which is about health
     o.week_note_refs = ['f1', 'f3'];
-    const r = await checkWeekly({ output: o, refsSnapshot: snapshot, today: '2026-10-08', person: { first_name: 'Alex' }, ask, rewrite, confirm: held });
-    // the second reader says both hold: nothing is sent back
-    expect(rewrite).not.toHaveBeenCalled();
-    expect(r.counts.held_by_second).toBe(2);
+    const confirm = jest.fn(held);
+    const r = await checkWeekly({ output: o, refsSnapshot: snapshot, today: '2026-10-08', person: { first_name: 'Alex' }, ask, rewrite, confirm });
+    // what the first reader finds is put right first; the second reader is
+    // asked only before something would be left out for its words
+    expect(rewrite.mock.calls.map((c) => c[0].key).sort()).toEqual(['lm.0.0.update', 'w.0.summary', 'week_note']);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(r.counts.held_by_second).toBeUndefined();
+    // the week note goes back with only what can be seen at a glance; a
+    // rewrite still resting on the health fact is never kept
+    expect(rewrite.mock.calls.find((c) => c[0].key === 'week_note')[0].records.map((x) => x.ref)).toEqual(['f1']);
     expect(r.output.week_note).toBe('');
     expect(r.left_out).toContain('week_note');
+    rewrite.mockClear();
 
     const r2 = await checkWeekly({ output: output(), refsSnapshot: snapshot, today: '2026-10-08', person: { first_name: 'Alex' }, ask, rewrite });
     expect(rewrite.mock.calls.map((c) => c[0].key).sort()).toEqual(['lm.0.0.update', 'w.0.summary']);
     expect(r2.output.worlds[0].summary).toBe('You planned your long run for Saturday.');
     expect(r2.output.life_map.domains[0].threads[0].recent_update).toBe('Alex planned a long run for Saturday.');
     expect(r2.counts).toMatchObject({ sent_back: 2, left_out: 0 });
+
+    // a repair the first reader still finds wrong is kept only on the second reader's word
+    const same = jest.fn(async ({ sentence }) => ({ text: sentence.text, refs: sentence.refs, stated: [] }));
+    const r3 = await checkWeekly({ output: output(), refsSnapshot: snapshot, today: '2026-10-08', person: { first_name: 'Alex' }, ask, rewrite: same, confirm: held });
+    expect(r3.counts).toMatchObject({ sent_back: 2, left_out: 0, held_by_second: 2 });
   });
 
   it("keeps a World's notes from before when the new ones were left out and the old ones still hold, and reads them against the World's own line", async () => {

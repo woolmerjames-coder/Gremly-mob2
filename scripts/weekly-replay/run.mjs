@@ -42,6 +42,7 @@ import { SCENARIOS, USER, at } from './scenarios.mjs';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
 import {
   applyWeekly,
+  chapterEndPlan,
   weeklyRequestParams,
   weeklyShapeProblems,
   WEEKLY_PROMPT_VERSION,
@@ -63,6 +64,7 @@ import {
   wrongCards,
 } from '../../workers/inngest-jobs/summaryPlanWriter.ts';
 import { sanitizeDeckProse } from '../../workers/inngest-jobs/summaryWriter.ts';
+import { writeQuestionSet, PERSON_QUESTIONS_VERSION } from '../../workers/inngest-jobs/context/peopleQuestions.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -225,6 +227,48 @@ export function checkPass(s, output, refsSnapshot) {
   add('every note rests on facts, entries and list items it was given', !badNoteRefs.length, badNoteRefs.join(' '));
   add('no note on a person rests on a private or health fact', !privateNotes.length, privateNotes.map((x) => x.note).join(' | '));
   add('a note on each person the week is about', notes.length > 0 || !s.tables.life_people.length, `${notes.length}`);
+  // what Gremly is not sure of yet, and who matters most (context/unsure.js)
+  const unsure = Array.isArray(output?.not_sure) ? output.not_sure : [];
+  const aboutBad = unsure.filter((x) => x.about_ref !== 'self' && refs.get(x.about_ref)?.type !== 'person');
+  add('what Gremly is not sure of is about them or someone it was given', !aboutBad.length, aboutBad.map((x) => x.thinks).join(' | '));
+  const restsPrivate = unsure.filter((x) =>
+    (x.refs || []).some((r) => {
+      const y = refs.get(r);
+      return (
+        (y?.type === 'fact' && privateKeys.has(keyOf.get(y.id))) ||
+        (y?.type === 'journal' && privateEntries.has(y.id)) ||
+        y?.private ||
+        y?.health
+      );
+    }),
+  );
+  add('nothing Gremly is not sure of rests on anything private or about health', !restsPrivate.length, restsPrivate.map((x) => x.thinks).join(' | '));
+  const recorded = unsure.filter((x) => x.kind === 'who' && refs.get(x.about_ref)?.relationship);
+  add('no guess at who someone is once it is recorded', !recorded.length, recorded.map((x) => x.thinks).join(' | '));
+  const matters = Array.isArray(output?.who_matters) ? output.who_matters : [];
+  add('who matters names only people it was given', matters.every((r) => refs.get(r)?.type === 'person'), matters.join(' '));
+  // the people on each Chapter, kept only through facts it cites that can be shown
+  const onChapters = (output?.chapters || []).flatMap((c) => c?.people_refs || []);
+  add('everyone on a Chapter is someone it was given', onChapters.every((r) => refs.get(r)?.type === 'person'), onChapters.join(' '));
+  for (const [key, want] of Object.entries(s.truth.chapterPeople || {})) {
+    const chapterId = s.tables.chapters.find((c) => c.key === key)?.id;
+    const c = (output?.chapters || []).find((x) => refs.get(x.chapter_ref)?.id === chapterId);
+    const got = new Set((c?.people_refs || []).map((r) => refs.get(r)?.id));
+    for (const k of want) add(`${k} is on the ${key} Chapter`, got.has(s.tables.life_people.find((p) => p.key === k)?.id));
+  }
+  for (const [key, want] of Object.entries(s.truth.chapterEnds || {})) {
+    const chapterId = s.tables.chapters.find((c) => c.key === key)?.id;
+    const c = (output?.chapters || []).find((x) => refs.get(x.chapter_ref)?.id === chapterId);
+    const kept = chapterEndPlan({ output, refs }).find((x) => x.chapter_id === chapterId);
+    add(`the ${key} Chapter ends on ${want}`, kept?.end_date === want && !kept.refused, `begun for ${c?.begun_for_ref || 'nothing'}: ${kept?.end_date || 'no day'}${kept?.refused ? `, refused: ${kept.refused}` : ''}`);
+  }
+  if (s.truth.unsure) {
+    for (const key of s.truth.unsure.who || []) {
+      const id = s.tables.life_people.find((p) => p.key === key)?.id;
+      add(`a guess at who ${key} is`, unsure.some((x) => x.kind === 'who' && refs.get(x.about_ref)?.id === id));
+    }
+    if (s.truth.unsure.life) add('something about their life it is not sure of', unsure.some((x) => x.kind === 'life'));
+  }
   return checks;
 }
 
@@ -279,6 +323,10 @@ async function runPass() {
             output,
             // the notes as the check left them, which is what would be kept
             checked: applied.output,
+            // what Gremly is not sure of, as code would keep it (context/unsure.js)
+            unsure_plan: applied.unsure || null,
+            // the people on each Chapter, as code would keep them
+            chapter_people: applied.chapterPeople || null,
             check: {
               counts: applied.check?.counts ?? null,
               left_out: applied.check?.left_out ?? [],
@@ -327,6 +375,22 @@ async function runPass() {
         lines.push(`    character: ${plan.character} | line: ${plan.through_line}`);
         for (const c of plan.cards || []) lines.push(`    card: ${c.about}`);
         lines.push(`    applied: ${JSON.stringify({ threads: rec.applied?.threads, worlds: rec.applied?.worlds, chapters: rec.applied?.chapters, questions: rec.applied?.questions })}`);
+        for (const q of (rec.checked || rec.output).questions || []) lines.push(`    question: ${q.question}`);
+        const refsMap = new Map(rec.refs);
+        for (const x of rec.output.not_sure || [])
+          lines.push(`    not sure (${x.kind}, ${x.about_ref === 'self' ? 'them' : refsMap.get(x.about_ref)?.name || x.about_ref}, ${x.sure}): ${x.thinks}`);
+        for (const x of rec.unsure_plan?.dropped || []) lines.push(`    not sure, left out: ${x.why}: ${x.thinks}`);
+        lines.push(`    who matters: ${(rec.output.who_matters || []).map((r) => refsMap.get(r)?.name || r).join(', ') || 'none'}`);
+        const nameById = new Map([...refsMap.values()].filter((v) => v.type === 'person').map((v) => [v.id, v.name]));
+        const titleOf = (id) => s.tables.chapters.find((c) => c.id === id)?.title || id;
+        const ends = chapterEndPlan({ output: rec.output, refs: refsMap });
+        for (const c of (rec.checked || rec.output).chapters || []) {
+          const ch = s.tables.chapters.find((x) => x.id === refsMap.get(c.chapter_ref)?.id);
+          const end = ends.find((x) => x.chapter_id === ch?.id);
+          if (ch?.key && s.truth.chapterEnds?.[ch.key]) lines.push(`    the ${ch.title} Chapter: ends ${end?.end_date || 'unset'}${end?.refused ? ` (refused, ${end.refused})` : ''} | ${c.summary}`);
+        }
+        for (const cp of rec.chapter_people || [])
+          lines.push(`    on the ${titleOf(cp.chapter_id)} Chapter: ${cp.people.map((id) => nameById.get(id)).join(', ') || 'no one'}${cp.dropped.length ? ` (left off: ${cp.dropped.map((x) => `${refsMap.get(x.ref)?.name || x.ref}, ${x.why}`).join('; ')})` : ''}`);
       }
     }
   writeFileSync(join(dir, 'report.md'), lines.join('\n'));
@@ -356,6 +420,7 @@ async function judgePass() {
       const notHeld = out.notes.filter((x) => !x.held);
       lines.push(`- ${rec.scenario} ${rec.i}: plan ${out.plan ? (out.plan.speaks_of_private ? `SPEAKS OF PRIVATE (${out.plan.what})` : 'discreet') : 'nothing private'}; week note ${out.week_note ? (out.week_note.speaks_of_private ? `SPEAKS OF PRIVATE (${out.week_note.what})` : 'discreet') : 'nothing private'}; notes held ${out.notes.length - notHeld.length} of ${out.notes.length}`);
       for (const x of notHeld) lines.push(`    not held: ${x.person}: ${x.note} (${x.what})`);
+      lines.push(...unsureLines(out.unsure));
       continue;
     }
     const rec = readJson(join(from, f));
@@ -402,12 +467,142 @@ async function judgePass() {
       }
       out.notes.push({ person: p?.name, note: note.note, held: ans?.not_held === false, what: ans?.what || ans?.error || '' });
     }
+    out.unsure = await judgeUnsure(s, rec);
     writeFileSync(join(from, `judge-${f}`), JSON.stringify(out, null, 2));
     const notHeld = out.notes.filter((x) => !x.held);
     lines.push(`- ${rec.scenario} ${rec.i}: plan ${out.plan ? (out.plan.speaks_of_private ? `SPEAKS OF PRIVATE (${out.plan.what})` : 'discreet') : 'nothing private'}; week note ${out.week_note ? (out.week_note.speaks_of_private ? `SPEAKS OF PRIVATE (${out.week_note.what})` : 'discreet') : 'nothing private'}; notes held ${out.notes.length - notHeld.length} of ${out.notes.length}`);
     for (const x of notHeld) lines.push(`    not held: ${x.person}: ${x.note} (${x.what})`);
+    lines.push(...unsureLines(out.unsure));
   }
   writeFileSync(join(from, 'judge.md'), lines.join('\n'));
+  console.log(lines.join('\n'));
+}
+
+// ── what Gremly is not sure of: judged ───────────────────────────────────
+
+const UNSURE_JUDGE = `You check what Gremly, a companion app, thinks about a person's life but is not sure of. Gremly keeps these apart from what it knows, never says them as known, and uses them only to ask the person whether they are so.
+
+For each entry you are given what Gremly thinks and the records it says point to it. Decide:
+- follows: whether the records it cites point to it, so that someone who knows them would think it too. A guess the records merely leave open does not follow.
+- fine_to_ask: whether it is something the person would be glad to be asked about: nothing private, nothing about anyone's health, and nothing of a kind people keep to themselves.
+
+You are also given the notes Gremly writes that the person may read. Name in stated each place one of them says as known what an entry only thinks, quoting its words.
+
+Return only JSON: {"entries": [{"i": number, "follows": true or false, "fine_to_ask": true or false, "note": "one short sentence"}], "stated": [{"where": "...", "words": "..."}]}`;
+
+async function judgeUnsure(s, rec) {
+  const output = rec.checked || rec.output;
+  const entries = Array.isArray(rec.output?.not_sure) ? rec.output.not_sure : [];
+  if (!entries.length) return null;
+  const refs = new Map(rec.refs);
+  const label = (r) => {
+    const x = refs.get(r);
+    if (!x) return null;
+    if (x.type === 'fact') return `fact: ${x.statement}`;
+    if (x.type === 'journal') return `journal: ${s.tables.notes.find((n) => n.id === x.id)?.body || ''}`;
+    if (x.type === 'item') return `on their list: ${x.title}`;
+    if (x.type === 'person') return `person: ${x.name}${x.relationship ? `, their ${x.relationship}` : ''}`;
+    return null;
+  };
+  const about = (x) => (x.about_ref === 'self' ? 'them' : refs.get(x.about_ref)?.name || x.about_ref);
+  const shownNotes = [
+    ['the profile', output.profile_text],
+    ['the note on their week', output.week_note],
+    ['the Worlds headline', output.worlds_summary?.headline],
+    ...(output.worlds || []).map((w, i) => [`a World note ${i + 1}`, w.summary]),
+    ...(output.chapters || []).map((c, i) => [`a Chapter note ${i + 1}`, c.summary]),
+    ...(output.people_notes || []).map((n) => [`the note on ${refs.get(n.person_ref)?.name || 'someone'}`, n.note]),
+  ].filter(([, t]) => t);
+  return callJudge(
+    JUDGE,
+    UNSURE_JUDGE,
+    `WHAT GREMLY THINKS BUT IS NOT SURE OF:\n${entries
+      .map((x, i) => `${i} | about ${about(x)} | ${x.thinks}\n${(x.refs || []).map(label).filter(Boolean).map((l) => `   ${l}`).join('\n')}`)
+      .join('\n')}\n\nNOTES THE PERSON MAY READ:\n${shownNotes.map(([w, t]) => `${w}: ${t}`).join('\n')}`,
+  ).catch((err) => ({ error: String(err?.message || err).slice(0, 200) }));
+}
+
+function unsureLines(u) {
+  if (!u) return [];
+  if (u.error) return [`    not sure judge: ERROR ${u.error}`];
+  const e = u.entries || [];
+  const out = [`    not sure: ${e.filter((x) => x.follows).length} of ${e.length} follow, ${e.filter((x) => x.fine_to_ask).length} of ${e.length} fine to ask, ${(u.stated || []).length} stated as known`];
+  for (const x of e.filter((y) => !y.follows || !y.fine_to_ask)) out.push(`    not sure ${x.i}: ${!x.follows ? 'does not follow' : ''}${!x.follows && !x.fine_to_ask ? ', ' : ''}${!x.fine_to_ask ? 'not fine to ask' : ''}: ${x.note}`);
+  for (const x of u.stated || []) out.push(`    STATED AS KNOWN in ${x.where}: ${x.words}`);
+  return out;
+}
+
+// ── the week's questions, from what each pass is not sure of ───────────────
+
+const SET_JUDGE = `You review the questions a companion app wrote to ask a person, as one set, about the people in their life and about what the app thinks about their life but is not sure of. Beneath its answers to tap, the app always offers a way to type their own answer and a way to skip, so the answers need not cover those; a question with no answers to tap is answered by typing.
+
+For each question answer yes or no, and say in one sentence what, if anything, fell short:
+- plain: one short, warm question, asked plainly, without presuming the answer and without explaining how the app keeps records.
+- not_stated: it never says as known what the app only thinks.
+- names: it names people as the records do, without inventing a name or who someone is.
+- no_private: it keeps off everything the records mark private, neither naming nor hinting at it.
+- choices: each answer to tap is a whole answer in a few words, fitting what the person would most likely say; where the app thinks something, one offers it, and one says it is not so.
+
+Return only JSON: {"questions": [{"i": number, "plain": bool, "not_stated": bool, "names": bool, "no_private": bool, "choices": bool, "why": "..."}]}`;
+
+async function runQuestions() {
+  const from = dirArg('--from');
+  if (!from) throw new Error('questions needs --from <pass dir>');
+  const m = MODELS[flag('--model') || 'luna'];
+  if (!reach[m.provider] || !reach.openai) throw new Error('the questions need their model and OpenAI for the judge');
+  const files = readdirSync(from).filter((f) => f.endsWith('.json') && !f.startsWith('judge') && !f.startsWith('questions'));
+  const lines = [`# The week's questions (${PERSON_QUESTIONS_VERSION}), ${m.model}, from ${from.split('/').pop()}`, ''];
+  const tally = { sets: 0, questions: 0, plain: 0, not_stated: 0, names: 0, no_private: 0, choices: 0, cents: 0 };
+  for (const f of files) {
+    const rec = readJson(join(from, f));
+    if (rec.error || !rec.unsure_plan) continue;
+    const s = SCENARIOS.find((x) => x.id === rec.scenario);
+    current = dbFor(s);
+    usage = [];
+    setClock(at(s.periodEnd, '18:00'));
+    // what the pass would keep, as the set writer reads it once kept
+    const guesses = rec.unsure_plan.inserts.map((g, i) => ({ id: `replay-u${i + 1}`, status: 'open', ...g }));
+    const ranks = rec.unsure_plan.matters.map((x) => ({ id: x.person_id, matters_rank: x.rank }));
+    let out;
+    try {
+      out = await within(
+        () => writeQuestionSet({ ...env, CONTEXT_MODEL_PERSONQUESTION: `${m.provider}:${m.model}` }, USER, { dryRun: true, guesses, ranks }),
+        'replay-questions',
+      );
+    } catch (err) {
+      out = { error: String(err?.stack || err).slice(0, 800) };
+    }
+    const rows = out.rows || [];
+    const writeCents = cents(usage);
+    tally.cents += writeCents;
+    lines.push(`- ${rec.scenario} ${rec.i}: ${out.error ? `ERROR ${out.error.split('\n')[0]}` : rows.length ? `${rows.length} asked of ${out.candidates}` : `nothing asked: ${out.skipped} (${out.why || ''})`} | ${writeCents} cents`);
+    if (!rows.length) continue;
+    tally.sets++;
+    const refs = new Map(rec.refs);
+    const nameOf = (id) => s.tables.life_people.find((p) => p.id === id)?.name;
+    const records = [
+      ...s.tables.life_people.map((p) => `person: ${p.name}${p.relationship ? `, their ${p.relationship}` : ', who they are to them is not recorded'}`),
+      ...s.tables.life_facts.filter((x) => !['corrected'].includes(x.state)).map((x) => `${x.private || x.health ? '[private] ' : ''}fact: ${x.statement}`),
+      ...guesses.map((g) => `the app thinks, but is not sure${g.person_id ? ` (about ${nameOf(g.person_id)})` : ''}: ${g.thinks}`),
+    ];
+    const judged = await callJudge(
+      JUDGE,
+      SET_JUDGE,
+      `THE QUESTIONS:\n${rows.map((r, i) => `${i} | ${r.question} | answers: ${(r.choices || []).join(' / ') || 'none'}`).join('\n')}\n\nTHE RECORDS:\n${records.join('\n')}`,
+    ).catch((err) => ({ error: String(err?.message || err).slice(0, 200) }));
+    rows.forEach((r, i) => {
+      const j = (judged.questions || []).find((x) => x.i === i) || {};
+      tally.questions++;
+      for (const k of ['plain', 'not_stated', 'names', 'no_private', 'choices']) if (j[k]) tally[k]++;
+      const short = ['plain', 'not_stated', 'names', 'no_private', 'choices'].filter((k) => j[k] === false);
+      lines.push(`    ${r.kind === 'unsure' ? 'not sure' : r.proposed_change?.unsure_id ? 'who, with a guess' : r.proposed_change?.type}: "${r.question}" [${(r.choices || []).join(' | ')}]${short.length ? ` FELL SHORT on ${short.join(', ')}: ${j.why}` : ''}`);
+    });
+    if (judged.error) lines.push(`    judge: ERROR ${judged.error}`);
+    writeFileSync(join(from, `questions-${f}`), JSON.stringify({ out, judged }, null, 2));
+  }
+  const pct = (k) => `${tally[k]}/${tally.questions}`;
+  lines.splice(2, 0, `Sets ${tally.sets}, questions ${tally.questions}: plain ${pct('plain')}, not stated ${pct('not_stated')}, names ${pct('names')}, nothing private ${pct('no_private')}, answers ${pct('choices')}. ${Math.round(tally.cents * 1000) / 1000} cents to write.`, '');
+  writeFileSync(join(from, 'questions.md'), lines.join('\n'));
   console.log(lines.join('\n'));
 }
 
@@ -718,6 +913,7 @@ const STEPS = {
   summary: runSummary,
   'summary-judge': judgeSummary,
   report: reportPass,
+  questions: runQuestions,
 };
 if (!STEPS[step]) throw new Error(`step is one of ${Object.keys(STEPS).join(', ')}`);
 await STEPS[step]();

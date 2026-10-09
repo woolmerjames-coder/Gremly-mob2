@@ -6,9 +6,10 @@
  * it comes from, and whether those words state it (set when this was written,
  * from what each line says and nothing else).
  *
- * ASKS: people with records Gremly could ask about, as personCandidates
- * would give them, one of each kind, and a fact marked private on each that a
- * question must never name.
+ * ASKS: what Gremly could ask about, as askCandidates gives it, each asked
+ * as one set: people of each kind, what Gremly thinks but is not sure of
+ * (who someone is, and more of their life), and a fact marked private on
+ * each person that a question must never name.
  *
  * ANSWERS: a question and an answer, with what the answer says: whether it
  * answers, yes, no or unsure to a question whether two are one person, and
@@ -43,7 +44,7 @@ const f = (statement, extra = {}) => ({
   ...extra,
 });
 
-/** One candidate of each kind for each made up person, as personCandidates gives them. */
+/** What could be asked, for each made up person, as askCandidates gives it. */
 export const ASKS = [
   {
     key: 'robin-same',
@@ -104,6 +105,36 @@ export const ASKS = [
       },
     ],
   },
+  {
+    key: 'guesses',
+    person: { first_name: 'Sol', pronouns: 'he/him' },
+    candidates: [
+      {
+        type: 'who',
+        person: { id: 'p-wren', name: 'Wren', relationship: null, matters_rank: 1 },
+        facts: [f('Wren picked him up from the station on Friday'), f('Wren and Sol are painting the spare room this weekend'), f('Wren booked the table for their anniversary')],
+        weight: 3,
+        rank: 1,
+        guess: { id: 'u-wren', thinks: 'Wren may be his partner', sure: 'high' },
+      },
+      {
+        type: 'unsure',
+        entry: { id: 'u-bake', person_id: null, kind: 'life', thinks: 'Sol may be starting a small baking business', sure: 'medium', rests_on: [] },
+        person: null,
+        facts: [f('Sol sold out of loaves at the Saturday market'), f('Sol looked into food hygiene courses'), f('Sol is pricing up a second oven')],
+        weight: 3,
+        rank: null,
+      },
+      {
+        type: 'unsure',
+        entry: { id: 'u-gran', person_id: 'p-nan', kind: 'life', thinks: 'Nan may be moving in with them', sure: 'low', rests_on: [] },
+        person: { id: 'p-nan', name: 'Nan', relationship: 'grandmother' },
+        facts: [f('Cleared out the box room on Sunday'), f('Nan is selling her flat')],
+        weight: 2,
+        rank: null,
+      },
+    ],
+  },
 ];
 
 /** The questions the answers below reply to. */
@@ -114,12 +145,20 @@ const SAME = {
 };
 const WHO = { id: 'q-who', question: 'Who is Maya to you?', proposed_change: { type: 'who', person_id: 'p-maya' } };
 const NAME = { id: 'q-name', question: "What is your brother's name?", proposed_change: { type: 'name', person_id: 'p-brother' } };
+// a question offering what Gremly thinks as its first answer
+const GUESS = {
+  id: 'q-guess',
+  question: 'Who is Wren to you?',
+  proposed_change: { type: 'who', person_id: 'p-wren', unsure_id: 'u-wren' },
+  thought: 'Wren may be his partner',
+};
 
 export const ANSWER_PEOPLE = new Map([
   ['p-jules', { id: 'p-jules', name: 'Jules', relationship: null }],
   ['p-husband', { id: 'p-husband', name: null, relationship: 'husband' }],
   ['p-maya', { id: 'p-maya', name: 'Maya', relationship: null }],
   ['p-brother', { id: 'p-brother', name: null, relationship: 'brother' }],
+  ['p-wren', { id: 'p-wren', name: 'Wren', relationship: null }],
 ]);
 
 export const ANSWERS = [
@@ -137,4 +176,11 @@ export const ANSWERS = [
   { key: 'name-typed', question: NAME, said: 'His name is Rui', want: { answers: true, name: 'Rui' } },
   { key: 'name-bare', question: NAME, said: 'Tomás', want: { answers: true, name: 'Tomás' } },
   { key: 'name-skip', question: NAME, said: 'You do not need to know that', want: { answers: true, name: null } },
+  { key: 'guess-tap', question: GUESS, said: 'My partner', want: { answers: true, who: 'partner', guess: 'yes' } },
+  { key: 'guess-typed', question: GUESS, said: "Yes, we've been together six years", want: { answers: true, guess: 'yes' } },
+  { key: 'guess-no', question: GUESS, said: "No, Wren's my sister", want: { answers: true, who: 'sister', guess: 'no' } },
+  // anything but a yes closes what Gremly thought, so no and unsure both do
+  { key: 'guess-other', question: GUESS, said: 'My best friend from school', want: { answers: true, who: 'friend', guessNot: 'yes' } },
+  { key: 'guess-decline', question: GUESS, said: "I'd rather not say", want: { answers: true, who: null, guessNot: 'yes' } },
+  { key: 'guess-back', question: GUESS, said: 'Why do you ask?', want: { answers: false } },
 ];

@@ -14,9 +14,10 @@ service = "gremly-inngest-jobs"
 [vars]
 INNGEST_WORKER_URL = "https://gremly-inngest-jobs.woolmerjames.workers.dev"
 # The line about each person in the life pack chat reads (workers/shared/
-# lifePack.js, data fabric stage 6): "off" until life_people has its words
-# fields, then "on", with inngest-jobs' PERSON_WORDS.
-PERSON_WORDS = "off"
+# lifePack.js, data fabric stage 6): "on" once life_people has its words
+# fields (supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql),
+# with inngest-jobs' PERSON_WORDS. "off" stops it.
+PERSON_WORDS = "on"
 # Mind Drop one call classifier (classify-v3). Chosen by the model audit in
 # docs/2026-09-29-minddrop-model-audit.md: Gemini 3.8 Flash, GPT-6 Luna backup.
 # Questions are worded by Claude Sonnet when ANTHROPIC_API_KEY is set.

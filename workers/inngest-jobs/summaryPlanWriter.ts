@@ -534,7 +534,9 @@ export async function checkDeck(
     /**
      * The same words question on a model of another family, asked only when
      * the first says a part does not hold: the part is wrong only when both
-     * say so (stage 7). When it cannot be asked, the first answer stands.
+     * say so (stage 7). writePlannedDeck gives it only once a part has been
+     * written again, so a part is put right before it is kept on the second
+     * reader's word. When it cannot be asked, the first answer stands.
      */
     confirm?: AskWords;
   },
@@ -880,7 +882,7 @@ export async function writePlannedDeck(
     today: string;
     person: { first_name?: string | null } | null;
     write?: (user: UserMessage) => Promise<Record<string, unknown>>;
-    /** The second reader (checkDeck), asked only when the first says a part does not hold. */
+    /** The second reader (checkDeck), asked only once a part has been written again and still does not hold. */
     confirm?: AskWords;
   },
 ): Promise<PlannedDeckResult> {
@@ -896,7 +898,9 @@ export async function writePlannedDeck(
   } catch (err) {
     firstError = String((err as Error)?.message || err).slice(0, 300);
   }
-  let check: DeckCheck | null = raw ? await checkDeck(raw, brief, facts, opts) : null;
+  // what the first reader finds is put right first; the second reader is
+  // asked only before a card would be left out (stage 7, since 18 Oct)
+  let check: DeckCheck | null = raw ? await checkDeck(raw, brief, facts, { ...opts, confirm: undefined }) : null;
   if (check) tries.push(plain(check));
   if (!raw || !check || !checkIsClean(check)) {
     // only what was written again is asked about again: a card that held, held

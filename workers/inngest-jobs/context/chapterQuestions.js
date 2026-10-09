@@ -2,9 +2,10 @@
  * Gremly's questions about Chapters (data fabric stage 4c): a suggestion to
  * start one, whether one past its dates is over, and the welcome back.
  *
- * Built and replayed here, and left off until the Worlds build can act on an
- * answer (chapterQuestionsOn, CHAPTER_QUESTIONS in wrangler.toml). While off,
- * nothing is written; the shadow runner and the replay run them dry.
+ * Built and replayed here, and on since 8 Oct, when their answers came to be
+ * acted on (context/chapterAnswers.js). While CHAPTER_QUESTIONS is off
+ * (chapterQuestionsOn), nothing is written; the shadow runner and the replay
+ * run them dry.
  *
  * They are asked by the rules every question keeps
  * (workers/shared/questionRules.js): never at the moment of dropping, in the
@@ -12,8 +13,9 @@
  * never asked again, and nothing new while the person is away.
  *
  *   Closing     once a day, code finds the open Chapters whose end date has
- *               passed. A model writes the question for each, with its guess
- *               from the records. The classifier never closes one.
+ *               passed, and those with none and nothing filed in them for
+ *               four weeks. A model writes the question for each, with its
+ *               guess from the records. The classifier never closes one.
  *   Suggesting  once a day, when enough of their recent drops are filed in no
  *               Chapter, a model says whether one is forming, and what it
  *               would hold. Code checks every ref and date, refuses a second
@@ -39,11 +41,12 @@ import {
   OPEN_CHAPTER_SUGGESTIONS,
   WELCOME_BACK_DAYS,
   AWAY_AFTER_DAYS,
+  CHAPTER_QUIET_DAYS,
   chapterQuestionsOn,
 } from '../../shared/questionRules.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 
-export const CHAPTER_QUESTIONS_VERSION = 'chapter-questions-2026-10-07c';
+export const CHAPTER_QUESTIONS_VERSION = 'chapter-questions-2026-10-18a';
 
 /** A suggestion looks at drops this many days back, and needs this many in no Chapter. */
 export const SUGGEST_WINDOW_DAYS = 21;
@@ -92,19 +95,38 @@ export function awayState(absence) {
 
 const isOpen = (c) => OPEN_CHAPTER_PHASES.includes(c.phase) && !c.closed_at;
 
-/** The key a close question's no is remembered by: the Chapter and the end date it had. */
-export const closeNoKey = (c) => `close:${c.id}:${day(c.end_date)}`;
+/**
+ * The key a close question's no is remembered by: the Chapter and the end
+ * date it had, or for one with no end date, the day something last came into
+ * it, so something new coming in lets it be asked again later.
+ */
+export const closeNoKey = (c) =>
+  c.quiet_since ? `close:${c.id}:quiet:${c.quiet_since}` : `close:${c.id}:${day(c.end_date)}`;
 
 /**
- * The open Chapters whose end date has passed, with no question open about
- * them and none answered for that end date. Pure.
+ * The open Chapters that may be over: those whose end date has passed, and
+ * those with no end date that nothing new has come into for a while, with no
+ * question open about them and none answered for the same end date or the
+ * same quiet. Pure.
+ * @param lastSign Map Chapter id -> the day something was last filed in it
  */
-export function closeCandidates({ chapters, today, asked = new Set(), noKeys = new Set() }) {
-  return (chapters || [])
-    .filter(isOpen)
-    .filter((c) => day(c.end_date) && day(c.end_date) < today)
-    .filter((c) => !asked.has(c.id) && !noKeys.has(closeNoKey(c)))
-    .sort((a, b) => day(a.end_date).localeCompare(day(b.end_date)));
+export function closeCandidates({ chapters, today, asked = new Set(), noKeys = new Set(), lastSign = new Map() }) {
+  const quietBefore = addDays(today, -CHAPTER_QUIET_DAYS);
+  const out = [];
+  for (const c of (chapters || []).filter(isOpen)) {
+    if (asked.has(c.id)) continue;
+    const end = day(c.end_date);
+    if (end) {
+      if (end < today && !noKeys.has(closeNoKey(c))) out.push({ c, since: end });
+      continue;
+    }
+    // no end date: the latest of its start and what was last filed in it
+    const last = [day(lastSign.get(c.id)), day(c.start_date)].filter(Boolean).sort().pop() || null;
+    if (!last || last >= quietBefore) continue;
+    const quiet = { ...c, quiet_since: last };
+    if (!noKeys.has(closeNoKey(quiet))) out.push({ c: quiet, since: last });
+  }
+  return out.sort((a, b) => a.since.localeCompare(b.since)).map((x) => x.c);
 }
 
 /**
@@ -157,6 +179,19 @@ export const startNoKey = (items) =>
 // ── the records each question is written from ───────────────────────────
 
 /** What is filed in each Chapter, newest first, and the facts dated in its span. */
+/** The day something was last filed in each of these Chapters. */
+async function lastFiled(d, userId, chapters) {
+  const out = new Map();
+  for (const c of chapters) {
+    const [last] =
+      (await d.select(
+        `drop_chapter_links?owner_id=eq.${userId}&chapter_id=eq.${c.id}&select=created_at&order=created_at.desc&limit=1`,
+      )) || [];
+    if (last?.created_at) out.set(c.id, day(last.created_at));
+  }
+  return out;
+}
+
 async function chapterRecords(d, userId, chapters) {
   const out = new Map();
   for (const c of chapters) {
@@ -170,12 +205,22 @@ async function chapterRecords(d, userId, chapters) {
     const marked = markItems(items, [], await readItemMarks(d, userId, items));
     const start = day(c.start_date);
     const end = day(c.end_date);
-    const facts =
-      start || end
-        ? (await d.select(
-            `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened,changed)${start ? `&about_date=gte.${start}` : ''}${end ? `&about_date=lte.${addDays(end, 14)}` : ''}&select=statement,about_date,state,private,health&order=about_date.asc&limit=15`,
-          )) || []
-        : [];
+    // the facts read from what is filed in it, and for one with an end date,
+    // those about its days; one with no end date has no days to bound
+    const fromItems = links.length
+      ? (await d.select(
+          `life_facts_now?user_id=eq.${userId}&source_id=in.(${links.map((l) => l.drop_id).join(',')})&state=in.(current,planned,unconfirmed,happened,changed)&select=id,statement,about_date,state,private,health&order=about_date.desc.nullslast&limit=15`,
+        )) || []
+      : [];
+    const ofDays = end
+      ? (await d.select(
+          `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened,changed)${start ? `&about_date=gte.${start}` : ''}&about_date=lte.${addDays(end, 14)}&select=id,statement,about_date,state,private,health&order=about_date.asc&limit=15`,
+        )) || []
+      : [];
+    const seen = new Set();
+    const facts = [...fromItems, ...ofDays]
+      .filter((f) => !seen.has(f.id) && seen.add(f.id))
+      .sort((a, b) => String(a.about_date || '').localeCompare(String(b.about_date || '')));
     out.set(c.id, { items: marked, facts });
   }
   return out;
@@ -186,14 +231,15 @@ const itemLine = (it) =>
 const factLine = (f) =>
   `  - ${f.private || f.health ? '[private] ' : ''}${f.state} | ${f.about_date || 'no date'} | ${trim(f.statement, 200)}`;
 const chapterLine = (ref, c, world) =>
-  `${ref} | ${trim(c.title, 80)} | ${day(c.start_date) || 'no start set'} to ${day(c.end_date) || 'no end set'}${world ? ` | in the World ${trim(world.display_name || world.name, 60)}` : ''}`;
+  `${ref} | ${trim(c.title, 80)} | ${day(c.start_date) || 'no start set'} to ${day(c.end_date) || 'no end set'}${c.quiet_since ? ` | nothing new filed in it since ${c.quiet_since}` : ''}${world ? ` | in the World ${trim(world.display_name || world.name, 60)}` : ''}`;
 
 // ── closing and the welcome back: one writer, two moments ────────────────
 
-const CLOSE_RULES = `A QUESTION ABOUT A CHAPTER WHOSE DATES HAVE PASSED
+const CLOSE_RULES = `A QUESTION ABOUT A CHAPTER THAT MAY BE OVER
 - A Chapter is something in the person's life with a shape of its own, inside a World, and it may have dates. Gremly never closes a Chapter: it asks, and the person decides.
+- Each Chapter given is past its end date, or has no end date and nothing new has been filed in it for a while.
 - For each Chapter given, guess from its records whether it is over, still going, or has moved to new dates: over when the records show it ended or nothing shows it going on, still going when later records show it continuing, moved when the records give it new dates, unsure when they do not say.
-- Then write one short, warm question to them, as you, that offers your guess for them to confirm or change, without presuming it. It is a single sentence that says nothing of dates passing, of records, or of how you came to your guess. Name the Chapter as its title does.
+- Then write one short, warm question to them, as you, that offers your guess for them to confirm or change, without presuming it. It is a single sentence that says nothing of dates passing, of things going quiet, of records, or of how you came to your guess. Name the Chapter as its title does.
 - Give two to four short answers they could tap, a few words each, among them that it is over and that it is still going, or for one still ahead, that it is still on and that it is not. They can always answer in their own words instead.
 - A record marked private may help you understand, and is never named or hinted at in the question.`;
 
@@ -564,7 +610,13 @@ export async function chapterQuestionsForDay(env, userId, { dryRun = false } = {
   const noKeys = new Set(
     (answered || []).filter((q) => q.kind === 'close_chapter').map((q) => q.no_key),
   );
-  const due = closeCandidates({ chapters, today, asked, noKeys }).slice(0, MOST_CLOSE_A_DAY);
+  const due = closeCandidates({
+    chapters,
+    today,
+    asked,
+    noKeys,
+    lastSign: await lastFiled(d, userId, (chapters || []).filter((c) => !day(c.end_date))),
+  }).slice(0, MOST_CLOSE_A_DAY);
   if (due.length) {
     const records = await chapterRecords(d, userId, due);
     const { rows, problems, model } = await askClose(env, {

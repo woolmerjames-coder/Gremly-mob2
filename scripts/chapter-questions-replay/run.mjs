@@ -16,6 +16,11 @@
  *            judge from another family (Gemini Pro, or GPT 6 Sol).
  *   welcome  on a welcome back, one question for each Chapter, as one set,
  *            with guesses that fit; scored the same way.
+ *   answers  (with --answers, on its own) made up answers to the three kinds
+ *            of question are read by the answer reader
+ *            (context/chapterAnswers.js): whether they answer it, the outcome
+ *            and the days they give, scored against what was set as right, with
+ *            what code would then do.
  *
  * What code alone decides (the switch, nothing new while away, a no never
  * asked again, one suggestion open at a time) is held by the unit tests
@@ -35,9 +40,14 @@ import {
   askClose,
   CHAPTER_QUESTIONS_VERSION,
 } from '../../workers/inngest-jobs/context/chapterQuestions.js';
+import {
+  readChapterAnswer,
+  chapterAnswerPlan,
+  CHAPTER_ANSWER_VERSION,
+} from '../../workers/inngest-jobs/context/chapterAnswers.js';
 import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
-import { TODAY, PERSON, WORLDS, SUGGESTS, CLOSES, WELCOME } from './scenarios.mjs';
+import { TODAY, PERSON, WORLDS, SUGGESTS, CLOSES, WELCOME, ANSWERS } from './scenarios.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -126,6 +136,59 @@ async function judge(row, c) {
     thinking: 'low',
   });
   return output;
+}
+
+function answerRight(a, out) {
+  if (a.answers !== null && out?.answers !== a.answers) return `answers ${out?.answers}`;
+  const outcome = out?.outcome ?? null;
+  if (out?.answers !== false && !a.right.includes(outcome)) return `outcome ${outcome}`;
+  if (['moved', 'start'].includes(outcome)) {
+    if (a.start && out.start_date !== a.start) return `start ${out.start_date}`;
+    if (a.end && out.end_date !== a.end) return `end ${out.end_date}`;
+    if (!a.start && !a.end && (out.start_date || out.end_date)) return `days they never gave: ${out.start_date} to ${out.end_date}`;
+  }
+  return '';
+}
+
+if (args.includes('--answers')) {
+  const A = [`# Chapter answers replay (${CHAPTER_ANSWER_VERSION}), ${repeat} runs of each per model`, '', '| Model | Read right | Cost a call | Meets the bar |', '| --- | --- | --- | --- |'];
+  const lines = [];
+  for (const m of models) {
+    const env = { ...baseEnv, CONTEXT_MODEL_PERSONQUESTION: MODELS[m] };
+    let right = 0;
+    let all = 0;
+    let cost = 0;
+    for (const a of ANSWERS)
+      for (const res of await Promise.all(
+        Array.from({ length: repeat }, () =>
+          metered(() => readChapterAnswer(env, { question: a.question, said: a.said, chapter: a.chapter || null, person: PERSON, today: TODAY })).catch(
+            (err) => ({ error: err.message }),
+          ),
+        ),
+      )) {
+        all++;
+        if (res.error) {
+          lines.push(`- ${m} ${a.key}: ERROR ${res.error}`);
+          continue;
+        }
+        cost += res.cost;
+        const out = res.out.output;
+        const why = answerRight(a, out);
+        if (!why) right++;
+        const plan = chapterAnswerPlan({ question: a.question, output: out, chapter: a.chapter || null, today: TODAY });
+        const does = plan.start ? `starts "${plan.start.title}" ${plan.start.start_date} to ${plan.start.end_date}` : plan.close ? 'closes it' : plan.dates ? `moves it ${JSON.stringify(plan.dates)}` : plan.clearEnd ? 'takes its passed end away' : 'changes nothing';
+        lines.push(`- ${m} ${a.key} "${a.said}": ${why ? `WRONG (${why})` : 'right'} | answers ${out?.answers}, ${out?.outcome}, ${out?.start_date || '-'} to ${out?.end_date || '-'} | ${does}${plan.answers ? '' : ', question left open'}`);
+      }
+    A.push(`| ${m} | ${right}/${all} ${pct(right, all)} | $${(cost / Math.max(1, all)).toFixed(4)} | ${right / all >= BAR ? 'yes' : 'no'} |`);
+    console.log(`${m}: answers ${right}/${all}`);
+  }
+  A.push('', '## Every answer', '', ...lines, '');
+  const dir = join(HERE, 'out');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `answers-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.md`);
+  writeFileSync(file, A.join('\n'));
+  console.log(`report: ${file}`);
+  process.exit(0);
 }
 
 const L = [`# Chapter questions replay (${CHAPTER_QUESTIONS_VERSION}), ${repeat} runs of each per model`, ''];

@@ -3,10 +3,14 @@
  * and the one or two under each open Chapter, written to the person as "you".
  *
  * It is the one writer of those words (card_subtitle). It is given the World
- * or Chapter, what is filed in it, the facts the reader took from those items
- * and the people they are about (context/filed.js). Gremly's own notes on it
- * (summary) are not given: Gremly's text is not evidence, and the line is seen
- * at a glance.
+ * or Chapter, what is filed in it, what was cleared from their list there
+ * without being marked done, marked so, the facts the reader took from those
+ * items and the people they are about (context/filed.js). Gremly's own notes
+ * on it (summary) are not given: Gremly's text is not evidence, and the line
+ * is seen at a glance. It writes the Chapters first, then the Worlds, and each
+ * is given the words already under the others (wordsOthers), never as a
+ * record, so that each says what is particular to it rather than one thing
+ * filed in many places being said under all of them (8 Oct).
  *
  * Nothing private or about health is given to it at all (glanceRecords): an
  * item, a fact, or a person known only from those. Nor is an item the reader
@@ -43,7 +47,7 @@ import { passageRow, recordPassages } from '../../shared/passageRefs.js';
 import { OPEN_CHAPTER_PHASES } from '../../shared/upNext.js';
 import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 
-export const WORDS_WRITER_VERSION = 'words-2026-10-07i';
+export const WORDS_WRITER_VERSION = 'words-2026-10-18a';
 
 /** What a person's words fields record as their writer. */
 export const WORDS_SOURCE = 'words';
@@ -54,11 +58,13 @@ export const WORDS_MOMENT = 'kept under its World or Chapter, read on any day un
 const RULES = `THE WORDS
 - You write the words shown under one World or one Chapter on Gremly's screens. A World is a part of the person's life. A Chapter is something within it that has a shape of its own, and it may have dates.
 - For a World, write one short sentence about what that part of their life is for them over time; a single plan or event in it belongs to its own Chapter. For a Chapter, write one or two short sentences about what it is for them.
-- Keep them short enough to take in at a glance: name the one or two things that matter most in it, by their own particulars, rather than listing what is filed or speaking in general.
+- Keep them short enough to take in at a glance: name the one or two things that matter most in it, by their own particulars, rather than listing what is filed or speaking in general. What matters most is what fills it and what they come back to most often, never one thing alone because of the kind of thing it is.
+- You may be given the words under their other Worlds and Chapters. They are not records of this one and are never cited. Say what is particular to this one rather than what those already say: when something here is already said under another, put first what else this one holds, or say it as it matters here.
 - Speak of their life, never of the World or Chapter itself, its records or their lists.
+- A Chapter whose last day has passed is spoken of as what it was, never as still going.
 - Write to the person, as you, never of them by name or in the third person.
 - Say what this part of their life holds for them, from what is filed in it: what it is about for them, what they keep up, look after or are working towards, and who is in it with them when the records say so.
-- Speak of each thing as its record holds it: something done as done, something they mean to do as something they mean to do, never as under way now, and a habit as something they set out to keep, never as kept unless a record says so.
+- Speak of each thing as its record holds it: something done as done, something they mean to do as something they mean to do, never as under way now, something cleared from their list without being marked done as neither done nor still meant, and a habit as something they set out to keep, never as kept unless a record says so.
 - The words stay on the screen until they are next written, which may be weeks from now. Say nothing that stops being true as days pass: no dates, no one particular day, nothing about how soon or how long ago, no counts of what is done or still to do, and nothing about today, this week or soon. A day something happens on every week stays true. The screen shows dates and progress itself.
 - Its name or title is shown above your words. Do not repeat it.
 - Rest what you say on the records given, and say nothing they do not hold. When they are too thin to say anything true and particular, return empty text.
@@ -87,7 +93,7 @@ export function wordsRewritePrompt(person) {
     fixed: `${wordsSystemPrompt(person).fixed}
 
 ONCE AGAIN
-You are given the words you wrote, what was wrong with them, and only the records they rest on. Write them again for the same World or Chapter, so that they say only what those records hold, with their refs and what they state. Cite only the records given here. When nothing true can be said from them, return empty text.`,
+You are given the words you wrote, what was wrong with them, and only the records they rest on. Write them again for the same World or Chapter, so that they say only what those records hold, with their refs and what they state. Cite only the records given here. Each sentence still reads whole: someone or something a record given here holds stays, listed with that record, and what none holds is left out with the words around it. When nothing true can be said from them, return empty text.`,
     varying: personBlock(person),
   };
 }
@@ -129,6 +135,7 @@ export function renderWords({
   peopleOf,
   today,
   ended = false,
+  others = [],
 }) {
   const refs = new Map();
   const records = new Map();
@@ -163,7 +170,7 @@ export function renderWords({
     L.push(
       ended
         ? `THE CHAPTER THAT HAS ENDED (k1): ${trim(target.title, 80)} | ${dates}${inWorld}`
-        : `YOU ARE WRITING FOR THE CHAPTER (k1): ${trim(target.title, 80)} | ${CHAPTER_PHASE_WORDS[target.phase] || CHAPTER_PHASE_WORDS.active} | ${dates}${inWorld}`,
+        : `YOU ARE WRITING FOR THE CHAPTER (k1): ${trim(target.title, 80)} | ${CHAPTER_PHASE_WORDS[target.phase] || CHAPTER_PHASE_WORDS.active}${target.end_date && String(target.end_date).slice(0, 10) < today ? ', its last day passed' : ''} | ${dates}${inWorld}`,
     );
   }
 
@@ -176,7 +183,7 @@ export function renderWords({
   for (const f of facts)
     for (const p of peopleOf.get(f.id) || []) {
       if (personRef.has(p.id)) continue;
-      const others = (p.names || []).filter(
+      const otherNames = (p.names || []).filter(
         (n) => n.toLowerCase() !== (p.name || '').toLowerCase(),
       );
       // someone known here only from private facts is private too
@@ -184,8 +191,8 @@ export function renderWords({
       const ref = add(
         'p',
         { type: 'person', id: p.id },
-        { names: [p.name, ...others].filter(Boolean), exact: ['person'], private: isPrivate },
-        `${isPrivate ? '[private] ' : ''}${p.name || '(no name given yet)'}${others.length ? `, also called ${others.join(', ')}` : ''}${p.relationship ? `, ${p.relationship}, as they said` : ''}`,
+        { names: [p.name, ...otherNames].filter(Boolean), exact: ['person'], private: isPrivate },
+        `${isPrivate ? '[private] ' : ''}${p.name || '(no name given yet)'}${otherNames.length ? `, also called ${otherNames.join(', ')}` : ''}${p.relationship ? `, ${p.relationship}, as they said` : ''}`,
       );
       personRef.set(p.id, ref);
       peopleLines.push(records.get(ref).label);
@@ -212,7 +219,7 @@ export function renderWords({
       it.type === 'note'
         ? NOTE_KIND[it.subtype] || KIND_WORDS.note
         : KIND_WORDS[it.type] || 'an item of theirs';
-    const done = it.done ? `, done ${it.done}` : '';
+    const done = it.done ? `, done ${it.done}` : it.cleared ? ', cleared from their list without being marked done' : '';
     const ref = add(
       'i',
       { type: it.type, id: it.id },
@@ -251,6 +258,11 @@ export function renderWords({
 
   L.push('', 'PEOPLE IN THOSE RECORDS (ref | name | who they are):');
   L.push(peopleLines.join('\n') || '(none)');
+  // what the screens already say elsewhere: context, never a record of this one
+  if (others.length) {
+    L.push('', 'THE WORDS UNDER THEIR OTHER WORLDS AND CHAPTERS (which | their words):');
+    for (const o of others) L.push(`${o.which} | ${trim(o.words, 300)}`);
+  }
   return { text: L.join('\n'), refs, records };
 }
 
@@ -283,10 +295,9 @@ export async function wordsTargets(env, userId, named = null) {
   const want = named?.length ? new Set(named.map((t) => `${t.table}:${t.id}`)) : null;
   const keep = (table, r) => !want || want.has(`${table}:${r.id}`);
   const worldById = new Map((worlds || []).map((w) => [w.id, w]));
+  // Chapters first: what belongs to a Chapter is said under it, and its
+  // World's words, written after, are given them (wordsOthers)
   return [
-    ...(worlds || [])
-      .filter((w) => keep('worlds', w))
-      .map((w) => ({ table: 'worlds', kind: 'world', row: w })),
     ...(chapters || [])
       .filter((c) => keep('chapters', c))
       .map((c) => ({
@@ -295,7 +306,49 @@ export async function wordsTargets(env, userId, named = null) {
         row: c,
         world: worldById.get(c.primary_world_id) || null,
       })),
+    ...(worlds || [])
+      .filter((w) => keep('worlds', w))
+      .map((w) => ({ table: 'worlds', kind: 'world', row: w })),
   ];
+}
+
+const targetKey = (t) => `${t.table}:${t.row.id}`;
+
+/**
+ * The words under their other Worlds and Chapters that a writer is given, so
+ * that each says what is particular to it: what this run has written so far,
+ * the words of those it is not writing, and words the person wrote. Words
+ * still to be written this run are not given, as they are about to change.
+ * Pure.
+ * @param said Map of target key to the words as they now stand, or null
+ */
+export function wordsOthers(target, all, said) {
+  const out = [];
+  for (const t of all) {
+    if (targetKey(t) === targetKey(target)) continue;
+    const words = said.get(targetKey(t));
+    if (!words) continue;
+    const name = trim(t.kind === 'world' ? t.row.display_name || t.row.name : t.row.title, 80);
+    const tie =
+      target.kind === 'world' && t.kind === 'chapter' && t.row.primary_world_id === target.row.id
+        ? ', a Chapter in this World'
+        : target.kind === 'chapter' && t.kind === 'world' && target.row.primary_world_id === t.row.id
+          ? ', the World this Chapter is in'
+          : '';
+    out.push({ which: `the ${t.kind === 'world' ? 'World' : 'Chapter'} ${name}${tie}`, words });
+  }
+  return out;
+}
+
+/** The words each target stands with before a run writes any: none for those it will write, unless the person wrote them. Pure. */
+export function wordsBefore(all, writing) {
+  const now = new Set(writing.map(targetKey));
+  return new Map(
+    all.map((t) => [
+      targetKey(t),
+      t.row.card_subtitle_source === 'user' || !now.has(targetKey(t)) ? t.row.card_subtitle || null : null,
+    ]),
+  );
 }
 
 /**
@@ -320,8 +373,10 @@ export function glanceRecords({ items, facts, peopleOf }) {
  * Write the words for one World or Chapter, through the check. Writes nothing.
  * @returns { outcome, text, refs, model, check, input_chars, skipped }
  */
-export async function writeLine(env, { userId, person, target, today, filed = null }) {
-  const all = filed || (await loadFiled(env, userId, { table: target.table, id: target.row.id }));
+export async function writeLine(env, { userId, person, target, today, filed = null, others = [] }) {
+  // what was cleared from their list is part of what fills it, as such
+  const all =
+    filed || (await loadFiled(env, userId, { table: target.table, id: target.row.id }, { cleared: true }));
   // nothing filed and nothing held: nothing true can be said, and no call is made
   if (!all.items.length && !all.facts.length)
     return { outcome: 'empty', text: null, refs: [], ids: [], skipped: 'nothing filed' };
@@ -336,6 +391,7 @@ export async function writeLine(env, { userId, person, target, today, filed = nu
     facts: got.facts,
     peopleOf: got.peopleOf,
     today,
+    others,
   });
   const [primary, fallback] = [modelFor(env, 'words'), modelFor(env, 'wordsFallback')];
   const { output, model } = await jsonCall(env, {
@@ -460,17 +516,29 @@ export async function writeWords(
   userId,
   { targets = null, reason = 'by_hand', dryRun = false } = {},
 ) {
-  const [list, person, today] = await Promise.all([
-    wordsTargets(env, userId, targets),
+  const [all, person, today] = await Promise.all([
+    wordsTargets(env, userId),
     personIdentity(env, userId),
     personToday(env, userId),
   ]);
+  const want = targets?.length ? new Set(targets.map((t) => `${t.table}:${t.id}`)) : null;
+  const list = all.filter((t) => !want || want.has(targetKey(t)));
+  // one after another, each given the words written before it
+  const said = wordsBefore(all, list);
   const out = [];
   const counts = { checked: 0, sent_back: 0, left_out: 0 };
   const details = [];
   for (const t of list) {
     try {
-      const result = await writeLine(env, { userId, person, target: t, today });
+      const result = await writeLine(env, {
+        userId,
+        person,
+        target: t,
+        today,
+        others: wordsOthers(t, all, said),
+      });
+      // the words the screen now shows: Gremly's, unless the person wrote theirs
+      if (t.row.card_subtitle_source !== 'user') said.set(targetKey(t), result.text || null);
       const kept = dryRun
         ? { field: null, changed: false }
         : await keepLine(env, { userId, target: t, result });

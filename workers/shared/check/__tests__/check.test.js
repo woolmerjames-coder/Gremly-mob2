@@ -144,6 +144,16 @@ describe('the code steps', () => {
     expect(r.sentence.refs).toEqual(['c1']);
   });
 
+  it('say a person listed with a record that does not hold them is listed wrong, so a rewrite can list them right', () => {
+    const r = codeCheck(
+      sentence('Coffee with Sam.', ['p1'], [{ kind: 'person', value: 'Sam', ref: 'p1' }]),
+      records,
+    );
+    expect(r.problems).toEqual([
+      { step: 'value', say: 'it lists person Sam with a record that does not hold them' },
+    ]);
+  });
+
   it('drop a ref the writer was never given, and fail a value that rests on it', () => {
     const r = codeCheck(
       sentence('Lunch at 1pm.', ['c1', 'c9'], [{ kind: 'time', value: '13:00', ref: 'c9' }]),
@@ -293,10 +303,31 @@ describe('the outcome', () => {
     expect(counts).toEqual({ checked: 1, sent_back: 0, left_out: 0 });
   });
 
-  it('asks the second reader only when the first says a sentence does not hold, and keeps it when the second says it holds', async () => {
+  it('puts right what the first reader finds before asking the second, which is never asked when the rewrite holds', async () => {
+    const ask = jest
+      .fn()
+      .mockResolvedValueOnce({ not_held: true, what: 'calls Rowan a cousin' })
+      .mockResolvedValueOnce({ not_held: false, what: null });
+    const confirm = jest.fn();
+    const rewrite = jest.fn(async () => sentence('Design review.', ['c1'], []));
+    const { results, counts } = await runCheck({
+      items: [{ key: 'lead_what', sentence: sentence('Design review with Rowan.', ['c1'], []), listed: false }],
+      records,
+      today: '2026-10-08',
+      ask,
+      rewrite,
+      confirm,
+    });
+    expect(rewrite).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(results.get('lead_what')).toMatchObject({ outcome: 'rewritten', sentence: { text: 'Design review.' } });
+    expect(counts.held_by_second).toBeUndefined();
+  });
+
+  it('asks the second reader before leaving a sentence out, and keeps its last version when the second says it holds', async () => {
     const notHeld = jest.fn(async () => ({ not_held: true, what: 'calls Rowan a cousin' }));
     const confirm = jest.fn(async () => ({ not_held: false, what: null }));
-    const rewrite = jest.fn();
+    const rewrite = jest.fn(async () => sentence('Design review, with Rowan.', ['c1'], []));
     const { results, counts, details } = await runCheck({
       items: [{ key: 'lead_what', sentence: sentence('Design review with Rowan.', ['c1'], []), listed: false }],
       records,
@@ -306,18 +337,35 @@ describe('the outcome', () => {
       confirm,
     });
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(rewrite).not.toHaveBeenCalled();
-    expect(results.get('lead_what').outcome).toBe('pass');
+    // it reads the rewrite, the version that would be kept
+    expect(confirm.mock.calls[0][0].user).toContain('SENTENCE: Design review, with Rowan.');
+    expect(results.get('lead_what')).toMatchObject({ outcome: 'rewritten', sentence: { text: 'Design review, with Rowan.' } });
     expect(counts.held_by_second).toBe(1);
     expect(details[0]).toMatchObject({ key: 'lead_what', outcome: 'held_by_second' });
     expect(checkRunRow({ userId: 'u', job: 'j', counts, details }).details[0]).toEqual({
       field: 'lead_what',
       outcome: 'held_by_second',
       first: ['words'],
+      second: ['words'],
     });
   });
 
-  it('sends a sentence back when both readers say it does not hold, and when the second cannot be asked', async () => {
+  it('reads the first version when the second try comes back empty', async () => {
+    const notHeld = async () => ({ not_held: true, what: 'calls Rowan a cousin' });
+    const confirm = jest.fn(async () => ({ not_held: false, what: null }));
+    const { results } = await runCheck({
+      items: [{ key: 'lead_what', sentence: sentence('Design review with Rowan.', ['c1'], []), listed: false }],
+      records,
+      today: '2026-10-08',
+      ask: notHeld,
+      rewrite: async () => null,
+      confirm,
+    });
+    expect(confirm.mock.calls[0][0].user).toContain('SENTENCE: Design review with Rowan.');
+    expect(results.get('lead_what')).toMatchObject({ outcome: 'pass', sentence: { text: 'Design review with Rowan.' } });
+  });
+
+  it('leaves a sentence out when both readers say it does not hold, and when the second cannot be asked', async () => {
     const notHeld = async () => ({ not_held: true, what: 'calls Rowan a cousin' });
     for (const confirm of [async () => ({ not_held: true, what: 'a cousin' }), async () => { throw new Error('down'); }]) {
       const rewrite = jest.fn(async () => null);
@@ -332,6 +380,12 @@ describe('the outcome', () => {
       expect(rewrite).toHaveBeenCalledTimes(1);
       expect(results.get('lead_what').outcome).toBe('left_out');
     }
+  });
+
+  it('gives the words question the pronouns the person gave', () => {
+    const { user } = wordsRequest({ sentence: { text: 'x' }, records: [], today: '2026-10-08', person: { first_name: 'Bea', pronouns: 'she/her' } });
+    expect(user).toContain('THE PERSON: their first name is Bea, and their pronouns are she/her.');
+    expect(wordsRequest({ sentence: { text: 'x' }, records: [], today: '2026-10-08', person: { first_name: 'Bea' } }).user).toContain('their first name is Bea.');
   });
 
   it('sends a failing sentence back once, alone with its own records, and keeps a rewrite that holds', async () => {
@@ -426,6 +480,31 @@ describe('the outcome', () => {
       rewrite,
     });
     expect(results.get('also_matters_0').outcome).toBe('left_out');
+  });
+
+  it('sends a glanceable line resting on something private and on more back once, with only the rest', async () => {
+    const rewrite = jest.fn(async ({ records: own }) => {
+      expect(own.map((r) => r.ref)).toEqual(['f1']);
+      return sentence('Rowan visits today.', ['f1'], []);
+    });
+    const { results } = await runCheck({
+      items: [{ key: 'headline', sentence: sentence('Physio, then Rowan visits.', ['f1', 'f2'], []), glanceable: true }],
+      records,
+      today: '2026-10-08',
+      ask: held,
+      rewrite,
+    });
+    expect(rewrite).toHaveBeenCalledTimes(1);
+    expect(results.get('headline')).toMatchObject({ outcome: 'rewritten', refs: ['f1'] });
+    // a rewrite that still rests on the private record is never kept
+    const back = await runCheck({
+      items: [{ key: 'headline', sentence: sentence('Physio, then Rowan visits.', ['f1', 'f2'], []), glanceable: true }],
+      records,
+      today: '2026-10-08',
+      ask: held,
+      rewrite: async () => sentence('Physio, then Rowan.', ['f1', 'f2'], []),
+    });
+    expect(back.results.get('headline').outcome).toBe('left_out');
   });
 
   it('leaves out at once, without a second try, a glanceable line resting on something private', async () => {

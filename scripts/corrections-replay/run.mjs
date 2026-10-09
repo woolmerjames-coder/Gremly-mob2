@@ -10,6 +10,9 @@
  * The five: a person's label is corrected, a date is corrected, something is
  * said never to have happened, a line of the day is said not to be so from the
  * brief though nothing in the ledger changes, and something is marked private.
+ * And two answers to a question about something Gremly thought but was not
+ * sure of (context/unsure.js): a yes, which makes it a fact in their words and
+ * confirms it, and a no, which makes no fact of it and closes it.
  *
  * Checked by code: the facts each correction leaves; only the sentences
  * resting on the changed record change, and every one of them does; a private
@@ -195,6 +198,44 @@ function scenarios() {
       judge: 'that the food shopping is still to be done',
     },
     {
+      id: 'guess-yes',
+      look: 'A yes to what Gremly thought but was not sure of: it becomes a fact in her words, and is confirmed.',
+      said: 'Yes, a half marathon in March',
+      facts: [
+        fact('run1', 'Noor ran 14 kilometres on 4 October.', { state: 'happened', about_date: '2026-10-04' }),
+        fact('shoes', 'Noor bought new running shoes on 2 October.', { state: 'happened', about_date: '2026-10-02' }),
+        book(),
+      ],
+      people: [],
+      sentences: [],
+      question: {
+        text: 'Are you training for a race at the moment?',
+        thought: 'Noor may be training for a race',
+        rests: ['run1', 'shoes'],
+      },
+      expectGuess: 'confirmed',
+      factSays: 'that Noor is training for a half marathon in March',
+    },
+    {
+      id: 'guess-no',
+      look: 'A no to what Gremly thought but was not sure of: no fact is made of it, and it is closed.',
+      said: 'No, I just like running',
+      facts: [
+        fact('run1', 'Noor ran 14 kilometres on 4 October.', { state: 'happened', about_date: '2026-10-04' }),
+        fact('shoes', 'Noor bought new running shoes on 2 October.', { state: 'happened', about_date: '2026-10-02' }),
+        book(),
+      ],
+      people: [],
+      sentences: [],
+      question: {
+        text: 'Are you training for a race at the moment?',
+        thought: 'Noor may be training for a race',
+        rests: ['run1', 'shoes'],
+      },
+      expectGuess: 'said_no',
+      factNot: 'that Noor is training for a race',
+    },
+    {
       id: 'private',
       look: 'Something is marked private: her therapy is kept off every card.',
       said: 'Please keep my therapy private.',
@@ -344,13 +385,30 @@ async function runOne(s, i) {
   const cid = uuid();
   // a correction from the brief names the message they marked, as the app sends it
   const brief = s.surface === 'brief';
+  // an answer to a question about what Gremly thought arrives as a correction about that question
+  const qid = s.question ? `7a7a7a7a-7a7a-4a7a-8a7a-${String(++n).padStart(12, '0')}` : null;
+  const uid = s.question ? uuid() : null;
+  if (s.question) {
+    tables.life_unsure = [{ id: uid, user_id: USER, person_id: null, kind: 'life', thinks: s.question.thought, status: 'open', rests_on: s.question.rests.map((k) => ({ table: 'life_facts', id: factId.get(k) })) }];
+    tables.gremly_questions.push({
+      id: qid,
+      user_id: USER,
+      kind: 'unsure',
+      question: s.question.text,
+      status: 'asked',
+      record_table: 'life_unsure',
+      record_id: uid,
+      proposed_change: { type: 'unsure', unsure_id: uid },
+      rests_on: s.question.rests.map((k) => ({ table: 'life_facts', id: factId.get(k) })),
+    });
+  }
   tables.user_corrections.push({
     id: cid,
     user_id: USER,
     said: s.said,
-    surface: brief ? 'brief' : 'chat',
+    surface: s.question ? 'question' : brief ? 'brief' : 'chat',
     target_kind: brief ? 'chat' : null,
-    target_ref: brief ? { id: uuid(), kind: 'chat', text: where.map((w) => w.x.text).join('. ') } : null,
+    target_ref: s.question ? { id: qid } : brief ? { id: uuid(), kind: 'chat', text: where.map((w) => w.x.text).join('. ') } : null,
     status: 'received',
     created_at: '2026-10-08T13:55:00Z',
   });
@@ -387,6 +445,22 @@ async function runOne(s, i) {
     }
   });
   checks.push({ name: 'only the sentences resting on what changed change, and every one does', ok: !moved.length, detail: moved.join('; ') });
+  if (s.question) {
+    const u = current.mem.tables.life_unsure[0];
+    checks.push({ name: `what Gremly thought is ${s.expectGuess}`, ok: u.status === s.expectGuess, detail: u.status });
+    checks.push({ name: 'the question is answered', ok: current.mem.tables.gremly_questions.find((q) => q.id === qid)?.status === 'answered' });
+    const made = facts.filter((f) => f.source_table === 'user_corrections');
+    if (s.factSays) {
+      const says = [];
+      for (const f of made) says.push((await stillSays(f.statement, s.factSays, s.said)).still_says);
+      checks.push({ name: 'their yes is kept as a fact', ok: says.some(Boolean), detail: made.map((f) => f.statement).join(' | ') || 'no fact' });
+    }
+    if (s.factNot) {
+      const says = [];
+      for (const f of made) says.push((await stillSays(f.statement, s.factNot, s.said)).still_says);
+      checks.push({ name: 'no fact says what they said is not so', ok: !says.some(Boolean), detail: made.map((f) => f.statement).join(' | ') });
+    }
+  }
   if (s.privateKeys) {
     const storyPrivate = current.mem.tables.story_items.every((it) => it.private || !it.fact_ids.some((id) => s.privateKeys.map((k) => factId.get(k)).includes(id)));
     checks.push({ name: 'a story item resting on it is kept private too', ok: storyPrivate });

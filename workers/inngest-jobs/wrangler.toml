@@ -41,8 +41,9 @@ WORLDS_OLD_FIELDS = "keep"
 # Gremly's questions about Chapters (workers/shared/questionRules.js,
 # context/chapterQuestions.js): suggesting one, asking whether one past its
 # dates is over, and the welcome back. Built and replayed in data fabric stage
-# 4c and "off" until the Worlds build can act on an answer; "on" switches them on.
-CHAPTER_QUESTIONS = "off"
+# 4c; on since 8 Oct, when their answers came to be acted on
+# (context/chapterAnswers.js). "off" stops new ones being asked.
+CHAPTER_QUESTIONS = "on"
 # The weekly summary from the weekly pass (summaryFromPass.ts, data fabric
 # stage 5): "off" sends the old summary only; "beside" sends the old one and
 # writes the new one beside it in shadow_runs for James to read; "on" sends the
@@ -62,10 +63,10 @@ WEEKLY_CLASSIFIER = "on"
 WEEK_READ_FROM_PASS = "off"
 # The line Gremly keeps about each person the weekly pass notes (context/
 # personWords.js, data fabric stage 6), written after the words each week and
-# read by the life pack: "off" until life_people has its words fields
+# read by the life pack: "on" once life_people has its words fields
 # (supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql),
-# then "on", here and in cortex's wrangler.toml.
-PERSON_WORDS = "off"
+# here and in cortex's wrangler.toml. "off" stops it.
+PERSON_WORDS = "on"
 
 # Add secrets via CLI:
 # npx wrangler secret put SUPABASE_URL

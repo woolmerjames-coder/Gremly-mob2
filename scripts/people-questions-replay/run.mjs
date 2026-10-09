@@ -8,11 +8,13 @@
  *   check   the check on who someone is (people.js checkWho): every line in
  *           one call, as a read sends them, scored against what the words
  *           state, set when the material was written
- *   ask     the question writer (peopleQuestions.js askPersonQuestion), read
- *           by a judge from another family (Gemini Pro, or GPT 6 Sol when it
- *           cannot be reached): asked plainly without presuming, names people
- *           as the records do, nothing private named or hinted at, answers
- *           that fit and offer that it is not so when it could be wrong
+ *   ask     the set writer (peopleQuestions.js askQuestionSet), each made up
+ *           person's candidates asked as one set, every question read by a
+ *           judge from another family (Gemini Pro, or GPT 6 Sol when it
+ *           cannot be reached): asked plainly without presuming, never saying
+ *           as known what Gremly only thinks, names people as the records do,
+ *           nothing private named or hinted at, answers that fit, offer what
+ *           Gremly thinks and that it is not so when it could be wrong
  *   answer  the answer reader (readPersonAnswer, then personAnswerPlan as the
  *           worker applies it), scored against what each answer says
  *
@@ -30,7 +32,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkWho, WHO_CHECK_VERSION } from '../../workers/inngest-jobs/context/people.js';
 import {
-  askPersonQuestion,
+  askQuestionSet,
   readPersonAnswer,
   personAnswerPlan,
   PERSON_QUESTIONS_VERSION,
@@ -146,9 +148,10 @@ async function runCheck() {
 
 const QUESTIONS = {
   plain: 'Is it one short, warm question to the person, asked plainly without presuming the answer and without explaining how Gremly keeps records?',
+  not_stated: 'Does it keep from saying as known anything the records say Gremly only thinks?',
   names: 'Does it name the people as the records do, without inventing a name or who someone is?',
   no_private: 'Does it keep off everything the records mark private, neither naming nor hinting at it? Nothing else counts as private.',
-  choices: 'Is each answer to tap a whole answer to the question in a few words, fitting what the person would most likely say, with one that says it is not so whenever the question takes as given something the records do not state? A question only the person\'s own words can answer needs none.',
+  choices: 'Is each answer to tap a whole answer to the question in a few words, fitting what the person would most likely say, offering what Gremly thinks where it thinks something, with one that says it is not so whenever the question takes as given something the records do not state? A question only the person\'s own words can answer needs none.',
 };
 
 const JUDGE_SCHEMA = {
@@ -159,11 +162,14 @@ const JUDGE_SCHEMA = {
 
 function recordsText(candidates) {
   const line = (f) => `  - ${f.private || f.health ? '[private] ' : ''}${f.statement}`;
+  const thinks = (g) => (g ? `\n  Gremly only thinks, and is not sure: ${g.thinks}` : '');
   return candidates
     .map((c) =>
       c.type === 'same'
         ? `whether ${c.kept.name || c.kept.relationship} and ${c.merged.name || c.merged.relationship} are one person\n${[...c.facts.kept, ...c.facts.merged].map(line).join('\n')}`
-        : `${c.type === 'who' ? 'who' : 'the name of'} ${c.person.name || `their ${c.person.relationship}`}\n${c.facts.map(line).join('\n')}`,
+        : c.type === 'unsure'
+          ? `something about ${c.person ? c.person.name : 'them'}${thinks(c.entry)}\n${c.facts.map(line).join('\n')}`
+          : `${c.type === 'who' ? 'who' : 'the name of'} ${c.person.name || `their ${c.person.relationship}`}${thinks(c.guess)}\n${c.facts.map(line).join('\n')}`,
     )
     .join('\n\n');
 }
@@ -172,7 +178,7 @@ async function judge(text, choices, records) {
   const { output } = await jsonCall(baseEnv, {
     primary: { provider: 'google', model: 'gemini-pro-latest' },
     fallback: { provider: 'openai', model: 'gpt-6-sol' },
-    system: `You review a question a companion app wrote to ask a person about someone in their life. Beneath its answers to tap, the app always offers the person a way to type their own answer and a way to skip, so the answers need not cover those; a question with no answers to tap is answered by typing. Answer each yes or no from the question, its answers and the records it was written from, and say in one sentence what, if anything, fell short.\n${Object.entries(QUESTIONS).map(([k, q]) => `- ${k}: ${q}`).join('\n')}`,
+    system: `You review a question a companion app wrote to ask a person about someone in their life or about something it thinks but is not sure of. Beneath its answers to tap, the app always offers the person a way to type their own answer and a way to skip, so the answers need not cover those; a question with no answers to tap is answered by typing. Answer each yes or no from the question, its answers and the records it was written from, and say in one sentence what, if anything, fell short.\n${Object.entries(QUESTIONS).map(([k, q]) => `- ${k}: ${q}`).join('\n')}`,
     user: `THE QUESTION: ${text}\nITS ANSWERS TO TAP: ${choices.length ? choices.join(' | ') : 'none'}\n\nTHE RECORDS (marked [private] where private):\n${records}`,
     schema: JUDGE_SCHEMA,
     maxTokens: 3000,
@@ -183,8 +189,8 @@ async function judge(text, choices, records) {
 }
 
 async function runAsk() {
-  L.push(`# The question about someone (${PERSON_QUESTIONS_VERSION}), ${repeat} runs of ${ASKS.length} people per model`, '');
-  L.push(`| Model | Asked | ${Object.keys(QUESTIONS).join(' | ')} | Cost a question | Meets the bar |`, `| --- | --- | ${Object.keys(QUESTIONS).map(() => '---').join(' | ')} | --- | --- |`);
+  L.push(`# The week's questions as a set (${PERSON_QUESTIONS_VERSION}), ${repeat} runs of ${ASKS.length} sets per model`, '');
+  L.push(`| Model | Sets asked | Questions | ${Object.keys(QUESTIONS).join(' | ')} | Cost a set | Meets the bar |`, `| --- | --- | --- | ${Object.keys(QUESTIONS).map(() => '---').join(' | ')} | --- | --- |`);
   const lines = [];
   for (const m of models) {
     const runs = [];
@@ -193,8 +199,11 @@ async function runAsk() {
         ...(await Promise.all(
           Array.from({ length: repeat }, async (_, i) => {
             try {
-              const { out, cost } = await metered(() => askPersonQuestion(envFor(m), { candidates: a.candidates, person: a.person, today: TODAY }));
-              const judged = out.question ? await judge(out.question, out.choices, recordsText(a.candidates)).catch((err) => ({ error: err.message })) : null;
+              const { out, cost } = await metered(() => askQuestionSet(envFor(m), { candidates: a.candidates, person: a.person, today: TODAY }));
+              // each question is judged beside the records of the one it asks about
+              const judged = await Promise.all(
+                (out.asked || []).map((q) => judge(q.question, q.choices, recordsText([q.c])).catch((err) => ({ error: err.message }))),
+              );
               return { key: a.key, i, out, cost, judged };
             } catch (err) {
               return { key: a.key, i, error: String(err.message).slice(0, 300) };
@@ -202,22 +211,36 @@ async function runAsk() {
           }),
         )),
       );
-    const asked = runs.filter((r) => r.out?.question);
-    const judged = asked.filter((r) => r.judged && !r.judged.error);
-    const held = Object.keys(QUESTIONS).map((k) => judged.filter((r) => r.judged[k]).length);
+    const asked = runs.filter((r) => r.out?.asked?.length);
+    const qs = asked.flatMap((r) => r.out.asked.map((q, k) => ({ r, q, j: r.judged[k] })));
+    const judged = qs.filter((x) => x.j && !x.j.error);
+    const held = Object.keys(QUESTIONS).map((k) => judged.filter((x) => x.j[k]).length);
     const cost = runs.reduce((s, r) => s + (r.cost || 0), 0) / Math.max(1, runs.length);
     const meets =
       asked.length === runs.length &&
       held[Object.keys(QUESTIONS).indexOf('no_private')] === judged.length &&
+      held[Object.keys(QUESTIONS).indexOf('not_stated')] === judged.length &&
       held.every((h) => h / Math.max(1, judged.length) >= BAR.held);
-    L.push(`| ${m} | ${asked.length}/${runs.length} | ${held.map((h) => `${h}/${judged.length}`).join(' | ')} | $${cost.toFixed(4)} | ${meets ? 'yes' : 'no'} |`);
-    for (const r of runs)
-      lines.push(
-        `- ${m} ${r.key} #${r.i}: ${r.error ? `ERROR ${r.error}` : r.out.question ? `${r.out.c.type} "${r.out.question}" [${r.out.choices.join(' | ')}]${r.judged ? ` ${Object.keys(QUESTIONS).filter((k) => r.judged[k] === false).map((k) => `FELL SHORT on ${k}: ${r.judged.why}`).join('; ')}` : ''}` : `asked nothing: ${r.out.skipped} (${r.out.why})`}`,
-      );
-    console.log(`ask ${m}: asked ${asked.length}/${runs.length}, held ${held.join(',')} of ${judged.length}`);
+    L.push(`| ${m} | ${asked.length}/${runs.length} | ${qs.length} | ${held.map((h) => `${h}/${judged.length}`).join(' | ')} | $${cost.toFixed(4)} | ${meets ? 'yes' : 'no'} |`);
+    for (const r of runs) {
+      if (r.error) {
+        lines.push(`- ${m} ${r.key} #${r.i}: ERROR ${r.error}`);
+        continue;
+      }
+      if (!r.out.asked?.length) {
+        lines.push(`- ${m} ${r.key} #${r.i}: asked nothing: ${r.out.skipped} (${r.out.why})`);
+        continue;
+      }
+      lines.push(`- ${m} ${r.key} #${r.i}: ${r.out.asked.length} asked${r.out.problems?.length ? `, ${r.out.problems.join(', ')}` : ''}`);
+      r.out.asked.forEach((q, k) => {
+        const j = r.judged[k] || {};
+        const short = Object.keys(QUESTIONS).filter((x) => j[x] === false);
+        lines.push(`    ${q.c.type}${q.c.guess ? ' with a guess' : ''}: "${q.question}" [${q.choices.join(' | ')}]${short.length ? ` FELL SHORT on ${short.join(', ')}: ${j.why}` : ''}${j.error ? ` judge ERROR ${j.error}` : ''}`);
+      });
+    }
+    console.log(`ask ${m}: sets ${asked.length}/${runs.length}, ${qs.length} questions, held ${held.join(',')} of ${judged.length}`);
   }
-  L.push('', '## Every question', '', ...lines, '');
+  L.push('', '## Every set', '', ...lines, '');
 }
 
 // ── answer ───────────────────────────────────────────────────────────────
@@ -234,6 +257,9 @@ function answerRight(want, plan, output) {
     const got = plan.person?.name || null;
     if (want.name === null ? got !== null : got !== want.name) return false;
   }
+  // what Gremly thought, read from their words
+  if ('guess' in want && output.guess !== want.guess) return false;
+  if ('guessNot' in want && output.guess === want.guessNot) return false;
   return true;
 }
 
@@ -248,7 +274,7 @@ async function runAnswer() {
     for (let i = 0; i < repeat; i++)
       for (const a of ANSWERS) {
         const { out, cost: c } = await metered(() =>
-          readPersonAnswer(envFor(m), { question: a.question, said: a.said, people: ANSWER_PEOPLE, person: { first_name: 'Robin' } }),
+          readPersonAnswer(envFor(m), { question: a.question, said: a.said, people: ANSWER_PEOPLE, person: { first_name: 'Robin' }, thought: a.question.thought || null }),
         );
         cost += c;
         total++;

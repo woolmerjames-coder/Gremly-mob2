@@ -200,3 +200,30 @@ describe('what is filed', () => {
     expect(d.calls.find((c) => c.startsWith('events?'))).toContain('kind=eq.context.forgotten');
   });
 });
+
+describe('what was cleared from their list', () => {
+  const routes = () => [
+    ['drop_world_links?', [{ drop_id: T1, drop_type: 'todo', assigned_by: 'classifier' }]],
+    ['todos?', [{ id: T1, name: 'Visit the allotment', created_at: '2026-10-05T09:00:00Z', archived: true }]],
+    ['ledger_cursor?', [{ read_through: '2026-10-07T00:00:00Z' }]],
+  ];
+
+  it('is read only when asked for, by the reasons the app gives for clearing, and marked so', async () => {
+    const d = fakeD(routes());
+    db.mockReturnValue(d);
+    const got = await loadFiled({}, U, { table: 'worlds', id: 'w-1' }, { cleared: true });
+    expect(d.calls.find((c) => c.startsWith('todos?'))).toContain(
+      'or=(archived.is.false,archived_reason.in.(swept,mini_sweep,weekly_cleanup))',
+    );
+    expect(got.items).toEqual([expect.objectContaining({ id: T1, cleared: true, read: true })]);
+  });
+
+  it('is left out otherwise, as everything archived is', async () => {
+    const d = fakeD(routes());
+    db.mockReturnValue(d);
+    await loadFiled({}, U, { table: 'worlds', id: 'w-1' });
+    const path = d.calls.find((c) => c.startsWith('todos?'));
+    expect(path).toContain('&archived=is.false&');
+    expect(path).not.toContain('archived_reason');
+  });
+});

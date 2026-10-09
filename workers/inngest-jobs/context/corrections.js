@@ -25,11 +25,12 @@ import { jsonCall, modelFor } from './llm';
 import { refreshLifeMapStory } from './story';
 import { invalidateChatCache } from './cache';
 import { peopleAfterCorrection } from './people';
-import { answerPersonQuestion, writePersonQuestion, tomorrowFor } from './peopleQuestions';
+import { answerPersonQuestion, settleGuess } from './peopleQuestions';
+import { answerChapterQuestion, CHAPTER_QUESTION_KINDS } from './chapterAnswers';
 import { personNow } from '../../shared/day.js';
 import { restingPassages, rewritePassages, glanceable, tidyDay, moveDayRefs } from './correctionPassages';
 
-export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-16b';
+export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-18a';
 
 const CORRECTION_SCHEMA = {
   type: 'object',
@@ -76,8 +77,10 @@ const CORRECTION_SCHEMA = {
     },
     retire_anchor_refs: { type: 'array', items: { type: 'string' } },
     line_refs: { type: 'array', items: { type: 'string' } },
+    // whether their answer says what Gremly thought is so (context/unsure.js)
+    guess_holds: { type: 'string', enum: ['yes', 'no', 'unsure'], nullable: true },
   },
-  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'retire_anchor_refs', 'line_refs'],
+  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'retire_anchor_refs', 'line_refs', 'guess_holds'],
 };
 
 /**
@@ -107,6 +110,7 @@ WHAT TO DO
 - When they say something has happened or is done, mark that fact as happened.
 - When what they said is given as their answer to one of Gremly's questions, first decide whether it answers it, and say so in answers_question. It answers the question when it tells Gremly what the question was asking, in whole or in part, or tells Gremly the question is wrong, no longer applies or is not one they want to be asked. It does not answer the question when it only asks Gremly something back, or speaks of something else and leaves what was asked as unknown as it was. When there is no question, answers_question is true.
 - When it answers the question, apply the answer the same way: confirm, change, correct or add facts as the answer says. When it does not, the question tells you nothing new about their life: apply only what their own words say, which may be nothing.
+- When the question asked about something Gremly thought but was not sure of, say in guess_holds whether their answer says it is so: yes, no, or unsure when it does not say. When it is so, record it as a new fact, as their answer and the question together say it, in their words wherever they gave any, unless the ledger already holds it. Otherwise guess_holds is null.
 - When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. Nothing about it was wrong, so mark nothing corrected for it.
 - If they stated what is true, record it as a new fact in their words, with the day it is about whenever it has one: for something that comes round every year, the date of one of its days. When the ledger already holds what they say, as they say it, add nothing beside it.
 - Retire any date anchor that only exists because of the wrong claim.
@@ -328,9 +332,11 @@ export async function applyCorrection(env, correctionId, runId) {
   let restsOn = [];
   if (correction.surface === 'question' && /^[0-9a-f-]{36}$/i.test(correction.target_ref?.id || '')) {
     const [asked] = await d.select(
-      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change,rests_on`,
+      `gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change,rests_on,record_id,created_at`,
     );
     if (asked?.kind === 'person') return applyPersonAnswer(env, { correction, question: asked });
+    // a Chapter started, closed or moved on their answer (context/chapterAnswers.js)
+    if (CHAPTER_QUESTION_KINDS.includes(asked?.kind)) return applyChapterAnswer(env, { correction, question: asked });
     if (asked?.kind === 'tidy') {
       const done = await applyTidyAnswer(env, { correction, question: asked });
       if (done) return done;
@@ -369,7 +375,12 @@ export async function applyCorrection(env, correctionId, runId) {
   }
   // An answer to one of Gremly's questions arrives as a correction about that question.
   const [question] = correction.surface === 'question' && correction.target_ref?.id && /^[0-9a-f-]{36}$/i.test(correction.target_ref.id)
-    ? await d.select(`gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status`)
+    ? await d.select(`gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change`)
+    : [];
+  // what Gremly thought but was not sure of, when the question asked about it
+  const unsureId = question?.kind === 'unsure' ? question.proposed_change?.unsure_id : null;
+  const [thought] = unsureId
+    ? await d.select(`life_unsure?id=eq.${unsureId}&user_id=eq.${userId}&select=id,thinks,status`)
     : [];
   const CHOICES = { wrong: 'It is wrong', changed: 'It has changed', done: 'It is done or has happened', private: 'Keep it private' };
   const choice = CHOICES[correction.target_ref?.kind] || null;
@@ -393,7 +404,7 @@ export async function applyCorrection(env, correctionId, runId) {
 
   const user = `WHAT THE PERSON SAID (${correction.surface}${correction.target_kind ? `, about ${correction.target_kind}` : ''}):
 "${trim(correction.said, 1500)}"
-${question ? `\nTHIS IS THEIR ANSWER TO GREMLY'S QUESTION:\n"${trim(question.question, 400)}"\n` : ''}${correction.target_ref?.text ? `\nTHE TEXT THEY MARKED AS NOT RIGHT:\n"${trim(correction.target_ref.text, 800)}"\n` : ''}${choice ? `WHAT THEY CHOSE: ${choice}\n` : ''}
+${question ? `\nTHIS IS THEIR ANSWER TO GREMLY'S QUESTION:\n"${trim(question.question, 400)}"\n` : ''}${thought ? `WHAT GREMLY THOUGHT BUT WAS NOT SURE OF, WHICH THE QUESTION ASKED ABOUT:\n"${trim(thought.thinks, 300)}"\n` : ''}${correction.target_ref?.text ? `\nTHE TEXT THEY MARKED AS NOT RIGHT:\n"${trim(correction.target_ref.text, 800)}"\n` : ''}${choice ? `WHAT THEY CHOSE: ${choice}\n` : ''}
 ${conversation ? `CONVERSATION AROUND IT:\n${conversation}\n` : ''}
 LEDGER FACTS (ref | state | date, or its day each year | statement):
 ${factLines.join('\n') || '(none)'}
@@ -629,6 +640,10 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
   if (outcome === 'answered') {
     await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, { status: 'answered', answer: trim(correction.said, 1000), answered_at: nowIso });
     result.question_answered = question.id;
+    // what Gremly thought is confirmed only when they say it is so; any other
+    // answer closes it, as a no or as theirs to keep
+    if (thought)
+      result.guess = await settleGuess(d, userId, { id: thought.id, status: output.guess_holds === 'yes' ? 'confirmed' : 'said_no' }, nowIso);
   } else if (outcome === 'open') {
     result.question_left_open = question.id;
   }
@@ -736,9 +751,8 @@ async function applyTidyAnswer(env, { correction, question }) {
 
 /**
  * Apply an answer to a question about someone in their life, and close the
- * question when the answer answers it. Once it is answered, the next question
- * about someone may be written, held until tomorrow so two are never asked
- * back to back.
+ * question when the answer answers it. The next questions come with next
+ * week's set (peopleQuestions.js writeQuestionSet).
  */
 async function applyPersonAnswer(env, { correction, question }) {
   const d = db(env);
@@ -757,15 +771,37 @@ async function applyPersonAnswer(env, { correction, question }) {
         answered_at: nowIso,
       });
       result.question_answered = question.id;
-      try {
-        result.next = await writePersonQuestion(env, userId, {
-          holdUntil: await tomorrowFor(env, userId),
-        });
-      } catch (err) {
-        console.warn(
-          `[ALERT][People] the next question about someone could not be written for ${userId}: ${err?.message || err}`,
-        );
-      }
+    } else {
+      result.question_left_open = question.id;
+    }
+  }
+  await invalidateChatCache(env, userId);
+  await d.update(`user_corrections?id=eq.${correction.id}`, {
+    status: 'applied',
+    applied_at: nowIso,
+    result,
+  });
+  return result;
+}
+
+/**
+ * Apply an answer to a question about a Chapter, and close the question when
+ * the answer answers it; touch no fact.
+ */
+async function applyChapterAnswer(env, { correction, question }) {
+  const d = db(env);
+  const userId = correction.user_id;
+  const nowIso = new Date().toISOString();
+  const result = { chapter_question: question.id };
+  if (question.status !== 'answered') {
+    Object.assign(result, await answerChapterQuestion(env, { userId, question, said: correction.said }));
+    if (result.answers) {
+      await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, {
+        status: 'answered',
+        answer: trim(correction.said, 1000),
+        answered_at: nowIso,
+      });
+      result.question_answered = question.id;
     } else {
       result.question_left_open = question.id;
     }

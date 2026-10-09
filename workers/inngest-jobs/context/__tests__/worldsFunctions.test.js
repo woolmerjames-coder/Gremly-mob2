@@ -9,7 +9,7 @@ import { writeWords } from '../words.js';
 import { writeMemory, chaptersWantingMemory } from '../memory.js';
 import { makeFirstWorlds } from '../firstWorlds.js';
 import { recheckPeople } from '../people.js';
-import { writePersonQuestion } from '../peopleQuestions.js';
+import { writeQuestionSet } from '../peopleQuestions.js';
 
 jest.mock('../words.js', () => ({ writeWords: jest.fn() }));
 jest.mock('../memory.js', () => ({ writeMemory: jest.fn(), chaptersWantingMemory: jest.fn() }));
@@ -17,7 +17,7 @@ jest.mock('../people.js', () => ({
   ...jest.requireActual('../people.js'),
   recheckPeople: jest.fn(),
 }));
-jest.mock('../peopleQuestions.js', () => ({ writePersonQuestion: jest.fn() }));
+jest.mock('../peopleQuestions.js', () => ({ writeQuestionSet: jest.fn() }));
 jest.mock('../db.js', () => ({
   ...jest.requireActual('../db.js'),
   personIdentity: async () => ({ first_name: 'Robin' }),
@@ -232,12 +232,12 @@ describe('the stage 4b functions', () => {
 describe('the weekly people step', () => {
   beforeEach(() => {
     recheckPeople.mockReset();
-    writePersonQuestion.mockReset();
+    writeQuestionSet.mockReset();
   });
 
-  it('checks the records, then may ask about one person, live', async () => {
+  it('checks the records, then may ask this week\'s set, live', async () => {
     recheckPeople.mockResolvedValue({ checked: 4, who_cleared: 1 });
-    writePersonQuestion.mockResolvedValue({ written: true });
+    writeQuestionSet.mockResolvedValue({ written: true });
     const { byId } = functions({});
     const s = step();
     const out = await byId('context-people').handler({
@@ -247,14 +247,14 @@ describe('the weekly people step', () => {
     });
     expect(s.order).toEqual(['run:check', 'run:ask']);
     expect(recheckPeople).toHaveBeenCalledWith(ON, U, expect.objectContaining({ shadow: false }));
-    expect(writePersonQuestion).toHaveBeenCalledWith(ON, U, { dryRun: false });
+    expect(writeQuestionSet).toHaveBeenCalledWith(ON, U, { dryRun: false });
     expect(out).toMatchObject({ checked: { checked: 4 }, asked: { written: true } });
   });
 
   it('writes nothing for someone not live, and still asks when the check fails, saying so', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     recheckPeople.mockRejectedValue(new Error('down'));
-    writePersonQuestion.mockResolvedValue({ written: false, dry_run: true });
+    writeQuestionSet.mockResolvedValue({ written: false, dry_run: true });
     const { byId } = functions({});
     const env = { CONTEXT_PIPELINE: 'shadow' };
     const out = await byId('context-people').handler({
@@ -262,7 +262,7 @@ describe('the weekly people step', () => {
       step: step(),
       env,
     });
-    expect(writePersonQuestion).toHaveBeenCalledWith(env, U, { dryRun: true });
+    expect(writeQuestionSet).toHaveBeenCalledWith(env, U, { dryRun: true });
     expect(out.checked).toEqual({ error: 'down' });
     expect(warn.mock.calls[0][0]).toMatch(/\[ALERT\]\[People\]/);
     warn.mockRestore();

@@ -101,6 +101,28 @@ describe('closing', () => {
     expect(got.map((c) => c.id)).toEqual(['moved', 'past']);
   });
 
+  it('asks about an open Chapter with no end date once nothing new has come into it for a while, again after something new', () => {
+    const chapters = [
+      ch('quiet', { start_date: '2026-01-01', end_date: null }),
+      ch('busy', { start_date: '2026-01-01', end_date: null }),
+      ch('new', { start_date: '2026-09-20', end_date: null }),
+      ch('none', { start_date: null, end_date: null }),
+      ch('said', { start_date: '2026-02-01', end_date: null }),
+    ];
+    const lastSign = new Map([
+      ['quiet', '2026-05-20'],
+      ['busy', '2026-10-01'],
+      ['said', '2026-06-01'],
+    ]);
+    const said = closeNoKey({ ...ch('said'), quiet_since: '2026-06-01' });
+    const got = closeCandidates({ chapters, today: TODAY, noKeys: new Set([said]), lastSign });
+    expect(got.map((c) => [c.id, c.quiet_since])).toEqual([['quiet', '2026-05-20']]);
+    expect(closeNoKey(got[0])).toBe('close:quiet:quiet:2026-05-20');
+    // something filed since they answered lets it be asked again, once it goes quiet again
+    const again = closeCandidates({ chapters, today: TODAY, noKeys: new Set([said]), lastSign: new Map([['said', '2026-07-01']]) });
+    expect(again.map((c) => c.id)).toContain('said');
+  });
+
   it('lists for a welcome back what passed while they were away, and what is ahead', () => {
     const { passed, ahead } = whileAway({
       chapters: [

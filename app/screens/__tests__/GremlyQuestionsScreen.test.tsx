@@ -185,6 +185,7 @@ test('the receipt line and Still to come', () => {
     ),
   ).toBe('1 marked as done.');
   expect(receiptLine(sam, { said: 'A colleague' })).toBe('A colleague. Noted.');
+  expect(receiptLine({ ...sam, kind: 'unsure' }, { said: 'Yes' })).toBe('Yes. Noted.');
   expect(stillToCome({ ...meetings, topic: null })).toBe('A tidy up');
   expect(stillToCome(sam)).toBe('Who is Sam to you?');
 });

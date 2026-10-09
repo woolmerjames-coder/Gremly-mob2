@@ -15,11 +15,11 @@ jest.mock('@supabase/supabase-js', () => ({ createClient: jest.fn() }));
 const CH = '22222222-2222-4222-8222-222222222222';
 const W = '33333333-3333-4333-8333-333333333333';
 
-function fakeClient(inserted = []) {
+function fakeClient(inserted = [], chapter = {}) {
   const updates = [];
   const rowsFor = {
     worlds: [{ id: W, name: 'Running', card_subtitle_source: null, summary_source: null }],
-    chapters: [{ id: CH, title: 'The half', primary_world_id: null, closed_at: null }],
+    chapters: [{ id: CH, title: 'The half', primary_world_id: null, closed_at: null, ...chapter }],
     life_contexts: [],
   };
   const query = (table) => {
@@ -99,6 +99,24 @@ it('counts a close the classifier asks for, and applies the rest of the update w
   expect(ch.patch).toHaveProperty('end_date', '2026-10-05');
   // and never on a Chapter the person closed while it ran
   expect(ch.filters).toContainEqual(['is', 'closed_at', null]);
+});
+
+it('leaves the end date the weekly pass gave, as it leaves one the person set', async () => {
+  for (const source of ['synthesis', 'user']) {
+    const updates = fakeClient([], { end_date_source: source });
+    await writeClassifierOutput(
+      {
+        ...empty,
+        chapter_updates: [
+          { chapter_id: CH, close_chapter: false, reason: 'r', evidence: [], new_arc_shape: null, new_end_date: '2026-10-05' },
+        ],
+      },
+      'u-1',
+      { SUPABASE_URL: 'x', SUPABASE_SERVICE_KEY: 'y', CONTEXT_PIPELINE: 'on' },
+    );
+    const ch = updates.find((u) => u.table === 'chapters');
+    expect(ch?.patch || {}).not.toHaveProperty('end_date');
+  }
 });
 
 it('writes no words under a World or a Chapter and no memory, new or old', async () => {
