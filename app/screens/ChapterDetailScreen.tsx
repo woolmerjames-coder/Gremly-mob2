@@ -74,6 +74,8 @@ import { GremlyBox, BOX_SPACE } from '../../components/worlds/GremlyBox';
 import { PageChat } from '../../components/worlds/PageChat';
 import { UndoSnack } from '../../components/worlds/UndoSnack';
 import { usePageActions } from '../../components/worlds/usePageActions';
+import { chapterChips } from '../../lib/people/people';
+import { useChapterPeople } from '../../lib/people/usePeople';
 
 type RouteT = RouteProp<RootStackParamList, 'ChapterDetail'>;
 type NavT = NativeStackNavigationProp<RootStackParamList, 'ChapterDetail'>;
@@ -114,6 +116,7 @@ export default function ChapterDetailScreen() {
     askForMemory: useGremlyStore((s) => s.askForMemory),
   };
   const page = usePageActions();
+  const linkedPeople = useChapterPeople(id);
   const [sheet, setSheet] = useState<ChapterSheet>(null);
   const [showDone, setShowDone] = useState(false);
   const [closing, setClosing] = useState<{ undo: Undo; memory: MemoryState } | null>(null);
@@ -200,7 +203,7 @@ export default function ChapterDetailScreen() {
   const openSteps = steps.filter((t) => !isDone(t) || page.justTicked.has(t.id));
   const doneSteps = steps.filter((t) => isDone(t) && !page.justTicked.has(t.id));
   const left = steps.filter((t) => !isDone(t)).length;
-  const people = (chapter.with_you || []).map((x) => x.name).filter(Boolean);
+  const people = chapterChips(linkedPeople, chapter.with_you);
   const keptNote = sheet?.kind === 'kept' ? notes.find((n) => n.id === sheet.noteId) : null;
   const localDay = (stamp: string) => getDateService().extractLocalDate(stamp);
   const year = (dayOf(chapter.end_date) || dayOf(chapter.start_date) || '').slice(0, 4);
@@ -521,7 +524,13 @@ export default function ChapterDetailScreen() {
           {people.length ? (
             <>
               <SectionHead title="People" />
-              <PeopleChips names={people} tint={tint} />
+              <PeopleChips
+                people={people}
+                tint={tint}
+                onOpen={(p) =>
+                  nav.navigate('PersonDetail', p.id ? { personId: p.id } : { personName: p.name })
+                }
+              />
             </>
           ) : null}
         </View>

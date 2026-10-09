@@ -117,6 +117,27 @@ describe('YourStoryScreen', () => {
     expect(queryByText(/Updated/)).toBeNull();
   });
 
+  it('opens the page of someone who matters, by the name it shows', () => {
+    mockStory = {
+      ...fullStory,
+      items: [
+        {
+          id: 'pp1',
+          kind: 'person',
+          pattern_kind: null,
+          title: 'Noor, sister',
+          body: '',
+          period_start: null,
+          period_end: null,
+          private: false,
+        },
+      ],
+    };
+    const { getByTestId } = render(<YourStoryScreen />);
+    fireEvent.press(getByTestId('story-person-pp1'));
+    expect(mockNavigate).toHaveBeenCalledWith('PersonDetail', { personName: 'Noor' });
+  });
+
   it('opens what Gremly remembers from the foot of the page', () => {
     const { getByText } = render(<YourStoryScreen />);
     fireEvent.press(getByText('Edit or clear what Gremly remembers'));

@@ -36,8 +36,11 @@ CONTEXT_LIVE_USERS = "05a3c53d-b242-4b5f-a0db-83004c8e3892,c64ec85f-735c-4d5c-85
 # The stop switch for the old Worlds fields (workers/shared/worldsFields.js,
 # section A of docs/worlds/FOR_THE_PIPELINE.md): "keep" writes them as before;
 # "stop", once the Worlds build says the old screens are gone, stops the weekly
-# pass, the Sunday classifier and filing from writing them.
-WORLDS_OLD_FIELDS = "keep"
+# pass, the Sunday classifier and filing from writing them. "stop" from 9 Oct
+# 2026: the Worlds rebuild's old screens are gone, and nothing live reads the
+# fields (the weekly review's read leaves the old priorities out once stopped,
+# week/read.js). To go back: "keep".
+WORLDS_OLD_FIELDS = "stop"
 # Gremly's questions about Chapters (workers/shared/questionRules.js,
 # context/chapterQuestions.js): suggesting one, asking whether one past its
 # dates is over, and the welcome back. Built and replayed in data fabric stage

@@ -43,6 +43,13 @@ export const MODELS = {
   // questions about the people in their life, and reading their answers
   // (peopleQuestions.js, data fabric stage 4c), and Gremly's questions about
   // Chapters (chapterQuestions.js), on the replay's choice
+  // the page Gremly keeps about someone in their life (personPage.js, Worlds
+  // rebuild stage 5): Luna, as the line about each person
+  personPage: { provider: 'openai', model: 'gpt-6-luna' },
+  personPageFallback: { provider: 'google', model: 'gemini-3.8-flash' },
+  // their name and who they are, read from what they type on that page (personCorrection.js)
+  personCorrection: { provider: 'openai', model: 'gpt-6-luna' },
+  personCorrectionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   personQuestion: { provider: 'openai', model: 'gpt-6-luna' },
   personQuestionFallback: { provider: 'google', model: 'gemini-3.8-flash' },
   chapterQuestion: { provider: 'openai', model: 'gpt-6-luna' },

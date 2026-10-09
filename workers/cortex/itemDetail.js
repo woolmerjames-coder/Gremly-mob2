@@ -80,8 +80,7 @@ function historyOf(views, timezone) {
 
 /**
  * One item in full, from its row. Pure, so the scenario runner builds the same
- * thing from its spec items. opts: loggedDays (a habit's check-ins), spaceName,
- * timezone.
+ * thing from its spec items. opts: loggedDays (a habit's check-ins), timezone.
  */
 export function toDetail(row, type, opts = {}) {
   if (!row || !DETAIL[type]) return null;
@@ -98,7 +97,6 @@ export function toDetail(row, type, opts = {}) {
     type,
     title: String(row.name || row.title || '').trim(),
     subtype: row.subtype || null,
-    space: opts.spaceName || null,
     created_day: localDay(row.created_at, tz),
     body: textOf(row.body, TEXT_MAX),
     notes: textOf(row.notes, NOTES_MAX),
@@ -181,7 +179,6 @@ export function itemDetailText(d, todayIso) {
   if (d.type === 'note' && NOTE_KINDS[d.subtype]) lines.push(`- it is ${NOTE_KINDS[d.subtype]}`);
   if (d.type === 'habit' && d.subtype === 'break_habit')
     lines.push('- it is a habit they are trying to stop');
-  if (d.space) lines.push(`- it sits in their space "${d.space}"`);
   if (d.created_day && todayIso) {
     const age = daysBetween(d.created_day, todayIso);
     lines.push(
@@ -244,10 +241,8 @@ export async function fetchItemDetail(env, userId, anchor, { todayIso, timezone 
     );
     const row = Array.isArray(rows) ? rows[0] : null;
     if (!row) return null;
-    const [space, logs] = await Promise.all([
-      row.space_id
-        ? get(`spaces?id=eq.${encodeURIComponent(row.space_id)}&select=name&limit=1`).catch(() => [])
-        : Promise.resolve([]),
+    // Spaces went with the Worlds rebuild, so an item's old Space is not read
+    const [logs] = await Promise.all([
       anchor.type === 'habit' && todayIso
         ? get(
             `habit_progress?owner_id=eq.${userId}&habit_id=eq.${encodeURIComponent(anchor.id)}&occurred_day=gte.${addDays(todayIso, -(DETAIL_LOG_DAYS - 1))}&select=occurred_day&order=occurred_day.desc&limit=100`,
@@ -255,7 +250,6 @@ export async function fetchItemDetail(env, userId, anchor, { todayIso, timezone 
         : Promise.resolve([]),
     ]);
     return toDetail(row, anchor.type, {
-      spaceName: Array.isArray(space) ? space[0]?.name || null : null,
       loggedDays: (Array.isArray(logs) ? logs : [])
         .filter((l) => l?.occurred_day)
         .map((l) => String(l.occurred_day).slice(0, 10)),

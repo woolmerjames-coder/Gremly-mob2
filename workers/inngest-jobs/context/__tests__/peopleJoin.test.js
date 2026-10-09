@@ -125,3 +125,15 @@ it('asks the model nothing when nothing is proposed', async () => {
   expect(await settleProposedJoins({}, U)).toEqual({ pairs: 0, joined: 0 });
   expect(jsonCall).not.toHaveBeenCalled();
 });
+
+it('never joins on its own a pair they decided on their people page and put back with Undo', async () => {
+  const d = world();
+  // Same person, then Undo, on the people page (personTaps.js)
+  d.tables.person_merges.find((m) => m.id === 'm1').decided_at = '2026-10-20T09:00:00Z';
+  db.mockReturnValue(d);
+  answer();
+  const out = await settleProposedJoins({}, U);
+  expect(d.tables.person_merges.find((m) => m.id === 'm1').status).toBe('proposed');
+  expect(d.tables.life_people.find((p) => p.id === 'p-b').merged_into).toBeNull();
+  expect(out.pairs).toBe(2);
+});

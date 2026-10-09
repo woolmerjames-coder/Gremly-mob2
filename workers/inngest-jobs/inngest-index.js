@@ -34,6 +34,8 @@ import { handleDayTurnApi } from './brief/dayTurn';
 import { buildDcoV4, writeDco } from './context/daily';
 import { handleFirstWorldsApi } from './context/firstWorlds';
 import { handleChapterMemoryApi } from './context/memory';
+import { handlePersonMergeApi } from './context/personTaps';
+import { handlePersonPageApi } from './context/personPage';
 import { handleWordsFreshApi } from './context/words';
 import { sendEvents } from './notifications/planner';
 import { reviewQuestions } from './context/questions';
@@ -2744,11 +2746,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       { headers },
     ).then((r) => r.json()),
 
-    // 5: Spaces — active
-    fetch(
-      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
-      { headers },
-    ).then((r) => r.json()),
+    // 5: Spaces went with the Worlds rebuild (9 Oct 2026): none are read
+    Promise.resolve([]),
 
     // 6: Space milestones — active
     fetch(
@@ -3993,8 +3992,6 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
       'These capture decisions, emotional processing, and context from conversations. Cross-reference with habits, journals, and todos for deeper patterns.',
     );
     for (const chat of weeklySnapshot.chatSummaries) {
-      const spaceName =
-        (weeklySnapshot.spaces || []).find((s) => s.id === chat.space_id)?.name || 'General';
       const safeSummary = (chat.summary || '')
         // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
         .replace(/[\x00-\x1F\x7F]/g, ' ')
@@ -4004,7 +4001,7 @@ Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
         const typeLabel =
           chat.source === 'entity_chat'
             ? `Entity: ${chat.entity_type} "${chat.title || 'Untitled'}"`
-            : `Space: ${spaceName}`;
+            : 'Chat';
         dataLines.push(`[${typeLabel}] ${chat.date || 'recent'}: ${safeSummary}`);
       }
     }
@@ -4571,6 +4568,16 @@ const appHandler = {
     }
     if (url.pathname === '/api/words-fresh' && request.method === 'POST') {
       return handleWordsFreshApi(request, env, corsResponse, { send: sendEvents });
+    }
+    // the people page (Worlds rebuild, stage 5): a merge Gremly proposed,
+    // decided by their tap, or put back
+    if (url.pathname === '/api/person-merge' && request.method === 'POST') {
+      return handlePersonMergeApi(request, env, corsResponse);
+    }
+    // and the page itself: the labels on their days and the things to
+    // remember, written again when what they rest on has changed
+    if (url.pathname === '/api/person-page' && request.method === 'POST') {
+      return handlePersonPageApi(request, env, corsResponse, { mode: contextMode });
     }
 
     // Daily brief in Chat: the app's first open, or a fresh brief for a later

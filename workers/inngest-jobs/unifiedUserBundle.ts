@@ -568,11 +568,10 @@ async function fetchPhotoNotes(
   }));
 }
 
-async function fetchSpaces(userId: string, env: Env): Promise<SpaceEntry[]> {
-  return supabaseGet<SpaceEntry>(
-    env,
-    `spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=50`,
-  );
+// Spaces went with the Worlds rebuild (9 Oct 2026): none are read, so the
+// bundle holds none and the spaces table can be dropped.
+async function fetchSpaces(_userId: string, _env: Env): Promise<SpaceEntry[]> {
+  return [];
 }
 
 async function fetchMilestones(userId: string, env: Env): Promise<MilestoneEntry[]> {

@@ -39,10 +39,10 @@ export interface StreamingCallbacks {
 }
 
 /**
- * Rich completion result for Space Chat streaming.
+ * Rich completion result for Ask Gremly streaming.
  * Includes save_suggestion from Cortex when available.
  */
-export interface SpaceChatStreamingResult {
+export interface ChatStreamingResult {
   content: string;
   save_suggestion?: any | null;
   entity_card?: import('../types').EntityCard | null;
@@ -74,12 +74,12 @@ export interface SpaceChatStreamingResult {
 }
 
 /**
- * Enhanced streaming callbacks for Space Chat with save_suggestion support.
+ * Enhanced streaming callbacks for Ask Gremly with save_suggestion support.
  * Use this interface when you need access to save_suggestion in onComplete.
  */
-export interface SpaceChatStreamingCallbacks {
+export interface ChatStreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
-  onComplete: (result: SpaceChatStreamingResult) => void;
+  onComplete: (result: ChatStreamingResult) => void;
   onError: (error: string, partialText: string) => void;
   onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
@@ -351,180 +351,7 @@ export async function callChat(
 }
 
 /**
- * Call the Cortex proxy for Space Chat conversations.
- * Uses GPT-5.1 via the space_chat lane with conversational settings.
- *
- * @param messages - The conversation messages
- * @param opts - Options including spaceId, chatId, and optional system prompt override
- * @returns The AI response
- */
-export async function callSpaceChat(
-  messages: ChatMessage[],
-  opts: {
-    spaceId: string;
-    chatId: string;
-    systemPrompt?: string;
-  },
-) {
-  // Build messages array with system prompt if provided
-  const allMessages: ChatMessage[] = opts.systemPrompt
-    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
-    : messages;
-
-  return postJSON(
-    {
-      type: 'chat',
-      model: 'gpt-4o', // GPT-4o for conversational Space Chat
-      messages: allMessages,
-      temperature: 0.7,
-      max_completion_tokens: 400,
-      lane: 'space_chat', // Critical: tells worker to use GPT-4o
-      spaceId: opts.spaceId,
-      space_id: opts.spaceId,
-      chatId: opts.chatId,
-    },
-    { raw: true },
-  );
-}
-
-/**
- * Call the Cortex proxy for Space Chat with streaming support using EventSource (SSE).
- * Returns an object with a close() method to cancel the request.
- *
- * Supports two callback signatures:
- * - StreamingCallbacks: Simple interface where onComplete receives just the text
- * - SpaceChatStreamingCallbacks: Enhanced interface where onComplete receives rich result with save_suggestion
- *
- * @param messages - The conversation messages
- * @param opts - Options including spaceId, chatId, userId, and optional system prompt override
- * @param callbacks - Callbacks for streaming events (onChunk, onComplete, onError)
- * @returns Object with close() method to cancel the stream
- */
-export function callSpaceChatStreaming(
-  messages: ChatMessage[],
-  opts: {
-    spaceId: string;
-    chatId: string;
-    userId?: string;
-    systemPrompt?: string;
-    recentEntity?: import('../types').RecentEntity | null;
-  },
-  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
-): { close: () => void } {
-  const baseUrl = readCortexUrl();
-  if (!baseUrl) {
-    callbacks.onError('Missing CORTEX_URL', '');
-    return { close: () => {} };
-  }
-  if (isAiDisabled()) {
-    callbacks.onError('AI disabled', '');
-    return { close: () => {} };
-  }
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const sessionToken = getSessionTokenSync();
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  const allMessages: ChatMessage[] = opts.systemPrompt
-    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
-    : messages;
-
-  let fullText = '';
-
-  const es = new EventSource(baseUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      type: 'chat',
-      model: 'gpt-4o',
-      messages: allMessages,
-      temperature: 0.7,
-      max_completion_tokens: 400,
-      lane: 'space_chat',
-      stream: true,
-      spaceId: opts.spaceId,
-      chatId: opts.chatId,
-      // the item on the last entity card in this chat, so "move it" can mean it
-      recentEntity: opts.recentEntity ?? null,
-      userId: opts.userId,
-      currentTime: nowTimestamp(),
-      timezone: getDateService().getTimezone(),
-      // their weekly day, so a habit's count this week is made in their own week
-      weekly_day: weeklyDayNow(),
-    }),
-    lineEndingCharacter: '\n',
-  });
-
-  es.addEventListener('message', (event: any) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.error === 'read_only') {
-        eventBus.emit('cortex:read_only', {});
-        es.close();
-        return;
-      }
-      if (data.error) {
-        callbacks.onError(data.error, fullText);
-        es.close();
-        return;
-      }
-      if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
-        return;
-      }
-      if (data.fetching !== undefined) {
-        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
-        return;
-      }
-      if (data.delta) {
-        fullText += data.delta;
-        callbacks.onChunk(data.delta, fullText);
-      }
-      if (data.done) {
-        const finalContent = data.full_content || fullText;
-        // Check if callback expects rich result (SpaceChatStreamingCallbacks)
-        // by testing if onComplete accepts an object with 'content' property
-        // For backwards compatibility, we call with rich object - simple callbacks
-        // that expect string will receive [object Object] if they destructure wrong,
-        // but the actual consumer (ChatThreadScreen) will be updated to use the rich result.
-        const richResult: SpaceChatStreamingResult = {
-          content: finalContent,
-          save_suggestion: data.save_suggestion ?? null,
-          entity_card: data.entity_card ?? null,
-          timing: data.timing ?? null,
-          saveable: data.saveable ?? null,
-          latency_ms: data.latency_ms,
-          sources: data.sources,
-          search_query: data.search_query,
-          fetchedUrl: data.fetchedUrl ?? null,
-        };
-        log('SPACE_CHAT_STREAM_DONE', {
-          contentLength: finalContent.length,
-          hasSaveSuggestion: data.save_suggestion != null,
-          hasSaveable: !!data.saveable,
-        });
-        // Call with both: pass string as first arg for backwards compat
-        // and attach rich result. Consumer can choose which to use.
-        (callbacks.onComplete as any)(finalContent, richResult);
-        es.close();
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  });
-
-  es.addEventListener('error', (event: any) => {
-    callbacks.onError(event.message || 'Stream error', fullText);
-    es.close();
-  });
-
-  return { close: () => es.close() };
-}
-
-/**
- * Stream a general chat (no space context) via Cortex.
+ * Stream Ask Gremly via Cortex.
  */
 export function callGeneralChatStreaming(
   messages: ChatMessage[],
@@ -550,7 +377,7 @@ export function callGeneralChatStreaming(
      */
     week?: WeekTurnContext | null;
   },
-  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+  callbacks: StreamingCallbacks | ChatStreamingCallbacks,
 ): { close: () => void } {
   const baseUrl = readCortexUrl();
   if (!baseUrl) {
@@ -636,7 +463,7 @@ export function callGeneralChatStreaming(
       }
       if (data.done) {
         const finalContent = data.full_content || fullText;
-        const richResult: SpaceChatStreamingResult = {
+        const richResult: ChatStreamingResult = {
           content: finalContent,
           save_suggestion: data.save_suggestion ?? null,
           entity_card: data.entity_card ?? null,
@@ -1263,125 +1090,6 @@ export function callEnrichPhase2Streaming(
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Space Chat Save - Classification for instant save
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface SpaceChatSaveResponse {
-  type: 'habit' | 'todo' | 'log';
-  subtype: 'start_habit' | 'break_habit' | 'general' | 'idea' | 'journal' | null;
-  confidence: number;
-  title: string;
-  tags: string[];
-  frequency: string | null;
-  timeEstimateMinutes: number | null;
-  hasList: boolean;
-  latency_ms?: number;
-  error?: string;
-}
-
-/**
- * Call the Cortex proxy for Space Chat Save classification.
- * Determines the best type (habit/todo/log) and extracts metadata for instant save.
- *
- * @param params - The user message, assistant message, and space name
- * @returns Classification result with type, subtype, title, and metadata
- */
-export async function callSpaceChatSave(params: {
-  userMessage: string;
-  assistantMessage: string;
-  spaceName: string;
-}): Promise<SpaceChatSaveResponse> {
-  const baseUrl = readCortexUrl();
-
-  if (!baseUrl) {
-    console.warn('[CortexClient] callSpaceChatSave: Missing CORTEX_URL, using defaults');
-    return getDefaultSaveResponse();
-  }
-
-  if (isAiDisabled()) {
-    console.warn('[CortexClient] callSpaceChatSave: AI disabled, using defaults');
-    return getDefaultSaveResponse();
-  }
-
-  const sessionToken = await getSessionToken();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-  if (sessionToken) {
-    headers.Authorization = `Bearer ${sessionToken}`;
-  }
-
-  const timeoutMs = toMs(env.cortex.timeoutMs);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-
-  try {
-    log('POST', baseUrl, { type: 'space-chat-save', spaceName: params.spaceName });
-
-    const res = await fetch(baseUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        type: 'space-chat-save',
-        userMessage: params.userMessage,
-        assistantMessage: params.assistantMessage,
-        spaceName: params.spaceName,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      console.warn('[CortexClient] callSpaceChatSave error response:', res.status, txt);
-      return getDefaultSaveResponse();
-    }
-
-    const data = await res.json();
-    log('SPACE_CHAT_SAVE_RESPONSE', data);
-
-    if (data.error) {
-      console.warn('[CortexClient] callSpaceChatSave error in response:', data.error);
-      return getDefaultSaveResponse();
-    }
-
-    return {
-      type: data.type || 'log',
-      subtype: data.subtype || 'general',
-      confidence: data.confidence ?? 0.5,
-      title: data.title || 'Saved from chat',
-      tags: Array.isArray(data.tags) ? data.tags : [],
-      frequency: data.frequency || null,
-      timeEstimateMinutes: data.timeEstimateMinutes ?? data.time_estimate_minutes ?? null,
-      hasList: data.hasList ?? data.has_list ?? false,
-      latency_ms: data.latency_ms,
-    };
-  } catch (e: any) {
-    if (e?.name === 'AbortError') {
-      console.warn('[CortexClient] callSpaceChatSave timeout');
-    } else {
-      console.warn('[CortexClient] callSpaceChatSave exception:', e?.message || e);
-    }
-    return getDefaultSaveResponse();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function getDefaultSaveResponse(): SpaceChatSaveResponse {
-  return {
-    type: 'log',
-    subtype: 'general',
-    confidence: 0.5,
-    title: 'Saved from chat',
-    tags: [],
-    frequency: null,
-    timeEstimateMinutes: null,
-    hasList: false,
-  };
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHAT FULL SUMMARY - Generate comprehensive summary from all chat messages
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1855,11 +1563,8 @@ export const CortexClient = {
   callChat,
   callComplete,
   callClassify,
-  callSpaceChat,
-  callSpaceChatStreaming,
   callGeneralChatStreaming,
   callGeneralGreeting,
-  callSpaceChatSave,
   callEnrichPhase2,
   callEnrichPhase2Streaming,
   callTranscribe,
@@ -2042,6 +1747,54 @@ export async function callChapterMemory(chapterId: string): Promise<
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+/**
+ * The people page (Worlds rebuild, stage 5), one request for both: a merge
+ * Gremly proposed, made or kept apart by their tap or put back (type
+ * person-merge), and the page's words, written again when what they rest on
+ * has changed and returned as they stand (type person-page).
+ */
+async function callPeople<T>(body: Record<string, unknown>): Promise<CortexClientResult<T>> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    // only the people handlers answer ok: an older cortex falls through to chat
+    if (data?.ok !== true) return { ok: false, error: 'cortex did not answer', status: res.status };
+    return { ok: true, data: data as T };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+export function callPersonMerge(input: { mergeId: string; act: 'merge' | 'decline' | 'undo' }) {
+  return callPeople<{ ok: true; kept_id: string; merged_id: string }>({
+    type: 'person-merge',
+    merge_id: input.mergeId,
+    act: input.act,
+  });
+}
+
+export function callPersonPage(personId: string) {
+  return callPeople<{
+    ok: true;
+    person_id: string;
+    fresh: boolean;
+    page: {
+      days: { fact_id: string; label: string }[];
+      remember: { text: string; fact_ids: string[] }[];
+    } | null;
+  }>({ type: 'person-page', person_id: personId });
 }
 
 /**

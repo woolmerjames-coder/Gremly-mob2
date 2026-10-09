@@ -125,7 +125,9 @@ TRIAGE_ONE_CALL = "on"
 # "keep" files into suggested rows and life contexts as before; "stop", once
 # the Worlds build says the old screens are gone, stops filing from doing so.
 # Filing itself runs on the pipeline's filing model (context/llm.js).
-WORLDS_OLD_FIELDS = "keep"
+# "stop" from 9 Oct 2026: the Worlds rebuild's old screens are gone. To go
+# back: "keep".
+WORLDS_OLD_FIELDS = "stop"
 # Today's thread on the agent (agent plan step 7), on Luna by James's choice:
 # the day turn's replay suite (11 messages) passed 20 of 22 runs at 5.4s typical
 # and about 0.06 cents a message, against 5 of 11 for today's day turn on Luna.

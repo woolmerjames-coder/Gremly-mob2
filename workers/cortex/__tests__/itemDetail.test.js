@@ -42,7 +42,7 @@ const note = {
 };
 
 test('a note in full: its text, list, kind, age and earlier chats, in words', () => {
-  const d = toDetail(note, 'note', { spaceName: 'Travel', timezone: 'America/Los_Angeles' });
+  const d = toDetail(note, 'note', { timezone: 'America/Los_Angeles' });
   expect(d.list).toEqual([
     { text: 'JR pass?', done: false },
     { text: 'Flights', done: true },
@@ -52,7 +52,8 @@ test('a note in full: its text, list, kind, age and earlier chats, in words', ()
   const text = itemDetailText(d, TODAY);
   expect(text).toContain('What else it holds, as it is now:');
   expect(text).toContain('- it is an idea');
-  expect(text).toContain('- it sits in their space "Travel"');
+  // Spaces went with the Worlds rebuild: an item's old Space is never named
+  expect(text).not.toMatch(/space/i);
   expect(text).toContain('- added Saturday 12 September, 18 days ago');
   expect(text).toContain('- what it says: "Tokyo 4 nights then Kyoto 3. / Book a ryokan."');
   expect(text).toContain('- its list: JR pass?; Flights (ticked)');
@@ -151,19 +152,19 @@ test('the chat about an item works from what it holds; a habit has nothing to ad
   expect(all).toContain('- what it says:');
 });
 
-test('the item is read fresh, with its space and check-ins; a failed read gives nothing', async () => {
+test('the item is read fresh, with its check-ins and never its old Space; a failed read gives nothing', async () => {
   const seen = [];
   globalThis.fetch = async (url) => {
     seen.push(String(url));
     const u = String(url);
     if (u.includes('/rest/v1/habits?')) return new Response(JSON.stringify([{ id: 'h1', name: 'Run', space_id: 's1', frequency: 'daily' }]));
-    if (u.includes('/rest/v1/spaces?')) return new Response(JSON.stringify([{ name: 'Health' }]));
     if (u.includes('/rest/v1/habit_progress?')) return new Response(JSON.stringify([{ occurred_day: '2026-09-29' }]));
     return new Response('[]');
   };
   const env = { SUPABASE_URL: 'https://db', SUPABASE_SERVICE_KEY: 'k' };
   const d = await fetchItemDetail(env, 'u1', { id: 'h1', type: 'habit', title: 'Run' }, { todayIso: TODAY });
-  expect(d.space).toBe('Health');
+  expect(d.space).toBeUndefined();
+  expect(seen.some((u) => u.includes('/rest/v1/spaces?'))).toBe(false);
   expect(d.logged_days).toEqual(['2026-09-29']);
   expect(seen[0]).toContain('habits?id=eq.h1&owner_id=eq.u1&select=');
   expect(seen.some((u) => u.includes('occurred_day=gte.2026-09-03'))).toBe(true);

@@ -343,6 +343,13 @@ describe('what the read gathers', () => {
     });
   });
 
+  it('leaves the old priorities out once the old Worlds fields stop, since nothing refreshes them', async () => {
+    db.mockReturnValue(fakeDb());
+    const g = await gatherRead({ WORLDS_OLD_FIELDS: 'stop' }, USER, P);
+    expect(g.worlds[0]).toMatchObject({ name: 'Work', priorities: [] });
+    expect(g.chapters.every((c) => c.priorities.length === 0)).toBe(true);
+  });
+
   it('asks for the right windows', async () => {
     const d = fakeDb();
     db.mockReturnValue(d);

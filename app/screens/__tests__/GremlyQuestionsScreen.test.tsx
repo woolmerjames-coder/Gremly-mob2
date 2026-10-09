@@ -2,7 +2,8 @@
  * A few questions for you (data fabric stage 4f): one at a time, what needs
  * an answer first; a tap sends the answer offered; a tidy up is done only on
  * their tap, for all, none or the ones they tick; Not now leaves it for
- * another day; the receipt says what each answer did.
+ * another day; the receipt says what each answer did. A question about a
+ * Chapter is the Worlds card, and its receipt can put back what the tap did.
  */
 
 import React from 'react';
@@ -33,7 +34,26 @@ jest.mock('../../../lib/story/storyApi', () => ({
   markQuestionAsked: (...a: any[]) => mockAsked(...a),
 }));
 
+jest.mock('../../../lib/store/useGremlyStore', () => {
+  const { create } = require('zustand');
+  return { useGremlyStore: create(() => ({})) };
+});
+jest.mock('../../../lib/date/useDateService', () => ({ useToday: () => '2026-10-08' }));
+const mockActOn = jest.fn();
+jest.mock('../../../lib/worlds/askAct', () => ({
+  actOn: (...a: any[]) => mockActOn(...a),
+}));
+const mockFetchWorlds = jest.fn();
+const mockTell = jest.fn();
+jest.mock('../../../lib/worlds/questions', () => ({
+  ...jest.requireActual('../../../lib/worlds/questions'),
+  fetchWorldsQuestion: (...a: any[]) => mockFetchWorlds(...a),
+  tellGremly: (...a: any[]) => mockTell(...a),
+}));
+
 import GremlyQuestionsScreen, { receiptLine, stillToCome } from '../GremlyQuestionsScreen';
+import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { worldsQuestionFrom } from '../../../lib/worlds/questions';
 
 const q = (id: string, more: Partial<AskQuestion> = {}): AskQuestion => ({
   id,
@@ -88,7 +108,51 @@ const meetings = q('tidy', {
   },
 });
 
+// a stored question about a Chapter, as the data fabric writes them (inngest-jobs context/chapterQuestions.js)
+const stored = (o: Record<string, unknown>) =>
+  worldsQuestionFrom({
+    status: 'open',
+    choices: [],
+    weight: null,
+    created_at: '2026-10-07T05:00:00Z',
+    asked_at: null,
+    hold_until: null,
+    record_table: null,
+    record_id: null,
+    rests_on: [],
+    set_id: null,
+    ...o,
+  })!;
+const yardTidy = stored({
+  id: 'start1',
+  kind: 'start_chapter',
+  question: 'Shall I start a Chapter for the gate and the van?',
+  proposed_change: { type: 'start', title: 'Yard tidy', world_id: 'w1' },
+  rests_on: [{ table: 'todos', id: 't3' }],
+});
+const fenceDone = stored({
+  id: 'close1',
+  kind: 'close_chapter',
+  question: 'The fence looks finished. Close it?',
+  proposed_change: { type: 'close', chapter_id: 'c3', guess: 'over' },
+});
+const asAsked = (w: ReturnType<typeof stored>, more: Partial<AskQuestion> = {}) =>
+  q(w.id, { kind: w.kind, question: w.question, created_at: w.created_at, ...more });
+
 beforeEach(() => {
+  jest.clearAllMocks();
+  (useGremlyStore as unknown as { setState: (s: object) => void }).setState({
+    worlds: [{ id: 'w1', name: 'Home', display_name: 'Home', phase: 'active' }],
+    chapters: [
+      { id: 'c3', title: 'Garden fence', phase: 'active', primary_world_id: 'w1', closed_at: null },
+    ],
+    todos: [{ id: 't3', title: 'Fix the gate', status: 'active' }],
+    notes: [],
+    habits: [],
+  });
+  mockFetchWorlds.mockImplementation((id: string) =>
+    Promise.resolve([yardTidy, fenceDone].find((x) => x.id === id) ?? null),
+  );
   mockAsk.mockResolvedValue([sam, meetings, birthday]);
   mockAnswer.mockResolvedValue(true);
   mockAsked.mockResolvedValue(undefined);
@@ -171,6 +235,68 @@ it('says so when nothing is waiting', async () => {
       'Nothing right now. When your records leave something unclear, it shows up here.',
     ),
   ).toBeTruthy();
+});
+
+it('puts a question about a Chapter as the Worlds card, made on its own buttons, with Undo on the receipt', async () => {
+  const back = jest.fn(() => Promise.resolve());
+  mockActOn.mockResolvedValue({ undo: back, line: 'Yard tidy is in motion now.' });
+  mockAsk.mockResolvedValue([asAsked(yardTidy, { weight: 'needs' })]);
+  const { findByTestId, getByText, getByTestId, findByText } = render(<GremlyQuestionsScreen />);
+  expect(await findByTestId('ask-card')).toBeTruthy();
+  expect(getByText('NEEDS AN ANSWER')).toBeTruthy();
+  expect(getByText('Something is starting: Yard tidy')).toBeTruthy();
+  // what it rests on, from their own items
+  expect(getByText('Fix the gate')).toBeTruthy();
+  // the card's own Not now means no; the screen's only leaves it for another day
+  expect(getByTestId('not-now')).toHaveTextContent('Skip for now');
+  fireEvent.press(getByTestId('ask-primary'));
+  await waitFor(() => expect(mockActOn).toHaveBeenCalled());
+  expect(mockActOn.mock.calls[0][0].id).toBe('start1');
+  expect(mockActOn.mock.calls[0][1]).toBe('start');
+  expect(mockAnswer).not.toHaveBeenCalled();
+  expect(await findByText('Yard tidy is in motion now.')).toBeTruthy();
+  fireEvent.press(getByTestId('receipt-undo-start1'));
+  expect(await findByText('Put back as it was.')).toBeTruthy();
+  expect(back).toHaveBeenCalledTimes(1);
+  expect(() => getByTestId('receipt-undo-start1')).toThrow();
+});
+
+it('sends their own words on the card to Gremly, and moves past one whose Chapter has closed', async () => {
+  mockTell.mockResolvedValue(true);
+  mockAsk.mockResolvedValue([
+    asAsked(yardTidy, { created_at: '2026-09-01T10:00:00Z' }),
+    asAsked(fenceDone, { created_at: '2026-09-02T10:00:00Z' }),
+    sam,
+  ]);
+  (useGremlyStore as unknown as { setState: (s: object) => void }).setState({
+    chapters: [
+      {
+        id: 'c3',
+        title: 'Garden fence',
+        phase: 'closed',
+        primary_world_id: 'w1',
+        closed_at: '2026-10-01T10:00:00Z',
+      },
+    ],
+  });
+  const { findByTestId, getByTestId, findByText } = render(<GremlyQuestionsScreen />);
+  fireEvent.changeText(await findByTestId('ask-say'), 'Only the gate, the van can wait');
+  fireEvent.press(getByTestId('ask-send'));
+  await waitFor(() => expect(mockTell).toHaveBeenCalled());
+  expect(mockTell.mock.calls[0][1]).toBe('Only the gate, the van can wait');
+  // the fence closed before they got to it, so Sam is next
+  expect(await findByText('Who is Sam to you?')).toBeTruthy();
+  expect(mockActOn).not.toHaveBeenCalled();
+});
+
+it('stays on the card and says so when a tap does not go through', async () => {
+  mockActOn.mockRejectedValue(new Error('offline'));
+  mockAsk.mockResolvedValue([asAsked(fenceDone)]);
+  const { findByTestId, getByTestId, findByText } = render(<GremlyQuestionsScreen />);
+  expect(await findByTestId('ask-card')).toBeTruthy();
+  fireEvent.press(getByTestId('ask-primary'));
+  expect(await findByText('That did not go through. Try again in a moment.')).toBeTruthy();
+  expect(getByTestId('ask-card')).toBeTruthy();
 });
 
 test('the receipt line and Still to come', () => {
