@@ -99,7 +99,7 @@ describe('what the pass gives, as writes', () => {
       today: TODAY,
     });
     expect(plan.inserts).toEqual([
-      { person_id: null, kind: 'life', thinks: 'They may run most mornings', rests_on: [{ table: 'life_facts', id: 'f-1' }], sure: 'medium' },
+      { person_id: null, kind: 'life', thinks: 'They may run most mornings', rests_on: [{ table: 'life_facts', id: 'f-1' }], sure: 'medium', status: 'open' },
       {
         person_id: 'p-1',
         kind: 'life',
@@ -109,6 +109,7 @@ describe('what the pass gives, as writes', () => {
           { table: 'life_facts', id: 'f-1' },
         ],
         sure: 'medium',
+        status: 'open',
       },
     ]);
     expect(plan.dropped.map((d) => d.why)).toEqual([
@@ -196,12 +197,94 @@ describe('what the pass gives, as writes', () => {
         ]),
       },
     );
-    expect(out).toEqual({ added: 1, given_again: 1, faded: 1, dropped: 0, matters: 1 });
+    expect(out).toEqual({ added: 1, given_again: 1, faded: 1, dropped: 0, matters: 1, understood: 0, understood_no_longer: 0 });
     const t = mem.tables;
     expect(t.life_unsure.find((u) => u.id === 'u-old')).toMatchObject({ thinks: 'again', seen_at: '2026-10-18T12:00:00Z' });
     expect(t.life_unsure.find((u) => u.id === 'u-f').status).toBe('faded');
     expect(t.life_unsure.find((u) => u.thinks === 'new')).toMatchObject({ user_id: 'u', status: 'open', run_id: 'r' });
     expect(t.life_people.map((p) => p.matters_rank)).toEqual([null, 1]);
+  });
+});
+
+describe('who someone is, understood from the records', () => {
+  const refs = new Map([
+    ['p1', { type: 'person', id: 'p-1', name: 'Pip', relationship: null }],
+    ['p2', { type: 'person', id: 'p-2', name: 'Rue', relationship: 'their dog', relationship_by: 'understood' }],
+    ['p3', { type: 'person', id: 'p-3', name: 'Tam', relationship: 'cousin', relationship_by: 'gremly' }],
+    ['f1', { type: 'fact', id: 'f-1' }],
+  ]);
+  const people = new Map([
+    ['p-1', { relationship: null }],
+    ['p-2', { relationship: 'their dog', relationship_by: 'understood' }],
+    ['p-3', { relationship: 'cousin', relationship_by: 'gremly' }],
+  ]);
+  const who = (x) => ({ about_ref: 'p1', kind: 'who', thinks: 'Pip is their cat', refs: ['f1'], sure: 'high', tie: 'their cat', same_as: '', ...x });
+
+  it('is held as understood when the records make it plain, and is a guess to ask when they do not', () => {
+    const plain = unsurePlan({ output: { not_sure: [who({})] }, refs, people, today: TODAY });
+    expect(plain.inserts).toEqual([expect.objectContaining({ person_id: 'p-1', kind: 'who', status: 'understood' })]);
+    expect(plain.ties).toEqual([{ person_id: 'p-1', tie: 'their cat' }]);
+    for (const x of [{ sure: 'medium' }, { tie: '' }]) {
+      const open = unsurePlan({ output: { not_sure: [who(x)] }, refs, people, today: TODAY });
+      expect(open.inserts).toEqual([expect.objectContaining({ status: 'open' })]);
+      expect(open.ties).toEqual([]);
+    }
+  });
+
+  it('may be given again, and given less sure it is a question again and the tie goes; what was said is never touched', () => {
+    const open = [{ id: 'u-rue', person_id: 'p-2', kind: 'who', status: 'understood', seen_at: '2026-09-01T00:00:00Z' }];
+    const less = unsurePlan({ output: { not_sure: [who({ about_ref: 'p2', sure: 'low', thinks: 'Rue may be a neighbour', tie: 'a neighbour' })] }, refs, open, people, today: TODAY });
+    expect(less.updates).toEqual([{ id: 'u-rue', patch: expect.objectContaining({ status: 'open', sure: 'low' }) }]);
+    expect(less.unties).toEqual([{ person_id: 'p-2', why: 'less plain now' }]);
+    const said = unsurePlan({ output: { not_sure: [who({ about_ref: 'p3' })] }, refs, people, today: TODAY });
+    expect(said.dropped.map((d) => d.why)).toEqual(['who they are is recorded']);
+    // once they said Gremly had it wrong, it is never understood or asked again
+    const no = unsurePlan({ output: { not_sure: [who({})] }, refs, people, saidNo: new Set(['p-1']), today: TODAY });
+    expect(no.dropped.map((d) => d.why)).toEqual(['they said it is not so']);
+    expect(no.ties).toEqual([]);
+  });
+
+  it('stays understood when not given again, however long ago, and fades once they or a fact said who it is', () => {
+    const open = [
+      { id: 'u-rue', person_id: 'p-2', kind: 'who', status: 'understood', seen_at: '2026-01-01T00:00:00Z' },
+      { id: 'u-tam', person_id: 'p-3', kind: 'who', status: 'understood', seen_at: '2026-10-11T00:00:00Z' },
+    ];
+    const plan = unsurePlan({ output: { not_sure: [] }, refs, open, people, today: TODAY });
+    expect(plan.fades).toEqual([{ id: 'u-tam', why: 'recorded' }]);
+  });
+
+  it('goes on their record as Gremly understood it, never over what they or a fact said, and comes off as asked', async () => {
+    const mem = memoryDb({
+      life_unsure: [],
+      life_people: [
+        { id: 'p-1', user_id: 'u', name: 'Pip', relationship: null, relationship_by: 'gremly' },
+        { id: 'p-2', user_id: 'u', name: 'Rue', relationship: 'their dog', relationship_by: 'understood' },
+        { id: 'p-3', user_id: 'u', name: 'Tam', relationship: 'cousin', relationship_by: 'person' },
+      ],
+    });
+    const out = await applyUnsure(
+      mem,
+      'u',
+      {
+        inserts: [],
+        updates: [],
+        fades: [],
+        dropped: [],
+        matters: [],
+        ties: [
+          { person_id: 'p-1', tie: 'their cat' },
+          { person_id: 'p-3', tie: 'a friend' },
+        ],
+        unties: [{ person_id: 'p-2', why: 'less plain now' }],
+      },
+      { runId: 'r', promptVersion: 'v', nowIso: '2026-10-18T12:00:00Z', people: new Map() },
+    );
+    expect(out).toMatchObject({ understood: 1, understood_no_longer: 1 });
+    expect(mem.tables.life_people.map((p) => [p.id, p.relationship, p.relationship_by])).toEqual([
+      ['p-1', 'their cat', 'understood'],
+      ['p-2', null, 'gremly'],
+      ['p-3', 'cousin', 'person'],
+    ]);
   });
 });
 

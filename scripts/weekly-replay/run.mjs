@@ -137,6 +137,8 @@ const env = {
   GOOGLE_API_KEY: keys.gemini,
   ANTHROPIC_API_KEY: keys.anthropic,
   CONTEXT_PIPELINE: 'on',
+  // as it ships: a Chapter forming is offered as a question (wrangler.toml)
+  CHAPTER_QUESTIONS: 'on',
 };
 
 const cents = (rows) =>
@@ -192,7 +194,8 @@ export function checkPass(s, output, refsSnapshot) {
   const [lo, hi] = s.truth.cards;
   add(`${lo} to ${hi} cards`, cards.length >= lo && cards.length <= hi, `${cards.length}`);
   const bad = [];
-  const KINDS = ['fact', 'journal', 'person', 'count', 'item'];
+  // what they added lately is what they added, like their list (18 Oct)
+  const KINDS = ['fact', 'journal', 'person', 'count', 'item', 'lately'];
   for (const [i, c] of cards.entries())
     for (const r of c?.refs || []) if (!KINDS.includes(refs.get(r)?.type)) bad.push(`card ${i} ${r}`);
   add('every ref on a card is one it was given, of a kind a card rests on', !bad.length, bad.join('; '));
@@ -209,7 +212,7 @@ export function checkPass(s, output, refsSnapshot) {
       return (
         (x?.type === 'fact' && privateKeys.has(keyOf.get(x.id))) ||
         (x?.type === 'journal' && privateEntries.has(x.id)) ||
-        (x?.type === 'item' && (x.private || x.health))
+        (['item', 'lately'].includes(x?.type) && (x.private || x.health))
       );
     }),
   );
@@ -222,11 +225,12 @@ export function checkPass(s, output, refsSnapshot) {
   );
   // the person's own ref beside their note is no harm
   const badNoteRefs = notes.flatMap((x) =>
-    (x.refs || []).filter((r) => !['fact', 'journal', 'person', 'item'].includes(refs.get(r)?.type)),
+    (x.refs || []).filter((r) => !['fact', 'journal', 'person', 'item', 'lately'].includes(refs.get(r)?.type)),
   );
   add('every note rests on facts, entries and list items it was given', !badNoteRefs.length, badNoteRefs.join(' '));
   add('no note on a person rests on a private or health fact', !privateNotes.length, privateNotes.map((x) => x.note).join(' | '));
-  add('a note on each person the week is about', notes.length > 0 || !s.tables.life_people.length, `${notes.length}`);
+  // a week whose facts and journal speak of no one says so (truth.noted false)
+  add('a note on each person the week is about', notes.length > 0 || !s.tables.life_people.length || s.truth.noted === false, `${notes.length}`);
   // what Gremly is not sure of yet, and who matters most (context/unsure.js)
   const unsure = Array.isArray(output?.not_sure) ? output.not_sure : [];
   const aboutBad = unsure.filter((x) => x.about_ref !== 'self' && refs.get(x.about_ref)?.type !== 'person');
@@ -256,11 +260,55 @@ export function checkPass(s, output, refsSnapshot) {
     const got = new Set((c?.people_refs || []).map((r) => refs.get(r)?.id));
     for (const k of want) add(`${k} is on the ${key} Chapter`, got.has(s.tables.life_people.find((p) => p.key === k)?.id));
   }
+  // a Chapter still under way is given no end
+  for (const key of s.truth.chapterOpen || []) {
+    const chapterId = s.tables.chapters.find((c) => c.key === key)?.id;
+    const kept = chapterEndPlan({ output, refs }).find((x) => x.chapter_id === chapterId && !x.refused);
+    add(`the ${key} Chapter is given no end`, !kept, kept ? `ends ${kept.end_date}` : '');
+  }
   for (const [key, want] of Object.entries(s.truth.chapterEnds || {})) {
     const chapterId = s.tables.chapters.find((c) => c.key === key)?.id;
-    const c = (output?.chapters || []).find((x) => refs.get(x.chapter_ref)?.id === chapterId);
+    const c = (output?.begun_for || []).find((x) => refs.get(x.chapter_ref)?.id === chapterId);
     const kept = chapterEndPlan({ output, refs }).find((x) => x.chapter_id === chapterId);
-    add(`the ${key} Chapter ends on ${want}`, kept?.end_date === want && !kept.refused, `begun for ${c?.begun_for_ref || 'nothing'}: ${kept?.end_date || 'no day'}${kept?.refused ? `, refused: ${kept.refused}` : ''}`);
+    add(`the ${key} Chapter ends on ${want}`, kept?.end_date === want && !kept.refused, `begun for ${c?.fact_ref || 'nothing'}: ${kept?.end_date || 'no day'}${kept?.refused ? `, refused: ${kept.refused}` : ''}`);
+  }
+  // a Chapter forming (18 Oct): offered when one is, resting only on what
+  // belongs to it, in its World and on its own days; none when none is
+  if (s.truth.forming) {
+    const want = s.truth.forming;
+    const rowKey = new Map(
+      [...s.tables.todos, ...s.tables.notes, ...s.tables.worlds, ...s.tables.life_facts]
+        .filter((r) => r.key)
+        .map((r) => [r.id, r.key]),
+    );
+    const f = (output?.chapter_forming || [])[0];
+    // what grows inside a Chapter they have may be noticed there instead: its
+    // notes rest on it (want.noticedIn, the Chapter's key)
+    const inChapter = want.noticedIn ? s.tables.chapters.find((c) => c.key === want.noticedIn)?.id : null;
+    const notedThere = inChapter
+      ? (output?.chapters || []).some(
+          (c) => refs.get(c.chapter_ref)?.id === inChapter && (c.card_fact_refs || []).some((r) => (want.told || []).includes(rowKey.get(refs.get(r)?.id))),
+        )
+      : false;
+    if (!want.offered) add('nothing offered as a Chapter forming', !f, f ? `offered "${f.title}"` : '');
+    else if (!f && want.noticedIn) add(`noticed in the ${want.noticedIn} Chapter, or offered as its own`, notedThere, notedThere ? 'noticed in its notes' : 'neither');
+    else {
+      add('a Chapter forming is offered', !!f, f ? `"${f.title}"` : 'none');
+      if (f) {
+        const rests = (f.rests_on || []).map((r) => refs.get(r));
+        const factKeys = rests.filter((x) => x?.type === 'fact').map((x) => rowKey.get(x.id));
+        const itemKeys = rests.filter((x) => x && x.type !== 'fact').map((x) => rowKey.get(x.id));
+        add(
+          'it rests only on what belongs to it',
+          rests.every(Boolean) && itemKeys.every((k) => want.from.includes(k)) && factKeys.every((k) => (want.told || []).includes(k)),
+          [...factKeys, ...itemKeys].map((k) => k || 'something else').join(', '),
+        );
+        add('it rests on what they told Gremly, or on two or more things they added', factKeys.length > 0 || itemKeys.length >= 2, `${factKeys.length} told, ${itemKeys.length} added`);
+        if (want.world) add(`it is in the ${want.world} World`, rowKey.get(refs.get(f.world_ref)?.id) === want.world, rowKey.get(refs.get(f.world_ref)?.id) || f.world_ref);
+        const days = [f.start_date, f.end_date].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || '')));
+        add('its dates are its own', days.every((x) => x >= want.within[0] && x <= want.within[1]), days.join(' to ') || 'none given');
+      }
+    }
   }
   if (s.truth.unsure) {
     for (const key of s.truth.unsure.who || []) {
@@ -375,6 +423,9 @@ async function runPass() {
         lines.push(`    character: ${plan.character} | line: ${plan.through_line}`);
         for (const c of plan.cards || []) lines.push(`    card: ${c.about}`);
         lines.push(`    applied: ${JSON.stringify({ threads: rec.applied?.threads, worlds: rec.applied?.worlds, chapters: rec.applied?.chapters, questions: rec.applied?.questions })}`);
+        const cf = ((rec.checked || rec.output).chapter_forming || [])[0];
+        if (cf || rec.applied?.chapter_forming?.refused)
+          lines.push(`    chapter forming: ${cf ? `"${cf.title}" ${cf.start_date || '?'} to ${cf.end_date || '?'}${cf.unsure ? ' (unsure)' : ''}, asked "${cf.question}" [${(cf.choices || []).join(' | ')}]` : 'none'} | ${JSON.stringify(rec.applied?.chapter_forming || {})}`);
         for (const q of (rec.checked || rec.output).questions || []) lines.push(`    question: ${q.question}`);
         const refsMap = new Map(rec.refs);
         for (const x of rec.output.not_sure || [])
@@ -501,6 +552,7 @@ async function judgeUnsure(s, rec) {
     if (x.type === 'fact') return `fact: ${x.statement}`;
     if (x.type === 'journal') return `journal: ${s.tables.notes.find((n) => n.id === x.id)?.body || ''}`;
     if (x.type === 'item') return `on their list: ${x.title}`;
+    if (x.type === 'lately') return `added by them: ${x.title}`;
     if (x.type === 'person') return `person: ${x.name}${x.relationship ? `, their ${x.relationship}` : ''}`;
     return null;
   };

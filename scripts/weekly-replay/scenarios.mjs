@@ -10,6 +10,14 @@
  *   health  a week that turns on a private matter of health
  *   unsure  a week whose records point to who someone is, and to more of
  *           her life, than they state (what Gremly is not sure of yet)
+ *   forming-own, forming-trip, forming-inside
+ *           something taking shape over four weeks that they do not have as
+ *           a Chapter: their own app with a launch they told Gremly about,
+ *           worked on inside its World; a trip filed nowhere; a move inside
+ *           a Chapter for a new job. Each is offered as a Chapter.
+ *   forming-have-it, forming-said-no, forming-none
+ *           the launch that already has a Chapter, the trip they said no to,
+ *           and four weeks of ordinary life: nothing is offered.
  */
 
 export const USER = '00000000-0000-4000-8000-0000000000bb';
@@ -80,6 +88,7 @@ const todo = (title, made, over = {}) => ({
   due_day: null,
   status: 'active',
   completed_at: null,
+  archived: false,
   created_at: at(made, '09:00'),
   ...over,
 });
@@ -137,6 +146,7 @@ function base({ name, pronouns, tables, absence, onboarded = '2026-08-20', moods
     user_life_map: [],
     worlds: [],
     drop_world_links: [],
+    drop_chapter_links: [],
     gremly_questions: [],
     chapters: [],
     story_items: [],
@@ -557,4 +567,306 @@ function unsure() {
   };
 }
 
-export const SCENARIOS = [full(), quiet(), back(), health(), unsure()];
+// ── a Chapter forming (18 Oct): what the pass offers, and when it offers none ─
+// Each person adds things over four weeks, some filed in a World or Chapter,
+// some in none. Three weeks have something forming they do not have as a
+// Chapter yet; three have nothing to offer. Every name, place and item here is
+// made up, and none is anyone's own data.
+
+const note = (key, day, title, body) => ({
+  id: uuid(),
+  key,
+  owner_id: USER,
+  subtype: null,
+  journal_subtype: null,
+  canonical_type: 'note',
+  title,
+  body,
+  mood: null,
+  date: null,
+  captured_at: at(day, '19:00'),
+  archived: false,
+  external_source: null,
+  created_at: at(day, '19:00'),
+});
+const keyed = (key, title, made, over = {}) => ({ ...todo(title, made, over), key, archived: false });
+const world = (key, name) => ({
+  id: uuid(),
+  key,
+  owner_id: USER,
+  name,
+  display_name: name,
+  phase: 'active',
+  card_subtitle: '',
+  card_subtitle_source: null,
+  summary: '',
+  summary_source: null,
+  key_priorities: [],
+  last_signal_at: at('2026-11-06'),
+});
+const filedIn = (worldRow, items) =>
+  items.map((it) => ({ owner_id: USER, world_id: worldRow.id, drop_id: it.id, drop_type: it.canonical_type ? 'note' : 'todo' }));
+const inChapter = (chapterRow, items) =>
+  items.map((it) => ({ owner_id: USER, chapter_id: chapterRow.id, drop_id: it.id, drop_type: it.canonical_type ? 'note' : 'todo', created_at: it.created_at }));
+const openChapter = (key, title, worldRow, start, end, summary) => ({
+  id: uuid(),
+  key,
+  owner_id: USER,
+  title,
+  title_source: 'user',
+  chapter_type: 'bounded',
+  phase: 'active',
+  start_date: start,
+  end_date: end,
+  end_date_source: end ? 'user' : null,
+  closed_at: null,
+  card_subtitle: '',
+  card_subtitle_source: 'words',
+  summary,
+  summary_source: 'synthesis',
+  epigraph: '',
+  epigraph_source: null,
+  key_priorities: [],
+  current_phase_key: 'Ongoing',
+  phase_labels: [],
+  primary_world_id: worldRow.id,
+});
+/** Everyday things that make no Chapter, added over the four weeks. */
+const everyday = () => [
+  keyed('milk', 'Buy milk and bread', '2026-10-14', { status: 'completed', completed_at: at('2026-10-14', '18:00') }),
+  keyed('insurance', 'Renew the car insurance', '2026-10-19'),
+  keyed('bins', 'Put the recycling out', '2026-10-27', { status: 'completed', completed_at: at('2026-10-28', '07:00') }),
+  keyed('cleaning', 'Pick up the dry cleaning', '2026-11-03'),
+  keyed('gift', 'Card for Pat at work', '2026-11-04', { status: 'completed', completed_at: at('2026-11-05', '12:00') }),
+];
+const busyWeek = () => WEEK.map((d) => ({ owner_id: USER, ritual_day: d, is_fed: true, drops_count: 2, sweeps_count: 0 }));
+
+/** Their own app, worked on inside a World they made for it, with a launch they told Gremly about. */
+function ownProject({ haveChapter = false } = {}) {
+  const app = world('app', 'Ledgerly');
+  const home = world('home', 'Home');
+  const work = [
+    keyed('pay', 'Set up the payment screen for Ledgerly', '2026-10-13', { status: 'completed', completed_at: at('2026-10-16', '21:00') }),
+    keyed('store', 'Write the App Store description for Ledgerly', '2026-10-20'),
+    keyed('sync', 'Fix the sync bug that loses entries', '2026-10-24', { status: 'completed', completed_at: at('2026-10-29', '22:00') }),
+    keyed('beta', 'Ask five friends to beta test Ledgerly', '2026-11-02'),
+    keyed('onboard', 'Design the onboarding flow', '2026-11-04'),
+  ];
+  const plan = note('n-plan', '2026-10-21', 'Launch plan', 'Beta to friends in December, then the public launch in January. Pricing page still to do.');
+  const chapter = haveChapter ? openChapter('launch-ch', 'Launching Ledgerly', app, '2026-10-21', '2027-01-31', 'Getting Ledgerly ready for its January launch.') : null;
+  const s = base({
+    name: 'Kai',
+    pronouns: 'he/him',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 7, active_days_last_30: 26 },
+    tables: {
+      life_facts: [
+        fact('launch', 'Kai is aiming to launch his budgeting app Ledgerly in January 2027.', {
+          kind: 'goal',
+          timing: 'span',
+          state: 'planned',
+          about_date: '2027-01-01',
+          about_date_end: '2027-01-31',
+          observed_at: at('2026-10-21'),
+          last_confirmed_at: at('2026-11-05'),
+        }),
+        fact('job', 'Kai works as a pharmacist.', { timing: 'standing', state: 'current' }),
+        fact('dinner', 'Kai had dinner with Femi on 6 November.', { about_date: '2026-11-06' }),
+      ],
+      life_people: [person('femi', 'Femi', 'friend')],
+      worlds: [app, home],
+      notes: [
+        plan,
+        journal('j-late', '2026-11-04', '23:30', 'Wednesday', 'Up late on Ledgerly again. The beta is close enough to feel real now.'),
+        journal('j-femi', '2026-11-06', '22:00', 'Friday', 'Dinner with Femi. Told him about the launch and he wants in on the beta.'),
+      ],
+      todos: [...work, ...everyday()],
+      scope_chat_messages: [said('2026-11-05', '20:00', 'Spent the whole evening on Ledgerly again, the beta is getting close.')],
+      drop_world_links: filedIn(app, [...work, plan]),
+      drop_chapter_links: chapter ? inChapter(chapter, [...work, plan]) : [],
+      chapters: chapter ? [chapter] : [],
+      daily_ritual_progress: busyWeek(),
+    },
+  });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, [['dinner', 'femi']]);
+  // the journal entries about it belong to it too
+  return { s, keys: ['pay', 'store', 'sync', 'beta', 'onboard', 'n-plan', 'j-late', 'j-femi'] };
+}
+
+function formingOwnProject() {
+  const { s, keys } = ownProject();
+  return {
+    id: 'forming-own',
+    look: 'Their own app, worked on for weeks inside its World, with a January launch they told Gremly about: the launch is offered as a Chapter in that World.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], forming: { offered: true, world: 'app', from: keys, told: ['launch'], within: ['2026-09-01', '2027-01-31'] } },
+  };
+}
+
+function formingHaveIt() {
+  const { s } = ownProject({ haveChapter: true });
+  return {
+    id: 'forming-have-it',
+    look: 'The same launch, which already has a Chapter holding its work: nothing is offered.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], forming: { offered: false } },
+  };
+}
+
+/** A trip taking shape over three weeks, filed nowhere. */
+function trip({ offeredBefore = false } = {}) {
+  const travel = world('travel', 'Travel');
+  const items = [
+    keyed('flights', 'Look at flights to Porto for December', '2026-10-15'),
+    keyed('dates', 'Ask Sam if 4 to 8 December works for Porto', '2026-10-22', { status: 'completed', completed_at: at('2026-10-23', '10:00') }),
+    keyed('hotel', 'Book the riverside hotel in Porto, 4 to 8 December', '2026-10-30'),
+  ];
+  const tour = note('n-tour', '2026-11-03', 'Porto', 'Find a port cellar tour for the Porto trip, and somewhere for Sam to swim.');
+  const s = base({
+    name: 'Lena',
+    pronouns: 'she/her',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 5, active_days_last_30: 20 },
+    tables: {
+      life_facts: [
+        fact('teach', 'Lena teaches maths at a secondary school.', { timing: 'standing', state: 'current' }),
+        fact('parents', 'Lena had parents evening on 5 November.', { about_date: '2026-11-05' }),
+      ],
+      life_people: [person('sam', 'Sam', 'partner')],
+      worlds: [travel, world('school', 'School')],
+      notes: [tour, journal('j-parents', '2026-11-05', '21:30', 'Thursday', 'Parents evening ran late. Tired but it went well.')],
+      todos: [...items, ...everyday()],
+      gremly_questions: offeredBefore
+        ? [
+            {
+              id: uuid(),
+              user_id: USER,
+              kind: 'start_chapter',
+              question: 'Want a Chapter for your Porto trip?',
+              status: 'answered',
+              answer: 'No',
+              proposed_change: { type: 'start', title: 'Porto in December' },
+              rests_on: items.map((i) => ({ table: 'todos', id: i.id })),
+              created_at: at('2026-11-01'),
+            },
+          ]
+        : [],
+      daily_ritual_progress: busyWeek(),
+    },
+  });
+  return { s, keys: ['flights', 'dates', 'hotel', 'n-tour'] };
+}
+
+function formingTrip() {
+  const { s, keys } = trip();
+  return {
+    id: 'forming-trip',
+    look: 'A trip to Porto taking shape over three weeks, filed nowhere: it is offered as a Chapter, on its own days.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], noted: false, forming: { offered: true, from: keys, within: ['2026-12-04', '2026-12-08'] } },
+  };
+}
+
+function formingOfferedBefore() {
+  const { s } = trip({ offeredBefore: true });
+  return {
+    id: 'forming-said-no',
+    look: 'The same trip, which they said no to as a Chapter last week: nothing is offered.',
+    periodEnd: '2026-11-08',
+    ...s,
+    // Sam is only on their list, never in a fact or their journal
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], noted: false, forming: { offered: false } },
+  };
+}
+
+/** A move taking shape inside a Chapter they already have. */
+function formingInside() {
+  const work = world('work', 'Work');
+  const home = world('home', 'Home');
+  const job = openChapter('job', 'New job at the hospital', work, '2026-10-01', null, 'Starting the new job at the hospital in Leeds.');
+  const move = [
+    keyed('flat', 'Find a flat near the hospital in Leeds', '2026-10-16', { status: 'completed', completed_at: at('2026-10-30', '18:00') }),
+    keyed('notice', 'Give notice on the York flat', '2026-10-31', { status: 'completed', completed_at: at('2026-11-02', '09:00') }),
+    keyed('van', 'Book a van for the move on 28 November', '2026-11-03'),
+    keyed('pack', 'Ask Mum to help pack the kitchen', '2026-11-05'),
+  ];
+  const induction = keyed('induction', 'Finish the induction modules', '2026-10-12', { status: 'completed', completed_at: at('2026-10-20', '17:00') });
+  const s = base({
+    name: 'Dev',
+    pronouns: 'he/him',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 6, active_days_last_30: 25 },
+    tables: {
+      life_facts: [
+        fact('move', 'Dev is moving from York to Leeds on 28 November.', { state: 'planned', about_date: '2026-11-28', observed_at: at('2026-11-03'), last_confirmed_at: at('2026-11-03') }),
+        fact('started', 'Dev started a new job at the hospital in Leeds on 1 October.', { about_date: '2026-10-01' }),
+      ],
+      life_people: [person('mum', 'Mum', 'mother')],
+      worlds: [work, home],
+      chapters: [job],
+      notes: [journal('j-commute', '2026-11-06', '20:00', 'Friday', 'Last few weeks of the long commute. The new flat has a view of the park.')],
+      todos: [...move, induction, ...everyday()],
+      drop_world_links: filedIn(work, [...move, induction]),
+      drop_chapter_links: inChapter(job, [...move, induction]),
+      daily_ritual_progress: busyWeek(),
+    },
+  });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, []);
+  return {
+    id: 'forming-inside',
+    look: 'A move to Leeds taking shape inside the Chapter for a new job: the move is offered as a Chapter of its own, on its day, or noticed in the job Chapter\'s notes, which rest on it. The job Chapter never ends on the day it began.',
+    periodEnd: '2026-11-08',
+    ...s,
+    // Mum is only on their list, never in a fact or their journal
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], noted: false, chapterOpen: ['job'], forming: { offered: true, from: ['flat', 'notice', 'van', 'pack', 'j-commute'], told: ['move'], within: ['2026-10-01', '2026-11-30'], noticedIn: 'job' } },
+  };
+}
+
+/** Four weeks of ordinary life: nothing with a shape of its own is forming. */
+function formingNone() {
+  const s = base({
+    name: 'Ama',
+    pronouns: 'she/her',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 6, active_days_last_30: 24 },
+    tables: {
+      life_facts: [
+        fact('gym', 'Ama goes to the gym before work.', { timing: 'standing', state: 'current' }),
+        fact('mum', 'Ama calls her mum on Sundays.', { timing: 'standing', state: 'current' }),
+        fact('film', 'Ama watched a film with Nia on 7 November.', { about_date: '2026-11-07' }),
+      ],
+      life_people: [person('nia', 'Nia', 'friend')],
+      worlds: [world('work', 'Work'), world('home', 'Home')],
+      notes: [journal('j-film', '2026-11-07', '23:00', 'Saturday', 'Film night at Nia’s. Laughed a lot.')],
+      todos: [
+        ...everyday(),
+        keyed('report', 'Send the monthly report', '2026-10-30', { status: 'completed', completed_at: at('2026-10-31', '16:00') }),
+        keyed('laundry', 'Laundry', '2026-11-02', { status: 'completed', completed_at: at('2026-11-02', '19:00') }),
+        keyed('plants', 'Water the plants', '2026-11-05'),
+      ],
+      habits: [habit('Gym before work', 'weekly', 3)],
+      daily_ritual_progress: busyWeek(),
+    },
+  });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, [['film', 'nia']]);
+  return {
+    id: 'forming-none',
+    look: 'Four weeks of ordinary life, with nothing taking shape: nothing is offered.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], forming: { offered: false } },
+  };
+}
+
+export const SCENARIOS = [
+  full(),
+  quiet(),
+  back(),
+  health(),
+  unsure(),
+  formingOwnProject(),
+  formingHaveIt(),
+  formingTrip(),
+  formingOfferedBefore(),
+  formingInside(),
+  formingNone(),
+];

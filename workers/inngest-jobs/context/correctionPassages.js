@@ -153,7 +153,9 @@ export function restingRecords({ facts = [], people = [], items = [], said, adde
         ? `put right by them; they said it is wrong: "${trim(f.correction_text, 300)}"`
         : f.state === 'changed'
           ? 'changed since; it no longer holds as said'
-          : f.state;
+          : f.state === 'set_aside'
+            ? 'set aside by them; they asked Gremly to stop holding it, so nothing may rest on it'
+            : f.state;
     add(
       {
         label: `fact (${state}${day ? `; the day it is about ${day}${end && end !== day ? ` to ${end}` : ''}` : ''}): ${trim(f.statement, 300)}`,

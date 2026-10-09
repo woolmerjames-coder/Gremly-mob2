@@ -232,10 +232,11 @@ describe('the old Worlds fields (shared/worldsFields.js)', () => {
     return calls.filter((c) => c.op === 'update');
   };
 
-  it('kept, the phase and priorities are written as before', async () => {
+  it('kept, the priorities are written as before, and never the phase', async () => {
     const updates = await run({});
     const world = updates.find((c) => c.path.startsWith('worlds?id=eq.world-1'));
-    expect(world.patch).toHaveProperty('phase', 'active');
+    // the pass never sets a World dormant, or any phase (18 Oct)
+    expect(world.patch).not.toHaveProperty('phase');
     expect(world.patch).toHaveProperty('key_priorities');
     const chapter = updates.find((c) => c.path.startsWith('chapters?id=eq.chapter-1'));
     expect(chapter.patch).toHaveProperty('key_priorities');

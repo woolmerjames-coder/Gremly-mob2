@@ -47,13 +47,16 @@ CHAPTER_QUESTIONS = "on"
 # The weekly summary from the weekly pass (summaryFromPass.ts, data fabric
 # stage 5): "off" sends the old summary only; "beside" sends the old one and
 # writes the new one beside it in shadow_runs for James to read; "on" sends the
-# new one only, with no 21 day fetch, analyst or Life Map rebuild.
-SUMMARY_FROM_PASS = "beside"
+# new one only, with no 21 day fetch, analyst or Life Map rebuild. "on" since
+# 18 Oct (James's call), after the summary replay from weekly-2026-10-18l.
+SUMMARY_FROM_PASS = "on"
 # What is left of the Sunday classifier in the weekly pipe (week/index.js):
 # "on" runs it after the weekly pass, as since stage 4b; "off" takes it out,
 # once Chapter suggestions come from the Chapter questions (CHAPTER_QUESTIONS
 # on). The parity replay (scripts/worlds-parity) is what the call rests on.
-WEEKLY_CLASSIFIER = "on"
+# "off" since 18 Oct (James's call): it judged by topic and made Worlds and
+# Chapters without a tap.
+WEEKLY_CLASSIFIER = "off"
 # The weekly review's read from the weekly pass (week/read.js readFromPass):
 # "on" gives the read the dated facts ahead and Gremly's note on the week, and
 # Gremly's notes on Worlds and Chapters in place of priorities. Left "off" until

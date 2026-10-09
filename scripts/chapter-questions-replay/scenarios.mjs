@@ -32,86 +32,8 @@ const item = (type, title, body, date, extra = {}) => {
   };
 };
 
-const TRIP = [
-  item('todo', 'Flights to Porto', 'Look at flights to Porto for November', '2026-10-02'),
-  item('todo', 'Porto dates', 'Ask Sam if the Porto dates work for them', '2026-10-02'),
-  item('todo', 'Porto hotel', 'Book a riverside hotel in Porto, 10 to 14 November', '2026-10-04'),
-  item('note', 'Porto', 'Find a port cellar tour for the Porto trip', '2026-10-05'),
-];
-const BATHROOM = [
-  item('todo', 'Bathroom quotes', 'Get three quotes for the bathroom refit', '2026-09-29'),
-  item('note', 'Tiles', 'Pick tiles for the bathroom, leaning towards green', '2026-10-01'),
-  item('todo', 'Plumber', 'Plumber can start the bathroom on the 20th, confirm with him', '2026-10-03'),
-  item('todo', 'Sink', 'Order the new bathroom sink', '2026-10-06'),
-];
-const GARDEN = [
-  item('todo', 'Measure garden', 'Measure the back garden for the new raised beds', '2026-09-30'),
-  item('todo', 'Sleepers', 'Order oak sleepers for the raised beds', '2026-10-02'),
-  item('note', 'Raised beds', 'Dan said he can help build the raised beds, ask him which weekend', '2026-10-03'),
-  item('todo', 'Compost', 'Get compost and topsoil to fill the raised beds', '2026-10-05'),
-];
-const NOISE = [
-  item('todo', 'Milk', 'Buy milk', '2026-10-01'),
-  item('todo', 'Car insurance', 'Renew the car insurance', '2026-10-02'),
-  item('todo', 'Deck', 'Send the Q3 deck to Lena', '2026-10-03'),
-  item('habit', 'Tomatoes', 'Water the tomatoes', '2026-09-25'),
-  item('note', 'Book', 'Started reading the new detective novel', '2026-10-04'),
-  item('todo', 'Dentist', 'Book a dentist check up', '2026-10-05', { private: true, health: true }),
-];
-
-const ids = (list) => list.map((i) => i.id);
-
-/** Suggesting: what is given, and what a right answer is. */
-export const SUGGESTS = [
-  {
-    key: 'trip-forming',
-    what: 'a trip forming over four drops on three days, among other drops',
-    chapters: [],
-    drops: [...TRIP, ...NOISE],
-    declined: [],
-    want: { suggest: true, from: ids(TRIP), world: 'w-travel', atLeast: 3, dates: ['2026-11-10', '2026-11-14'] },
-  },
-  {
-    key: 'undated-forming',
-    what: 'raised beds being planned over four drops, with no days said for them',
-    chapters: [],
-    drops: [...GARDEN, ...NOISE],
-    declined: [],
-    want: { suggest: true, from: ids(GARDEN), world: 'w-home', atLeast: 3, noDates: true },
-  },
-  {
-    key: 'nothing-forming',
-    what: 'only drops that make no Chapter',
-    chapters: [],
-    drops: NOISE,
-    declined: [],
-    want: { suggest: false },
-  },
-  {
-    key: 'two-at-once',
-    what: 'a trip and a bathroom refit forming at once',
-    chapters: [],
-    drops: [...TRIP, ...BATHROOM, ...NOISE],
-    declined: [],
-    want: { suggest: true, fromOneOf: [ids(TRIP), ids(BATHROOM)], atLeast: 3 },
-  },
-  {
-    key: 'said-no',
-    what: 'the trip, which they already turned down',
-    chapters: [],
-    drops: [...TRIP, ...NOISE],
-    declined: [{ title: 'Porto in November', items: TRIP.map((i) => ({ table: `${i.type}s`, id: i.id })) }],
-    want: { suggest: false },
-  },
-  {
-    key: 'already-have-it',
-    what: 'the trip, which they already have a Chapter for',
-    chapters: [{ id: 'c-porto', title: 'Porto in November', start_date: '2026-11-10', end_date: '2026-11-14', primary_world_id: 'w-travel' }],
-    drops: [...TRIP, ...NOISE],
-    declined: [],
-    want: { suggest: false },
-  },
-];
+// Suggesting a Chapter moved to the weekly pass on 18 Oct (scripts/weekly-replay,
+// the forming weeks), and its scenarios with it.
 
 const chapter = (id, title, world, start, end) => ({
   id,

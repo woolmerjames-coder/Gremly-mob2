@@ -120,6 +120,7 @@ describe('the rows', () => {
         why: 'One from a todo, one from a chat in April.',
       },
     ],
+    // a reply from before set aside was taken out: never written
     set_aside: [
       {
         fact_refs: [r('m1'), r('m2')],
@@ -132,6 +133,7 @@ describe('the rows', () => {
     passed: [
       {
         fact_refs: [r('p1'), r('m1'), r('t1')],
+        lines: ['Calling the bank', 'Your team sync', 'Returning the jacket'],
         question: 'Did these happen?',
         yes: 'They did',
         no: 'Leave them',
@@ -140,7 +142,7 @@ describe('the rows', () => {
     ],
   });
 
-  it('turns a conflict into a weighed question and a group into a tidy up, all with the same columns', () => {
+  it('turns a conflict into a weighed question and passed plans into a tidy up, all with the same columns, and never offers to set anything aside', () => {
     const { ref, r } = refsFor(FACTS);
     const { rows } = reviewRows({
       output: output(r),
@@ -161,22 +163,32 @@ describe('the rows', () => {
         { table: 'life_facts', id: 'b2' },
       ],
     });
-    const tidy = rows.find((x) => x.proposed_change?.type === 'set_aside');
-    expect(tidy).toMatchObject({ kind: 'tidy', choices: ['Forget them', 'Keep them'] });
-    expect(tidy).toMatchObject({ topic: 'two work meetings', why: null });
-    // both came from their calendar, which keeps them whatever they answer
-    expect(tidy.proposed_change).toMatchObject({
-      fact_ids: ['m1', 'm2'],
-      yes: 'Forget them',
-      no: 'Keep them',
-      from_calendar: true,
-    });
+    expect(rows.some((x) => x.proposed_change?.type === 'set_aside')).toBe(false);
+    expect(REVIEW_CAPS).not.toHaveProperty('set_aside');
     // a bulk insert needs every row to carry the same columns
     const keys = rows.map((x) => Object.keys(x).sort().join(','));
     expect(new Set(keys).size).toBe(1);
   });
 
-  it('puts only plans in a tidy up of plans whose days passed, never one about an item they keep', () => {
+  it('never questions their calendar: two of its entries are never a conflict', () => {
+    const { ref, r } = refsFor(FACTS);
+    const { rows, skipped } = reviewRows({
+      output: {
+        conflicts: [
+          { fact_refs: [r('m1'), r('m2')], question: 'Which is right?', choices: ['a', 'b'], matters: 'needs' },
+        ],
+        passed: [],
+      },
+      ref,
+      userId: U,
+      runId: 'run',
+      today: '2026-11-12',
+    });
+    expect(rows).toHaveLength(0);
+    expect(skipped.calendar).toBe(1);
+  });
+
+  it('puts only plans in a tidy up of plans whose days passed, never an item they keep or a calendar entry, each named to them in its own words', () => {
     const { ref, r } = refsFor(FACTS);
     const { rows } = reviewRows({
       output: output(r),
@@ -186,8 +198,22 @@ describe('the rows', () => {
       today: '2026-11-12',
     });
     const passed = rows.find((x) => x.proposed_change?.type === 'happened');
-    // the team sync is not a plan, and the todo says itself whether it was done
+    // the team sync is from their calendar, and the todo says itself whether it was done
     expect(passed.proposed_change.fact_ids).toEqual(['p1']);
+    expect(passed.proposed_change.statements).toEqual(['Calling the bank']);
+  });
+
+  it('puts no plan to them that it has not named in their words', () => {
+    const { ref, r } = refsFor(FACTS);
+    const { rows, skipped } = reviewRows({
+      output: { conflicts: [], passed: [{ fact_refs: [r('p1')], lines: [''], question: 'Did it?', yes: 'Yes', no: 'No' }] },
+      ref,
+      userId: U,
+      runId: 'run',
+      today: '2026-11-12',
+    });
+    expect(rows).toHaveLength(0);
+    expect(skipped.unnamed).toBe(1);
   });
 
   it('asks whether a plan happened only once its last day is well behind them', () => {
@@ -207,10 +233,10 @@ describe('the rows', () => {
     const { ref, r } = refsFor(recent);
     const out = {
       conflicts: [],
-      set_aside: [],
       passed: [
         {
           fact_refs: recent.map((f) => r(f.id)),
+          lines: ['Posting the forms', 'Your weekend in Hudson', 'Sorting the garage'],
           question: 'Did these happen?',
           yes: 'They did',
           no: 'Leave them',
@@ -229,10 +255,15 @@ describe('the rows', () => {
       today: '2026-11-15',
     }).rows;
     expect(later[0].proposed_change.fact_ids).toEqual(['r1', 'r2']);
+    expect(later[0].proposed_change.statements).toEqual(['Posting the forms', 'Your weekend in Hudson']);
   });
 
   it('puts a fact in one question of a run at most', () => {
-    const { ref, r } = refsFor(FACTS);
+    const plans = [
+      fact('p1', 'Noor plans to call the bank on 1 October.', { state: 'planned', about_date: '2026-10-01' }),
+      fact('p2', 'Noor plans to book the dentist on 2 October.', { state: 'planned', about_date: '2026-10-02' }),
+    ];
+    const { ref, r } = refsFor([...FACTS.filter((f) => f.id !== 'p1'), ...plans]);
     const out = {
       conflicts: [
         {
@@ -242,32 +273,21 @@ describe('the rows', () => {
           matters: 'needs',
         },
       ],
-      set_aside: [
-        {
-          fact_refs: [r('m2'), r('b1')],
-          question: 'Forget these?',
-          yes: 'Forget them',
-          no: 'Keep them',
-        },
-      ],
       passed: [
-        { fact_refs: [r('m2')], question: 'Did it happen?', yes: 'It did', no: 'Leave it' },
-        { fact_refs: [r('p1')], question: 'Did you call the bank?', yes: 'I did', no: 'Leave it' },
+        { fact_refs: [r('p1'), r('b2')], lines: ['The bank', 'Your birthday'], question: 'Did it happen?', yes: 'It did', no: 'Leave it' },
+        { fact_refs: [r('p2')], lines: ['The dentist'], question: 'Did you book the dentist?', yes: 'I did', no: 'Leave it' },
       ],
     };
-    const { rows, skipped } = reviewRows({
+    const { rows } = reviewRows({
       output: out,
       ref,
       userId: U,
       runId: 'run',
       today: '2026-11-12',
     });
-    expect(rows.map((x) => x.proposed_change?.type || 'conflict')).toEqual([
-      'conflict',
-      'happened',
-    ]);
-    expect(rows[1].proposed_change.fact_ids).toEqual(['m2']);
-    expect(skipped.overlap).toBe(1);
+    expect(rows.map((x) => x.proposed_change?.type || 'conflict')).toEqual(['conflict', 'happened']);
+    // b2 is not a plan, so the first is the bank alone
+    expect(rows[1].proposed_change.fact_ids).toEqual(['p1']);
   });
 
   it('never puts a private or health fact, or one already put to them, in anything', () => {
@@ -276,8 +296,7 @@ describe('the rows', () => {
       conflicts: [
         { fact_refs: [r('b1'), r('s1')], question: 'Q?', choices: ['a', 'b'], matters: 'needs' },
       ],
-      set_aside: [{ fact_refs: [r('m1'), r('s1')], question: 'Q?', yes: 'Yes', no: 'No' }],
-      passed: [{ fact_refs: [r('p1')], question: 'Did it?', yes: 'Yes', no: 'No' }],
+      passed: [{ fact_refs: [r('p1')], lines: ['The bank'], question: 'Did it?', yes: 'Yes', no: 'No' }],
     };
     const { rows, skipped } = reviewRows({
       output: out,
@@ -288,7 +307,7 @@ describe('the rows', () => {
       already: new Set(['p1']),
     });
     expect(rows).toHaveLength(0);
-    expect(skipped.private_or_asked).toBe(3);
+    expect(skipped.private_or_asked).toBe(2);
   });
 
   it('asks a set already put to them never again, and keeps a run to a few', () => {
@@ -310,7 +329,7 @@ describe('the rows', () => {
       keys,
     });
     expect(again.rows).toHaveLength(0);
-    expect(again.skipped.repeated).toBe(3);
+    expect(again.skipped.repeated).toBe(2);
     const many = {
       conflicts: Array.from({ length: 5 }, () => ({
         fact_refs: [r('b1'), r('b2')],
@@ -318,7 +337,6 @@ describe('the rows', () => {
         choices: ['a', 'b'],
         matters: 'helps',
       })),
-      set_aside: [],
       passed: [],
     };
     // the same pair five times is one question: the rest repeat it
@@ -340,12 +358,15 @@ describe('the rows', () => {
         tidyWaiting: 2,
       }).rows.filter((x) => x.kind === 'tidy'),
     ).toHaveLength(0);
-    const big = Array.from({ length: TIDY_MOST + 1 }, (_, i) => fact(`x${i}`, `A meeting ${i}.`));
+    const big = Array.from({ length: TIDY_MOST + 1 }, (_, i) =>
+      fact(`x${i}`, `A plan ${i}.`, { state: 'planned', about_date: '2026-10-01' }),
+    );
     const b = refsFor(big);
     const out = {
       conflicts: [],
-      set_aside: [{ fact_refs: big.map((f) => b.r(f.id)), question: 'Q?', yes: 'Yes', no: 'No' }],
-      passed: [],
+      passed: [
+        { fact_refs: big.map((f) => b.r(f.id)), lines: big.map((_, i) => `Plan ${i}`), question: 'Q?', yes: 'Yes', no: 'No' },
+      ],
     };
     expect(
       reviewRows({ output: out, ref: b.ref, userId: U, runId: 'run', today: '2026-11-12' }).rows,
@@ -388,7 +409,6 @@ describe('a review', () => {
               matters: 'needs',
             },
           ],
-          set_aside: [],
           passed: [],
         },
       };
@@ -404,5 +424,35 @@ describe('a review', () => {
       status: 'open',
     });
     expect(mem.tables.life_facts.map((f) => f.state)).toEqual(FACTS.map((f) => f.state));
+  });
+
+  it('writes none while enough questions are waiting already, of any kind but the welcome back', async () => {
+    const waiting = Array.from({ length: 6 }, (_, i) => ({
+      id: `w${i}`,
+      user_id: U,
+      kind: i ? 'person' : null,
+      status: 'open',
+      question: `Q${i}?`,
+    }));
+    const t = { life_facts: FACTS.map((f) => ({ ...f })), gremly_questions: waiting };
+    const mem = wire(t);
+    jsonCall.mockImplementation(async (_env, { user }) => {
+      const refOf = (statement) => user.split('\n').find((l) => l.includes(statement)).split(' | ')[0];
+      return {
+        model: 'm',
+        output: {
+          conflicts: [
+            { fact_refs: [refOf('25 April'), refOf('30 April')], question: 'Is your birthday on 25 or 30 April?', choices: ['30 April', '25 April'], matters: 'needs' },
+          ],
+          passed: [],
+        },
+      };
+    });
+    const out = await reviewLedger({}, U);
+    expect(out).toMatchObject({ written: 0, no_room: 1, room: 0 });
+    expect(mem.tables.gremly_questions).toHaveLength(6);
+    // a welcome back waiting leaves room
+    mem.tables.gremly_questions[0].kind = 'while_away';
+    expect(await reviewLedger({}, U)).toMatchObject({ written: 1 });
   });
 });

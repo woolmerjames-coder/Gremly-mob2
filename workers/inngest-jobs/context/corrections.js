@@ -28,9 +28,10 @@ import { peopleAfterCorrection } from './people';
 import { answerPersonQuestion, settleGuess } from './peopleQuestions';
 import { answerChapterQuestion, CHAPTER_QUESTION_KINDS } from './chapterAnswers';
 import { personNow } from '../../shared/day.js';
+import { FACT_TIMINGS, TIMING_RULES, validTiming } from '../../shared/factTiming.js';
 import { restingPassages, rewritePassages, glanceable, tidyDay, moveDayRefs } from './correctionPassages';
 
-export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-18a';
+export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-18e';
 
 const CORRECTION_SCHEMA = {
   type: 'object',
@@ -62,6 +63,15 @@ const CORRECTION_SCHEMA = {
       },
     },
     private_fact_refs: { type: 'array', items: { type: 'string' } },
+    // what they want Gremly to stop holding as part of their life
+    set_aside_facts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { fact_ref: { type: 'string' }, why: { type: 'string' } },
+        required: ['fact_ref', 'why'],
+      },
+    },
     new_facts: {
       type: 'array',
       items: {
@@ -69,18 +79,22 @@ const CORRECTION_SCHEMA = {
         properties: {
           statement: { type: 'string' },
           subject: { type: 'string' },
+          timing: { type: 'string', enum: FACT_TIMINGS, nullable: true },
           about_date: { type: 'string', nullable: true },
+          about_date_end: { type: 'string', nullable: true },
           state: { type: 'string', enum: ['current', 'planned', 'happened'] },
         },
-        required: ['statement', 'subject', 'state'],
+        required: ['statement', 'subject', 'timing', 'about_date', 'about_date_end', 'state'],
       },
     },
     retire_anchor_refs: { type: 'array', items: { type: 'string' } },
     line_refs: { type: 'array', items: { type: 'string' } },
+    // who Gremly understood someone to be, without being told, that they say is not so
+    understood_wrong: { type: 'array', items: { type: 'string' } },
     // whether their answer says what Gremly thought is so (context/unsure.js)
     guess_holds: { type: 'string', enum: ['yes', 'no', 'unsure'], nullable: true },
   },
-  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'new_facts', 'retire_anchor_refs', 'line_refs', 'guess_holds'],
+  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'set_aside_facts', 'new_facts', 'retire_anchor_refs', 'line_refs', 'understood_wrong', 'guess_holds'],
 };
 
 /**
@@ -111,11 +125,16 @@ WHAT TO DO
 - When what they said is given as their answer to one of Gremly's questions, first decide whether it answers it, and say so in answers_question. It answers the question when it tells Gremly what the question was asking, in whole or in part, or tells Gremly the question is wrong, no longer applies or is not one they want to be asked. It does not answer the question when it only asks Gremly something back, or speaks of something else and leaves what was asked as unknown as it was. When there is no question, answers_question is true.
 - When it answers the question, apply the answer the same way: confirm, change, correct or add facts as the answer says. When it does not, the question tells you nothing new about their life: apply only what their own words say, which may be nothing.
 - When the question asked about something Gremly thought but was not sure of, say in guess_holds whether their answer says it is so: yes, no, or unsure when it does not say. When it is so, record it as a new fact, as their answer and the question together say it, in their words wherever they gave any, unless the ledger already holds it. Otherwise guess_holds is null.
+- When they ask Gremly to delete something, forget it or stop holding it, set aside every fact it concerns: Gremly stops holding them, and never takes them up again. Nothing about them was wrong, so mark nothing corrected for it. Saying how much something matters to them is never that ask.
+- When what they say shows that who Gremly understood someone to be, without being told, is not so, give its ref in understood_wrong. When they also say who that person is, record it as a new fact.
 - When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. Nothing about it was wrong, so mark nothing corrected for it.
-- If they stated what is true, record it as a new fact in their words, with the day it is about whenever it has one: for something that comes round every year, the date of one of its days. When the ledger already holds what they say, as they say it, add nothing beside it.
+- If they stated what is true, record it as a new fact in their words, with the day it is about whenever it has one: for something that comes round every year, the date of one of its days; for a stretch of time, its first day, and its last day in about_date_end. When the ledger already holds what they say, as they say it, add nothing beside it.
+- Give each new fact its state as of today: planned when it is still ahead, current when it holds now or is under way today, and happened when it has happened.
 - Retire any date anchor that only exists because of the wrong claim.
 - When you are shown lines Gremly showed them, of their day or of a World or Chapter, and what they said is about those lines, name in line_refs each line that says something they have just said is not so, and each line seen at a glance that shows something they asked to keep private. Name none when what they said is about something else.
 - Never argue with the correction and never keep the old claim in softened form.
+
+${TIMING_RULES}
 
 ${WRITING_RULES}`;
 }
@@ -363,12 +382,12 @@ export async function applyCorrection(env, correctionId, runId) {
   }
 
   const facts = correction.fact_ids?.length
-    ? await d.select(`life_facts_now?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,timing,state,private`)
-    : await d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,timing,state,private&order=last_confirmed_at.desc&limit=300`);
+    ? await d.select(`life_facts_now?id=in.(${correction.fact_ids.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,about_date_end,timing,state,private`)
+    : await d.select(`life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,about_date_end,timing,state,private&order=last_confirmed_at.desc&limit=300`);
   // what the question was about comes first, wherever it stands
   if (restsOn.length) {
     const about = await d.select(
-      `life_facts_now?id=in.(${restsOn.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,timing,state,private`,
+      `life_facts_now?id=in.(${restsOn.join(',')})&user_id=eq.${userId}&select=id,statement,about_date,about_date_end,timing,state,private`,
     );
     const seen = new Set(about.map((f) => f.id));
     facts.splice(0, facts.length, ...about, ...facts.filter((f) => !seen.has(f.id)));
@@ -392,10 +411,20 @@ export async function applyCorrection(env, correctionId, runId) {
     const when =
       f.timing === 'yearly' && f.about_date
         ? `every year on ${String(f.about_date).slice(5, 10)}`
-        : f.about_date || 'no date';
+        : f.about_date
+          ? `${f.about_date}${f.about_date_end && f.about_date_end !== f.about_date ? ` to ${f.about_date_end}` : ''}`
+          : 'no date';
     return `${ref} | ${f.state}${f.private ? ' [private]' : ''} | ${when} | ${f.statement}`;
   });
 
+  // who Gremly understood someone to be from the records, never told, which
+  // what they say may put right (context/unsure.js)
+  const understoodRows =
+    (await d.select(
+      `life_people?user_id=eq.${userId}&relationship_by=eq.understood&merged_into=is.null&select=id,name,relationship&order=updated_at.desc&limit=40`,
+    )) || [];
+  const understoodRefs = new Map(understoodRows.map((p, i) => [`u${i + 1}`, p]));
+  const understoodLines = [...understoodRefs].map(([ref, p]) => `${ref} | ${trim(p.name, 60)} | ${trim(p.relationship, 60)}`);
   const { anchorRefs, anchorLines, profile, dcoRows, storyItems } = await loadAround(env, userId, today);
   const person = await personIdentity(env, userId);
   // what they said about lines Gremly showed them reaches those lines even
@@ -410,7 +439,7 @@ LEDGER FACTS (ref | state | date, or its day each year | statement):
 ${factLines.join('\n') || '(none)'}
 
 LIVE DATE ANCHORS (ref | date | title):
-${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOWED THEM THAT THIS MAY BE ABOUT (ref | where | how it is seen | line):\n${shown.map((l) => `${l.ref} | ${l.where} | ${l.glance ? 'seen at a glance' : 'seen when they open it'} | ${trim(l.text, 300)}`).join('\n')}` : ''}`;
+${anchorLines.join('\n') || '(none)'}${understoodLines.length ? `\n\nWHO GREMLY UNDERSTOOD SOMEONE TO BE FROM THE RECORDS, WITHOUT BEING TOLD (ref | name | who):\n${understoodLines.join('\n')}` : ''}${shown.length ? `\n\nTHE LINES GREMLY SHOWED THEM THAT THIS MAY BE ABOUT (ref | where | how it is seen | line):\n${shown.map((l) => `${l.ref} | ${l.where} | ${l.glance ? 'seen at a glance' : 'seen when they open it'} | ${trim(l.text, 300)}`).join('\n')}` : ''}`;
 
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'rewrite'),
@@ -426,7 +455,7 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
   });
 
   const nowIso = new Date().toISOString();
-  const result = { understood: output.understood, model, facts_corrected: 0, facts_changed: 0, facts_happened: 0, facts_made_private: 0, facts_added: 0, passages_rewritten: 0, anchors_retired: 0 };
+  const result = { understood: output.understood, model, facts_corrected: 0, facts_changed: 0, facts_happened: 0, facts_made_private: 0, facts_set_aside: 0, facts_added: 0, passages_rewritten: 0, anchors_retired: 0 };
   const happenedFacts = [];
   const correctedIds = [];
   const correctedFacts = [];
@@ -452,6 +481,24 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
   // Who someone is, when it came from a fact now corrected, is cleared:
   // blank is better than wrong (context/people.js)
   result.people = await peopleAfterCorrection(d, userId, correctedIds);
+  // who Gremly understood someone to be, which they say is not so: blank, and
+  // never understood again from the same records; what they say they are is a fact
+  const unheld = [];
+  for (const ref of output.understood_wrong || []) {
+    const p = understoodRefs.get(ref);
+    if (!p || unheld.includes(p.id)) continue;
+    await d.update(`life_people?id=eq.${p.id}&user_id=eq.${userId}&relationship_by=eq.understood&name=not.is.null`, {
+      relationship: null,
+      relationship_by: 'gremly',
+      updated_at: nowIso,
+    });
+    await d.update(`life_unsure?user_id=eq.${userId}&person_id=eq.${p.id}&kind=eq.who&status=in.(open,understood)`, {
+      status: 'said_no',
+      updated_at: nowIso,
+    });
+    unheld.push(p.id);
+  }
+  result.understood_put_right = unheld.length;
 
   // Changed: the old version stays in their history as what was planned.
   const changedFacts = [];
@@ -488,6 +535,21 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
     result.facts_made_private++;
   }
 
+  // Set aside: they asked Gremly to stop holding it, so it leaves every
+  // writer's view and every sentence resting on it is written again.
+  const setAsideFacts = [];
+  for (const c of output.set_aside_facts || []) {
+    const f = factRefs.get(c.fact_ref);
+    if (!f || touched.has(f.id) || f.state === 'set_aside') continue;
+    await d.update(`life_facts?id=eq.${f.id}&user_id=eq.${userId}`, { state: 'set_aside', state_reason: trim(c.why, 400), updated_at: nowIso });
+    await d.insertQuiet('life_fact_changes', [
+      { fact_id: f.id, user_id: userId, from_state: f.state, to_state: 'set_aside', reason: trim(c.why, 400), source_table: 'user_corrections', source_id: correction.id, run_id: runId },
+    ]);
+    touched.add(f.id);
+    setAsideFacts.push(f);
+    result.facts_set_aside++;
+  }
+
   const newFactRows = (output.new_facts || [])
     .filter((f) => f.statement)
     .map((f) => ({
@@ -497,6 +559,14 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
       statement: trim(f.statement, 400),
       subject: f.subject ? trim(f.subject, 80) : null,
       about_date: /^\d{4}-\d{2}-\d{2}$/.test(f.about_date || '') ? f.about_date : null,
+      // a stretch keeps its last day, never one before its first
+      about_date_end:
+        /^\d{4}-\d{2}-\d{2}$/.test(f.about_date || '') &&
+        /^\d{4}-\d{2}-\d{2}$/.test(f.about_date_end || '') &&
+        f.about_date_end > f.about_date
+          ? f.about_date_end
+          : null,
+      timing: validTiming(f.timing),
       date_confidence: /^\d{4}-\d{2}-\d{2}$/.test(f.about_date || '') ? 'exact' : 'unknown',
       state: ['current', 'planned', 'happened'].includes(f.state) ? f.state : 'current',
       said_by: 'user',
@@ -515,11 +585,20 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
   // The sentences resting on what changed, each sent back to its own writer
   // with the records it rests on as they now stand (correctionPassages.js).
   // Someone in a fact that changed is part of what changed.
-  const changedIds = [...correctedIds, ...changedFacts.map((f) => f.id), ...happenedFacts.map((f) => f.id)];
+  const changedIds = [
+    ...correctedIds,
+    ...changedFacts.map((f) => f.id),
+    ...happenedFacts.map((f) => f.id),
+    ...setAsideFacts.map((f) => f.id),
+  ];
   const privateIds = privateFacts.map((f) => f.id);
-  const personIds = changedIds.length
-    ? ((await d.select(`life_fact_people?user_id=eq.${userId}&fact_id=in.(${changedIds.join(',')})&select=person_id`)) || []).map((x) => x.person_id)
-    : [];
+  const personIds = [
+    ...(changedIds.length
+      ? ((await d.select(`life_fact_people?user_id=eq.${userId}&fact_id=in.(${changedIds.join(',')})&select=person_id`)) || []).map((x) => x.person_id)
+      : []),
+    // someone Gremly understood wrongly is part of what changed
+    ...unheld,
+  ];
   const resting = await restingPassages(d, userId, { changedIds, privateIds, personIds });
   // the lines they said are not so, or show what they keep private, sent
   // back to their writers whether or not anything in the ledger changed under them
@@ -550,7 +629,8 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
   // Story items wholly resting on corrected facts are retired, and an item
   // resting on a fact now kept private becomes private too.
   let storyChanged = rewrote.details.some((x) => x.table === 'story_items' && x.outcome !== 'kept');
-  const corrected = new Set(correctedIds);
+  // a fact they asked Gremly to stop holding goes as a corrected one does
+  const corrected = new Set([...correctedIds, ...setAsideFacts.map((f) => f.id)]);
   const nowPrivate = new Set(privateIds);
   // an item its writer wrote again rests on what it now cites (correctionPassages.js)
   const rewritten = new Set(rewrote.details.filter((x) => x.table === 'story_items' && x.outcome === 'rewritten').map((x) => x.id));
@@ -577,7 +657,7 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
 
   // Claims, the reach and date anchors drop anything corrected, changed or now
   // private. Read again, after the lines resting on them were written again.
-  const scrubbed = [...correctedFacts, ...changedFacts, ...privateFacts];
+  const scrubbed = [...correctedFacts, ...changedFacts, ...privateFacts, ...setAsideFacts];
   if (scrubbed.length || retiredTitles.length)
     for (const { id: rowId } of dcoRows) {
       const [row] = await d.select(`user_daily_state?id=eq.${rowId}&select=dco,dco_shadow`);
@@ -598,10 +678,10 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
     }
   // Life Map evidence that rests on a corrected fact goes too, from the map as
   // it stands after its threads were written again.
-  if (correctedFacts.length) {
+  if (correctedFacts.length || setAsideFacts.length) {
     const [lm] = (await d.select(`user_life_map?user_id=eq.${userId}&select=id,life_map`)) || [];
     if (lm?.life_map) {
-      const ids = new Set(correctedIds);
+      const ids = new Set([...correctedIds, ...setAsideFacts.map((f) => f.id)]);
       let changed = false;
       for (const dom of lm.life_map.domains || [])
         for (const t of dom?.threads || []) {
@@ -661,11 +741,16 @@ ${anchorLines.join('\n') || '(none)'}${shown.length ? `\n\nTHE LINES GREMLY SHOW
 
 /** The states a tidy up's yes moves its facts to, and from. */
 const TIDY_MOVES = {
-  // they asked Gremly to stop treating these as part of their life
-  set_aside: { to: 'set_aside', from: ['current', 'planned', 'unconfirmed', 'happened'] },
   // they said these plans happened
   happened: { to: 'happened', from: ['planned', 'unconfirmed'] },
 };
+
+/**
+ * Tidy ups Gremly no longer offers (18 Oct): offering to set facts aside as
+ * not part of their life judged their life for them. One still waiting is
+ * closed by any tap and moves nothing.
+ */
+const TIDY_RETIRED = new Set(['set_aside']);
 
 /** Whether their words are exactly one of the answers offered: a tap, not words of their own. */
 function tapped(said, choice) {
@@ -684,13 +769,21 @@ function tapped(said, choice) {
  */
 async function applyTidyAnswer(env, { correction, question }) {
   const change = question.proposed_change || {};
-  const move = TIDY_MOVES[change.type];
+  const retired = TIDY_RETIRED.has(change.type);
+  const move = retired ? null : TIDY_MOVES[change.type];
   const yes = tapped(correction.said, change.yes);
   const no = tapped(correction.said, change.no);
-  if (!move || (!yes && !no)) return null;
+  if ((!move && !retired) || (!yes && !no)) return null;
   const d = db(env);
   const userId = correction.user_id;
   const nowIso = new Date().toISOString();
+  if (retired) {
+    const result = { tidy: question.id, type: change.type, retired: true, facts: 0 };
+    if (question.status !== 'answered')
+      await d.update(`gremly_questions?id=eq.${question.id}&user_id=eq.${userId}`, { status: 'expired' });
+    await d.update(`user_corrections?id=eq.${correction.id}`, { status: 'applied', applied_at: nowIso, fact_ids: [], result });
+    return result;
+  }
   const named = (Array.isArray(change.fact_ids) ? change.fact_ids : []).filter((id) =>
     /^[0-9a-f-]{36}$/i.test(String(id)),
   );

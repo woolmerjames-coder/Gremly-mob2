@@ -4,13 +4,17 @@
  * ledger changes here; every proposal is a question, and only their answer
  * changes anything (context/corrections.js applyTidyAnswer).
  *
- * Three things are looked for, each a judgment the model makes:
+ * Two things are looked for, each a judgment the model makes:
  * - two facts that cannot both be true, such as an occasion on two days: a
- *   question (kind fact) that settles it, weighed by how much it matters;
- * - facts that are not about their life at all, only the running of their
- *   job or of the app: a tidy up (kind tidy) that offers to set them aside;
+ *   question (kind fact) that settles it, weighed by how much it matters.
+ *   Never from their calendar, which keeps its own entries;
  * - plans whose days have passed with nothing to say what happened: a tidy up
- *   that asks whether they happened.
+ *   that asks whether they happened, each plan named to them in their words.
+ *
+ * It no longer offers to set aside facts as not about their life (8 Oct):
+ * asking someone whether what they wrote down is part of their life told them
+ * Gremly did not think so, and it could not tell building something from
+ * trying the app out. A fact they want gone, they say so (corrections.js).
  *
  * Code only counts, caps and writes: no private or health fact is ever put in
  * a tidy up or a question here, a fact already put to them is never put again,
@@ -22,13 +26,14 @@ import { jsonCall, modelFor } from './llm';
 import { CARE_RULES, PRIVATE_RULES, WRITING_RULES, personBlock } from '../careRules';
 import { personNow } from '../../shared/day.js';
 import { questionWeight } from '../../shared/questionRules.js';
+import { questionRoom } from './questionRoom';
 
-export const REVIEW_PROMPT_VERSION = 'review-2026-10-14a';
+export const REVIEW_PROMPT_VERSION = 'review-2026-10-18a';
 
 /** Facts read for one review; a ledger with more says so, and the least lately confirmed are left out. */
 export const REVIEW_FACTS = 800;
 /** Questions a run may add, each kind at most. */
-export const REVIEW_CAPS = Object.freeze({ conflicts: 2, set_aside: 1, passed: 1 });
+export const REVIEW_CAPS = Object.freeze({ conflicts: 2, passed: 1 });
 /** Facts one tidy up may hold. */
 export const TIDY_MOST = 8;
 /** No new tidy up while this many are waiting. */
@@ -54,36 +59,24 @@ const REVIEW_SCHEMA = {
         required: ['fact_refs', 'question', 'choices', 'matters', 'topic', 'why'],
       },
     },
-    set_aside: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          fact_refs: { type: 'array', items: { type: 'string' } },
-          question: { type: 'string' },
-          yes: { type: 'string' },
-          no: { type: 'string' },
-          topic: { type: 'string' },
-        },
-        required: ['fact_refs', 'question', 'yes', 'no', 'topic'],
-      },
-    },
     passed: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
           fact_refs: { type: 'array', items: { type: 'string' } },
+          // each plan named to them, in the order of fact_refs
+          lines: { type: 'array', items: { type: 'string' } },
           question: { type: 'string' },
           yes: { type: 'string' },
           no: { type: 'string' },
           topic: { type: 'string' },
         },
-        required: ['fact_refs', 'question', 'yes', 'no', 'topic'],
+        required: ['fact_refs', 'lines', 'question', 'yes', 'no', 'topic'],
       },
     },
   },
-  required: ['conflicts', 'set_aside', 'passed'],
+  required: ['conflicts', 'passed'],
 };
 
 function oneLine(text, n = 220) {
@@ -129,19 +122,18 @@ FACTS THAT CANNOT BOTH BE TRUE (conflicts)
 - For each, one short, friendly question that settles it, in plain words, naming what the ledger holds without saying where it came from, and two to four short answers they could tap, each settling it one way. Then, shown to them under the question, where each version came from in one short sentence: where and roughly when they said it, in words about their own days, never about the ledger, its records or how the app works, and without quoting them.
 - Say how much the answer matters. needs: until it is answered Gremly holds two versions of something still ahead, or would soon say something wrong. helps: it would let Gremly know them better, and nothing is wrong without it. An occasion that comes every year always bears on what is ahead.
 - Only what bears on their life now or ahead; a difference about something long past stays as it is.
-
-FACTS THAT ARE NOT ABOUT THEIR LIFE (set_aside)
-- Facts that record only the running of their job or of the app, or the app being tried out, and hold nothing a friend would remember about their life. Whatever touches how their work is going for them, their people, their health, their occasions or anything private is about their life: never set it aside.
-- Group them by sort, each group of one sort only and at most ${TIDY_MOST} facts. For each group, one short question that names the sort in plain words and asks whether to stop treating them as part of their life, a yes and a no of at most four words each, and the facts in it.
+- Never a fact from their calendar: their calendar keeps its own entries, and two of them are never Gremly's to question.
+- The question asks about their life as a friend would, never about what Gremly has written down or holds.
 
 PLANS WHOSE DAYS HAVE PASSED (passed)
-- Plans still marked planned whose last day is at least ${PASSED_AFTER_DAYS} days before today, with nothing in the ledger to say what happened. A plan about one of their own items itself, or one from their calendar, is never asked about here: the item already says whether it was done or went ahead. Group them, a few to a group and never more than ${TIDY_MOST}. For each group, one short question that asks whether they happened, a yes and a no of at most four words each, and the facts in it. Leave out a plan whose outcome they would rather not be asked about.
+- Plans still marked planned whose last day is at least ${PASSED_AFTER_DAYS} days before today, with nothing in the ledger to say what happened. A plan about one of their own items itself, or one from their calendar, is never asked about here: the item or the calendar already says whether it was done or went ahead. Group them, a few to a group and never more than ${TIDY_MOST}. For each group, one short question that asks whether they happened, a yes and a no of at most four words each, and the facts in it. Leave out a plan whose outcome they would rather not be asked about.
+- In lines, name each plan in the group, in the order of its refs, in a few words to them as they would say it: never in the third person, never as the ledger words it.
 
 EVERY QUESTION
 - Written to them as Gremly, in the first person, short and warm.
 - A topic for each: what it is about in two to four words, as they would name it, shown in the list of what is still to come and beside their answer.
 - Within each list, put first what is most worth their time.
-- In a tidy up, the yes does what is asked to every fact in the group and the no leaves every one of them as it is, so group only facts the same answer fits.
+- In a group of plans, the yes does what is asked to every one and the no leaves every one of them as it is, so group only plans the same answer fits.
 - A fact goes in one question at most.
 
 Fewer is better than many: only what is worth their time. Cite facts only by their refs.
@@ -228,11 +220,18 @@ export function reviewRows({
   const used = new Set();
   const overlaps = (facts) => facts.some((f) => used.has(f.id));
   const rows = [];
-  const skipped = { private_or_asked: 0, capped: 0, repeated: 0, overlap: 0 };
+  const skipped = { private_or_asked: 0, capped: 0, repeated: 0, overlap: 0, calendar: 0, unnamed: 0 };
+  const fromCalendar = (f) =>
+    f.source_table === 'synced_calendar_events' || f.item_table === 'synced_calendar_events';
   // conflicts
   for (const c of output?.conflicts || []) {
     const facts = open(c.fact_refs);
     if (facts.length < 2 || !String(c.question || '').trim()) continue;
+    // their calendar keeps its own entries: never Gremly's to question
+    if (facts.some(fromCalendar)) {
+      skipped.calendar++;
+      continue;
+    }
     if (!clean(facts)) {
       skipped.private_or_asked++;
       continue;
@@ -277,20 +276,31 @@ export function reviewRows({
   }
   // tidy ups: at most a few waiting at once
   let tidyRoom = Math.max(0, TIDY_WAITING_MOST - tidyWaiting);
-  for (const [type, list] of [
-    ['set_aside', output?.set_aside],
-    ['happened', output?.passed],
-  ]) {
+  {
+    const type = 'happened';
     let made = 0;
-    const cap = type === 'set_aside' ? REVIEW_CAPS.set_aside : REVIEW_CAPS.passed;
-    for (const g of list || []) {
-      // only plans whose days are well past, and never one about an item they
-      // keep: the item says how it stands
+    const cap = REVIEW_CAPS.passed;
+    for (const g of output?.passed || []) {
+      // each plan with the words that name it to them, in the order given;
+      // only plans whose days are well past, never one about an item they
+      // keep or from their calendar: the item or the calendar says how it stands
+      const named = new Map();
+      (g.fact_refs || []).forEach((r, k) => {
+        const line = oneLine(Array.isArray(g.lines) ? g.lines[k] : '', 160);
+        if (!named.has(r)) named.set(r, line);
+      });
       const facts = open(g.fact_refs).filter(
-        (f) =>
-          type !== 'happened' || (f.state === 'planned' && !f.item_table && longPast(f, today)),
+        (f) => f.state === 'planned' && !f.item_table && !fromCalendar(f) && longPast(f, today),
       );
       if (!facts.length || !String(g.question || '').trim()) continue;
+      const lineOf = new Map(
+        [...named].map(([r, line]) => [ref.get(r)?.id, line]).filter(([id]) => id),
+      );
+      // a plan never named to them in their words is not put to them in the ledger's
+      if (facts.some((f) => !lineOf.get(f.id))) {
+        skipped.unnamed++;
+        continue;
+      }
       if (!clean(facts)) {
         skipped.private_or_asked++;
         continue;
@@ -330,8 +340,8 @@ export function reviewRows({
           fact_ids: facts.map((f) => f.id),
           yes,
           no,
-          // what they are asked about, in the ledger's words, for the screen that asks
-          statements: facts.map((f) => oneLine(f.statement, 160)),
+          // what they are asked about, named to them, for the screen that asks
+          statements: facts.map((f) => lineOf.get(f.id)),
           // every one came from their calendar, which keeps them whatever they answer
           from_calendar: facts.every(
             (f) =>
@@ -362,7 +372,7 @@ function proposedWords(output, ref) {
         : `${r} unknown`;
     });
   const out = {};
-  for (const k of ['conflicts', 'set_aside', 'passed'])
+  for (const k of ['conflicts', 'passed'])
     out[k] = (output?.[k] || []).map((g) => ({ question: g.question, facts: words(g.fact_refs) }));
   return out;
 }
@@ -418,7 +428,6 @@ export async function reviewLedger(env, userId, { shadow = false, runId = null }
     facts: facts.length,
     found: {
       conflicts: (output?.conflicts || []).length,
-      set_aside: (output?.set_aside || []).length,
       passed: (output?.passed || []).length,
     },
     written: shadow ? 0 : rows.length,
@@ -426,7 +435,16 @@ export async function reviewLedger(env, userId, { shadow = false, runId = null }
     shadow,
   };
   // in shadow, what the model proposed, in the ledger's words, to judge the review by
+  // only as many as there is room for, the most pressing first: the
+  // conflicts that need an answer, then those that help, then the tidy ups
+  const order = { needs: 0, helps: 1 };
+  rows.sort((a, b) => (a.kind === 'tidy') - (b.kind === 'tidy') || (order[a.weight] ?? 2) - (order[b.weight] ?? 2));
+  const room = await questionRoom(d, userId);
+  out.room = room;
   if (shadow) return { ...out, rows, proposed: proposedWords(output, ref) };
-  if (rows.length) await d.insertQuiet('gremly_questions', rows);
+  const kept = rows.slice(0, room);
+  out.written = kept.length;
+  out.no_room = rows.length - kept.length;
+  if (kept.length) await d.insertQuiet('gremly_questions', kept);
   return out;
 }

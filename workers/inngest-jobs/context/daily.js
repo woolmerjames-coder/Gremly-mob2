@@ -53,8 +53,9 @@ import {
   welcomeBackOf,
 } from '../../shared/questionRules.js';
 import { loadUpNext } from '../../shared/upNext.js';
+import { whoSaid } from '../../shared/whoSaid.js';
 
-export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-13b';
+export const DCO_PROMPT_VERSION = 'dco-v4-2026-10-18a';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -306,7 +307,7 @@ export async function factPeople(d, userId) {
   const [ties, people, names] = await Promise.all([
     d.select(`life_fact_people?user_id=eq.${userId}&select=fact_id,person_id&limit=10000`),
     d.select(
-      `life_people?user_id=eq.${userId}&merged_into=is.null&select=id,name,relationship&limit=2000`,
+      `life_people?user_id=eq.${userId}&merged_into=is.null&select=id,name,relationship,relationship_by&limit=2000`,
     ),
     d.select(`life_person_names?user_id=eq.${userId}&select=person_id,name&limit=10000`),
   ]);
@@ -566,7 +567,7 @@ export function renderDay(g, tz) {
         hold(
           ref,
           { names: [p.name, ...others].filter(Boolean), exact: ['person'], private: isPrivate },
-          `${ref}${isPrivate ? ' [private]' : ''} | ${p.name || '(no name given yet)'}${others.length ? ` | also called ${others.join(', ')}` : ''}${p.relationship ? ` | ${p.relationship}, as they said` : ' | who they are is not known'}`,
+          `${ref}${isPrivate ? ' [private]' : ''} | ${p.name || '(no name given yet)'}${others.length ? ` | also called ${others.join(', ')}` : ''}${` | ${whoSaid(p, 'who they are is not known')}`}`,
         ),
       );
     }
@@ -957,7 +958,7 @@ const FIELD_RULES = {
     'headline: the notification line that opens the brief. What today looks like, in concrete terms, at most 90 characters. No counts of todos or habits, no feelings, no advice. When little is known about today, name what is true: a quiet day or something genuinely ahead. The headline is only ever about today: it never mentions time away, a return or a welcome back, even for someone returning, because the welcome waits for the brief itself.',
   day_shape:
     "day_shape: one sentence on how full the day is and when the clear stretches are, taken from TODAY'S SHAPE. Take its times from it and from nowhere else, and never count or add up entries yourself. When no calendar is connected, say only what is due or planned, never that the day is open, clear or free, and leave it empty when nothing is due or planned.",
-  lead: "lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, which is not always what fills the most time. Something in their life that falls on today itself, an occasion, a milestone or a day they have been waiting for, matters more than a task or a meeting; FALLS ON TODAY ITSELF holds what the ledger has on today.",
+  lead: "lead_what and lead_why_today: the one thing that leads today and why it is today's. What leads is what matters most to the person today, as their life shows it, which is not always what fills the most time. Something their life marks on today itself, which a friend who knows them would remember, matters more than the ordinary running of their day; FALLS ON TODAY ITSELF holds what the ledger has on today.",
   focus:
     'today_focus: up to three short items, each a concrete thing from the inputs. Fewer is fine, and none is fine; never fill it with general advice. also_matters: anything else worth knowing, briefly, above all what a close friend would mention or ask after this morning: something they did or went through in the last day or two, something on their mind, or something close ahead in their life.',
   claims:

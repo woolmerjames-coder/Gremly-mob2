@@ -21,7 +21,7 @@ const CONVERSATION = [
   'User: what is on next week?',
 ].join('\n\n');
 
-function stub(corrections) {
+function stub(output) {
   const calls = { model: [], filed: [] };
   globalThis.fetch = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -31,7 +31,7 @@ function stub(corrections) {
     }
     calls.model.push(body);
     return new Response(
-      JSON.stringify({ choices: [{ message: { content: JSON.stringify({ corrections }) } }] }),
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify(output) } }] }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   };
@@ -44,8 +44,8 @@ afterEach(() => {
   delete globalThis.fetch;
 });
 
-test('a correction in the message just sent is filed, with the thread it was said in', async () => {
-  const calls = stub([{ said: 'it is on Saturday, not Sunday', about: 'the day of the call' }]);
+test('a correction in the message just sent is filed, in their own words, with the thread it was said in', async () => {
+  const calls = stub({ corrects: true, about: 'the day of the call' });
   const r = await checkForCorrection({
     conversationText: 'Gremly: Your call with your parents is on Sunday.',
     latest: 'No, it is on Saturday, not Sunday',
@@ -59,14 +59,16 @@ test('a correction in the message just sent is filed, with the thread it was sai
   expect(calls.filed[0].url).toBe('https://inngest.test/api/correction');
   expect(calls.filed[0].body).toMatchObject({
     user_id: USER,
-    said: 'it is on Saturday, not Sunday',
+    // the whole message they sent: code never picks words out of it
+    said: 'No, it is on Saturday, not Sunday',
     surface: 'brief',
     chat_id: CHAT,
+    target_text: 'the day of the call',
   });
 });
 
 test('the model is shown the message just sent apart from the conversation before it', async () => {
-  const calls = stub([]);
+  const calls = stub({ corrects: false, about: '' });
   await checkForCorrection({
     conversationText: CONVERSATION,
     latest: 'what is on next week?',
@@ -79,9 +81,9 @@ test('the model is shown the message just sent apart from the conversation befor
   expect(system).toContain('THE MESSAGE THEY HAVE JUST SENT\nwhat is on next week?');
 });
 
-test('a correction from an earlier message is never filed again on a later turn', async () => {
-  // the model points at the earlier message anyway: it was filed on its own turn
-  const calls = stub([{ said: EARLIER, about: 'the day of the call' }]);
+test('a message the model finds no correction in files nothing, whatever came before it', async () => {
+  // the earlier message was checked, and filed, on its own turn
+  const calls = stub({ corrects: false, about: '' });
   const r = await checkForCorrection({
     conversationText: CONVERSATION,
     latest: 'what is on next week?',
@@ -94,7 +96,7 @@ test('a correction from an earlier message is never filed again on a later turn'
 });
 
 test('with no message to check, nothing is asked or filed', async () => {
-  const calls = stub([{ said: EARLIER, about: 'x' }]);
+  const calls = stub({ corrects: true, about: 'x' });
   const r = await checkForCorrection({
     conversationText: CONVERSATION,
     latest: '  ',
@@ -131,7 +133,7 @@ test('every turn checks the newest message, with the reply as background, held o
 });
 
 test("a correction in a World's or Chapter's chat is filed against it", async () => {
-  const calls = stub([{ said: 'it ended in May', about: 'when it ended' }]);
+  const calls = stub({ corrects: true, about: 'when it ended' });
   const chapter = '7d2b9e4a-1c3f-4a5b-8d6e-0f1a2b3c4d5e';
   await checkTurn({
     env: ENV,
@@ -143,7 +145,7 @@ test("a correction in a World's or Chapter's chat is filed against it", async ()
   });
   expect(calls.filed[0].body).toMatchObject({ target_kind: 'chapter', target_id: chapter, surface: 'chat' });
   // any other chat is filed as a chat, with no id
-  const again = stub([{ said: 'it ended in May', about: 'when it ended' }]);
+  const again = stub({ corrects: true, about: 'when it ended' });
   await checkTurn({ env: ENV, messages: [{ role: 'user', content: 'No, it ended in May' }], userId: USER, scope: { kind: 'space', id: chapter } });
   expect(again.filed[0].body.target_kind).toBe('chat');
   expect(again.filed[0].body.target_id).toBeUndefined();

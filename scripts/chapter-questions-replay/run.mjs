@@ -5,12 +5,8 @@
  *
  *   scripts/chapter-questions-replay/run.sh [--models luna,flash] [--repeat n]
  *
- *   suggest  a trip forming over four drops on three days gives one suggestion
- *            holding those drops in its World, and one whose days are never said
- *            gives no dates; drops that make no Chapter give
- *            none; two things forming at once give one, holding only one of
- *            them; one they turned down, or already have, gives none. Scored
- *            by ids.
+ *   Suggesting a Chapter moved to the weekly pass on 18 Oct, and its
+ *   scenarios with it (scripts/weekly-replay, the forming weeks).
  *   close    a Chapter past its dates gets a question whose guess fits its
  *            records; scored against the guesses set as right, and read by a
  *            judge from another family (Gemini Pro, or GPT 6 Sol).
@@ -23,11 +19,11 @@
  *            what code would then do.
  *
  * What code alone decides (the switch, nothing new while away, a no never
- * asked again, one suggestion open at a time) is held by the unit tests
+ * asked again) is held by the unit tests
  * (context/__tests__/chapterQuestions.test.js).
  *
- * The bar, set before the runs: the suggestions right in 90 in 100 runs, the
- * guesses right in 90 in 100, and every judged question holding on 90 in 100.
+ * The bar, set before the runs: the guesses right in 90 in 100, and every
+ * judged question holding on 90 in 100.
  * OPENAI_API_KEY and GEMINI_TEST_API_KEY come from the environment.
  */
 
@@ -36,7 +32,6 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  askSuggestion,
   askClose,
   CHAPTER_QUESTIONS_VERSION,
 } from '../../workers/inngest-jobs/context/chapterQuestions.js';
@@ -47,7 +42,7 @@ import {
 } from '../../workers/inngest-jobs/context/chapterAnswers.js';
 import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
 import { aiContext, installAiUsageLogging } from '../../workers/shared/aiUsage.js';
-import { TODAY, PERSON, WORLDS, SUGGESTS, CLOSES, WELCOME, ANSWERS } from './scenarios.mjs';
+import { TODAY, PERSON, WORLDS, CLOSES, WELCOME, ANSWERS } from './scenarios.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -95,23 +90,6 @@ async function metered(fn) {
   return { out, cost: rows.reduce((s, r) => s + (Number(r.cost_usd) || 0), 0) };
 }
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : 'n/a');
-
-function suggestRight(s, row) {
-  const w = s.want;
-  if (!w.suggest) return { ok: !row, why: row ? `suggested ${row.proposed_change.title}` : '' };
-  if (!row) return { ok: false, why: 'suggested nothing' };
-  const got = row.rests_on.map((r) => r.id);
-  const sets = w.fromOneOf || [w.from];
-  const pure = sets.find((set) => got.every((id) => set.includes(id)));
-  if (!pure) return { ok: false, why: `mixed or noise: ${got.join(', ')}` };
-  if (got.length < w.atLeast) return { ok: false, why: `only ${got.length} drops` };
-  if (w.world && row.record_id !== w.world) return { ok: false, why: `World ${row.record_id}` };
-  const pc = row.proposed_change;
-  if (w.dates && (pc.start_date || pc.end_date) && (pc.start_date !== w.dates[0] || pc.end_date !== w.dates[1]))
-    return { ok: false, why: `dates ${pc.start_date} to ${pc.end_date}` };
-  if (w.noDates && (pc.start_date || pc.end_date)) return { ok: false, why: `dates ${pc.start_date} to ${pc.end_date} the drops never give` };
-  return { ok: true, why: '' };
-}
 
 const QUESTIONS = {
   plain: 'Is it one short, warm question to the person, asked plainly, that offers a guess about what became of the Chapter without presuming it?',
@@ -194,38 +172,16 @@ if (args.includes('--answers')) {
 const L = [`# Chapter questions replay (${CHAPTER_QUESTIONS_VERSION}), ${repeat} runs of each per model`, ''];
 const detail = [];
 L.push(
-  `| Model | Suggestions right | Close guesses right | Welcome back guesses right | ${Object.keys(QUESTIONS).join(' | ')} | Cost a call | Meets the bar |`,
-  `| --- | --- | --- | --- | ${Object.keys(QUESTIONS).map(() => '---').join(' | ')} | --- | --- |`,
+  `| Model | Close guesses right | Welcome back guesses right | ${Object.keys(QUESTIONS).join(' | ')} | Cost a call | Meets the bar |`,
+  `| --- | --- | --- | ${Object.keys(QUESTIONS).map(() => '---').join(' | ')} | --- | --- |`,
 );
 
 for (const m of models) {
   const env = envFor(m);
   let calls = 0;
   let cost = 0;
-  const tally = { s: [0, 0], c: [0, 0], w: [0, 0] };
+  const tally = { c: [0, 0], w: [0, 0] };
   const judged = [];
-
-  // suggesting
-  for (const s of SUGGESTS)
-    for (const res of await Promise.all(
-      Array.from({ length: repeat }, () =>
-        metered(() =>
-          askSuggestion(env, { worlds: WORLDS, chapters: s.chapters, drops: s.drops, declined: s.declined, person: PERSON, today: TODAY, userId: 'u', runId: 'r' }),
-        ).catch((err) => ({ error: err.message })),
-      ),
-    )) {
-      if (res.error) {
-        detail.push(`- ${m} ${s.key}: ERROR ${res.error}`);
-        tally.s[1]++;
-        continue;
-      }
-      calls++;
-      cost += res.cost;
-      const r = suggestRight(s, res.out.row);
-      tally.s[1]++;
-      if (r.ok) tally.s[0]++;
-      detail.push(`- ${m} ${s.key}: ${r.ok ? 'right' : `WRONG (${r.why})`} | ${res.out.row ? `"${res.out.row.proposed_change.title}" on ${res.out.row.rests_on.length} drops, "${res.out.row.question}" [${res.out.row.choices.join(' | ')}]${res.out.row.proposed_change.unsure ? ' (unsure)' : ''}` : `none (${res.out.refused || ''}: ${res.out.why})`}`);
-    }
 
   // closing, and the welcome back
   const asks = [
@@ -264,14 +220,13 @@ for (const m of models) {
 
   const held = Object.keys(QUESTIONS).map((k) => judged.filter((j) => j[k]).length);
   const meets =
-    tally.s[0] / tally.s[1] >= BAR &&
     tally.c[0] / tally.c[1] >= BAR &&
     tally.w[0] / tally.w[1] >= BAR &&
     held.every((h) => h / Math.max(1, judged.length) >= BAR);
   L.push(
-    `| ${m} | ${tally.s[0]}/${tally.s[1]} ${pct(...tally.s)} | ${tally.c[0]}/${tally.c[1]} ${pct(...tally.c)} | ${tally.w[0]}/${tally.w[1]} ${pct(...tally.w)} | ${held.map((h) => `${h}/${judged.length}`).join(' | ')} | $${(cost / Math.max(1, calls)).toFixed(4)} | ${meets ? 'yes' : 'no'} |`,
+    `| ${m} | ${tally.c[0]}/${tally.c[1]} ${pct(...tally.c)} | ${tally.w[0]}/${tally.w[1]} ${pct(...tally.w)} | ${held.map((h) => `${h}/${judged.length}`).join(' | ')} | $${(cost / Math.max(1, calls)).toFixed(4)} | ${meets ? 'yes' : 'no'} |`,
   );
-  console.log(`${m}: suggest ${tally.s.join('/')}, close ${tally.c.join('/')}, welcome ${tally.w.join('/')}, held ${held.join(',')} of ${judged.length}`);
+  console.log(`${m}: close ${tally.c.join('/')}, welcome ${tally.w.join('/')}, held ${held.join(',')} of ${judged.length}`);
 }
 
 L.push('', '## Every answer', '', ...detail, '');

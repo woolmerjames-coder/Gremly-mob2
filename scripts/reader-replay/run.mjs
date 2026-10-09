@@ -196,13 +196,27 @@ function STAGE_FOUR_F() {
       },
     },
     {
+      id: 'own-project',
+      look: 'Someone building an app of their own keeps its work in Gremly: their project is part of their life, and its launch is kept.',
+      runAt: '2026-10-20T03:00:00Z',
+      records: [
+        todoRecord({ id: 't-onboard', title: 'Ship the onboarding screen for my app before the beta', created_at: '2026-10-19T17:00:00Z' }),
+        todoRecord({ id: 't-sync', title: 'Fix the sync bug in my app that loses drafts', created_at: '2026-10-19T17:05:00Z' }),
+        noteRecord({ id: 'n-launch', title: 'Launch', body: 'Aiming to launch my app in December, the beta goes out to friends in November first.', created_at: '2026-10-19T18:00:00Z' }),
+      ],
+      check: ({ facts, recRef }) => [
+        { name: 'their own project is kept as part of their life', ok: facts.length > 0, detail: said(facts) },
+        { name: 'its launch is kept', ok: facts.some((f) => recRef.get(f.source_ref)?.id === 'n-launch'), detail: said(facts) },
+      ],
+    },
+    {
       id: 'set-aside-left',
-      look: 'A note they changed gave a fact they set aside as not part of their life: it stays as it is and is not added again.',
+      look: 'A note they changed gave a fact they asked Gremly to forget: it stays as it is and is not added again.',
       runAt: '2026-11-12T17:00:00Z',
-      facts: [{ id: 'fsa', statement: 'Alex added a note called test note to try the app.', state: 'set_aside', about_date: null, timing: 'day' }],
+      facts: [{ id: 'fsa', statement: 'Alex is thinking of selling the old road bike.', state: 'set_aside', about_date: null, timing: 'standing' }],
       records: [
         {
-          ...noteRecord({ id: 'n-try', title: 'test note', body: 'trying the app again, ignore', created_at: '2026-11-12T16:30:00Z' }),
+          ...noteRecord({ id: 'n-try', title: 'Bike', body: 'Maybe sell the old road bike in spring. Tyres first.', created_at: '2026-11-12T16:30:00Z' }),
           kind: 'changed',
           factIds: ['fsa'],
         },
@@ -478,6 +492,33 @@ function STAGE_ONE() {
       check: ({ calendar, recRef }) => [
         { name: 'the physio entry is cancelled', ok: calendar.some((c) => c.cancelled && recRef.get(c.ref)?.id === 'e-physio'), detail: JSON.stringify(calendar) },
         { name: 'the lunch is left alone', ok: !calendar.some((c) => recRef.get(c.ref)?.id === 'e-other'), detail: JSON.stringify(calendar) },
+      ],
+    },
+    {
+      id: 'calendar-said-might-move',
+      look: 'They say they might move the dentist, which is on their calendar: only a maybe, so the entry is never listed as cancelled.',
+      runAt,
+      facts: [fact('fd', 'Alex has a dentist appointment on Friday.', { about_date: '2026-10-09', item_table: 'synced_calendar_events' })],
+      records: [
+        calendarRecord({ id: 'e-dentist', title: 'Dentist', start_at: '2026-10-09T16:00:00Z', end_at: '2026-10-09T17:00:00Z', is_all_day: false, created_at: '2026-10-06T21:00:00Z' }, TZ),
+        chatRecord({ id: 'm-move', chat_id: 'c-1', content: 'Might have to move the dentist on Friday, work is mad. Probably just cancel it.', created_at: '2026-10-07T21:30:00Z' }),
+      ],
+      check: ({ calendar, recRef }) => [
+        { name: 'the dentist entry is never cancelled by a maybe', ok: !calendar.some((c) => c.cancelled && recRef.get(c.ref)?.id === 'e-dentist'), detail: JSON.stringify(calendar) },
+      ],
+    },
+    {
+      id: 'calendar-said-called-off',
+      look: 'They say the barber on their calendar is off, and the entry still stands on the calendar: Gremly knows it will not happen, and the gym entry they said nothing of is left alone.',
+      runAt,
+      records: [
+        calendarRecord({ id: 'e-barber', title: 'Barber', start_at: '2026-10-09T17:00:00Z', end_at: '2026-10-09T17:30:00Z', is_all_day: false, created_at: '2026-10-05T21:00:00Z' }, TZ),
+        calendarRecord({ id: 'e-gym', title: 'Gym class', start_at: '2026-10-09T23:00:00Z', end_at: '2026-10-10T00:00:00Z', is_all_day: false, created_at: '2026-10-05T21:00:00Z' }, TZ),
+        chatRecord({ id: 'm-off', chat_id: 'c-1', content: 'The barber rang, he is ill so Friday is off. I will find another day next week.', created_at: '2026-10-07T21:30:00Z' }),
+      ],
+      check: ({ calendar, recRef }) => [
+        { name: 'the barber entry is known not to happen', ok: calendar.some((c) => c.cancelled && recRef.get(c.ref)?.id === 'e-barber'), detail: JSON.stringify(calendar) },
+        { name: 'the gym entry is left alone', ok: !calendar.some((c) => recRef.get(c.ref)?.id === 'e-gym'), detail: JSON.stringify(calendar) },
       ],
     },
     {

@@ -34,6 +34,7 @@ import {
 } from '../../shared/factTiming.js';
 import { FACT_KINDS, KIND_RULES, validKind } from '../../shared/factKinds.js';
 import { questionWeight } from '../../shared/questionRules.js';
+import { takeRoom } from './questionRoom';
 import {
   FACT_PEOPLE_SCHEMA,
   SAME_PEOPLE_SCHEMA,
@@ -60,7 +61,7 @@ import {
   todoRecord,
 } from './records';
 
-export const READER_PROMPT_VERSION = 'reader-2026-10-14b';
+export const READER_PROMPT_VERSION = 'reader-2026-10-18b';
 
 const MAX_RECORDS_PER_CALL = 60;
 const MAX_CHARS_PER_CALL = 30000;
@@ -203,7 +204,7 @@ WHAT BELONGS IN THE LEDGER
 - The day an occasion in their life falls on, and whose occasion it is, belongs in the ledger whenever the person gives it, however much in passing, and above all when they put Gremly right about it. A plan made around an occasion never stands in for the occasion's own day: each is a fact of its own.
 - An occasion has one day. When the ledger already holds a day for it, in any state, a record that only points near it, to something planned around it, is a fact about that plan and leaves the occasion's day as it is. When a record gives the occasion itself a different day and you cannot tell which is right, never add a second day for it: ask the person, since an occasion that comes every year always bears on what is ahead.
 - When a record shows that someone in their life has died, however it is said, keep that as a fact of its own about that person, and write every other fact about them so it stays true beside it.
-- Not every record produces a fact. Routine chores, passing remarks and app housekeeping usually do not. Be selective; a short, accurate ledger is worth more than a long one.
+- Not every record produces a fact. Routine chores and passing remarks usually do not. Be selective; a short, accurate ledger is worth more than a long one.
 - Write each statement in plain words, about the person, in the third person, as true as of the record's date. Keep it to one sentence.
 - A statement says what the record shows. Whether a later record confirmed it is carried by the state, not written into the statement.
 - Records that say the same thing produce one fact, not one per record.
@@ -223,7 +224,7 @@ RECORDS THAT CHANGED OR WENT
 - A record marked as changed was made before and has changed since. It is shown as it stands now, with what changed and the ledger facts already taken from it. Add a fact only for what it now says that the ledger does not hold. When what it now says adds to or alters one of those facts, update that fact instead of adding a second one. When the change adds nothing, return nothing for it.
 - A record marked as deleted cannot be shown; the ledger facts taken from it are listed. Deleting can be tidying, so the deletion alone changes none of those facts, not even to unconfirmed: change one only when the ledger or the other records show it no longer holds.
 - A record marked as read before was read under older rules and is shown again, with the ledger facts already taken from it. The ledger already holds what came after it, so leave every fact as it is: add a fact only for what the record says that those facts and the rest of the ledger miss, and return nothing for a record whose facts already say all it holds. A listed fact that was put right, changed or replaced already stands for what the record said: the ledger keeps the later version, so add nothing for it.
-- A listed fact they set aside is one they asked Gremly to stop treating as part of their life. Leave it as it is, and never add what it says again, in any words.
+- A listed fact set aside is one they asked Gremly to forget. Leave it as it is, and never add what it says again, in any words.
 - A record split into parts is one record. Read the parts together.
 
 ITEMS
@@ -232,7 +233,7 @@ ITEMS
 - The ledger shows which facts are about an item and how that item stands now.
 
 CALENDAR
-- An entry on their calendar is kept, with its day and time, by their calendar, which Gremly reads directly. Make a fact from one only for what it tells you about their life beyond being on the calendar. The ordinary running of their work tells a friend nothing to remember, so it never becomes a fact.
+- An entry on their calendar is kept, with its day and time, by their calendar, which Gremly reads directly. Make a fact from one only for what it tells you about their life beyond being on the calendar. The ordinary running of their work tells a friend nothing to remember, so it never becomes a fact: their calendar already holds it, and Gremly reads it there.
 - For each calendar entry among the records, judge whether it has been cancelled and will not happen, from the entry and what the other records show. List in calendar each entry you judge cancelled, and each entry marked cancelled earlier that the records now show is going ahead. Leave every other entry out.
 
 KEEPING THE LEDGER TRUE
@@ -758,7 +759,7 @@ function factStanding(f, today) {
     f.state === 'corrected'
       ? `, put right by them${f.correction_text ? `: "${trim(f.correction_text, 200)}"` : ''}`
       : f.state === 'set_aside'
-        ? ', set aside by them as not part of their life'
+        ? ', which they asked Gremly to forget'
         : '';
   return `${stateWords(f, today)}${fixed}${f.private ? ' [private]' : ''}${item}`;
 }
@@ -1128,36 +1129,47 @@ export async function readChunk(env, userId, tz, chunk, baseRunId, { reread = fa
     counts.confirmed++;
   }
 
-  // Questions, one open question per fact at a time
+  // Questions, one open question per fact at a time, and only as many as
+  // there is room for, those that need an answer first (takeRoom)
+  const rows = [];
   for (const q of asks) {
     if (!q.question) continue;
     const fact = q.fact_ref ? factRef.get(q.fact_ref) : null;
     const src = q.source_ref ? recRef.get(q.source_ref) : null;
+    // their calendar keeps its own entries: never Gremly's to question
+    if (src?.table === 'synced_calendar_events' || fact?.item_table === 'synced_calendar_events') {
+      counts.questions_calendar = (counts.questions_calendar || 0) + 1;
+      continue;
+    }
     if (fact) {
       const existing = await d.select(
         `gremly_questions?user_id=eq.${userId}&about_fact_id=eq.${fact.id}&status=in.(open,asked)&select=id&limit=1`,
       );
-      if (existing.length) continue;
+      if (existing.length || rows.some((r) => r.about_fact_id === fact.id)) continue;
     }
-    await d.insertQuiet('gremly_questions', [
-      {
-        user_id: userId,
-        question: trim(q.question, 300),
-        choices: (q.choices || [])
-          .map((c) => trim(c, 40))
-          .filter(Boolean)
-          .slice(0, 4),
-        status: 'open',
-        about_fact_id: fact?.id || null,
-        record_table: src?.table || null,
-        record_id: src?.id || null,
-        proposed_change: q.proposed_change ? { text: trim(q.proposed_change, 300) } : null,
-        weight: questionWeight(q.matters),
-        run_id: runId,
-        prompt_version: READER_PROMPT_VERSION,
-      },
-    ]);
-    counts.questions++;
+    rows.push({
+      user_id: userId,
+      question: trim(q.question, 300),
+      choices: (q.choices || [])
+        .map((c) => trim(c, 40))
+        .filter(Boolean)
+        .slice(0, 4),
+      status: 'open',
+      about_fact_id: fact?.id || null,
+      record_table: src?.table || null,
+      record_id: src?.id || null,
+      proposed_change: q.proposed_change ? { text: trim(q.proposed_change, 300) } : null,
+      weight: questionWeight(q.matters),
+      run_id: runId,
+      prompt_version: READER_PROMPT_VERSION,
+    });
+  }
+  if (rows.length) {
+    const { kept, held, no_room } = await takeRoom(d, userId, rows);
+    if (kept.length) await d.insertQuiet('gremly_questions', kept);
+    counts.questions += kept.length;
+    if (held.length) counts.questions_held_back = held.length;
+    if (no_room) counts.questions_no_room = no_room;
   }
 
   if (sourceRows.length) {
@@ -1269,7 +1281,7 @@ export async function planWindows(env, userId, sinceIso, untilIso) {
 
 /**
  * The facts that rested only on a note or journal entry the person deleted
- * are set aside, with the reason "source deleted". A fact that rests on other
+ * are superseded, with the reason "source deleted". A fact that rests on other
  * records too is left for the reader, beside the deletion. A deleted todo or
  * habit sets nothing aside: tidying away is not forgetting (James's call of
  * 6 Oct), so the reader sees it and decides.

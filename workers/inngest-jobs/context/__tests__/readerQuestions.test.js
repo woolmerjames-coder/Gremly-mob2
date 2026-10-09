@@ -203,7 +203,7 @@ describe('questions the reader writes', () => {
   });
 });
 
-describe('a fact they set aside', () => {
+describe('a fact they asked Gremly to forget', () => {
   it('is shown as set aside, and never changed by a read', async () => {
     const t = {
       life_facts: [
@@ -219,7 +219,7 @@ describe('a fact they set aside', () => {
     };
     wire(t);
     jsonCall.mockImplementation(async (_env, { user }) => {
-      expect(user).toContain('set aside by them as not part of their life');
+      expect(user).toContain('which they asked Gremly to forget');
       return {
         model: 'model',
         output: {

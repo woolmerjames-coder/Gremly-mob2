@@ -29,6 +29,7 @@ import { itemOf, readFacts, readFactPeople, readItemMarks, markItems } from './f
 import { stateWords } from '../../shared/factTiming.js';
 import { oldWorldsFieldsStopped } from '../../shared/worldsFields.js';
 import { GREMLY_CATALOG, GREMLY_SLUGS, PLAIN_GREMLY } from '../../shared/gremlys.js';
+import { whoSaid } from '../../shared/whoSaid.js';
 
 export const FIRST_WORLDS_VERSION = 'first-worlds-2026-10-07c';
 
@@ -309,7 +310,7 @@ export function firstWorldsRequest({
         (n) => n.toLowerCase() !== (p.name || '').toLowerCase(),
       );
       peopleLines.push(
-        `${ref} | ${p.name || '(no name given yet)'}${others.length ? `, also called ${others.join(', ')}` : ''}${p.relationship ? ` | ${p.relationship}, as they said` : ''}`,
+        `${ref} | ${p.name || '(no name given yet)'}${others.length ? `, also called ${others.join(', ')}` : ''}${p.relationship ? ` | ${whoSaid(p)}` : ''}`,
       );
     }
   const itemLines = items.map((it) => {

@@ -48,8 +48,12 @@ import { loadStory, storyLines } from './story';
 import { invalidateChatCache } from './cache';
 import { batchUsageRow, writeUsageRow } from '../../shared/aiUsage';
 import { dayOn, stateWords, whenTrue } from '../../shared/factTiming.js';
+import { takeRoom } from './questionRoom';
+import { ITEM_TABLE, itemOf, markItems, readItemMarks } from './filed';
+import { cleanChoices, restsOnDeclined, startNoKey } from './chapterQuestions';
+import { chapterQuestionsOn, OPEN_CHAPTER_SUGGESTIONS, questionWeight } from '../../shared/questionRules.js';
 import { passageRow, recordPassages } from '../../shared/passageRefs.js';
-import { oldWorldsFieldsStopped, withoutOldFields } from '../../shared/worldsFields.js';
+import { withoutOldFields } from '../../shared/worldsFields.js';
 import { gatherWeekCounts, weekCountItems } from './weekCounts';
 import {
   NOT_SURE_PROPERTIES,
@@ -62,7 +66,7 @@ import {
   applyUnsure,
 } from './unsure';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18e';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18r';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -74,6 +78,17 @@ function trim(text, n) {
 const WEEKLY_SCHEMA = {
   type: 'object',
   properties: {
+    // what each Chapter was begun for: the fact whose day is when it ends,
+    // decided first, before anything is written (18 Oct: decided beside each
+    // Chapter's notes, it followed what the notes already said)
+    begun_for: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { chapter_ref: { type: 'string' }, fact_ref: { type: 'string' } },
+        required: ['chapter_ref', 'fact_ref'],
+      },
+    },
     life_map: {
       type: 'object',
       properties: {
@@ -128,7 +143,6 @@ const WEEKLY_SCHEMA = {
         type: 'object',
         properties: {
           world_ref: { type: 'string' },
-          phase: { type: 'string', enum: ['candidate', 'active', 'dormant'] },
           summary: { type: 'string' },
           key_priorities: {
             type: 'array',
@@ -140,7 +154,7 @@ const WEEKLY_SCHEMA = {
           },
           card_fact_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['world_ref', 'phase', 'summary', 'key_priorities', 'card_fact_refs'],
+        required: ['world_ref', 'summary', 'key_priorities', 'card_fact_refs'],
       },
     },
     worlds_summary: {
@@ -165,9 +179,6 @@ const WEEKLY_SCHEMA = {
         type: 'object',
         properties: {
           chapter_ref: { type: 'string' },
-          // the fact about what it was begun for, whose day is when it ends;
-          // decided before its notes, which are written to match
-          begun_for_ref: { type: 'string' },
           summary: { type: 'string' },
           stage: { type: 'string' },
           key_priorities: {
@@ -186,7 +197,28 @@ const WEEKLY_SCHEMA = {
           // the people who are part of the chapter (chapter_people)
           people_refs: { type: 'array', items: { type: 'string' } },
         },
-        required: ['chapter_ref', 'begun_for_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs', 'people_refs'],
+        required: ['chapter_ref', 'summary', 'stage', 'key_priorities', 'card_fact_refs', 'people_refs'],
+      },
+    },
+    // a Chapter forming that they do not have yet, offered to them as a
+    // question and started only on their yes (18 Oct, in place of the daily
+    // suggester, which saw only what was filed in no Chapter): at most one
+    chapter_forming: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          world_ref: { type: 'string' },
+          start_date: { type: 'string' },
+          end_date: { type: 'string' },
+          rests_on: { type: 'array', items: { type: 'string' } },
+          unsure: { type: 'boolean' },
+          question: { type: 'string' },
+          choices: { type: 'array', items: { type: 'string' } },
+          why: { type: 'string' },
+        },
+        required: ['title', 'world_ref', 'start_date', 'end_date', 'rests_on', 'unsure', 'question', 'choices', 'why'],
       },
     },
     // what Gremly is not sure of yet, and who matters most (context/unsure.js),
@@ -196,8 +228,13 @@ const WEEKLY_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { question: { type: 'string' }, fact_ref: { type: 'string' } },
-        required: ['question', 'fact_ref'],
+        properties: {
+          question: { type: 'string' },
+          fact_ref: { type: 'string' },
+          // how much the answer matters, as the reader says it (data fabric stage 4f)
+          matters: { type: 'string', enum: ['needs', 'helps'] },
+        },
+        required: ['question', 'fact_ref', 'matters'],
       },
     },
     week_note: { type: 'string' },
@@ -237,12 +274,14 @@ const WEEKLY_SCHEMA = {
     },
   },
   required: [
+    'begun_for',
     'life_map',
     'profile_text',
     'profile_refs',
     'worlds',
     'worlds_summary',
     'chapters',
+    'chapter_forming',
     'not_sure',
     'who_matters',
     'questions',
@@ -255,20 +294,22 @@ const WEEKLY_SCHEMA = {
 
 // Asked for, but a reply without them is still applied: the rest of the pass
 // never waits on what Gremly is not sure of
-const SHAPE_OPTIONAL = new Set(['not_sure', 'who_matters']);
+const SHAPE_OPTIONAL = new Set(['not_sure', 'who_matters', 'begun_for', 'chapter_forming']);
 
 // What every note the pass writes holds to, in the pass and when one note goes
 // back alone (data fabric stage 7, after the comparison of 8 Oct)
 const TRUTH_RULES = `WHAT IS TRUE
 - Everything here says only what the records hold, as of today, and cites in its refs the records it rests on, by the refs given: facts, journal entries, what is on their list, the week's counts and people.
 - A plan is told as done only when a record says it happened. Until then it is told as what was planned, with no word on how it went. A plan that changed is told as it now stands.
-- An event or a plan whose day has passed is told as past, whatever an older note says. A fact the records hold as current is told in the present, however long ago it was recorded. Something whose day has passed is never a priority: a priority is something still ahead or under way.
+- An event or a plan whose day has passed is told as past, whatever an older note says. A fact the records hold as current is told in the present, however long ago it was recorded. One that was so on days of its own that have passed is told as having been so on them: what was under way on those days took place, and is never told as only a plan. Something whose day has passed is never a priority: a priority is something still ahead or under way.
+- Each thing is told the same way wherever it is written: the same days, the same state and the same outcome, in every note, the profile, the questions and the summary plan.
 - Each person is called by the name the records use for them. Who someone is to the person is said only when the people list or a fact records it, never worked out from how often they come up, what they do together or anything else, and never implied in other words, by the kind of tie or the group they would belong to. When it is not recorded, their name alone says enough. Nor is anyone else given a pronoun or a gender their records do not give.
 - A date is given only where the day matters, and as a date (a weekday or month is fine), never as today, tomorrow, yesterday, this week or next week, because everything here is read for the whole week ahead.`;
 
 const VOICE_RULES = `WHO READS WHAT
 - Gremly's notes on their Worlds and Chapters, the Worlds headline and the note on their week are shown to the person, so every one of them speaks to them as a friend who knows their life would: to them, warm and plain, never as a file note about them.
 - What is not known is simply left out. Nothing written speaks of records, of what was or was not recorded, of what Gremly does not know, or of who set a title or any other part of what it writes about.
+- Gremly's earlier notes, shown with each World and Chapter, are written again under these rules: anything in them these rules do not allow is left out, never carried over.
 - The Life Map, the profile, the notes on people and the plan for their summary are Gremly's own, written about them.`;
 
 // The fixed part comes first so Anthropic can cache it across people; today's
@@ -351,26 +392,35 @@ WORLDS
 - For each world: Gremly's notes on it, a summary of one or two sentences on where it stands now, written to them; and up to five key priorities, each with its date when it has one. The line on its card is written by another writer, from these notes.
 - The notes say what is true now, and nothing counts what was not done. When a world has been quiet, the notes give its last real state with its month, or what is next if something is genuinely ahead.
 - Return only the worlds you have something true to say about; a world you leave out keeps its notes.
-- phase: active when the person is engaged with it now, dormant when it has gone quiet for weeks, candidate only when it is still forming.
 - Cite the facts each world's notes rest on in card_fact_refs. The most recent of them that happened is taken as when the world was last active, so the app does not show a living world as gone quiet.
 - worlds_summary: one line noticing what is most alive across their worlds this week, citing in its refs the records it rests on. Feature up to three worlds with a short reason. In a quiet week say so kindly and feature none.
 
 CHAPTERS
-- Chapters are stretches of their life with a shape: a trip, a commitment, a season of training, a push on a project. They are kept so the person can look back on them.
+- Chapters are stretches of their life with a shape of their own, kept so the person can look back on them.
 - For each chapter you are given: Gremly's notes on it, a summary of what the chapter was or is, with its dates, written to them like every chapter's notes; a short stage label; and, only for a chapter still active, up to three priorities with their dates when they have them. Its card line, its memory and its title are written elsewhere.
 - A closed chapter is written as a memory: what happened, what it meant to them in their words, what they did. Never tally what was not done, never list unfinished tasks, never call it stalled, failed or abandoned, and give it no priorities.
 - An active chapter that has gone quiet says when it was last active and what was happening then; its stage is a neutral label. Nothing on a chapter tells the person what they should do.
 - Setbacks, slips and health details appear only in the person's own words, and only when they recorded them as part of the chapter themselves.
 - Cite the facts each chapter's notes rest on in card_fact_refs, and write the whole chapter from what the facts show: when the records do not show how a chapter ended, say what it was and when, and leave the outcome out. A chapter with no facts behind it keeps what it has.
 - In people_refs, give the refs from the people list of the people who are part of the chapter as the facts it cites show them: those who share it with them or take part in it. It is empty when those facts show no one.
-- First, in begun_for_ref, give the ref of the fact about what the chapter was begun for, as its title and the facts show: the event or day it leads up to, or the day they said it ends. What was filed in it since, and Gremly's earlier notes on it, never change what it was begun for. It is empty when no fact given holds that day. Its day is when the chapter ends, and when that day has passed, everything on the chapter is written as what it was, never as still going.
+- Before anything else, in begun_for, give for each chapter you are given the ref of the fact about what it was begun for: the event or day it leads up to, or the day they said it ends, whether or not that day has passed and however it went. Its title names what it was begun for; what was filed in it since, and Gremly's earlier notes on it, never change that. Leave out a chapter only when no fact gives that day, and never give the day it began. Its day is when the chapter ends, and when that day has passed, everything on the chapter is written as what it was, never as still going.
 - Return every chapter you are given; one you cannot say anything true about keeps a plain summary of its dates and what it was.
+
+A CHAPTER FORMING
+- Look across their whole life as everything here shows it: what they told Gremly, the ledger, their journal, what they said, their list, what they added lately and where each is filed. Notice whether something with a shape of its own is forming that they do not yet have as a Chapter: something the records show them working towards, going through or planning, often with dates. A single task, or something they simply keep up, is not one. Most weeks none is.
+- It may be growing inside one of their Worlds, or within a Chapter they have. A World holds a whole part of their life and never stands in for a Chapter within it, and something within a Chapter they have, with a shape and days of its own beyond that Chapter's, is a Chapter of its own.
+- Only what the records show them doing or planning is offered, and its title and question say nothing the records do not state. What the records only point to, including where the steps they are taking may lead, is never offered as a Chapter: it belongs in not_sure.
+- When one is, give it in chapter_forming: a short title as they would name it, the World it belongs in, its dates only when what they told Gremly says when it happens, and in rests_on everything it rests on: what they told Gremly about it and what they added that it would hold, all of which must belong to it. The days things were written are never its dates. Give at most one, the clearest, and say in unsure whether you are unsure it is a Chapter rather than something passing.
+- Write one short, warm question to them, offering it by its title without presuming, and two to four short answers they could tap, among them a no. When you are unsure, one of them leaves it as an idea for now.
+- Never offer one already waiting for their answer, one offered before or one they already have. Something private may be part of it, and is never named or hinted at in its title or its question.
 
 ${NOT_SURE_RULES}
 
 QUESTIONS
 - Ask about something a record states but leaves genuinely unclear that bears on their life now or on something still ahead: how a plan turned out, a date or detail still unknown, or two records that disagree. Ask first about what is most pressing: an unknown that something coming up soon depends on, and what they have most recently brought up. Differences about things long past are left as they are. Short and friendly, asked as Gremly asks, never naming itself. Do not repeat open questions. A question takes nothing for granted that the records do not hold.
 - Anything Gremly would only be inferring, which no record states as such, and who someone is to them, are never asked here: give them in not_sure, and Gremly asks them from there.
+- Never ask whether something on their list is done, or when something on their calendar is: their list and their calendar keep those themselves.
+- Say how much each answer matters. needs: until it is answered Gremly holds two versions of something still ahead, or would soon say something wrong. helps: the answer would let Gremly know them better, and nothing is wrong without it.
 
 WEEK NOTE
 - One short paragraph on what this week was, in plain words, spoken to them, since their weekly review may show it to them; their story reads it too. It says only what the records show, never speaks of anything private or about their health, and cites in week_note_refs the records it rests on.
@@ -461,7 +511,7 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
       `life_facts_now?user_id=eq.${userId}&state=in.(current,planned,unconfirmed)&select=id,statement,subject,timing,about_date,about_date_end,state,observed_at,last_confirmed_at,private,health,source_table,source_id&order=last_confirmed_at.desc&limit=400`,
     ),
     d.select(
-      `life_facts_now?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,about_date,state,state_reason,updated_at,private,health,source_table,source_id&order=updated_at.desc&limit=150`,
+      `life_facts_now?user_id=eq.${userId}&state=in.(happened,changed)&updated_at=gte.${encodeURIComponent(new Date(Date.now() - 60 * 864e5).toISOString())}&select=id,statement,subject,timing,about_date,about_date_end,state,state_reason,updated_at,private,health,source_table,source_id&order=updated_at.desc&limit=150`,
     ),
     d.select(
       `life_fact_changes?user_id=eq.${userId}&${between('created_at')}&select=fact_id,from_state,to_state,reason,created_at&order=created_at.asc&limit=100`,
@@ -501,7 +551,7 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     loadStory(env, userId),
     // the people in their life, from the people records (data fabric stage 4c)
     d.select(
-      `life_people?user_id=eq.${userId}&merged_into=is.null&hidden_at=is.null&select=id,name,relationship&order=updated_at.desc&limit=${PEOPLE_READ}`,
+      `life_people?user_id=eq.${userId}&merged_into=is.null&hidden_at=is.null&select=id,name,relationship,relationship_by&order=updated_at.desc&limit=${PEOPLE_READ}`,
     ),
     // what the last weekly summaries showed, so the plan can move on from it
     d.select(
@@ -534,6 +584,23 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
       `[ALERT][Weekly] what Gremly is not sure of could not be read for ${userId}, so the pass sees none of it: ${String(err?.message || err).slice(0, 200)}`,
     );
   }
+  // what they added themselves lately, filed or not, and the Chapters Gremly
+  // offered to start before (18 Oct): the pass sees what moves inside their
+  // Worlds and Chapters and what is forming outside them
+  const [lately, offered] = await Promise.all([
+    latelyItems(d, userId, periodEnd, new Set((journals || []).map((j) => j.id))),
+    d.select(
+      `gremly_questions?user_id=eq.${userId}&kind=eq.start_chapter&select=status,proposed_change,rests_on,created_at&order=created_at.desc&limit=40`,
+    ),
+  ]);
+  const forming = {
+    waiting: (offered || [])
+      .filter((q) => ['open', 'asked'].includes(q.status))
+      .map((q) => ({ title: q.proposed_change?.title || null })),
+    before: (offered || [])
+      .filter((q) => !['open', 'asked'].includes(q.status))
+      .map((q) => ({ title: q.proposed_change?.title || null })),
+  };
   // the week counted by code (stage 5); a count that cannot be made is said,
   // and the pass goes on without it
   let counts = null;
@@ -603,7 +670,61 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
     unsure,
     shown: shownBefore(summaries || []),
     counts,
+    lately,
+    forming,
   };
+}
+
+/** What they added lately, read for the pass: the last this many days, at most this many things. */
+export const LATELY_DAYS = 28;
+export const LATELY_MOST = 120;
+
+/**
+ * What they added themselves in the last four weeks, newest first, each with
+ * the Worlds and Chapters it is filed in (18 Oct). Their calendar keeps its
+ * own entries and an imported note is not one they made, so neither is read;
+ * this week's journal entries are given in full elsewhere. Code reads tables,
+ * days and links; what any of it means is the pass's to say.
+ */
+async function latelyItems(d, userId, periodEnd, shownJournals = new Set()) {
+  const since = `${addDays(periodEnd, -LATELY_DAYS)}T00:00:00Z`;
+  const cols = {
+    note: 'id,title,body,subtype,date,target_date,created_at',
+    todo: 'id,name,title,body,notes,created_at,completed_at',
+    habit: 'id,name,title,notes,subtype,created_at',
+  };
+  const lists = await Promise.all(
+    Object.entries(ITEM_TABLE).map(async ([type, table]) =>
+      (
+        (await d.select(
+          `${table}?owner_id=eq.${userId}&archived=is.false${type === 'note' ? '&external_source=is.null' : ''}&created_at=gte.${since}&select=${cols[type]}&order=created_at.desc&limit=${LATELY_MOST}`,
+        )) || []
+      ).map((r) => itemOf(type, r)),
+    ),
+  );
+  const items = lists
+    .flat()
+    .filter((it) => !shownJournals.has(it.id))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+    .slice(0, LATELY_MOST);
+  if (!items.length) return [];
+  const worlds = new Map();
+  const chapters = new Map();
+  const ids = items.map((i) => i.id);
+  for (let i = 0; i < ids.length; i += 100) {
+    const part = ids.slice(i, i + 100).join(',');
+    const [wl, cl] = await Promise.all([
+      d.select(`drop_world_links?owner_id=eq.${userId}&drop_id=in.(${part})&select=drop_id,world_id`),
+      d.select(`drop_chapter_links?owner_id=eq.${userId}&drop_id=in.(${part})&select=drop_id,chapter_id`),
+    ]);
+    for (const l of wl || []) worlds.set(l.drop_id, [...(worlds.get(l.drop_id) || []), l.world_id]);
+    for (const l of cl || []) chapters.set(l.drop_id, [...(chapters.get(l.drop_id) || []), l.chapter_id]);
+  }
+  return markItems(items, [], await readItemMarks(d, userId, items)).map((it) => ({
+    ...it,
+    worlds: worlds.get(it.id) || [],
+    chapters: chapters.get(it.id) || [],
+  }));
 }
 
 /** People read for the pass, and the most of them it is shown. */
@@ -671,7 +792,13 @@ export function renderWeek(g, today) {
       f.timing === 'standing' || f.timing === 'yearly' || !f.about_date
         ? `${whenTrue(f, today)}${f.timing === 'yearly' && on ? ` (${relativeDay(on, today)})` : ''}`
         : `${whenTrue(f)} (${relativeDay(f.about_date, today)})`;
-    return shown(ref, `${ref} | ${stateWords(f, today)}${f.private ? ' [private]' : ''}${f.health ? ' [health]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`, 'a fact Gremly holds about their life');
+    // a fact that changed says how, so neither the writer nor the check reads
+    // it as what now stands
+    const state =
+      f.state === 'changed' && f.state_reason
+        ? `changed since, no longer as written: ${trim(f.state_reason, 200)}`
+        : stateWords(f, today);
+    return shown(ref, `${ref} | ${state}${f.private ? ' [private]' : ''}${f.health ? ' [health]' : ''} | ${when} | ${trim(f.statement, 220)} | recorded ${String(f.observed_at || f.updated_at).slice(0, 10)}`, 'a fact Gremly holds about their life');
   };
   const weekItemIds = new Set([...g.created.map((t) => t.id), ...g.completed.map((t) => t.id)]);
   const worldActivity = new Map();
@@ -694,27 +821,29 @@ export function renderWeek(g, today) {
       );
     }
   }
+  const worldRefOf = new Map();
   const worldLines = g.worlds.map((w) => {
     const ref = add('w', { type: 'world', ...w });
+    worldRefOf.set(w.id, ref);
     const kp = (Array.isArray(w.key_priorities) ? w.key_priorities : [])
       .map((k) => (typeof k === 'string' ? k : k?.text))
       .filter(Boolean);
-    return shown(ref, `${ref} | ${w.display_name || w.name} | phase ${w.phase} | last real activity ${w.last_signal_at ? w.last_signal_at.slice(0, 10) : 'unknown'} | items this week ${worldActivity.get(w.id) || 0} | card: "${trim(w.card_subtitle, 100)}"${w.card_subtitle_source === 'user' ? ' (set by the person, keep unless untrue)' : ''} | summary: "${trim(w.summary, 200)}" | priorities: ${kp.map((k) => trim(k, 80)).join('; ') || 'none'}`, 'one of their Worlds');
+    return shown(ref, `${ref} | ${w.display_name || w.name} | phase ${w.phase} | last real activity ${w.last_signal_at ? w.last_signal_at.slice(0, 10) : 'unknown'} | items this week ${worldActivity.get(w.id) || 0} | card: "${trim(w.card_subtitle, 100)}" | summary: "${trim(w.summary, 200)}" | priorities: ${kp.map((k) => trim(k, 80)).join('; ') || 'none'}`, 'one of their Worlds');
   });
   const qLines = g.questions.map(
     (q) => `- ${trim(q.question, 200)} (asked ${q.created_at.slice(0, 10)})`,
   );
+  const chapterRefOf = new Map();
   const chapterLines = (g.chapters || []).map((c) => {
     const ref = add('c', { type: 'chapter', id: c.id, start_date: c.start_date || null });
+    chapterRefOf.set(c.id, ref);
     const kp = (Array.isArray(c.key_priorities) ? c.key_priorities : [])
       .map((k) => (typeof k === 'string' ? k : k?.text))
       .filter(Boolean);
-    const userSet = [
-      c.title_source === 'user' && 'title',
-      c.card_subtitle_source === 'user' && 'card',
-      c.summary_source === 'user' && 'summary',
-      c.epigraph_source === 'user' && 'epigraph',
-    ].filter(Boolean);
+    // only the notes they wrote themselves are marked: the title, the card and
+    // the memory are written elsewhere, and a title marked as theirs was
+    // spoken of in the notes (18 Oct)
+    const userSet = [c.summary_source === 'user' && 'summary'].filter(Boolean);
     return shown(ref, `${ref} | ${trim(c.title, 80)} | ${c.chapter_type} | ${c.phase} | ${c.start_date || '?'} to ${c.end_date || (c.phase === 'closed' ? '?' : 'no end set')} | stage: ${c.current_phase_key || 'none'} | card: "${trim(c.card_subtitle, 100)}" | summary: "${trim(c.summary, 300)}" | epigraph: "${trim(c.epigraph, 200)}" | priorities: ${kp.map((k) => trim(k, 70)).join('; ') || 'none'}${userSet.length ? ` | set by the person, keep unless untrue: ${userSet.join(', ')}` : ''}`, 'a Chapter of their life');
   });
   const storyText = storyLines(g.story || [], today);
@@ -754,6 +883,23 @@ export function renderWeek(g, today) {
     const ref = add('t', { type: 'item', ...t, private: !!m?.private, health: !!m?.health });
     return shown(ref, `${ref} | ${t.added ? `added ${t.added}` : 'added before this week'}${t.done ? `, done ${t.done}` : ''}${t.due ? `, due ${t.due}` : ''}${marksOf(t.id)} | ${trim(t.title, 100)}`, 'on their own list');
   });
+  // what they added lately, by a ref a Chapter forming can rest on, with
+  // where each is filed: the Worlds and open Chapters by their refs
+  const worldName = new Map(g.worlds.map((w) => [w.id, w.display_name || w.name]));
+  const chapterName = new Map((g.chapters || []).map((c) => [c.id, c.title]));
+  const latelyLines = (g.lately || []).map((it) => {
+    const ref = add('a', { type: 'lately', id: it.id, kind: it.type, title: it.title, added: dayOf(it.created_at), done: it.done || null, private: !!it.private, health: !!it.health });
+    const where = [
+      ...(it.worlds || []).filter((id) => worldRefOf.has(id)).map((id) => `${worldRefOf.get(id)} ${trim(worldName.get(id), 40)}`),
+      ...(it.chapters || []).filter((id) => chapterRefOf.has(id)).map((id) => `${chapterRefOf.get(id)} ${trim(chapterName.get(id), 50)}`),
+    ];
+    const what = it.type === 'note' ? (it.subtype === 'journal' ? 'journal entry' : 'note') : it.type === 'todo' ? 'on their list' : 'habit';
+    return shown(ref, `${ref} | ${what} | added ${dayOf(it.created_at)}${it.done ? `, done ${it.done}` : ''}${it.private ? ' [private]' : ''}${it.health ? ' [health]' : ''} | ${where.length ? `filed in ${where.join('; ')}` : 'filed in no World or Chapter'} | ${trim(it.title, 100)}${it.body && it.body !== it.title ? `: ${trim(it.body, 200)}` : ''}`, 'something they added themselves');
+  });
+  const formingLines = [
+    ...((g.forming?.waiting || []).map((x) => `- waiting for their answer: ${trim(x.title, 80)}`)),
+    ...((g.forming?.before || []).map((x) => `- offered before: ${trim(x.title, 80)}`)),
+  ];
   const countLines = weekCountItems(g.counts).map((c) => {
     const ref = add('n', { type: 'count', paths: c.paths, line: c.line, private: !!c.private, health: !!c.health });
     return shown(ref, `${ref} | ${c.line}${c.private ? ' [private]' : ''}${c.health ? ' [health]' : ''}`, `counted by code for this week, ${g.periodStart} to ${g.periodEnd}`);
@@ -774,9 +920,15 @@ export function renderWeek(g, today) {
   });
   const personRef = new Map();
   const peopleLines = (g.people || []).map((p) => {
-    const ref = add('p', { type: 'person', id: p.id, name: p.name, relationship: p.relationship });
+    const ref = add('p', { type: 'person', id: p.id, name: p.name, relationship: p.relationship, relationship_by: p.relationship_by || null });
     personRef.set(p.id, ref);
-    return shown(ref, `${ref} | ${trim(p.name, 60)} | ${p.relationship ? trim(p.relationship, 60) : 'who they are to them is not recorded'} | ${evidenceWords(evidence.get(p.id))}`, 'someone in their life');
+    // who Gremly understood them to be is used as known, and said to be Gremly's
+    const who = !p.relationship
+      ? 'who they are to them is not recorded'
+      : p.relationship_by === 'understood'
+        ? `${trim(p.relationship, 60)}, as Gremly understood it from the records`
+        : trim(p.relationship, 60);
+    return shown(ref, `${ref} | ${trim(p.name, 60)} | ${who} | ${evidenceWords(evidence.get(p.id))}`, 'someone in their life');
   });
   // never a record: nothing may rest on them, so they have no line the check reads
   const unsureText = unsureLines(g.unsure || [], personRef, add);
@@ -802,6 +954,8 @@ export function renderWeek(g, today) {
     `WHAT THEY SAID IN CHAT THIS WEEK:\n${g.chats.map((m) => `${dayOf(m.created_at)} | ${trim(m.content, 300)}`).join('\n') || '(nothing)'}`,
     '',
     `ON THEIR LIST, ADDED OR DONE THIS WEEK (ref | when | title):\n${itemLines.join('\n') || '(nothing)'}`,
+    '',
+    `WHAT THEY ADDED THEMSELVES IN THE LAST FOUR WEEKS, NEWEST FIRST (ref | what | when | where it is filed | title and words):\n${latelyLines.join('\n') || '(nothing)'}`,
     g.counts
       ? `THE WEEK COUNTED BY CODE (ref | count):\n${countLines.join('\n')}`
       : `THE WEEK COULD NOT BE COUNTED THIS TIME. HABITS THIS WEEK: ${g.habits.map((h) => `${trim(h.name || h.title, 50)} ${counts.get(h.id) || 0} of ${h.cadence === 'daily' ? 7 : h.target_per_period || 1}`).join('; ') || 'none'}`,
@@ -819,6 +973,8 @@ export function renderWeek(g, today) {
     `OPEN QUESTIONS ALREADY ASKED:\n${qLines.join('\n') || '(none)'}`,
     '',
     `CHAPTERS (ref | title | kind | phase | dates | stage | card | summary | epigraph | priorities):\n${chapterLines.join('\n') || '(none)'}`,
+    '',
+    `CHAPTERS GREMLY OFFERED TO START:\n${formingLines.join('\n') || '(none)'}`,
     '',
     `THEIR STORY (written monthly from the ledger; private items are marked):\n${storyText.join('\n') || '(not written yet)'}`,
   ].join('\n');
@@ -849,38 +1005,7 @@ export async function weeklyRequestParams(env, userId, periodEnd) {
     params,
     // the same request for the model the pass falls back on (llm.js jsonCall)
     jsonArgs: { system, user: text, schema: WEEKLY_SCHEMA, maxTokens: 24000 },
-    refsSnapshot: [...refs.entries()].map(([k, v]) => [
-      k,
-      {
-        type: v.type,
-        id: v.id,
-        statement: v.statement,
-        about_date: v.about_date,
-        // the summary reads a fact's day as the week has it (stage 5)
-        ...(v.type === 'fact'
-          ? {
-              about_date_end: v.about_date_end || null,
-              timing: v.timing || null,
-              // the note it was read from, so the summary keeps a private
-              // entry's words off its cards as it keeps the fact off
-              ...(v.source_table === 'notes' && v.source_id ? { note_id: v.source_id } : {}),
-            }
-          : {}),
-        observed_at: v.observed_at,
-        state: v.state,
-        private: !!v.private,
-        health: !!v.health,
-        // the line the writer was shown, which the check reads it by (stage 7)
-        ...(v.label ? { label: v.label } : {}),
-        // a journal entry, a count and a person, as the summary plan names them
-        ...(v.type === 'journal' ? { date: v.date } : {}),
-        ...(v.type === 'item' ? { title: v.title, added: v.added, done: v.done, due: v.due } : {}),
-        ...(v.type === 'count' ? { paths: v.paths, line: v.line } : {}),
-        ...(v.type === 'person' ? { name: v.name, relationship: v.relationship || null } : {}),
-        // what Gremly was not sure of before, by its own ref (context/unsure.js)
-        ...(v.type === 'unsure' ? { person_id: v.person_id || null, kind: v.kind } : {}),
-      },
-    ]),
+    refsSnapshot: snapshotRefs(refs),
     today,
     tz,
     g,
@@ -888,6 +1013,49 @@ export async function weeklyRequestParams(env, userId, periodEnd) {
     // kept on the run, so the summary written from it has the same figures
     stats: { counts: g.counts || null },
   };
+}
+
+/**
+ * The refs as they are kept on the run and applied from: each record's kind,
+ * id and the fields its readers need. Pure.
+ */
+export function snapshotRefs(refs) {
+  return [...refs.entries()].map(([k, v]) => [
+    k,
+    {
+      type: v.type,
+      id: v.id,
+      statement: v.statement,
+      about_date: v.about_date,
+      // the summary reads a fact's day as the week has it (stage 5)
+      ...(v.type === 'fact'
+        ? {
+            about_date_end: v.about_date_end || null,
+            timing: v.timing || null,
+            // the note it was read from, so the summary keeps a private
+            // entry's words off its cards as it keeps the fact off
+            ...(v.source_table === 'notes' && v.source_id ? { note_id: v.source_id } : {}),
+          }
+        : {}),
+      observed_at: v.observed_at,
+      state: v.state,
+      private: !!v.private,
+      health: !!v.health,
+      // the line the writer was shown, which the check reads it by (stage 7)
+      ...(v.label ? { label: v.label } : {}),
+      // a journal entry, a count and a person, as the summary plan names them
+      ...(v.type === 'journal' ? { date: v.date } : {}),
+      ...(v.type === 'item' ? { title: v.title, added: v.added, done: v.done, due: v.due } : {}),
+      ...(v.type === 'lately' ? { kind: v.kind, title: v.title, added: v.added, done: v.done } : {}),
+      // the day a Chapter began, so no end is kept on or before it (until
+      // 18 Oct it was left out here, and that rule never held)
+      ...(v.type === 'chapter' ? { start_date: v.start_date || null } : {}),
+      ...(v.type === 'count' ? { paths: v.paths, line: v.line } : {}),
+      ...(v.type === 'person' ? { name: v.name, relationship: v.relationship || null, relationship_by: v.relationship_by || null } : {}),
+      // what Gremly was not sure of before, by its own ref (context/unsure.js)
+      ...(v.type === 'unsure' ? { person_id: v.person_id || null, kind: v.kind } : {}),
+    },
+  ]);
 }
 
 /**
@@ -960,6 +1128,7 @@ export function weeklyRecords(refsSnapshot) {
     }
     if (v.type === 'journal' && dayOnly(v.date)) dates.push(dayOnly(v.date));
     if (v.type === 'item') for (const x of [v.added, v.done, v.due]) if (dayOnly(x)) dates.push(dayOnly(x));
+    if (v.type === 'lately') for (const x of [v.added, v.done]) if (dayOnly(x)) dates.push(dayOnly(x));
     records.set(ref, {
       ref,
       label: v.label,
@@ -1019,6 +1188,9 @@ export function weeklyCheckItems(output, { countRefs = [], personRefs = [] } = {
     (c?.key_priorities || []).forEach((k, j) => push(`c.${i}.p.${j}`, k?.text, own(c?.card_fact_refs, c?.chapter_ref)));
   });
   (output?.questions || []).forEach((q, i) => push(`q.${i}`, q?.question, q?.fact_ref ? [q.fact_ref] : []));
+  // the question offering a Chapter forming rests on what it would hold, and
+  // is seen at a glance, so it never speaks of anything private
+  (output?.chapter_forming || []).slice(0, 1).forEach((f, i) => push(`cf.${i}`, f?.question, [...refList(f?.rests_on), ...(f?.world_ref ? [f.world_ref] : [])], true));
   push('week_note', output?.week_note, output?.week_note_refs, true);
   const plan = output?.summary_plan;
   // the character and the line speak of the whole week: they rest on every
@@ -1047,6 +1219,7 @@ export function whereKept(key) {
   if (/^c\.\d+\.p\./.test(k)) return "a priority in Gremly's notes on a Chapter of their life (shown to them)";
   if (k.startsWith('c.')) return "Gremly's notes on a Chapter of their life (shown to them)";
   if (k.startsWith('q.')) return 'a question Gremly will ask them';
+  if (k.startsWith('cf.')) return 'a question Gremly will ask them, offering to start a Chapter of their life';
   if (k === 'week_note') return 'the note on their week (shown to them)';
   if (k === 'plan.character') return "the character of their weekly summary, shown as it is on its opening card, using neither their name nor a pronoun for them";
   if (k === 'plan.line') return "the line that runs through their weekly summary's plan (Gremly's own)";
@@ -1129,6 +1302,14 @@ export function afterWeeklyCheck(output, results) {
     .map((q, i) => {
       const r = pick(`q.${i}`, q?.question);
       return r.kept && r.text ? { ...q, question: r.text } : null;
+    })
+    .filter(Boolean);
+  // a question offering a Chapter that is still wrong is not asked at all
+  out.chapter_forming = (out.chapter_forming || [])
+    .slice(0, 1)
+    .map((f, i) => {
+      const r = pick(`cf.${i}`, f?.question);
+      return r.kept && r.text ? { ...f, question: r.text } : null;
     })
     .filter(Boolean);
   const note = pick('week_note', out.week_note);
@@ -1439,6 +1620,10 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
     applied.chapter_people = { error: String(err?.message || err).slice(0, 200) };
     console.warn(`[ALERT][Weekly] the people on Chapters could not be planned for ${userId}: ${applied.chapter_people.error}`);
   }
+  // a Chapter forming, as it would be offered: planned before anything is
+  // written, so a shadow run shows it too
+  const forming = await planForming(env, d, { output, refs, userId, runId });
+  applied.chapter_forming = forming.result;
   if (shadow)
     return { applied, lifeMap, worldUpdates, chapterUpdates, worldsSummary, output, check: checked, unsure: unsure?.plan || null, chapterPeople, chapterEnds };
 
@@ -1522,8 +1707,10 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
   // Gremly's notes (summary) and the rest, and none of those three.
   for (const { id, w, lived } of worldUpdates) {
     const src = sources.get(id) || {};
+    // The pass never changes a World's phase (18 Oct): setting one dormant
+    // would put it away without a tap, and how quiet it has been is read from
+    // its last real activity instead.
     const patch = {
-      phase: w.phase,
       updated_at: nowIso,
       key_priorities: (w.key_priorities || [])
         .slice(0, 5)
@@ -1537,9 +1724,6 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
         summary_source: 'synthesis',
         summary_updated_at: nowIso,
       });
-    // once the old Worlds fields stop (shared/worldsFields.js), neither the
-    // phase nor the priorities are written: a World is there or hidden
-    if (oldWorldsFieldsStopped(env)) delete patch.phase;
     await d.update(
       `worlds?id=eq.${id}&owner_id=eq.${userId}`,
       withoutOldFields('worlds', patch, env),
@@ -1635,21 +1819,36 @@ export async function applyWeekly(env, userId, output, refsSnapshot, { shadow, r
 
   // a retry asks its questions once: open ones a failed attempt wrote go first
   await d.remove(`gremly_questions?user_id=eq.${userId}&run_id=eq.${runId}&status=eq.open`);
-  for (const q of output.questions || []) {
-    if (!q.question) continue;
-    const f = q.fact_ref ? refs.get(q.fact_ref) : null;
-    await d.insertQuiet('gremly_questions', [
-      {
+  // only as many as there is room for, those that need an answer first, then
+  // a Chapter forming, then the rest (takeRoom): a Chapter forming is offered
+  // as a question, never started without their yes, one waiting at a time,
+  // and never one offered before
+  const asked = (output.questions || [])
+    .filter((q) => q?.question)
+    .map((q) => {
+      const f = q.fact_ref ? refs.get(q.fact_ref) : null;
+      return {
         user_id: userId,
         question: trim(q.question, 300),
         status: 'open',
         about_fact_id: f?.type === 'fact' ? f.id : null,
+        weight: questionWeight(q.matters),
         run_id: runId,
         prompt_version: WEEKLY_PROMPT_VERSION,
-      },
-    ]);
-    applied.questions++;
+      };
+    });
+  const { kept, held, no_room } = await takeRoom(d, userId, [...(forming.row ? [forming.row] : []), ...asked]);
+  if (forming.row) {
+    if (kept.includes(forming.row)) {
+      await d.insertQuiet('gremly_questions', [forming.row]);
+      applied.chapter_forming = { ...forming.result, written: true };
+    } else applied.chapter_forming = { ...forming.result, why: 'no room' };
   }
+  const keptAsked = kept.filter((r) => r !== forming.row);
+  if (keptAsked.length) await d.insertQuiet('gremly_questions', keptAsked);
+  applied.questions = keptAsked.length;
+  if (held.length) applied.questions_held_back = held.length;
+  if (no_room) applied.questions_no_room = no_room - (forming.row && !kept.includes(forming.row) ? 1 : 0);
 
   // Each Life Map thread rests on the facts in its evidence. Its place in the
   // map moves from week to week, so the map's old records go first.
@@ -1781,6 +1980,96 @@ export function chapterPeoplePlan({ output, refs, ties = [] }) {
 }
 
 /**
+ * The question offering a Chapter forming, when the pass gives one code can
+ * stand behind: a World it was given, resting on something they told Gremly
+ * or on two or more things they added, all given to it, real dates in order,
+ * a title, a question and two to four answers, and not resting mostly on what
+ * a suggestion offered before rested on. Pure.
+ * @param offered what each suggestion offered before rested on, [[{ table, id }]]
+ */
+export function formingRow({ output, refs, offered = [], userId, runId }) {
+  const f = (output?.chapter_forming || [])[0];
+  if (!f) return { row: null, refused: 'none forming' };
+  const world = refs.get(f.world_ref);
+  if (world?.type !== 'world' || !world.id) return { row: null, refused: 'a World it was never given' };
+  const items = [];
+  let told = 0;
+  for (const r of f.rests_on || []) {
+    const x = refs.get(r);
+    const table =
+      x?.type === 'fact'
+        ? 'life_facts'
+        : x?.type === 'lately'
+          ? ITEM_TABLE[x.kind]
+          : x?.type === 'item'
+            ? 'todos'
+            : x?.type === 'journal'
+              ? 'notes'
+              : null;
+    if (!table || !x.id) return { row: null, refused: 'something it was never given' };
+    if (items.some((i) => i.table === table && i.id === x.id)) continue;
+    items.push({ table, id: x.id });
+    if (table === 'life_facts') told++;
+  }
+  if (!told && items.length < 2) return { row: null, refused: 'fewer than two things they added, and nothing they told Gremly' };
+  const title = trim(f.title, 60);
+  const question = trim(f.question, 300);
+  const choices = cleanChoices(f.choices);
+  if (!title || !question || choices.length < 2)
+    return { row: null, refused: 'no title, no question or fewer than two answers' };
+  const start = validDate(f.start_date);
+  const end = validDate(f.end_date);
+  if ((f.start_date && !start) || (f.end_date && !end) || (start && end && end < start))
+    return { row: null, refused: 'dates that are not dates, or out of order' };
+  if (restsOnDeclined(items, offered)) return { row: null, refused: 'offered before' };
+  return {
+    row: {
+      user_id: userId,
+      kind: 'start_chapter',
+      question,
+      choices,
+      status: 'open',
+      record_table: 'worlds',
+      record_id: world.id,
+      rests_on: items,
+      proposed_change: { type: 'start', title, world_id: world.id, start_date: start, end_date: end, unsure: f.unsure === true },
+      no_key: startNoKey(items),
+      run_id: runId,
+      prompt_version: WEEKLY_PROMPT_VERSION,
+    },
+  };
+}
+
+/**
+ * The question offering a Chapter forming (formingRow), when it may be asked:
+ * while Gremly's questions about Chapters are on and none is waiting for their
+ * answer (one written by an earlier try of this same run does not count).
+ * Reads only; the pass writes the row when there is room for it.
+ * @returns {{ row: object|null, result: object }}
+ */
+export async function planForming(env, d, { output, refs, userId, runId }) {
+  if (!(output?.chapter_forming || []).length) return { row: null, result: { written: false, why: 'none forming' } };
+  const before =
+    (await d.select(
+      `gremly_questions?user_id=eq.${userId}&kind=eq.start_chapter&select=status,rests_on,run_id&limit=200`,
+    )) || [];
+  const waiting = (q) => ['open', 'asked'].includes(q.status);
+  const { row, refused } = formingRow({
+    output,
+    refs,
+    offered: before.filter((q) => !waiting(q)).map((q) => q.rests_on || []),
+    userId,
+    runId,
+  });
+  if (!row) return { row: null, result: { written: false, refused } };
+  const title = row.proposed_change.title;
+  if (!chapterQuestionsOn(env)) return { row: null, result: { written: false, why: 'Chapter questions are off', title } };
+  if (before.filter((q) => waiting(q) && q.run_id !== runId).length >= OPEN_CHAPTER_SUGGESTIONS)
+    return { row: null, result: { written: false, why: 'one is waiting', title } };
+  return { row, result: { written: false, title, rests_on: row.rests_on.length } };
+}
+
+/**
  * The day each Chapter ends, from the fact the pass says it was begun for.
  * Pure. The pass names the fact; code reads its day, the last day of its span
  * when it has one: never a day no record gives.
@@ -1788,15 +2077,28 @@ export function chapterPeoplePlan({ output, refs, ties = [] }) {
  */
 export function chapterEndPlan({ output, refs }) {
   const out = [];
-  for (const c of output?.chapters || []) {
+  for (const c of output?.begun_for || []) {
     const ref = refs.get(c?.chapter_ref);
-    const f = refs.get(c?.begun_for_ref);
+    const f = refs.get(c?.fact_ref);
     if (ref?.type !== 'chapter' || !ref.id || f?.type !== 'fact') continue;
-    const end = validDate(String(f.about_date_end || '').slice(0, 10)) || validDate(String(f.about_date || '').slice(0, 10));
+    // a stretch ends on its last day, and one with no last day gives none; a
+    // day of its own is its end; what holds with no day, or comes every year, gives none
+    const end =
+      f.timing === 'standing' || f.timing === 'yearly'
+        ? null
+        : validDate(String(f.about_date_end || '').slice(0, 10)) ||
+          (f.timing === 'span' ? null : validDate(String(f.about_date || '').slice(0, 10)));
     if (!end || out.some((x) => x.chapter_id === ref.id)) continue;
-    // a Chapter never ends before it began: the fact named is not what it was begun for
+    // a Chapter never ends on or before the day it began: the fact named is
+    // not what it was begun for (18 Oct: a new job's Chapter was given the
+    // fact of its first day, and would have ended on it)
     const start = validDate(String(ref.start_date || '').slice(0, 10));
-    out.push({ chapter_id: ref.id, end_date: end, fact_id: f.id, ...(start && end < start ? { refused: 'before it began' } : {}) });
+    out.push({
+      chapter_id: ref.id,
+      end_date: end,
+      fact_id: f.id,
+      ...(start && end < start ? { refused: 'before it began' } : start && end === start ? { refused: 'the day it began' } : {}),
+    });
   }
   return out;
 }

@@ -23,13 +23,13 @@ deploys and merges, and no session drops a table or column.
 | --- | --- | --- | --- |
 | Facts about their life | `life_facts` (read through the view `life_facts_now`) | the reader, `workers/inngest-jobs/context/reader.js`, from everything they record | Each fact has one of seven kinds, a health flag, a private flag and a timing (dated, yearly, standing). `kinds.js` gives a kind to facts that lack one. |
 | How a fact changed | `life_fact_changes` | the reader, corrections, tidy ups | One row per state change, with where it came from. |
-| The people in their life | `life_people`, `life_fact_people`, `life_person_names`, `person_merges` | `context/people.js` | Who someone is comes only from what they said; a merge is proposed, done on a tap. `life_people.matters_rank` is who matters most to them now, as the weekly pass judges it (`context/unsure.js`). |
+| The people in their life | `life_people`, `life_fact_people`, `life_person_names`, `person_merges` | `context/people.js`; the weekly pass for what it understood (`context/unsure.js`) | Who someone is comes from what they said (`relationship_by` `gremly` or `person`), or, since 18 Oct, from what the records make plain (`understood`, James's "know it, ask only if unclear"): every writer uses it as known and says it is Gremly's understanding (`workers/shared/whoSaid.js`), anything they or a fact state takes its place, and a correction that says it is wrong clears it for good. A merge is proposed, done on a tap. `life_people.matters_rank` is who matters most to them now, as the weekly pass judges it. |
 | The people on a Chapter | `chapter_people` | the weekly pass (`weekly.js` `chapterPeoplePlan`), and the person | The pass names who is part of each Chapter; code keeps someone only when a fact the Chapter's notes cite, that can be shown, is about them, writes them as `gremly`, and never touches a row the person wrote. A reader joins live people only: a merged or hidden record stays until the next pass. When the app lets someone take a person off a Chapter, it needs a way to keep them off, or the next pass puts them back. |
-| What Gremly is not sure of yet | `life_unsure` | the weekly pass (`context/unsure.js`); the person's answer confirms it or says no | What the records point to but do not state: who someone is to them, or anything else that shapes their life. Kept apart from the facts, never shown, never read by any writer of something shown; the app cannot read the table. Gremly's questions ask about it, a yes becomes a fact in their words, a no closes it, and one the pass stops giving fades after three weeks. |
-| When a Chapter ends | `chapters.end_date`, `end_date_source` | the weekly pass (`weekly.js` `chapterEndPlan`, `applyChapterEnds`), the person's answer to a Chapter question (`context/chapterAnswers.js`), and the person | The pass names the fact about what each Chapter was begun for (`begun_for_ref`), never what was filed in it since or its own earlier notes; code reads that fact's day, keeps it as `synthesis` on an open Chapter, never over a date the person set (`user`), and refuses one before the Chapter began. The Sunday classifier leaves both alone. A passed end is what stops filing into a Chapter and makes it a close question. |
+| What Gremly is not sure of yet | `life_unsure` | the weekly pass (`context/unsure.js`); the person's answer confirms it or says no | What the records point to but do not state: who someone is to them, or anything else that shapes their life. Kept apart from the facts, never shown, never read by any writer of something shown; the app cannot read the table. Gremly's questions ask about it, a yes becomes a fact in their words, a no closes it, and one the pass stops giving fades after three weeks. Who someone is, when the records make it plain (sure high, with the tie), is held as `understood` and never asked; given again less sure, it is a question again. |
+| When a Chapter ends | `chapters.end_date`, `end_date_source` | the weekly pass (`weekly.js` `chapterEndPlan`, `applyChapterEnds`), the person's answer to a Chapter question (`context/chapterAnswers.js`), and the person | The pass names, first and apart from everything it writes (`begun_for`), the fact about what each Chapter was begun for, never what was filed in it since or its own earlier notes (decided beside the notes, it followed what they already said). Code reads that fact's day, the last day of a stretch, none for one with no last day or for what holds with no day, keeps it as `synthesis` on an open Chapter, never over a date the person set (`user`), and refuses one before the Chapter began. A passed end is what stops filing into a Chapter and makes it a close question. |
 | What each stored sentence rests on | `passage_refs` | every writer under the check | One row per table, row and field: the facts, people and items it rests on, the writer and its prompt version. Corrections find sentences here. |
 | What the check did | `check_runs` | every writer under the check | Per run: how many sentences it read, sent back, left out, and which steps found them wrong. Never words. Something to watch, not a gate. |
-| Gremly's questions | `gremly_questions` | `context/questions.js`, `peopleQuestions.js`, `chapterQuestions.js`, `review.js` | Answers come back as corrections with surface `question`. |
+| Gremly's questions | `gremly_questions` | `context/questions.js`, `peopleQuestions.js`, `chapterQuestions.js`, `review.js`, the reader and the weekly pass (its questions, and a Chapter forming) | Answers come back as corrections with surface `question`. At most six wait at once (`QUESTIONS_WAITING_MOST`, the welcome back and anything held to a later day apart). The reader and the weekly pass take room by weight (`context/questionRoom.js` `takeRoom`): one that needs an answer comes first, and with no room it holds back the newest waiting one that only helps and was never put to them for a week (`hold_until`), never dropping it; the other writers take what room is left. None ever questions their calendar, which keeps its own entries, or asks whether something on their list is done. The review no longer offers to set facts aside as not about their life (8 Oct): it judged their own work by its topic. A set aside tidy up still waiting is closed by any tap and moves nothing. |
 | What they put right | `user_corrections` | the app, chat, the brief | Applied by `context/corrections.js`. |
 
 ## Writers, what they write, and who reads it
@@ -60,9 +60,9 @@ others. The words question is given the person's own pronouns.
 | The words, `context/words.js` | the line under each open World and Chapter (`card_subtitle`), from what is filed there, with what the Sweep cleared from their list marked as cleared; Chapters first, each writer given the words already under the others so that each says what is particular to it | Luna | Worlds and Chapter cards, the life pack |
 | The memory, `context/memory.js` | a closed Chapter's memory (`epigraph`) | Luna | the Chapter page, a World's eras |
 | First Worlds, `context/firstWorlds.js` | a new person's first Worlds | Luna | Worlds |
-| The weekly pass, `context/weekly.js` | the Life Map, the profile, Gremly's notes on Worlds and Chapters, questions, the week note, the summary plan, the week's counts, notes on people, what it is not sure of and who matters most (`context/unsure.js`) | Sonnet, Luna when it fails | everything that reads the Life Map; the summary; the line about a person; the week's questions |
+| The weekly pass, `context/weekly.js` | the Life Map, the profile, Gremly's notes on Worlds and Chapters, what each Chapter was begun for, a Chapter forming offered as a question, questions, the week note, the summary plan, the week's counts, notes on people, what it is not sure of, who someone is when the records make it plain, and who matters most (`context/unsure.js`). It reads the whole of their life together: up to 400 open facts, what changed lately, the week's journal, chat and list, and since 18 Oct everything they added in the last four weeks with the World or Chapter each is filed in. It never changes a World's phase | Sonnet, Luna when it fails | everything that reads the Life Map; the summary; the line about a person; the week's questions |
 | The week's questions, `context/peopleQuestions.js` | one set of up to five questions a week about the people in their life and what Gremly is not sure of, the people who matter most first, what Gremly thinks offered as the first answer | Luna | the brief, the wrap up and Ask Gremly's questions |
-| Gremly's Chapter questions, `context/chapterQuestions.js` | once a day: whether a Chapter past its end, or long quiet, is over; at most one suggestion of a new Chapter; and the welcome back after time away | Luna | Ask Gremly's questions, and the brief for the welcome back |
+| Gremly's Chapter questions, `context/chapterQuestions.js` | once a day: whether a Chapter past its end, or long quiet, is over; and the welcome back after time away. A question about a Chapter no longer open is put away. Suggesting a new Chapter moved to the weekly pass on 18 Oct: this daily suggester saw only drops filed in no Chapter, so a launch worked on inside a World was never offered | Luna | Ask Gremly's questions, and the brief for the welcome back |
 | Their answer about a Chapter, `context/chapterAnswers.js` | on their answer only: a Chapter started with what the suggestion rested on filed in it, one closed, its days moved, or a passed end taken away when they say it is still going | Luna | Worlds |
 | The weekly summary, `summaryFromPass.ts` and `summaryPlanWriter.ts` | the weekly summary deck, from the pass's plan. A card that fails is repaired, not rewritten; an opening that fails is tried three times more at once, then falls back to the plan's checked character and the week's figures, so a deck is never lost to one card | Sonnet | the app's weekly summary |
 | The story, `context/story.js` | the monthly story: milestones, shifts, proud moments, patterns, people | Sonnet | Your Story, chat |
@@ -71,15 +71,36 @@ others. The words question is given the person's own pronouns.
 
 Chat (`workers/cortex`) reads their life through the life pack, the Life Map
 projection and the agent's lookups. The correction check runs after every
-chat message (`workers/cortex/context/corrections.js` `checkTurn`).
+chat message (`workers/cortex/context/corrections.js` `checkTurn`): the model
+says whether the message just sent puts something right, or asks Gremly to
+delete or forget something, and code sends that whole message, in their words.
+Until 18 Oct code kept only a quote the model found inside the message, and
+the model often took its own instruction for their message: plain
+corrections were missed (16 of 24 on `scripts/chat-correction-replay`, 24 of
+24 since).
+
+Known gaps in the weekly pass, from its replay of 18 Oct: something forming
+inside a Chapter they have is mostly noticed in that Chapter's notes rather
+than offered as a Chapter of its own (one of thirteen runs offered the move
+inside a new job's Chapter; whether it should is James's call). Steps that only
+point somewhere can still be offered as a Chapter: one of two runs of the
+unsure week offered a move she never stated (it had no World to go in, so
+nothing was written). The pass sometimes names
+a Chapter's first day as what it was begun for; code refuses that end, so the
+Chapter stays open. What the pass is shown of a Chapter's title and earlier
+notes shapes what it writes: marking a title as theirs had it write that the
+title was theirs, so only notes they wrote are marked now.
 
 ## Corrections, in three steps
 
 1. Step one reads what they said, the ledger's latest 300 open facts, the live
    date anchors and the lines Gremly showed them that their words may be about
    (today's lines from the brief or chat; a World's or Chapter's lines from
-   its screen or chat), and says which facts are corrected, changed, happened
-   or private, what is true instead, and which lines are not so.
+   its screen or chat), and says which facts are corrected, changed, happened,
+   private or set aside (only when they ask Gremly to delete or forget it;
+   saying how much something matters to them never sets it aside), what is
+   true instead, with its timing and, for a stretch, its last day, which lines
+   are not so, and who Gremly understood someone to be that they say is not so.
 2. Code changes the facts and people as it says, then finds in `passage_refs`
    every sentence resting on what changed, adds the named lines, and sends each
    to its own writer: a named line, or one resting on a fact they said is
@@ -90,7 +111,7 @@ chat message (`workers/cortex/context/corrections.js` `checkTurn`).
    on moves with it.
 3. The profile, which no writer records yet, is read once against what changed.
 
-Known gaps: a fact older than the latest 300 cannot be put right (James has
+Known gaps in corrections: a fact older than the latest 300 cannot be put right (James has
 450 open facts; a January fact sits at 426). The Worlds headline
 (`dco.worlds_summary.headline`) comes from the weekly pass and cites nothing,
 so a correction cannot reach it, and the daily build copies it from the pass
@@ -107,8 +128,8 @@ Both workers' `wrangler.toml`. Each says what it does beside it.
 | `CONTEXT_PIPELINE` | on | stays on |
 | `WORLDS_OLD_FIELDS` | keep | "stop" once the Worlds build says the old screens are gone |
 | `CHAPTER_QUESTIONS` | on (since 8 Oct) | stays on; their answers are acted on by `context/chapterAnswers.js` |
-| `SUMMARY_FROM_PASS` | beside | "on" after two weekly days read beside the old summary (`scripts/sql/data_fabric_watch.sql`, query 6) |
-| `WEEKLY_CLASSIFIER` | on | "off" once Chapter suggestions come from the Chapter questions; `scripts/worlds-parity` is what the call rests on |
+| `SUMMARY_FROM_PASS` | on (since 18 Oct, James's call) | stays on; the summary replay from the weekly pass's plans passed first |
+| `WEEKLY_CLASSIFIER` | off (since 18 Oct, James's call) | stays off: it judged by topic and made Worlds and Chapters without a tap. A Chapter forming is offered by the weekly pass |
 | `WEEK_READ_FROM_PASS` | off | "on" when the weekly review's build agrees, the week replay runs with it on, and the week note holds no private matter |
 | `PERSON_WORDS` (both workers) | on (since 8 Oct) | stays on; it needs `supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql` applied first |
 
@@ -124,8 +145,9 @@ runner reads live through a read only role and writes nothing.
 | `scripts/reader-replay`, `kinds-replay`, `people-replay` | the ledger, kinds and people |
 | `scripts/filing-replay`, `words-replay`, `first-worlds-replay` | filing, the words and memory, first Worlds. The words replay's `set` mode writes one person's words in the worker's order, with one habit filed in every World, and its judge asks whether each line says something of its own |
 | `scripts/people-questions-replay`, `chapter-questions-replay`, `review-replay`, `correction-replay` | Gremly's questions and their answers; `chapter-questions-replay --answers` reads made up answers to the Chapter questions |
-| `scripts/weekly-replay`, `week-replay`, `worlds-parity`, `classifier-replay` | the weekly pass and summary, the weekly read, the classifier. The weekly replay's `unsure` week, its `judge` step and its `questions` step cover what Gremly is not sure of and the week's set of questions; its full week holds a Chapter whose race has passed, to check its end date |
-| `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark, and a yes and a no to something Gremly was not sure of |
+| `scripts/chat-correction-replay` | the chat correction check: what puts something right, a delete, and what never does (a plan they change, a question, how Gremly talks, an earlier message) |
+| `scripts/weekly-replay`, `week-replay`, `worlds-parity`, `classifier-replay` | the weekly pass and summary, the weekly read, the classifier. The weekly replay's `unsure` week, its `judge` step and its `questions` step cover what Gremly is not sure of and the week's set of questions; its full week holds a Chapter whose race has passed, to check its end date; its six forming weeks (made up people, three with something forming inside a World, a Chapter or nowhere, three with nothing to offer) check a Chapter forming |
+| `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark, a delete and something said to matter little, a yes and a no to something Gremly was not sure of, and who Gremly understood someone to be, put right or kept |
 | `scripts/chat-replay`, `ask-replay`, `writer-test` | Ask Gremly |
 
 `scripts/shadow/run.sh <job>` runs one job for one real person on any tree,
@@ -140,13 +162,17 @@ questions that would follow, writing nothing.
 
 ## Held for deletion
 
-Nothing below is deleted until stage 5 has been watched for two weekly days
-and its switch has gone on. Each needs a search for other readers first.
+`SUMMARY_FROM_PASS` went on and `WEEKLY_CLASSIFIER` off on 18 Oct. Nothing
+below is deleted until each has been watched for two weekly days. Each needs a
+search for other readers first. Until then the old paths still hold code that
+reads words, which runs only for them: the classifier's bundle drops calendar
+entries whose title starts with cancelled (`unifiedUserBundle.ts`), and the old
+summary writer's prompts carry a word list.
 
 | Once | Delete |
 | --- | --- |
 | `SUMMARY_FROM_PASS` is on and watched | the old summary path in `workers/inngest-jobs/inngest-index.js` (the 21 day snapshot, the analyst run and its observations, `rebuildLifeMap`), `analystPrompt.ts`, `analystObservations.ts`, `generateAdaptiveSummary.ts` and the summary writer pieces only it uses |
-| `WEEKLY_CLASSIFIER` is off | the classifier step in `week/index.js`, `worldsClassifier.ts`, `worldsWeeklyRun.ts` and what only they use |
+| `WEEKLY_CLASSIFIER` is off and watched | the classifier step in `week/index.js`, `worldsClassifier.ts`, `worldsWeeklyRun.ts`, `processWorldsWindow.ts`, `unifiedUserBundle.ts`, `worldsWriter.ts` and what only they use |
 | `WORLDS_OLD_FIELDS` is stop | the old Worlds fields' writes behind `workers/shared/worldsFields.js` |
 | always | `scripts/shadow` jobs for paths that are gone |
 
