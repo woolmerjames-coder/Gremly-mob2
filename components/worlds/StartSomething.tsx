@@ -1,18 +1,24 @@
 /**
- * Start something new, by hand: a Chapter (a line, a date if there is one,
- * its World and its Gremly) or a whole new World (a name and its Gremly).
- * Gremly filling this in from the line comes with the box, in stage 2.
+ * Start something new, by hand: a Chapter or a whole new World (a name and
+ * its Gremly). For a Chapter they say what it is in a line, with a date if
+ * there is one; Gremly fills in the rest (stage 3, lib/worlds/guess.ts): its
+ * name, the World it belongs in or a new one when none fits, the days, a
+ * Gremly to wear and which of their things already belong. Every field shows
+ * to change before it is started. With no guess in time, they fill it in.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { World } from '../../lib/supabase/types';
 import { resolveMascotAsset } from '../../lib/store/mascotRegistry';
 import { F, W } from '../../lib/worlds/look';
 import { worldGremly, worldName } from '../../lib/worlds/model';
+import type { FiledItem } from '../../lib/worlds/actions';
+import { guessChapter, type ChapterGuess } from '../../lib/worlds/guess';
 import { Btn, Field, FieldLabel, SheetButtons, SheetNote, SheetTitle } from './Sheet';
 import { DayField } from './DayField';
 import { GremlyGrid } from './GremlyPick';
-import { TextLink } from './parts';
+import { Diamond, TextLink } from './parts';
+import { ItemRow, useItemRows } from './ItemRows';
 
 export interface StartChapterInput {
   title: string;
@@ -20,9 +26,14 @@ export interface StartChapterInput {
   startDate: string | null;
   endDate: string | null;
   gremly: string | null;
+  /** Their things that already belong in it */
+  items: FiledItem[];
+  /** None of their Worlds fits: this one is made first, and it goes in it */
+  newWorld: { name: string; gremly: string } | null;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
+const NEW = 'new';
 
 export function StartSomething({
   worlds,
@@ -42,7 +53,11 @@ export function StartSomething({
   onMakeWorld: (input: { name: string; gremly: string }) => void;
 }) {
   const [mode, setMode] = useState<'chapter' | 'world'>(asWorld ? 'world' : 'chapter');
+  const [step, setStep] = useState<'line' | 'check'>('line');
+  const [guessing, setGuessing] = useState(false);
+  const [guessed, setGuessed] = useState<ChapterGuess | null>(null);
   const [what, setWhat] = useState('');
+  const [name, setName] = useState('');
   const [two, setTwo] = useState(false);
   const [one, setOne] = useState<string | null>(null);
   const [from, setFrom] = useState<string | null>(null);
@@ -52,15 +67,49 @@ export function StartSomething({
   );
   const [own, setOwn] = useState<string | null>(null);
   const [pickOwn, setPickOwn] = useState(false);
+  const [items, setItems] = useState<FiledItem[]>([]);
+  const [left, setLeft] = useState<Set<string>>(() => new Set());
   const [wname, setWname] = useState('');
   const [wgremly, setWgremly] = useState('gardener_gremly');
   const [problem, setProblem] = useState<string | null>(null);
+  const rows = useItemRows(items);
 
+  const newWorld = guessed?.newWorld ?? null;
   const placeWorld = worlds.find((w) => w.id === place) || null;
-  const wears = own || worldGremly(placeWorld);
+  const wears = own || (place === NEW && newWorld ? newWorld.gremly : worldGremly(placeWorld));
+  const worldIds = useMemo(() => worlds.map((w) => w.id), [worlds]);
+
+  /** Next: Gremly fills in the rest from the line; a date they gave wins. */
+  async function next() {
+    const line = clean(what);
+    if (!line) {
+      setProblem('Give it a name first.');
+      return;
+    }
+    setGuessing(true);
+    const g = await guessChapter(line, today, worldIds);
+    setGuessing(false);
+    setGuessed(g);
+    setName(g?.title || line);
+    if (one) {
+      setTwo(false);
+    } else if (g?.startDate && g?.endDate && g.startDate !== g.endDate) {
+      setTwo(true);
+      setFrom(g.startDate);
+      setTo(g.endDate);
+    } else {
+      setOne(g?.endDate || g?.startDate || null);
+    }
+    if (!worldId && g) setPlace(g.worldId || (g.newWorld ? NEW : place));
+    if (g?.gremly) setOwn(g.gremly);
+    setItems(g?.items ?? []);
+    setLeft(new Set());
+    setProblem(null);
+    setStep('check');
+  }
 
   function start() {
-    const title = clean(what);
+    const title = clean(name);
     if (!title) {
       setProblem('Give it a name first.');
       return;
@@ -77,11 +126,20 @@ export function StartSomething({
     } else {
       endDate = one;
     }
-    onStartChapter({ title, worldId: place, startDate, endDate, gremly: own });
+    const isNew = place === NEW && !!newWorld;
+    onStartChapter({
+      title,
+      worldId: isNew ? null : place,
+      startDate,
+      endDate,
+      gremly: own,
+      items: rows.filter((r) => !left.has(r.id)).map((r) => ({ type: r.type, id: r.id })),
+      newWorld: isNew ? newWorld : null,
+    });
   }
 
   if (mode === 'world') {
-    const name = clean(wname);
+    const wn = clean(wname);
     return (
       <View>
         <SheetTitle>A new World</SheetTitle>
@@ -104,8 +162,8 @@ export function StartSomething({
           {!asWorld ? <Btn label="Back" kind="sec" onPress={() => setMode('chapter')} /> : null}
           <Btn
             label="Make it"
-            disabled={!name}
-            onPress={() => onMakeWorld({ name, gremly: wgremly })}
+            disabled={!wn}
+            onPress={() => onMakeWorld({ name: wn, gremly: wgremly })}
             testID="start-world-make"
           />
         </SheetButtons>
@@ -113,59 +171,102 @@ export function StartSomething({
     );
   }
 
+  const dates = two ? (
+    <>
+      <DayField label="From" value={from} today={today} onChange={setFrom} />
+      <DayField label="To" value={to} today={from || today} onChange={setTo} />
+      <TextLink
+        label="It is just one date"
+        onPress={() => {
+          setTwo(false);
+          setOne(to || from);
+        }}
+        style={styles.link}
+      />
+    </>
+  ) : (
+    <>
+      <DayField
+        label={step === 'line' ? 'When, if there is a date' : 'Date, if there is one'}
+        value={one}
+        today={today}
+        onChange={setOne}
+        placeholder="No date"
+        testID="start-when"
+      />
+      <TextLink
+        label="Add an end date"
+        onPress={() => {
+          setTwo(true);
+          setFrom(one);
+          setTo(null);
+        }}
+        style={styles.link}
+      />
+    </>
+  );
+
+  if (step === 'line') {
+    return (
+      <View>
+        <SheetTitle>Start something new</SheetTitle>
+        <SheetNote>Say what it is in a line. Gremly fills in the rest and you check it.</SheetNote>
+        <FieldLabel>What is it?</FieldLabel>
+        <Field
+          value={what}
+          onChangeText={(t) => {
+            setWhat(t);
+            setProblem(null);
+          }}
+          placeholder="A trip, a goal, a house move"
+          autoFocus
+          accessibilityLabel="What is it?"
+          testID="start-what"
+        />
+        {dates}
+        {problem ? <Text style={styles.problem}>{problem}</Text> : null}
+        <SheetButtons>
+          <Btn
+            label={guessing ? 'Gremly is filling it in' : 'Next'}
+            onPress={() => void next()}
+            disabled={!clean(what) || guessing}
+            testID="start-next"
+          />
+        </SheetButtons>
+        <TextLink
+          label="It is a whole new World"
+          onPress={() => setMode('world')}
+          style={[styles.link, { marginTop: 14 }]}
+          testID="start-as-world"
+        />
+      </View>
+    );
+  }
+
   return (
     <View>
-      <SheetTitle>Start something new</SheetTitle>
-      <SheetNote>A trip, a goal, a project. Say what it is in a line.</SheetNote>
-      <FieldLabel>What is it?</FieldLabel>
+      <SheetTitle>Does this look right?</SheetTitle>
+      <View style={styles.filled}>
+        <Diamond size={9} />
+        <Text style={styles.filledText}>
+          {guessed
+            ? 'Gremly filled this in from your line. Change anything before you start it.'
+            : 'Fill in the rest, then start it.'}
+        </Text>
+      </View>
+      <FieldLabel>Name</FieldLabel>
       <Field
-        value={what}
+        value={name}
         onChangeText={(t) => {
-          setWhat(t);
+          setName(t);
           setProblem(null);
         }}
-        placeholder="A trip, a goal, a house move"
-        autoFocus
-        accessibilityLabel="What is it?"
-        testID="start-what"
+        accessibilityLabel="Its name"
+        testID="start-name"
       />
-      {two ? (
-        <>
-          <DayField label="From" value={from} today={today} onChange={setFrom} />
-          <DayField label="To" value={to} today={from || today} onChange={setTo} />
-          <TextLink
-            label="It is just one date"
-            onPress={() => {
-              setTwo(false);
-              setOne(to || from);
-            }}
-            style={styles.link}
-          />
-        </>
-      ) : (
-        <>
-          <DayField
-            label="When, if there is a date"
-            value={one}
-            today={today}
-            onChange={setOne}
-            placeholder="No date"
-            testID="start-when"
-          />
-          <TextLink
-            label="Add an end date"
-            onPress={() => {
-              setTwo(true);
-              setFrom(one);
-              setTo(null);
-            }}
-            style={styles.link}
-          />
-        </>
-      )}
 
       <FieldLabel>World</FieldLabel>
-      {worlds.length ? (
+      {worlds.length || newWorld ? (
         <View style={styles.opts}>
           {worlds.map((w) => {
             const on = w.id === place;
@@ -188,10 +289,34 @@ export function StartSomething({
               </Pressable>
             );
           })}
+          {newWorld ? (
+            <Pressable
+              onPress={() => setPlace(place === NEW ? null : NEW)}
+              style={[styles.opt, place === NEW && styles.optOn]}
+              accessibilityRole="button"
+              accessibilityLabel={`A new World: ${newWorld.name}`}
+              accessibilityState={{ selected: place === NEW }}
+              testID="start-world-new"
+            >
+              <Image
+                source={resolveMascotAsset(newWorld.gremly)}
+                style={styles.optImg}
+                resizeMode="contain"
+              />
+              <Text style={[styles.optText, place === NEW && { color: W.forest }]}>
+                New: {newWorld.name}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <SheetNote>You have no Worlds yet. It can go in one later.</SheetNote>
       )}
+      {place === NEW && newWorld ? (
+        <SheetNote>None of your Worlds fits, so Gremly will make this one for it.</SheetNote>
+      ) : null}
+
+      {dates}
 
       <FieldLabel>Its Gremly</FieldLabel>
       <Pressable
@@ -204,9 +329,11 @@ export function StartSomething({
         <Text style={styles.gText}>
           {own
             ? 'Its own Gremly'
-            : placeWorld
-              ? `Wears ${worldName(placeWorld)}’s Gremly`
-              : 'The plain Gremly'}
+            : place === NEW && newWorld
+              ? `Wears ${newWorld.name}’s Gremly`
+              : placeWorld
+                ? `Wears ${worldName(placeWorld)}’s Gremly`
+                : 'The plain Gremly'}
         </Text>
         <Text style={styles.gChange}>{pickOwn ? 'Done' : 'Change'}</Text>
       </Pressable>
@@ -222,22 +349,53 @@ export function StartSomething({
         </View>
       ) : null}
 
+      <FieldLabel>Already yours, and belongs here</FieldLabel>
+      {rows.length ? (
+        <View style={styles.items}>
+          {rows.map((r) => (
+            <ItemRow
+              key={r.id}
+              row={r}
+              on={!left.has(r.id)}
+              onToggle={() =>
+                setLeft((s) => {
+                  const n = new Set(s);
+                  if (n.has(r.id)) n.delete(r.id);
+                  else n.add(r.id);
+                  return n;
+                })
+              }
+            />
+          ))}
+        </View>
+      ) : (
+        <SheetNote>Nothing yet. New drops about it will land here.</SheetNote>
+      )}
+
       {problem ? <Text style={styles.problem}>{problem}</Text> : null}
       <SheetButtons>
-        <Btn label="Start it" onPress={start} disabled={!clean(what)} testID="start-go" />
+        <Btn label="Back" kind="sec" onPress={() => setStep('line')} testID="start-back" />
+        <Btn label="Start it" onPress={start} disabled={!clean(name)} testID="start-go" />
       </SheetButtons>
-      <TextLink
-        label="It is a whole new World"
-        onPress={() => setMode('world')}
-        style={[styles.link, { marginTop: 14 }]}
-        testID="start-as-world"
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   link: { marginTop: 12, marginLeft: 4 },
+  filled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: W.periWash,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginHorizontal: 4,
+    marginTop: 4,
+  },
+  filledText: { flex: 1, fontFamily: F.body, fontSize: 14.5, lineHeight: 20, color: W.periInk },
+  items: { gap: 8, marginHorizontal: 4 },
   opts: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 4 },
   opt: {
     flexDirection: 'row',

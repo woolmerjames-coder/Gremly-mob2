@@ -76,6 +76,7 @@ export const HELPER_JOB_VARS = {
   wrap_words: 'MODEL_WRAP_WORDS', // wrap/words.js: Gremly's own words in the evening wrap up
   age_words: 'MODEL_AGE_WORDS', // age/words.js: What got me here, the line on the age up page
   keep_offer: 'MODEL_KEEP_OFFER', // context/keep.js: whether a chat reply is worth a Save button, and where it goes
+  chapter_guess: 'MODEL_CHAPTER_GUESS', // context/chapterGuess.js: Gremly's guesses for a Chapter started by hand
 };
 
 /**

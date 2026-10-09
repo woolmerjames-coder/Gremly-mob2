@@ -429,13 +429,30 @@ export default function WorldsScreen() {
             worlds={shown}
             today={today}
             asWorld={sheet.asWorld}
-            onStartChapter={async (input) => {
+            onStartChapter={async ({ newWorld, ...input }) => {
               setSheet(null);
+              // a new World Gremly found for it is made first; one Undo takes both away
+              let unmakeWorld: Undo | null = null;
               try {
-                const { chapter, undo } = await makeChapter(input);
+                let worldId = input.worldId;
+                if (newWorld) {
+                  const made = await makeWorld(newWorld);
+                  worldId = made.world.id;
+                  unmakeWorld = made.undo;
+                }
+                const { chapter, undo } = await makeChapter({ ...input, worldId });
                 openChapter(chapter.id);
-                showSnack('Started. It is in motion now.', undo);
+                showSnack(
+                  'Started. It is in motion now.',
+                  unmakeWorld
+                    ? async () => {
+                        await undo();
+                        await unmakeWorld?.();
+                      }
+                    : undo,
+                );
               } catch (err) {
+                if (unmakeWorld) await unmakeWorld().catch(() => undefined);
                 showFailed('Starting it', err);
               }
             }}

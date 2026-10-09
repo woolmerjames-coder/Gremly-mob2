@@ -6,55 +6,14 @@
  */
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import {
-  ArrowUp,
-  Lightbulb,
-  ListChecks,
-  Repeat,
-  StickyNote,
-  type LucideIcon,
-} from 'lucide-react-native';
+import { ArrowUp } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import type { Habit, Note, Todo } from '../../lib/types';
-import { askWords, type AskAct, type WorldsQuestion } from '../../lib/worlds/questions';
+import { askWords, itemsOf, type AskAct, type WorldsQuestion } from '../../lib/worlds/questions';
 import { dateWords } from '../../lib/worlds/model';
 import { F, W } from '../../lib/worlds/look';
 import { Diamond } from './parts';
 import { Btn } from './Sheet';
-import { noteTitle } from './Kept';
-import { stepTitle } from './UpNextCard';
-
-type Row = { id: string; title: string; icon: LucideIcon; word: string };
-
-/** The items a suggestion rests on that are still theirs, in its order. */
-function useRestsOn(q: WorldsQuestion): Row[] {
-  const todos = useGremlyStore((s) => s.todos) as Todo[] | undefined;
-  const notes = useGremlyStore((s) => s.notes) as Note[] | undefined;
-  const habits = useGremlyStore((s) => s.habits) as Habit[] | undefined;
-  return useMemo(() => {
-    const out: Row[] = [];
-    for (const r of q.rests_on) {
-      if (r.table === 'todos') {
-        const t = (todos ?? []).find((x) => x.id === r.id);
-        if (t) out.push({ id: t.id, title: stepTitle(t), icon: ListChecks, word: 'Todo' });
-      } else if (r.table === 'notes') {
-        const n = (notes ?? []).find((x) => x.id === r.id);
-        if (n)
-          out.push({
-            id: n.id,
-            title: noteTitle(n),
-            icon: n.subtype === 'idea' ? Lightbulb : StickyNote,
-            word: n.subtype === 'idea' ? 'Idea' : 'Note',
-          });
-      } else if (r.table === 'habits') {
-        const h = (habits ?? []).find((x) => x.id === r.id);
-        if (h)
-          out.push({ id: h.id, title: String(h.name || '').trim(), icon: Repeat, word: 'Habit' });
-      }
-    }
-    return out.filter((x) => x.title);
-  }, [q.rests_on, todos, notes, habits]);
-}
+import { ItemRow, useItemRows } from './ItemRows';
 
 export function AskCard({
   question: q,
@@ -70,7 +29,8 @@ export function AskCard({
 }) {
   const chapters = useGremlyStore((s) => s.chapters) ?? [];
   const words = askWords(q, chapters);
-  const items = useRestsOn(q);
+  const refs = useMemo(() => itemsOf(q), [q]);
+  const items = useItemRows(refs);
   const [said, setSaid] = useState('');
   const start = q.proposal.type === 'start';
   const when = start
@@ -95,11 +55,7 @@ export function AskCard({
       {items.length ? (
         <View style={styles.items} accessibilityLabel="What it rests on">
           {items.map((r) => (
-            <View key={r.id} style={styles.item}>
-              <r.icon size={17} color={W.moss} />
-              <Text style={styles.itemText}>{r.title}</Text>
-              <Text style={styles.itemWord}>{r.word}</Text>
-            </View>
+            <ItemRow key={r.id} row={r} />
           ))}
         </View>
       ) : null}
@@ -169,17 +125,6 @@ const styles = StyleSheet.create({
   title: { fontFamily: F.ui, fontSize: 19, lineHeight: 24, color: W.forest },
   body: { fontFamily: F.body, fontSize: 15.5, lineHeight: 22, marginTop: 6 },
   items: { gap: 8, marginTop: 14 },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: 'rgba(255,255,255,0.78)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  itemText: { flex: 1, fontFamily: F.body, fontSize: 15, lineHeight: 20, color: W.ink },
-  itemWord: { fontFamily: F.body, fontSize: 13.5, color: W.muted },
   acts: { flexDirection: 'row', gap: 10, marginTop: 16 },
   say: {
     flexDirection: 'row',

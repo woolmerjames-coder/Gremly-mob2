@@ -19,6 +19,7 @@ import {
   tellGremly,
   worldsQuestionFrom,
 } from '../../../lib/worlds/questions';
+import { guessChapter } from '../../../lib/worlds/guess';
 
 jest.mock('../../../lib/store/useGremlyStore', () => {
   const { create } = require('zustand');
@@ -52,6 +53,8 @@ jest.mock('../../../lib/story/useStory', () => ({
   }),
 }));
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: () => null }));
+// Gremly's guesses when a Chapter is started by hand (stage 3)
+jest.mock('../../../lib/worlds/guess', () => ({ guessChapter: jest.fn() }));
 // Gremly's questions (stage 3): read from the database, and answered through their own module
 jest.mock('../../../lib/worlds/questions', () => {
   const actual = jest.requireActual('../../../lib/worlds/questions');
@@ -244,6 +247,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockParams = {};
   (fetchWorldsQuestions as jest.Mock).mockResolvedValue([]);
+  (guessChapter as jest.Mock).mockResolvedValue(null);
 });
 afterEach(() => act(() => hideSnack()));
 
@@ -287,10 +291,13 @@ describe('Worlds home', () => {
     expect(r.getByTestId('worlds-snack')).toHaveTextContent(/Old band is back./);
   });
 
-  it('starts a Chapter by hand and opens it', async () => {
+  it('starts a Chapter by hand and opens it, filled in by hand when Gremly has no guess', async () => {
     const r = render(<WorldsScreen />);
     fireEvent.press(r.getByTestId('worlds-plus'));
     fireEvent.changeText(r.getByTestId('start-what'), '  Mum’s 60th  ');
+    await act(async () => fireEvent.press(r.getByTestId('start-next')));
+    expect(guessChapter).toHaveBeenCalledWith('Mum’s 60th', '2026-10-08', ['w1', 'w2']);
+    expect(r.getByText('Fill in the rest, then start it.')).toBeTruthy();
     fireEvent.press(r.getByTestId('start-world-w2'));
     await act(async () => fireEvent.press(r.getByTestId('start-go')));
     expect(store.getState().makeChapter).toHaveBeenCalledWith({
@@ -299,8 +306,73 @@ describe('Worlds home', () => {
       startDate: null,
       endDate: null,
       gremly: null,
+      items: [],
     });
     expect(mockNav.navigate).toHaveBeenCalledWith('ChapterDetail', { chapterId: 'c9' });
+  });
+
+  it('Gremly fills in the rest from the line, and every field can be changed', async () => {
+    (guessChapter as jest.Mock).mockResolvedValue({
+      title: 'Yard tidy',
+      worldId: 'w1',
+      newWorld: null,
+      startDate: null,
+      endDate: '2026-10-31',
+      gremly: 'gardener_gremly',
+      items: [
+        { type: 'todo', id: 't3' },
+        { type: 'todo', id: 't5' },
+      ],
+    });
+    const r = render(<WorldsScreen />);
+    fireEvent.press(r.getByTestId('worlds-plus'));
+    fireEvent.changeText(r.getByTestId('start-what'), 'tidy the yard this month');
+    await act(async () => fireEvent.press(r.getByTestId('start-next')));
+    expect(r.getByText('Does this look right?')).toBeTruthy();
+    expect(r.getByTestId('start-name').props.value).toBe('Yard tidy');
+    expect(r.getByText('Fix the gate')).toBeTruthy();
+    // they leave one thing out and rename it
+    fireEvent.press(r.getByTestId('item-row-t5'));
+    fireEvent.changeText(r.getByTestId('start-name'), 'Yard and gate');
+    await act(async () => fireEvent.press(r.getByTestId('start-go')));
+    expect(store.getState().makeChapter).toHaveBeenCalledWith({
+      title: 'Yard and gate',
+      worldId: 'w1',
+      startDate: null,
+      endDate: '2026-10-31',
+      gremly: 'gardener_gremly',
+      items: [{ type: 'todo', id: 't3' }],
+    });
+  });
+
+  it('when none of their Worlds fits, the new World Gremly found is made first, with one Undo for both', async () => {
+    (guessChapter as jest.Mock).mockResolvedValue({
+      title: 'Learn Spanish',
+      worldId: null,
+      newWorld: { name: 'Learning', gremly: 'scholar_gremly' },
+      startDate: null,
+      endDate: '2027-05-31',
+      gremly: null,
+      items: [],
+    });
+    const r = render(<WorldsScreen />);
+    fireEvent.press(r.getByTestId('worlds-plus'));
+    fireEvent.changeText(r.getByTestId('start-what'), 'Learn Spanish before June');
+    await act(async () => fireEvent.press(r.getByTestId('start-next')));
+    expect(r.getByText('New: Learning')).toBeTruthy();
+    expect(
+      r.getByText('None of your Worlds fits, so Gremly will make this one for it.'),
+    ).toBeTruthy();
+    await act(async () => fireEvent.press(r.getByTestId('start-go')));
+    expect(store.getState().makeWorld).toHaveBeenCalledWith({
+      name: 'Learning',
+      gremly: 'scholar_gremly',
+    });
+    expect(store.getState().makeChapter).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Learn Spanish', worldId: 'w9', endDate: '2027-05-31' }),
+    );
+    await act(async () => fireEvent.press(r.getByTestId('worlds-snack-undo')));
+    expect(undo).toHaveBeenCalledTimes(2);
   });
 
   it('makes a World and stays on Worlds', async () => {

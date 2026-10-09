@@ -168,6 +168,7 @@ import { checkTurn } from './context/corrections.js';
 import { fetchPageDetail, pageAnchorFrom } from './context/pageDetail.js';
 import { rememberChapterNo } from './context/saidNo.js';
 import { judgeKeep } from './context/keep.js';
+import { guessChapter } from './context/chapterGuess.js';
 import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
@@ -3414,6 +3415,7 @@ const cortexHandler = {
         'chapter-memory',
         'worlds-changed',
         'chapter-said-no',
+        'chapter-guess',
       ]);
       const AUTH_REQUIRED_LANES = new Set([
         'space_chat',
@@ -7728,6 +7730,18 @@ ${assistantMessage.substring(0, 2000)}
       // (Worlds rebuild, stage 2), kept so it is never offered again
       if (type === 'chapter-said-no') {
         return j(await rememberChapterNo(env, authenticatedUserId, body.chapters));
+      }
+
+      // chapter-guess: Gremly fills in a Chapter started by hand from its one
+      // line (Worlds rebuild, stage 3); nothing is made until they start it
+      if (type === 'chapter-guess') {
+        return j(
+          await guessChapter(env, authenticatedUserId, {
+            line: body.line,
+            // their day, which the app sends; the guess falls back to today in UTC
+            today: body.today,
+          }),
+        );
       }
 
       // =========================

@@ -1977,6 +1977,43 @@ export async function callChapterSaidNo(
 }
 
 /**
+ * Gremly's guesses for a Chapter started by hand from one line (Worlds
+ * rebuild, stage 3): its name, World or a new one, the days the line gives, a
+ * Gremly to wear and which of their things belong. Nothing is made; the
+ * sheet shows each to change. guessed is false when there was none in time.
+ */
+export async function callChapterGuess(input: { line: string; today: string }): Promise<
+  CortexClientResult<{
+    guessed: boolean;
+    title?: string;
+    world_id?: string | null;
+    new_world?: { name: string; gremly: string } | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    gremly?: string | null;
+    items?: { type: string; id: string }[];
+  }>
+> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false, error: '[cortex] Missing EXPO_PUBLIC_CORTEX_URL' };
+  const token = await getSessionToken();
+  if (!token) return { ok: false, error: 'not signed in' };
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'chapter-guess', line: input.line, today: input.today }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error)
+      return { ok: false, error: String(data?.error || res.status), status: res.status };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/**
  * A Chapter's memory, written as the person closes it (data fabric stage
  * 4b). The memory is kept on the Chapter; the reply says what it is, or
  * memory is null when nothing true could be written.
