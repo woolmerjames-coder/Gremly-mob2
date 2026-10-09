@@ -66,13 +66,9 @@ function makeState(overrides: Partial<{ todos: Todo[]; habits: Habit[]; notes: N
     todos: [],
     habits: [],
     notes: [],
-    spaces: [],
     tags: [],
     habitProgress: [],
-    spaceChats: [],
     spaceChatMessages: [],
-    milestones: [],
-    spaceSuggestions: [],
     isLoading: false,
     isInitialized: true,
     lastSyncedAt: new Date(),
@@ -129,9 +125,7 @@ describe('selectDiscoveredPeople', () => {
         makeTodo({ title: 'Call Alice', views: { people: ['Alice'] } as any }),
         makeTodo({ title: 'Email Alice', views: { people: ['Alice'] } as any }),
       ],
-      notes: [
-        makeNote({ body: 'Met with Alice', views: { people: ['Alice'] } as any }),
-      ],
+      notes: [makeNote({ body: 'Met with Alice', views: { people: ['Alice'] } as any })],
     });
     const result = selectDiscoveredPeople(state as any);
     expect(result).toHaveLength(1);
@@ -154,9 +148,7 @@ describe('selectDiscoveredPeople', () => {
 
   it('synthesizes id from lowercase trimmed name', () => {
     const state = makeState({
-      todos: [
-        makeTodo({ title: 'Call Bob', views: { people: ['  Bob  '] } as any }),
-      ],
+      todos: [makeTodo({ title: 'Call Bob', views: { people: ['  Bob  '] } as any })],
     });
     const result = selectDiscoveredPeople(state as any);
     expect(result[0].id).toBe('bob');
@@ -185,12 +177,8 @@ describe('selectDiscoveredPeople', () => {
 
   it('discovers people from habits and notes too', () => {
     const state = makeState({
-      habits: [
-        makeHabit({ name: 'Exercise with Dave', views: { people: ['Dave'] } as any }),
-      ],
-      notes: [
-        makeNote({ body: 'Chatted with Eve', views: { people: ['Eve'] } as any }),
-      ],
+      habits: [makeHabit({ name: 'Exercise with Dave', views: { people: ['Dave'] } as any })],
+      notes: [makeNote({ body: 'Chatted with Eve', views: { people: ['Eve'] } as any })],
     });
     const result = selectDiscoveredPeople(state as any);
     expect(result).toHaveLength(2);

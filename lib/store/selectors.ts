@@ -1,7 +1,7 @@
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore, type HabitProgressRow } from './useGremlyStore';
-import type { Todo, Habit, Note, Space, SpaceSuggestion, WeeklySummary } from '../types';
+import type { Todo, Habit, Note, WeeklySummary } from '../types';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
@@ -19,7 +19,6 @@ import { isRelationPending } from '../minddrop/dropRelation';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
 import { dayOfWeek, pausedOn, weekAround } from '../week/habitWeek';
-import { spanDays } from '../week/model';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -49,17 +48,13 @@ type GremlyState = ReturnType<typeof useGremlyStore.getState>;
 const selectTodos = (state: GremlyState) => state.todos;
 const selectHabits = (state: GremlyState) => state.habits;
 const selectNotes = (state: GremlyState) => state.notes;
-const selectSpaces = (state: GremlyState) => state.spaces;
 const selectWorlds = (state: GremlyState) => state.worlds;
 const selectDropWorldLinks = (state: GremlyState) => state.dropWorldLinks;
 const selectTags = (state: GremlyState) => state.tags;
 const selectHabitProgress = (state: GremlyState) => state.habitProgress;
-const selectSpaceChats = (state: GremlyState) => state.spaceChats;
 const selectSpaceChatMessages = (state: GremlyState) => state.spaceChatMessages;
-const selectMilestones = (state: GremlyState) => state.milestones;
 const selectIsLoading = (state: GremlyState) => state.isLoading;
 const selectIsInitialized = (state: GremlyState) => state.isInitialized;
-const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
 const selectHiddenTodayIds = (state: GremlyState) => state.hiddenTodayIds;
 const selectHabitAdaptations = (state: GremlyState) => state.habitAdaptations;
 // Their weekly day: their week is the seven days that end on it
@@ -185,7 +180,7 @@ export const selectHabitCompletedToday = createSelector(
  * Checks habitProgress array for an entry with today's date.
  *
  * This is the source of truth for checkbox state - ensures consistency
- * across all views (SpaceHome, Today's Focus, Habits sheet, etc.)
+ * across all views (Today's Focus, Habits sheet, etc.)
  *
  * @param state - Store state (or partial state with habitProgress)
  * @param habitId - The habit ID to check
@@ -734,15 +729,14 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectSpaces, selectWorlds, selectDropWorldLinks],
+  [selectTodos, selectNotes, selectWorlds, selectDropWorldLinks],
   (
     todos,
     notes,
-    spaces,
     worlds,
     dropWorldLinks,
   ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> =>
-    sweepCandidatesAsOf(todos, notes, spaces, worlds, dropWorldLinks, getTodayDayString()),
+    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString()),
 );
 
 /**
@@ -753,7 +747,6 @@ export const selectSweepCandidatesUnified = createSelector(
 export function sweepCandidatesAsOf(
   todos: ReturnType<typeof selectTodos>,
   notes: ReturnType<typeof selectNotes>,
-  spaces: ReturnType<typeof selectSpaces>,
   worlds: ReturnType<typeof selectWorlds>,
   dropWorldLinks: ReturnType<typeof selectDropWorldLinks>,
   today: string,
@@ -891,7 +884,6 @@ export function sweepCandidatesAsOf(
       candidate,
       meta: computeSweepCardMeta(
         candidate,
-        spaces,
         computeWorldsForEntity(worlds, dropWorldLinks, candidate.id),
       ),
     }));
@@ -944,15 +936,14 @@ export const selectWrapUp = createSelector(
   [
     selectTodos,
     selectNotes,
-    selectSpaces,
     selectWorlds,
     selectDropWorldLinks,
     // the person's day as the store has it, so the cards are worked out again when it rolls over
     (state: GremlyState) => state.currentDate,
   ],
-  (todos, notes, spaces, worlds, dropWorldLinks) => {
+  (todos, notes, worlds, dropWorldLinks) => {
     const day = ds().ritualDay();
-    return { cards: sweepCandidatesAsOf(todos, notes, spaces, worlds, dropWorldLinks, day) };
+    return { cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day) };
   },
 );
 
@@ -1042,101 +1033,6 @@ export const selectTodayLogsCount = createSelector([selectActiveNotes], (notes):
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SPACE SELECTORS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** Active (non-archived) spaces */
-export const selectActiveSpaces = createSelector([selectSpaces], (spaces): Space[] =>
-  spaces.filter((s) => !s.archived_at),
-);
-
-/** Active spaces sorted by DCO relevance — spaces matching named_anchors or with upcoming key dates appear first */
-export const selectDcoSortedSpaces = createSelector(
-  [
-    (state: ReturnType<typeof useGremlyStore.getState>) => state.spaces,
-    (state: ReturnType<typeof useGremlyStore.getState>) => state.dco,
-  ],
-  (spaces, dco) => {
-    const active = spaces.filter((s) => !s.archived_at);
-    if (!dco?.named_anchors?.length) return active;
-
-    const anchorLabels = new Set(dco.named_anchors.map((a) => a.label.toLowerCase()));
-
-    return [...active].sort((a, b) => {
-      const aMatch = anchorLabels.has(a.name.toLowerCase()) ? 1 : 0;
-      const bMatch = anchorLabels.has(b.name.toLowerCase()) ? 1 : 0;
-      return bMatch - aMatch; // Matched spaces first, rest in original order
-    });
-  },
-);
-
-/** Get todos for a specific space */
-export const selectTodosBySpace = createSelector(
-  [selectActiveTodos, (_state: GremlyState, spaceId: string) => spaceId],
-  (todos, spaceId): Todo[] => todos.filter((t) => t.space_id === spaceId),
-);
-
-/** Get habits for a specific space */
-export const selectHabitsBySpace = createSelector(
-  [selectHabits, (_state: GremlyState, spaceId: string) => spaceId],
-  (habits, spaceId): Habit[] => habits.filter((h) => h.space_id === spaceId && !h.archived),
-);
-
-/** Get notes for a specific space */
-export const selectNotesBySpace = createSelector(
-  [selectActiveNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (notes, spaceId): Note[] => notes.filter((n) => n.space_id === spaceId),
-);
-
-/** Get completed todos count for a space */
-export const selectCompletedTodosCountBySpace = createSelector(
-  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
-  (todos, spaceId): number => todos.filter((t) => t.space_id === spaceId && t.completed_at).length,
-);
-
-/** Get COMPLETED todos for a specific space (for CompletedInSpaceOverlay) */
-export const selectSpaceCompletedTodos = createSelector(
-  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
-  (todos, spaceId): Todo[] =>
-    todos
-      .filter((t) => t.space_id === spaceId && t.completed_at && !t.archived)
-      .sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')),
-);
-
-/** Get INCOMPLETE todos for a specific space */
-export const selectSpaceIncompleteTodos = createSelector(
-  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
-  (todos, spaceId): Todo[] =>
-    todos.filter((t) => t.space_id === spaceId && !t.completed_at && !t.archived),
-);
-
-/** Get ALL todos for a specific space (both complete and incomplete) */
-export const selectAllTodosForSpace = createSelector(
-  [selectTodos, (_state: GremlyState, spaceId: string) => spaceId],
-  (todos, spaceId): Todo[] => todos.filter((t) => t.space_id === spaceId && !t.archived),
-);
-
-/** Spaces with item counts */
-export const selectSpacesWithCounts = createSelector(
-  [selectActiveSpaces, selectTodos, selectHabits, selectNotes],
-  (spaces, todos, habits, notes) => {
-    return spaces.map((space) => {
-      const spaceTodos = todos.filter((t) => t.space_id === space.id && !t.archived);
-      const spaceHabits = habits.filter((h) => h.space_id === space.id && !h.archived);
-      const spaceNotes = notes.filter((n) => n.space_id === space.id && !n.archived);
-
-      return {
-        ...space,
-        todoCount: spaceTodos.filter((t) => !t.completed_at).length,
-        habitCount: spaceHabits.length,
-        noteCount: spaceNotes.length,
-        completedCount: spaceTodos.filter((t) => t.completed_at).length,
-      };
-    });
-  },
-);
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // TAG SELECTORS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1173,15 +1069,12 @@ export const selectPopularTags = createSelector(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Search across all items (todos, habits, notes) */
-export const createSearchSelector = (
-  query: string,
-  filters?: { type?: string; spaceId?: string; tag?: string },
-) =>
+export const createSearchSelector = (query: string, filters?: { type?: string; tag?: string }) =>
   createSelector(
     [selectTodos, selectHabits, selectNotes],
     (todos, habits, notes): (Todo | Habit | Note)[] => {
       const lowerQuery = query.toLowerCase().trim();
-      if (!lowerQuery && !filters?.type && !filters?.spaceId && !filters?.tag) {
+      if (!lowerQuery && !filters?.type && !filters?.tag) {
         return [];
       }
 
@@ -1199,13 +1092,8 @@ export const createSearchSelector = (
         return name.includes(lowerQuery) || title.includes(lowerQuery) || body.includes(lowerQuery);
       };
 
-      const matchesFilters = (item: {
-        type: string;
-        space_id?: string | null;
-        tags?: string[] | null;
-      }) => {
+      const matchesFilters = (item: { type: string; tags?: string[] | null }) => {
         if (filters?.type && item.type !== filters.type) return false;
-        if (filters?.spaceId && item.space_id !== filters.spaceId) return false;
         if (filters?.tag && !item.tags?.includes(filters.tag)) return false;
         return true;
       };
@@ -1499,9 +1387,6 @@ export const useForgottenTodos = () => useGremlyStore(selectForgottenTodos);
 export const useYourNotes = () => useGremlyStore(selectYourNotes);
 export const useRecentJournals = () => useGremlyStore(selectRecentJournals);
 
-export const useActiveSpaces = () => useGremlyStore(selectActiveSpaces);
-export const useDcoSortedSpaces = () => useGremlyStore(selectDcoSortedSpaces);
-export const useSpacesWithCounts = () => useGremlyStore(selectSpacesWithCounts);
 export const usePopularTags = () => useGremlyStore(selectPopularTags);
 
 export const useArchivedItems = () => useGremlyStore(selectAllArchivedItems);
@@ -1513,62 +1398,6 @@ export const useUnscheduledTodosForMiniSweep = () =>
 export const useTodayLogsCount = () => useGremlyStore(selectTodayLogsCount);
 export const useHabitsCompletedToday = () => useGremlyStore(selectHabitsCompletedToday);
 export const useWeeklyHabitSummaries = () => useGremlyStore(selectWeeklyHabitSummaries);
-
-// Parameterized hooks (renamed to avoid conflict with legacy hooks)
-export const useSpaceTodosFromStore = (spaceId: string) =>
-  useGremlyStore((state) => selectTodosBySpace(state, spaceId));
-export const useSpaceHabitsFromStore = (spaceId: string) =>
-  useGremlyStore((state) => selectHabitsBySpace(state, spaceId));
-export const useSpaceNotesFromStore = (spaceId: string) =>
-  useGremlyStore((state) => selectNotesBySpace(state, spaceId));
-
-// Space todos hooks (completed, incomplete, all)
-export const useSpaceCompletedTodos = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceCompletedTodos(state, spaceId));
-
-export const useSpaceIncompleteTodos = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceIncompleteTodos(state, spaceId));
-
-export const useAllTodosForSpace = (spaceId: string) =>
-  useGremlyStore((state) => selectAllTodosForSpace(state, spaceId));
-
-/** Grouped items by type for Space detail view */
-export interface GroupedByType {
-  habits: Habit[];
-  todos: Todo[];
-  notes: Note[];
-}
-
-/** Select items grouped by type for a space, with optional tag filtering */
-export const selectSpaceItemsGrouped = (
-  state: GremlyState,
-  spaceId: string,
-  tagNames?: string[],
-): GroupedByType => {
-  const todos = selectTodosBySpace(state, spaceId);
-  const habits = selectHabitsBySpace(state, spaceId);
-  const notes = selectNotesBySpace(state, spaceId);
-
-  // Apply tag filtering if specified
-  if (tagNames && tagNames.length > 0) {
-    const filterByTags = <T extends { tags?: string[] | null }>(items: T[]): T[] =>
-      items.filter((item) => {
-        const itemTags = item.tags ?? [];
-        return tagNames.some((tag) => itemTags.includes(tag));
-      });
-
-    return {
-      habits: filterByTags(habits),
-      todos: filterByTags(todos),
-      notes: filterByTags(notes),
-    };
-  }
-
-  return { habits, todos, notes };
-};
-
-export const useSpaceItemsGrouped = (spaceId: string, tagNames?: string[]) =>
-  useGremlyStore((state) => selectSpaceItemsGrouped(state, spaceId, tagNames));
 
 // Loading state
 export const useIsLoading = () => useGremlyStore(selectIsLoading);
@@ -1585,121 +1414,8 @@ export const useUnsortedItems = () => useGremlyStore(selectUnsortedItems);
 export const useAllActiveItemsHub = () => useGremlyStore(selectAllActiveItems);
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SPACE AGGREGATE SELECTORS (for SpaceHomeScreen)
+// CHAT MESSAGE SELECTORS
 // ═══════════════════════════════════════════════════════════════════════════════
-
-/** Select a specific space by ID */
-export const selectSpaceById = createSelector(
-  [selectSpaces, (_state: GremlyState, spaceId: string) => spaceId],
-  (spaces, spaceId): Space | null => spaces.find((s) => s.id === spaceId) ?? null,
-);
-
-/** Select all items for a space as AppRecord-compatible objects */
-export const selectSpaceItems = createSelector(
-  [
-    selectTodosBySpace,
-    selectHabitsBySpace,
-    selectNotesBySpace,
-    (_state: GremlyState, spaceId: string) => spaceId,
-  ],
-  (todos, habits, notes): (Todo | Habit | Note)[] => [...todos, ...habits, ...notes],
-);
-
-/** Select open (incomplete) todo count for a space */
-export const selectSpaceOpenTodosCount = createSelector(
-  [selectTodosBySpace],
-  (todos): number => todos.filter((t) => !t.completed_at).length,
-);
-
-/** Select journal notes for a space */
-export const selectSpaceJournals = createSelector([selectNotesBySpace], (notes): Note[] =>
-  notes.filter((n) => n.subtype === 'journal'),
-);
-
-/** Select logs (non-journal, non-list notes) for a space */
-export const selectSpaceLogs = createSelector([selectNotesBySpace], (notes): Note[] =>
-  notes.filter((n) => n.subtype !== 'list' && n.subtype !== 'journal'),
-);
-
-/** Select lists for a space */
-export const selectSpaceLists = createSelector([selectNotesBySpace], (notes): Note[] =>
-  notes.filter((n) => n.subtype === 'list'),
-);
-
-// Space hooks
-export const useSpaceById = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceById(state, spaceId));
-export const useSpaceItems = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceItems(state, spaceId));
-export const useSpaceOpenTodosCount = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceOpenTodosCount(state, spaceId));
-export const useSpaceJournals = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceJournals(state, spaceId));
-export const useSpaceLogs = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceLogs(state, spaceId));
-export const useSpaceLists = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceLists(state, spaceId));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ADDITIONAL SPACE SELECTORS (for full SpaceHomeScreen migration)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** Pinned items in a space */
-export const selectSpacePinnedItems = createSelector(
-  [selectTodos, selectHabits, selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (todos, habits, notes, spaceId) => {
-    const pinnedTodos = todos.filter(
-      (t) => t.space_id === spaceId && t.is_pinned && !t.archived_at,
-    );
-    const pinnedHabits = habits.filter((h) => h.space_id === spaceId && h.is_pinned && !h.archived);
-    const pinnedNotes = notes.filter(
-      (n) => n.space_id === spaceId && n.is_pinned && !n.archived_at,
-    );
-    return {
-      todos: pinnedTodos,
-      habits: pinnedHabits,
-      notes: pinnedNotes,
-      count: pinnedTodos.length + pinnedHabits.length + pinnedNotes.length,
-    };
-  },
-);
-
-export const useSpacePinnedItems = (spaceId: string) =>
-  useGremlyStore((state) => selectSpacePinnedItems(state, spaceId));
-
-/** Space notes count (active, not archived) */
-export const selectSpaceNotesCount = createSelector(
-  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (notes, spaceId) => notes.filter((n) => n.space_id === spaceId && !n.archived_at).length,
-);
-
-export const useSpaceNotesCount = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceNotesCount(state, spaceId));
-
-/** Journal count for a space */
-export const selectSpaceJournalCount = createSelector(
-  [selectNotesBySpace],
-  (notes): number => notes.filter((n) => n.subtype === 'journal').length,
-);
-
-export const useSpaceJournalCount = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceJournalCount(state, spaceId));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SPACE CHAT SELECTORS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** Chats for a specific space (active, not archived, sorted by updated_at) */
-export const selectChatsForSpace = createSelector(
-  [selectSpaceChats, (_state: GremlyState, spaceId: string) => spaceId],
-  (chats, spaceId) =>
-    chats
-      .filter((c) => c.scope_id === spaceId && !c.archived_at)
-      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')),
-);
-
-export const useSpaceChats = (spaceId: string) =>
-  useGremlyStore((state) => selectChatsForSpace(state, spaceId));
 
 /** Messages for a specific chat (sorted by created_at ascending) */
 export const selectMessagesForChat = createSelector(
@@ -1713,205 +1429,9 @@ export const selectMessagesForChat = createSelector(
 export const useChatMessages = (chatId: string) =>
   useGremlyStore((state) => selectMessagesForChat(state, chatId));
 
-/** Pinned chats for a space */
-export const selectPinnedChatsForSpace = createSelector([selectChatsForSpace], (chats) =>
-  chats.filter((c) => c.pinned),
-);
-
-export const useSpacePinnedChats = (spaceId: string) =>
-  useGremlyStore((state) => selectPinnedChatsForSpace(state, spaceId));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MILESTONE SELECTORS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** Active milestone for a space (not completed) */
-export const selectSpaceMilestone = createSelector(
-  [selectMilestones, (_state: GremlyState, spaceId: string) => spaceId],
-  (milestones, spaceId) =>
-    milestones.find((m) => m.space_id === spaceId && !m.completed_at && m.is_active) ?? null,
-);
-
-export const useSpaceMilestoneFromStore = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceMilestone(state, spaceId));
-
-/** Milestone countdown object with days, formatted date, and isPast flag */
-export const selectMilestoneCountdown = createSelector(
-  [selectSpaceMilestone],
-  (milestone): { days: number | null; dateFormatted: string | null; isPast: boolean } => {
-    if (!milestone?.date) {
-      return { days: null, dateFormatted: null, isPast: false };
-    }
-    const todayDay = ds().today();
-    const diffDays = ds().daysBetween(todayDay, milestone.date);
-    const isPast = diffDays < 0;
-
-    // Format date as "Mon DD" or "Mon DD, YYYY" if different year
-    const dateFormatted = ds().formatForChip(milestone.date);
-
-    return { days: diffDays, dateFormatted, isPast };
-  },
-);
-
-export const useMilestoneCountdown = (spaceId: string) =>
-  useGremlyStore((state) => selectMilestoneCountdown(state, spaceId));
-
-/** All milestones for a space (including completed), sorted by date ascending */
-export const selectAllMilestonesForSpace = createSelector(
-  [selectMilestones, (_state: GremlyState, spaceId: string) => spaceId],
-  (milestones, spaceId) =>
-    milestones
-      .filter((m) => m.space_id === spaceId)
-      .sort((a, b) => (a.date || '').localeCompare(b.date || '')),
-);
-
-export const useAllSpaceMilestones = (spaceId: string) =>
-  useGremlyStore((state) => selectAllMilestonesForSpace(state, spaceId));
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // EVENT NOTE SELECTORS (Key Dates feature)
 // ═══════════════════════════════════════════════════════════════════════════════
-
-/** Events (notes with subtype='event') for a space, excluding goals (goals shown in header), sorted by date then dateless at bottom */
-export const selectEventsForSpace = createSelector(
-  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (notes, spaceId) =>
-    notes
-      .filter((n) => n.subtype === 'event' && n.space_id === spaceId && !n.archived && !n.is_goal)
-      .sort((a, b) => {
-        // 1. Dateless events go to the bottom
-        if (a.target_date && !b.target_date) return -1;
-        if (!a.target_date && b.target_date) return 1;
-
-        // 2. Both have dates (or both dateless) - sort by date ascending
-        const dateA = a.target_date || '';
-        const dateB = b.target_date || '';
-        return dateA.localeCompare(dateB);
-      }),
-);
-
-export const useEventsForSpace = (spaceId: string) =>
-  useGremlyStore((state) => selectEventsForSpace(state, spaceId));
-
-/** Goal event for a space (is_goal = true) - returns first goal by created_at (primary goal) */
-export const selectGoalForSpace = createSelector(
-  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (notes, spaceId) =>
-    notes.find(
-      (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
-    ) || null,
-);
-
-export const useGoalForSpace = (spaceId: string) =>
-  useGremlyStore((state) => selectGoalForSpace(state, spaceId));
-
-/** All goal events for a space (is_goal = true), max 3, sorted by created_at ascending */
-export const selectGoalsForSpace = createSelector(
-  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (notes, spaceId) =>
-    notes
-      .filter(
-        (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
-      )
-      .sort((a, b) => {
-        const aDate = a.created_at || '';
-        const bDate = b.created_at || '';
-        return aDate.localeCompare(bDate);
-      })
-      .slice(0, 3),
-);
-
-export const useGoalsForSpace = (spaceId: string) =>
-  useGremlyStore((state) => selectGoalsForSpace(state, spaceId));
-
-/** Featured goal for a space: goal with views.featured_goal === true, else first by created_at */
-export const selectFeaturedGoalForSpace = createSelector(
-  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
-  (notes, spaceId) => {
-    const goals = notes.filter(
-      (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
-    );
-    if (goals.length === 0) return null;
-    // Prefer the explicitly-featured goal
-    const featured = goals.find((g) => (g as any).views?.featured_goal === true);
-    if (featured) return featured;
-    // Fallback: first by created_at ascending
-    return goals.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))[0] || null;
-  },
-);
-
-export const useFeaturedGoalForSpace = (spaceId: string) =>
-  useGremlyStore((state) => selectFeaturedGoalForSpace(state, spaceId));
-
-/** Journal check-ins related to a goal (by origin, views.goal_checkin, title match, or tag) */
-export const selectCheckInsForGoal = createSelector(
-  [
-    selectNotes,
-    (_state: GremlyState, goalTitle: string) => goalTitle,
-    (_state: GremlyState, _goalTitle: string, spaceId: string) => spaceId,
-  ],
-  (notes, goalTitle, spaceId) => {
-    const goalTitleLower = goalTitle.toLowerCase();
-    const goalWords = goalTitleLower.split(/\s+/).filter((w) => w.length > 2);
-
-    const journalsInSpace = notes.filter(
-      (n) => n.subtype === 'journal' && n.space_id === spaceId && !n.archived,
-    );
-
-    console.log('[selectCheckInsForGoal] Searching for:', { goalTitle, spaceId });
-    console.log('[selectCheckInsForGoal] Journals in space:', journalsInSpace.length);
-
-    const matches = journalsInSpace.filter((n) => {
-      // Check 1: origin is goal_checkin AND views.goal_checkin matches
-      const hasGoalCheckinOrigin = n.origin === 'goal_checkin';
-      const goalCheckinData = (n as any).views?.goal_checkin;
-      const matchesGoalCheckinView = goalCheckinData?.goal_name?.toLowerCase() === goalTitleLower;
-
-      // Check 2: title contains goal-related words
-      const noteTitle = (n.title || '').toLowerCase();
-      const hasGoalInTitle = goalWords.some((word) => noteTitle.includes(word));
-
-      // Check 3: tags include goal name
-      const hasTags =
-        Array.isArray(n.tags) &&
-        n.tags.some(
-          (tag) =>
-            tag.toLowerCase().includes(goalTitleLower) ||
-            goalTitleLower.includes(tag.toLowerCase()),
-        );
-
-      const isMatch = (hasGoalCheckinOrigin && matchesGoalCheckinView) || hasGoalInTitle || hasTags;
-
-      if (journalsInSpace.length < 20) {
-        // Only log if not too many journals to avoid noise
-        console.log('[selectCheckInsForGoal] Checking note:', {
-          id: n.id,
-          title: n.title,
-          origin: n.origin,
-          hasGoalCheckinOrigin,
-          goalCheckinData,
-          matchesGoalCheckinView,
-          tags: n.tags,
-          hasGoalInTitle,
-          hasTags,
-          isMatch,
-        });
-      }
-
-      return isMatch;
-    });
-
-    console.log('[selectCheckInsForGoal] Found matches:', matches.length);
-    return matches.sort((a, b) => {
-      const aDate = a.created_at || '';
-      const bDate = b.created_at || '';
-      return bDate.localeCompare(aDate); // Most recent first
-    });
-  },
-);
-
-export const useCheckInsForGoal = (goalTitle: string, spaceId: string) =>
-  useGremlyStore((state) => selectCheckInsForGoal(state, goalTitle, spaceId));
 
 /** All items (todos, notes, habits) linked to a specific event */
 export const selectItemsLinkedToEvent = createSelector(
@@ -1925,24 +1445,6 @@ export const selectItemsLinkedToEvent = createSelector(
 
 export const useItemsLinkedToEvent = (eventId: string) =>
   useGremlyStore((state) => selectItemsLinkedToEvent(state, eventId));
-
-/** Whether a space has any events */
-export const selectSpaceHasEvents = createSelector(
-  [selectEventsForSpace],
-  (events) => events.length > 0,
-);
-
-export const useSpaceHasEvents = (spaceId: string) =>
-  useGremlyStore((state) => selectSpaceHasEvents(state, spaceId));
-
-/** Upcoming events for a space (target_date >= today) */
-export const selectUpcomingEventsForSpace = createSelector([selectEventsForSpace], (events) => {
-  const today = getTodayDayString();
-  return events.filter((e) => e.target_date && e.target_date >= today);
-});
-
-export const useUpcomingEventsForSpace = (spaceId: string) =>
-  useGremlyStore((state) => selectUpcomingEventsForSpace(state, spaceId));
 
 /** Events occurring on a specific date (single-day or multi-day spanning that date) */
 export const selectEventsForDate = createSelector(
@@ -2058,131 +1560,6 @@ export const useRecentHabits = (limit: number = 50) =>
   useGremlyStore((state) => selectRecentHabits(state, limit));
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SPACE NOTES SELECTOR
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** Notes for a specific space (non-archived, sorted by updated_at desc) */
-export const selectSpaceNotes = createSelector(
-  [selectNotes, (_state: GremlyState, spaceId: string | null | undefined) => spaceId],
-  (notes, spaceId): Note[] => {
-    if (!spaceId) return [];
-    return notes
-      .filter((n) => n.space_id === spaceId && !n.archived)
-      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
-  },
-);
-
-export const useSpaceNotesSelector = (spaceId: string | null | undefined) =>
-  useGremlyStore((state) => selectSpaceNotes(state, spaceId));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SPACE TIMELINE SELECTOR (for weekly habit progress)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export type TimelineItem = {
-  id: string;
-  type: 'habit' | 'todo' | 'note';
-  title: string;
-  dueAt?: string | null;
-  done?: boolean;
-};
-
-export type TimelineDay = {
-  dateISO: string; // YYYY-MM-DD
-  items: TimelineItem[];
-};
-
-/** The days of their current week: the seven that end on their weekly day */
-function getWeekDateRange(today: string, weeklyDay: number): string[] {
-  const week = weekAround(today, weeklyDay);
-  return spanDays(week.first, week.last);
-}
-
-/** Timeline for a specific space - groups items by day for the current week */
-export const selectSpaceTimeline = createSelector(
-  [
-    selectHabits,
-    selectTodos,
-    selectNotes,
-    selectHabitProgress,
-    selectWeeklyDay,
-    selectToday,
-    (_state: GremlyState, spaceId: string | null | undefined) => spaceId,
-  ],
-  (habits, todos, notes, habitProgress, weeklyDay, today, spaceId): TimelineDay[] => {
-    if (!spaceId) return [];
-
-    const weekDays = getWeekDateRange(today, weeklyDay);
-    const dayMap = new Map<string, TimelineItem[]>();
-    for (const iso of weekDays) dayMap.set(iso, []);
-
-    // Build habit progress lookup: habitId -> Set of occurred_day strings
-    const habitProgressMap = new Map<string, Set<string>>();
-    for (const p of habitProgress) {
-      if (!habitProgressMap.has(p.habit_id)) {
-        habitProgressMap.set(p.habit_id, new Set());
-      }
-      if (p.occurred_day) {
-        habitProgressMap.get(p.habit_id)!.add(p.occurred_day);
-      }
-    }
-
-    // Add habits for each day (showing completion status)
-    const spaceHabits = habits.filter((h) => h.space_id === spaceId && !h.archived);
-    for (const h of spaceHabits) {
-      const habitDays = habitProgressMap.get(h.id) || new Set<string>();
-      for (const iso of weekDays) {
-        const done = habitDays.has(iso);
-        dayMap.get(iso)!.push({
-          id: h.id,
-          type: 'habit',
-          title: (h as any).name || (h as any).title || 'Habit',
-          done,
-        });
-      }
-    }
-
-    // Add todos with due dates in this week
-    const spaceTodos = todos.filter((t) => t.space_id === spaceId && !t.archived);
-    for (const t of spaceTodos) {
-      // Use due_day as source of truth (timezone-safe YYYY-MM-DD)
-      const dueDay = (t as any).due_day;
-      if (dueDay && dayMap.has(dueDay)) {
-        const dueAt = (t as any).due_time ? `${dueDay}T${(t as any).due_time}:00` : dueDay;
-        dayMap.get(dueDay)!.push({
-          id: t.id,
-          type: 'todo',
-          title: (t as any).name || (t as any).title || 'To-do',
-          dueAt,
-          done: !!(t as any).completed_at,
-        });
-      }
-    }
-
-    // Add notes with date in this week
-    const spaceNotes = notes.filter((n) => n.space_id === spaceId && !n.archived);
-    for (const n of spaceNotes) {
-      const noteDate = (n as any).date || (n as any).created_at?.slice(0, 10);
-      if (noteDate && dayMap.has(noteDate)) {
-        dayMap.get(noteDate)!.push({
-          id: n.id,
-          type: 'note',
-          title: (n as any).title || (n as any).body?.split('\n')[0]?.slice(0, 80) || 'Note',
-        });
-      }
-    }
-
-    return weekDays.map((iso) => ({
-      dateISO: iso,
-      items: dayMap.get(iso)!,
-    }));
-  },
-);
-
-export const useSpaceTimelineFromStore = (spaceId: string | null | undefined) =>
-  useGremlyStore((state) => selectSpaceTimeline(state, spaceId));
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // UNSORTED FOR REVIEW (for Hub filtering)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2226,64 +1603,9 @@ export function useTodayPendingDrops(): QueuedDrop[] {
   );
 }
 
-/**
- * Get pending drops for a specific space
- * Shows optimistic loading cards while drops are processing
- * Uses useShallow to prevent infinite re-renders from new array references
- */
-export function useSpacePendingDrops(spaceId: string | null): QueuedDrop[] {
-  return useGremlyStore(
-    useShallow((state) => {
-      if (!spaceId) return [];
-      return state.queueItems.filter(
-        (d) => d.spaceId === spaceId && d.phase !== 'complete' && d.phase !== 'failed',
-      );
-    }),
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
-// SPACE SUGGESTIONS SELECTORS
+// ENTITY LOOKUP BY IDS
 // ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Get all pending "new_space" suggestions
- * These are suggestions to create a new space from unassigned drops
- */
-export const selectNewSpaceSuggestions = createSelector(
-  [selectSpaceSuggestions],
-  (suggestions): SpaceSuggestion[] => {
-    return suggestions.filter((s) => s.suggestion_type === 'new_space' && s.status === 'pending');
-  },
-);
-
-/**
- * Hook to get new space suggestions from store
- */
-export function useNewSpaceSuggestions(): SpaceSuggestion[] {
-  return useGremlyStore(useShallow((state) => selectNewSpaceSuggestions(state)));
-}
-
-/**
- * Get pending "assign_to_space" suggestions for a specific space
- * These are suggestions to assign unassigned drops to an existing space
- */
-export const selectAssignmentSuggestionsForSpace = createSelector(
-  [selectSpaceSuggestions, (_state: GremlyState, spaceId: string) => spaceId],
-  (suggestions, spaceId): SpaceSuggestion[] => {
-    return suggestions.filter(
-      (s) =>
-        s.suggestion_type === 'assign_to_space' && s.space_id === spaceId && s.status === 'pending',
-    );
-  },
-);
-
-/**
- * Hook to get assignment suggestions for a specific space
- */
-export function useAssignmentSuggestionsForSpace(spaceId: string): SpaceSuggestion[] {
-  return useGremlyStore(useShallow((state) => selectAssignmentSuggestionsForSpace(state, spaceId)));
-}
 
 /**
  * Entity union type for selectEntitiesByIds
@@ -2292,7 +1614,6 @@ export type DropEntity = (Todo | Note | Habit) & { _type: 'todo' | 'note' | 'hab
 
 /**
  * Get entities (todos, notes, habits) by an array of IDs
- * Useful for resolving drop_ids from a SpaceSuggestion
  */
 export const selectEntitiesByIds = createSelector(
   [selectTodos, selectNotes, selectHabits, (_state: GremlyState, dropIds: string[]) => dropIds],

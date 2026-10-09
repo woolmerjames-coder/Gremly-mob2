@@ -7,12 +7,10 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { SpaceChatMessage, SpaceChatMessageInsert, SpaceChat } from '../lib/types';
+import { SpaceChatMessage, SpaceChatMessageInsert } from '../lib/types';
 import { SupabaseSpaceChatMessageRepo, SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/itemDisplayHelpers';
 import { useAuth } from '../providers/AuthProvider';
-import { useGremlyStore } from '../lib/store/useGremlyStore';
-import { nowTimestamp } from '../lib/date/DateService';
 import { applyEntityChange, lateCardAlreadyShown, pendingTwinOf } from '../lib/chat/entityCards';
 
 /**
@@ -297,20 +295,6 @@ export function useChatMessages(
           setCurrentChatId(activeChatId);
           titleSetRef.current = true; // Title already set during creation
           console.log('[useChatMessages] Created new chat on first message:', activeChatId);
-
-          // Sync to Zustand store for immediate UI update in chat list
-          const syncSpaceChat = useGremlyStore.getState().syncSpaceChat;
-          syncSpaceChat({
-            ...newChat,
-            scope_id: spaceId,
-            user_id: user.id,
-            title: generatedTitle,
-            last_message_snippet: text.trim().slice(0, 100),
-            is_archived: false,
-            pinned: false,
-            created_at: newChat.created_at || nowTimestamp(),
-            updated_at: newChat.updated_at || nowTimestamp(),
-          } as SpaceChat);
         }
 
         const input: SpaceChatMessageInsert = {
@@ -338,21 +322,10 @@ export function useChatMessages(
             title: generatedTitle,
             last_message_snippet: text.trim(),
           });
-          // Sync to Zustand store
-          const updateSpaceChat = useGremlyStore.getState().updateSpaceChat;
-          updateSpaceChat(activeChatId, {
-            title: generatedTitle,
-            last_message_snippet: text.trim().slice(0, 100),
-          });
         } else {
           // Just update last message snippet
           await chatRepo.update(activeChatId, {
             last_message_snippet: text.trim(),
-          });
-          // Sync to Zustand store
-          const updateSpaceChat = useGremlyStore.getState().updateSpaceChat;
-          updateSpaceChat(activeChatId, {
-            last_message_snippet: text.trim().slice(0, 100),
           });
         }
 

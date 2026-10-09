@@ -32,7 +32,6 @@ jest.mock('../../lib/store/useGremlyStore', () => {
     updateEntityChatNoteChecklist: jest.fn(),
     updateEntityChatNote: jest.fn(),
     deleteEntityChatNote: jest.fn(),
-    spaces: [],
     notes: [],
     todos: [],
     habits: [],
@@ -58,8 +57,6 @@ jest.mock('../../lib/store/selectors', () => ({
     body: 'Test note',
     subtype: 'journal',
   }),
-  useActiveSpaces: () => [],
-  useSpaceHasEvents: () => false,
 }));
 
 // Keep useRepo mock for any legacy code paths

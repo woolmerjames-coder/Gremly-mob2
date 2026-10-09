@@ -14,7 +14,6 @@
  * its card is passed over.
  */
 import { isRelationPending } from '../minddrop/dropRelation';
-import type { Space } from '../types';
 import { computeSweepCardMeta } from './computeSweepCardMeta';
 import type { SweepCandidate, SweepCardMeta } from './types';
 
@@ -78,7 +77,6 @@ export function sweepCardNow<T extends Card>(
   base: T,
   live: ReadonlyArray<Card>,
   entity: Fields | null,
-  spaces: Space[],
 ): T {
   const fresh = live.find((c) => c.candidate.id === base.candidate.id);
   if (fresh) {
@@ -91,6 +89,6 @@ export function sweepCardNow<T extends Card>(
   return {
     ...base,
     candidate,
-    meta: { ...computeSweepCardMeta(candidate, spaces), world: base.meta.world },
+    meta: { ...computeSweepCardMeta(candidate), world: base.meta.world },
   };
 }

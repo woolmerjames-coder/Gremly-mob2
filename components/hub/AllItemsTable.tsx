@@ -3,7 +3,7 @@
  *
  * Shows todos, habits, and logs in a compact table format with:
  * - Filter chips (All / Todos / Habits / Logs)
- * - Columns: Status, Title, Due, Sweep, Space, Captured
+ * - Columns: Status, Title, Due, Sweep, Captured
  * - Sorted by captured date (newest first)
  */
 
@@ -12,7 +12,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date';
 import { getSweepPrediction } from '../../lib/store/sweepHelpers';
-import type { Todo, Habit, Note, Space } from '../../lib/types';
+import type { Todo, Habit, Note } from '../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
 // BRAND COLORS
@@ -41,8 +41,6 @@ type UnifiedItem = {
   createdAt: string;
   dueLabel: string;
   sweepLabel: string;
-  spaceId: string | null;
-  spaceName: string | null;
   status: 'active' | 'completed' | 'overdue';
   raw: Todo | Habit | Note;
 };
@@ -145,16 +143,6 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
   const todos = useGremlyStore((s): Todo[] => s.todos) ?? [];
   const habits = useGremlyStore((s): Habit[] => s.habits) ?? [];
   const notes = useGremlyStore((s): Note[] => s.notes) ?? [];
-  const spaces = useGremlyStore((s): Space[] => s.spaces) ?? [];
-
-  // Build space lookup
-  const spaceMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const space of spaces) {
-      map.set(space.id, space.name);
-    }
-    return map;
-  }, [spaces]);
 
   // Unify all items
   const allItems = useMemo<UnifiedItem[]>(() => {
@@ -171,8 +159,6 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
         createdAt: todo.created_at ?? '',
         dueLabel: getDueLabel(todo),
         sweepLabel: sweep.label,
-        spaceId: todo.space_id ?? null,
-        spaceName: todo.space_id ? (spaceMap.get(todo.space_id) ?? null) : null,
         status: getStatus(todo),
         raw: todo,
       });
@@ -189,8 +175,6 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
         createdAt: habit.created_at ?? '',
         dueLabel: getDueLabel(habit),
         sweepLabel: sweep.label,
-        spaceId: null,
-        spaceName: null,
         status: getStatus(habit),
         raw: habit,
       });
@@ -207,8 +191,6 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
         createdAt: note.created_at ?? '',
         dueLabel: getDueLabel(note),
         sweepLabel: sweep.label,
-        spaceId: note.space_id ?? null,
-        spaceName: note.space_id ? (spaceMap.get(note.space_id) ?? null) : null,
         status: getStatus(note),
         raw: note,
       });
@@ -218,7 +200,7 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
     items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
     return items;
-  }, [todos, habits, notes, spaceMap]);
+  }, [todos, habits, notes]);
 
   // Apply filter
   const filteredItems = useMemo(() => {
@@ -302,15 +284,6 @@ export default function AllItemsTable({ onItemPress }: AllItemsTableProps) {
               <Text style={styles.sweep} numberOfLines={1}>
                 {item.sweepLabel}
               </Text>
-
-              {/* Space chip (inline if exists) */}
-              {item.spaceName && (
-                <View style={styles.spaceChip}>
-                  <Text style={styles.spaceText} numberOfLines={1}>
-                    {item.spaceName}
-                  </Text>
-                </View>
-              )}
 
               {/* Captured */}
               <Text style={styles.captured}>{formatCaptured(item.createdAt)}</Text>
@@ -445,20 +418,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: BRAND.mutedSageText,
     textAlign: 'center',
-  },
-  // Space chip
-  spaceChip: {
-    backgroundColor: BRAND.mossGreen,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    maxWidth: 60,
-    marginRight: 6,
-  },
-  spaceText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: BRAND.white,
   },
   // Captured
   captured: {

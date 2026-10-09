@@ -32,11 +32,7 @@ import { getDateService } from '../../lib/date';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { ClarificationWhen } from '../../lib/minddrop/clarification';
 import { useCanCreate } from '../../lib/store/lifecycleSelectors';
-import {
-  useActiveSpaces,
-  useIsLoading,
-  useSweepCandidatesUnified,
-} from '../../lib/store/selectors';
+import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
 
 import { env, getEnv } from '../../lib/env';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
@@ -218,7 +214,6 @@ function CardDeck({
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
   const habits = useGremlyStore((state) => state.habits);
-  const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
   // a todo card's days: how full each already is, and the day a Later comes back
   const cardDays = useCardDays();
@@ -1104,7 +1099,6 @@ function CardDeck({
       snap,
       allCandidates,
       entityNow(snap.candidate, { todos, notes, habits }),
-      spaces,
     );
 
     // Check if this candidate was just converted (e.g., note -> todo, note -> habit)
@@ -1125,7 +1119,7 @@ function CardDeck({
             isCreatedToday: true,
             raw: newTodo as any,
           };
-          const newMeta = computeSweepCardMeta(convertedTodoCandidate, spaces);
+          const newMeta = computeSweepCardMeta(convertedTodoCandidate);
           return {
             ...base,
             candidate: convertedTodoCandidate,
@@ -1148,7 +1142,7 @@ function CardDeck({
             isCreatedToday: true,
             raw: newHabit as any,
           };
-          const newMeta = computeSweepCardMeta(convertedHabitCandidate, spaces);
+          const newMeta = computeSweepCardMeta(convertedHabitCandidate);
           return {
             ...base,
             candidate: convertedHabitCandidate,
@@ -1173,7 +1167,7 @@ function CardDeck({
             isEventPassed: false,
             daysUntilEvent: null,
           };
-          const newMeta = computeSweepCardMeta(convertedNoteCandidate, spaces);
+          const newMeta = computeSweepCardMeta(convertedNoteCandidate);
           return {
             ...base,
             candidate: convertedNoteCandidate,
@@ -1185,16 +1179,7 @@ function CardDeck({
     }
 
     return base;
-  }, [
-    currentIndex,
-    candidatesWithMeta,
-    convertedCandidate,
-    todos,
-    habits,
-    notes,
-    spaces,
-    allCandidates,
-  ]);
+  }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits, notes, allCandidates]);
 
   // Loading state
   if (isLoading) {

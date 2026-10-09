@@ -7,7 +7,7 @@ import { renderHook } from '@testing-library/react-native';
 import { useCalendarItemsForDate, useDatesWithItems } from '../calendarSelectors';
 import { resetDateService, createDateService } from '../../date';
 import { useGremlyStore } from '../useGremlyStore';
-import type { Todo, Habit, Note, Space } from '../../types';
+import type { Todo, Habit, Note } from '../../types';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TEST SETUP
@@ -90,22 +90,10 @@ function makeNote(overrides: Partial<Note> = {}): Note {
   } as Note;
 }
 
-function makeSpace(overrides: Partial<Space> = {}): Space {
-  return {
-    id: `space-${Math.random().toString(36).slice(2)}`,
-    owner_id: 'user-1',
-    name: 'Test Space',
-    created_at: `${TODAY}T10:00:00Z`,
-    updated_at: `${TODAY}T10:00:00Z`,
-    ...overrides,
-  } as Space;
-}
-
 function setupMockStore(data: {
   todos?: Todo[];
   habits?: Habit[];
   notes?: Note[];
-  spaces?: Space[];
   calendarEvents?: Record<string, unknown[]>;
   hiddenCalendarEventsByDate?: Record<string, string[]>;
   eventTimeOverrides?: Record<string, unknown>;
@@ -114,7 +102,6 @@ function setupMockStore(data: {
     todos: data.todos || [],
     habits: data.habits || [],
     notes: data.notes || [],
-    spaces: data.spaces || [],
     calendarEvents: data.calendarEvents || {},
     userCalendarEvents: [],
     hiddenCalendarEventsByDate: data.hiddenCalendarEventsByDate || {},
@@ -337,31 +324,6 @@ describe('useCalendarItemsForDate', () => {
       expect(result.current[1].title).toBe('Later');
     });
   });
-
-  describe('space info', () => {
-    it('includes space info for items with space_id', () => {
-      const space = makeSpace({ id: 'space-1', name: 'Work' });
-      const todo = makeTodo({ due_day: TODAY, space_id: 'space-1' });
-      setupMockStore({ todos: [todo], spaces: [space] });
-
-      const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
-
-      expect(result.current[0].space).toEqual({
-        id: 'space-1',
-        name: 'Work',
-        theme: null,
-      });
-    });
-
-    it('returns null space for items without space_id', () => {
-      const todo = makeTodo({ due_day: TODAY });
-      setupMockStore({ todos: [todo] });
-
-      const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
-
-      expect(result.current[0].space).toBeNull();
-    });
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -487,25 +449,6 @@ describe.skip('useCalendarItemsForDate — event notes (now in CalendarService)'
     const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
 
     expect(result.current).toHaveLength(0);
-  });
-
-  it('includes space info for event notes with space_id', () => {
-    const space = makeSpace({ id: 'space-trip', name: 'LA Trip' });
-    const eventNote = makeNote({
-      subtype: 'event' as any,
-      title: 'Flight',
-      target_date: TODAY,
-      space_id: 'space-trip',
-    });
-    setupMockStore({ notes: [eventNote], spaces: [space] });
-
-    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
-
-    expect(result.current[0].space).toEqual({
-      id: 'space-trip',
-      name: 'LA Trip',
-      theme: null,
-    });
   });
 
   it('marks native event notes as non-external', () => {

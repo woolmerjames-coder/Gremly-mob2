@@ -36,7 +36,6 @@ import {
 import { useAuth } from '../../providers/AuthProvider';
 import SegmentedTabs from '../../components/SegmentedTabs';
 import HubItemCard, { type HubItem } from '../../components/HubItemCard';
-import { AllItemsTable } from '../../components/hub';
 import TimelineView from '../../components/hub/TimelineView';
 import PeopleView from '../../components/hub/PeopleView';
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
