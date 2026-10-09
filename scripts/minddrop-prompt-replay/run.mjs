@@ -6,7 +6,9 @@
  * items only.
  *
  *   scripts/minddrop-prompt-replay/run.sh <part> --old <module> [--repeat n]
- *     title       the title, card note and reaction for a drop
+ *     title       the title and reaction for a drop (the old prompt also wrote a card note)
+ *     title --real  the same on real drops (real/drops.json), with the details call,
+ *                 resumable into out/real-title.jsonl; report.mjs draws the page
  *     reclassify  the same after the person clarifies a drop
  *     details     a drop's dates, times, effort, state, mood, habit days, people
  *     time        a todo's time estimate, held to a span, through the whole details prompt
@@ -21,7 +23,7 @@
  * the environment.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as PROMPTS from '../../workers/cortex/minddropPrompts.js';
@@ -32,6 +34,7 @@ import { aiClassify, getProviders } from '../../workers/cortex/aiProvider.js';
 import { configureModels } from '../../workers/cortex/models.js';
 import { helperFetch } from '../../workers/cortex/helperClient.js';
 import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
+import { sentenceCase, fallbackTitle } from '../../workers/cortex/titles.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -76,7 +79,7 @@ const JUDGE_SCHEMA = (keys) => ({
 
 async function judge(questions, text) {
   const keys = Object.keys(questions);
-  const { output } = await jsonCall(env, {
+  const { output, model } = await jsonCall(env, {
     primary: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
     fallback: { provider: 'openai', model: 'gpt-6-sol' },
     system: `You check what a companion app wrote against its rules. Answer each question true or false about the writing given, judging only from what you are shown, then say in one sentence what falls short, if anything. Answer in JSON only.\n\nQUESTIONS:\n${keys.map((k) => `${k}: ${questions[k]}`).join('\n')}`,
@@ -86,7 +89,7 @@ async function judge(questions, text) {
     effort: 'low',
     thinking: 'low',
   });
-  return output;
+  return { ...output, judge_model: model };
 }
 
 // ── title: the title, card note and reaction for a drop ───────────────────
@@ -112,20 +115,24 @@ const DROPS = [
 
 const TITLE_Q = {
   title_faithful: 'Is the title made from what they wrote, adding no detail, place, person, reason or context they did not give?',
-  title_clean: 'Does the title leave out dates, times, days, how often, and how they feel, and is it the thing itself rather than the act of noting, remembering or tracking it?',
-  note_specific: 'Does the card note name something specific from what they wrote, and differ from both the title and the reaction?',
+  title_clean: 'Does the title leave out dates, times, days, how often, how long it takes and how they feel, and is it the thing itself rather than the act of noting, remembering or tracking it?',
+  title_own_words: 'Does the title keep their own words, rewritten only where what they wrote was long, rambling or messy?',
   reaction_specific: 'Is the reaction about this drop in particular, so that it would not fit another drop as well?',
-  reaction_voice: 'Does the reaction read as a friend texting back: never speaking of the drop as kept, noted, saved, scheduled or on a list, never therapy language, never restating the title, never ending on a filler word or tag question?',
+  reaction_voice: 'Does the reaction read as a friend texting back: never speaking of the drop as kept, noted, saved, scheduled or on a list, never saying what kind of item it became, never therapy language, never restating the title, never ending on a filler word or tag question?',
+  reaction_no_ask: 'Is the reaction free of any question to them and of any invitation to reply?',
 };
 
-async function titleOne(mod, [text, bucket, subtype], recent) {
-  const out = await mini(mod.titleReactionPrompt({ currentDate: TODAY, dayOfWeek: WEEKDAY }), mod.titleReactionUser({ text, bucket, subtype, recentReactions: recent }), { temperature: 0.7, maxOutputTokens: 150 });
+// The old prompt is given the kind, as the Worker gave it after the classifier;
+// the new one runs at the tap and is given none (Mind Drop rethink stage 2).
+async function titleOne(mod, [text, bucket, subtype], recent, giveKind) {
+  const user = mod.titleReactionUser({ text, ...(giveKind ? { bucket, subtype } : {}), recentReactions: recent });
+  const out = await mini(mod.titleReactionPrompt({ currentDate: TODAY, dayOfWeek: WEEKDAY }), user, { temperature: 0.7, maxOutputTokens: 150 });
   if (!out) return { text, failed: true };
   const t = out.smart_title || '';
   const n = out.card_note || '';
   const r = out.confirmation_message || '';
-  const fits = words(t) >= 2 && words(t) <= 8 && words(n) >= 3 && words(n) <= 9 && words(r) >= 4 && words(r) <= 13 && r.length <= 75 && !/!!/.test(r);
-  const j = await judge(TITLE_Q, `WHAT THEY DROPPED (${bucket}${subtype ? `, ${subtype}` : ''}): "${text}"\n\nTITLE: ${t}\nCARD NOTE: ${n}\nREACTION: ${r}`).catch((e) => ({ error: e.message }));
+  const fits = words(t) >= 1 && words(t) <= 8 && words(r) >= 4 && words(r) <= 13 && r.length <= 75 && !/!!/.test(r);
+  const j = await judge(TITLE_Q, `WHAT THEY DROPPED (${bucket}${subtype ? `, ${subtype}` : ''}): "${text}"\n\nTITLE: ${t}\nREACTION: ${r}`).catch((e) => ({ error: e.message }));
   return { text, title: t, note: n, reaction: r, fits, judged: j };
 }
 
@@ -143,8 +150,10 @@ const CLARIFIED = [
 const RECLASS_Q = {
   title_faithful: TITLE_Q.title_faithful,
   title_clean: TITLE_Q.title_clean,
+  title_own_words: TITLE_Q.title_own_words,
   reaction_specific: TITLE_Q.reaction_specific,
   reaction_voice: TITLE_Q.reaction_voice,
+  reaction_no_ask: TITLE_Q.reaction_no_ask,
 };
 
 async function reclassOne(mod, c) {
@@ -154,7 +163,7 @@ async function reclassOne(mod, c) {
   const datesRight = (out.target_date || null) === (c.target || null) && (out.scheduled_date || null) === (c.scheduled || null);
   const kindRight = out.bucket === c.bucket && (!c.subtype || out.subtype === c.subtype);
   const r = out.confirmation_message || '';
-  const fits = words(out.smart_title) >= 2 && words(out.smart_title) <= 8 && words(r) >= 3 && words(r) <= 11 && r.length <= 55 && !/!/.test(r);
+  const fits = words(out.smart_title) >= 1 && words(out.smart_title) <= 8 && words(r) >= 3 && words(r) <= 11 && r.length <= 55 && !/!/.test(r);
   const j = await judge(RECLASS_Q, `WHAT THEY DROPPED: "${c.text}", then chose "${c.label}"\n\nTITLE: ${out.smart_title}\nREACTION: ${r}`).catch((e) => ({ error: e.message }));
   return { text: c.text, title: out.smart_title, reaction: r, kindRight, datesRight, fits, got: { target: out.target_date, scheduled: out.scheduled_date }, judged: j };
 }
@@ -338,6 +347,140 @@ async function searchOne(mod, [msg, should]) {
   return { text: msg, searched, ok: searched === should };
 }
 
+// ── title --real: the title call on real drops ────────────────────────────
+// Recent drops from James's account and the main tester's, plus their older
+// events (real/drops.json, gitignored, exported with the Supabase MCP). The
+// old prompt gets the kind each drop was saved as, as the Worker gave it after
+// the classifier; the new one gets none, as it runs at the tap. "Today" is the
+// day of each drop in its person's timezone. The details call runs on each drop
+// with its kind, and a judge lists every when, how often, how long or feeling
+// the new title leaves out that the details do not hold. No recent reactions
+// are passed here: the made up set above checks variety. Resumable: one line
+// per drop in out/real-title.jsonl; a run starts no drop after --budget seconds.
+
+const ZONE = { J: 'America/Los_Angeles', T: 'Europe/London' };
+
+function kindOf(d) {
+  if (d.table === 'todo') return { bucket: 'todo', subtype: null };
+  if (d.table === 'habit') return { bucket: 'habit', subtype: d.subtype || 'start_habit' };
+  return { bucket: 'log', subtype: d.subtype && d.subtype !== 'catchall' ? d.subtype : 'general' };
+}
+
+function dayOf(at, tz) {
+  const when = new Date(at);
+  return {
+    currentDate: new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(when),
+    dayOfWeek: new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tz }).format(when),
+  };
+}
+
+// How the Worker showed the old prompt's words before this build, copied from
+// cortex-index.js for this page only: Title Case lowered every letter after
+// the first, an out of range title became the drop cut at 50 characters, and
+// a fixed opener was added to the reaction at random.
+function oldTitleCase(s) {
+  const small = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']);
+  return String(s || '').trim().split(/\s+/).map((w, i) => (!w ? w : i === 0 || !small.has(w.toLowerCase()) ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase())).join(' ');
+}
+const OLD_OPENERS = {
+  todo: ['Got it.', 'On it.', "I've got this.", "I'm on it.", "Won't forget.", "It's on my list."],
+  habit: ['Got it.', "I'll be watching.", "I'm on it.", 'Tracking.', "I've got this."],
+  log_journal: ['Safe with me.', 'I hear you.', 'Got it.', 'Yours is safe.', "I've got this.", "That's between us."],
+  log_idea: ['Got it.', 'Stored away.', 'Holding onto this.', "I've got this.", 'Tucked away.'],
+  log_event: ['Got it.', "Won't miss it.", "I'm on it.", "I've got this."],
+  general: ['Got it.', 'Safe with me.', "I've got this.", 'On it.'],
+};
+function oldShown(out, text, { bucket, subtype }) {
+  let t = String(out?.smart_title || '').trim();
+  if (t.length < 3 || t.length > 60) t = text.substring(0, 50).trim();
+  let r = String(out?.confirmation_message || '').trim();
+  const pool = OLD_OPENERS[bucket === 'log' ? `log_${subtype}` : bucket] || OLD_OPENERS.general;
+  const opener = pool[Math.floor(Math.random() * pool.length)];
+  let speech = r ? (Math.random() < 0.45 ? `${r} ${opener}` : `${opener} ${r}`) : '';
+  if (speech.length > 70) speech = speech.substring(0, 67) + '...';
+  return { title: oldTitleCase(t), speech };
+}
+
+const CAUGHT_SCHEMA = {
+  type: 'object',
+  properties: {
+    left_out: { type: 'array', items: { type: 'string' } },
+    not_caught: { type: 'array', items: { type: 'string' } },
+    why: { type: 'string' },
+  },
+  required: ['left_out', 'not_caught', 'why'],
+};
+
+async function caughtJudge({ raw, today, title, details }) {
+  const { output, model } = await jsonCall(env, {
+    primary: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+    fallback: { provider: 'openai', model: 'gpt-6-sol' },
+    system: `You check whether what a companion app left out of an item's title was kept in the item's details. First list each part of what they dropped that says when it happens, how often, how long it takes or how they feel, and that the title leaves out, quoting their words. Then list the ones the details do not hold: a day, date, time or part of the day is held when a date, time or part of the day field gives it; how often is held when the frequency or days fields give it; how long is held when the time estimate gives it; a feeling is held when the mood gives it. Judge only from what you are shown. Answer in JSON only.`,
+    user: `WHAT THEY DROPPED: "${raw}"\nTODAY: ${today}\nTITLE: ${title}\nDETAILS: ${JSON.stringify(details)}`,
+    schema: CAUGHT_SCHEMA,
+    maxTokens: 4000,
+    effort: 'low',
+    thinking: 'low',
+  });
+  return { ...output, judge_model: model };
+}
+
+async function realOne(i, d) {
+  const kind = kindOf(d);
+  const tz = ZONE[d.who] || 'UTC';
+  const day = dayOf(d.at, tz);
+  const [oldOut, newOut, details] = await Promise.all([
+    OLD ? mini(OLD.titleReactionPrompt(day), OLD.titleReactionUser({ text: d.raw, ...kind }), { temperature: 0.7, maxOutputTokens: 150 }) : null,
+    mini(NEW.titleReactionPrompt(day), NEW.titleReactionUser({ text: d.raw }), { temperature: 0.7, maxOutputTokens: 150 }),
+    mini(NEW.detailsPrompt({ ...day, timezone: tz, userSelectedDate: null, ...kind }), d.raw.substring(0, 1500), { temperature: 0.2, maxOutputTokens: 300 }),
+  ]);
+  if (!newOut) throw new Error('no answer from the new title call');
+  const modelTitle = String(newOut.smart_title || '').trim();
+  const fresh = {
+    title_model: modelTitle,
+    title: modelTitle ? sentenceCase(modelTitle) : fallbackTitle(d.raw, 'replay'),
+    fallback: !modelTitle,
+    reaction: String(newOut.confirmation_message || '').trim(),
+  };
+  const old = oldOut
+    ? { title_model: String(oldOut.smart_title || '').trim(), reaction: String(oldOut.confirmation_message || '').trim(), card_note: oldOut.card_note || null, shown: oldShown(oldOut, d.raw, kind) }
+    : null;
+  const show = (t, r) => `WHAT THEY DROPPED: "${d.raw}"\n\nTITLE: ${t}\nREACTION: ${r}`;
+  const [jNew, jOld, caught] = await Promise.all([
+    judge(TITLE_Q, show(fresh.title, fresh.reaction)).catch((e) => ({ error: e.message })),
+    old ? judge(TITLE_Q, show(old.shown.title, old.reaction)).catch((e) => ({ error: e.message })) : null,
+    caughtJudge({ raw: d.raw, today: `${day.currentDate} (${day.dayOfWeek})`, title: fresh.title, details }).catch((e) => ({ error: e.message })),
+  ]);
+  return { i, ok: true, who: d.who, at: d.at, today: day.currentDate, kind, raw: d.raw, title_today: d.title_today, reaction_today: d.reaction_today, old, new: fresh, details, judged: { new: jNew, old: jOld }, caught };
+}
+
+async function realTitle() {
+  const drops = JSON.parse(readFileSync(join(HERE, 'real', 'drops.json'), 'utf8'));
+  mkdirSync(join(HERE, 'out'), { recursive: true });
+  const file = join(HERE, 'out', 'real-title.jsonl');
+  const okNow = () => new Set((existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []).map((l) => JSON.parse(l)).filter((o) => o.ok).map((o) => o.i));
+  const done = okNow();
+  const todo = drops.map((_, i) => i).filter((i) => !done.has(i));
+  const budget = Number(flag('--budget') || 140) * 1000;
+  const conc = Number(flag('--conc') || 6);
+  const started = Date.now();
+  let next = 0;
+  async function worker() {
+    while (next < todo.length && Date.now() - started < budget) {
+      const i = todo[next++];
+      const row = await realOne(i, drops[i]).catch((e) => ({ i, ok: false, error: String(e).slice(0, 200) }));
+      appendFileSync(file, JSON.stringify(row) + '\n');
+    }
+  }
+  await Promise.all(Array.from({ length: conc }, worker));
+  console.log(`[words-replay] ${okNow().size} of ${drops.length} drops done`);
+}
+
+if (part === 'title' && args.includes('--real')) {
+  await realTitle();
+  process.exit(0);
+}
+
 // ── the run ──────────────────────────────────────────────────────────────
 
 const rows = [];
@@ -346,7 +489,7 @@ for (let r = 0; r < repeat; r += 1)
     if (part === 'title') {
       const recent = [];
       for (const d of DROPS) {
-        const x = await titleOne(mod, d, recent.slice(-5));
+        const x = await titleOne(mod, d, recent.slice(-5), side === 'old');
         if (x.reaction) recent.push(x.reaction);
         rows.push({ side, ...x });
       }

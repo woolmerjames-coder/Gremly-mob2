@@ -1,82 +1,73 @@
 /**
  * The prompts of Mind Drop's enrichment and of the chat helpers that produce
- * results for the app (18 Oct, from what ran in the last week): the title and
- * reaction for a drop (enrich-phase1-5a, which since 9 Oct can run before the
- * kind is known), the same after the person clarifies a drop
- * (reclassify-after-clarification), a drop's details
+ * results for the app (18 Oct, from what ran in the last week): the title,
+ * card note and reaction for a drop (enrich-phase1-5a), the same after the
+ * person clarifies a drop (reclassify-after-clarification), a drop's details
  * (enrich-phase2) and the running summary of a long chat. Semantic rules only: no worked examples, no word lists,
  * nothing from anyone's data, and no dashes as punctuation. Each was held to
  * the prompt it replaced by scripts/minddrop-prompt-replay before it shipped.
  */
 
-import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from './enrichRules.js';
+import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from '../../../workers/cortex/enrichRules.js';
 
-export const MINDDROP_PROMPTS_VERSION = 'minddrop-prompts-2026-10-18b';
+export const MINDDROP_PROMPTS_VERSION = 'minddrop-prompts-2026-10-18a';
 
 // ── The title and the reaction, shared by the drop and its clarification ──
 
-const TITLE_RULES = `- The title is the thing itself in their own words: keep the words they used, so it reads as a thought they would recognise as their own, never a label or a category heading.
-- Rewrite only when what they wrote is long, rambling or messy: then shorten it to the thing itself, keeping their words wherever you can. Otherwise their words stand as they are, apart from what the rules below leave out.
-- Say only what they said: never add a detail, place, person, reason or context they did not give.
-- Leave out when it happens, how often and how long it takes: dates, times, days, parts of the day, how often and how long each have their own place in the app, can change, and go stale in a title.
+const TITLE_RULES = `- Start from their own words and tidy them, so the title reads as a thought they would recognise as their own, never a label or a category heading.
+- Say only what they said. You may reorder or smooth their words so they read naturally when what they wrote is very short or reads as a command, and you never add a detail, place, person, reason or context they did not give.
+- Leave out when it happens and how often: dates, times, days, parts of the day and how often belong elsewhere, and go stale in a title.
 - Leave out how they feel: that is kept as mood.
 - The title is the thing itself, never the act of noting, remembering, tracking, journaling or reflecting on it.
 - A journal's title says what happened or what it is about.
 - A question keeps its question words: the question is the content.
-- Sentence case: a capital for the first word, and every other word exactly as they wrote it, so names, acronyms and brands keep the capitals they gave them.`;
+- Title case: each significant word capitalised, short joining words in lower case unless they come first.`;
 
-const REACTION_RULES = `- Find one specific thing in what they dropped, a person, the activity, a place or the subject, and react to that: a quick take or a light observation that shows you caught it. It should read as if it took you half a second.
-- Never ask them anything or invite a reply: it is never a question, so it never reads as a chat they should answer.
+const REACTION_RULES = `- Find one specific thing in what they dropped, a person, the activity, a place or the subject, and react to that: a quick take, a light observation or a question that shows you caught it. It should read as if it took you half a second.
 - It could only be about this drop: if it would fit another drop as well, it is too general.
 - For a todo, react to the real thing in the world, never to the task. For a habit, root for the specific thing they will do, never self improvement in general. For a journal, one line of shorthand empathy that shows you get it, never therapy and never a big moment. For an idea, curiosity about this idea. For an event, the thing that is happening. For anything else, its most interesting detail.
 - Write as a friend texting back: short and offhand, cheeky when there is an opening and warm when there is not, never a greeting card, a notification or a poster.
 - Never speak of the drop as kept, noted, saved, scheduled or on a list: react to the thing, never to its keeping.
-- Never say what kind of item it became.
 - Never the language of therapy, or of telling them their feelings are understandable.
 - Never say back what the title says, in any words.
 - Never a stock sentence shape that could hold any subject, and never abstract nouns where the specific thing would do.
-- End on the reaction itself, never on a filler word or a tag question.
-- No dashes: where a dash might go, use a comma or start a new sentence.`;
+- End on the reaction itself, never on a filler word or a tag question.`;
 
-/**
- * The title and reaction for a drop (enrich-phase1-5a). It runs at the tap,
- * before the classifier has answered, so the kind is often not given; builds
- * already out always give it.
- */
+const CARD_NOTE_RULES = `- A friend's quick take on the item, shown under its title in their list: written about the item, not to them, in the same voice as the reaction.
+- It names something specific from what they dropped, and differs from both the title and the reaction.
+- Sentence case: only the first word and names capitalised. Never a headline, a label or a category, never inspirational, and never about tasks, lists or keeping track.`;
+
+/** The title, card note and reaction for a drop already sorted (enrich-phase1-5a). */
 export function titleReactionPrompt({ currentDate, dayOfWeek }) {
-  return `You write the title and Gremly's reaction for something a person has just dropped into Gremly, a productivity app.
+  return `You write the title, the card note and Gremly's reaction for something a person has just dropped into Gremly, a productivity app. What kind of item it is has already been decided.
 
 Today is ${currentDate} (${dayOfWeek}).
 
-THE KIND OF ITEM
-When the kind of item is given, it is that kind. When it is not given, work out from their words what kind of thing they dropped, and follow the rules below for that kind.
-
-THE TITLE (at most eight words)
+THE TITLE (two to eight words)
 ${TITLE_RULES}
+
+THE CARD NOTE (four to eight words)
+${CARD_NOTE_RULES}
 
 THE REACTION (five to twelve words, at most 70 characters)
 - You are Gremly, a small green creature who lives in the app. When someone drops a thought, task or idea, you react in a speech bubble above where they typed.
 ${REACTION_RULES}
 - One exclamation mark is fine when it fits, none is fine too, and never two.
 - Never open on a bare sound of surprise.
-- When you are shown your recent reactions, build this one differently from them: its opening, whether it is a statement or an exclamation, and how it ends.
+- When you are shown your recent reactions, build this one differently from them: its opening, whether it is a question, a statement or an exclamation, and how it ends.
 
 Return only JSON:
 {
   "smart_title": "the title",
+  "card_note": "the card note",
   "confirmation_message": "the reaction"
 }`;
 }
 
-/**
- * What the drop says, its kind when it is known, and Gremly's recent
- * reactions, so this one differs from them.
- */
+/** What the drop says, and Gremly's recent reactions, so this one differs from them. */
 export function titleReactionUser({ text, bucket, subtype, recentReactions = [] }) {
-  let msg = `USER INPUT: "${text}"`;
-  if (bucket) msg += `\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
-  if (recentReactions.length)
-    msg += `\n\nYOUR RECENT REACTIONS, NEWEST LAST:\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
+  let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
+  if (recentReactions.length) msg += `\n\nYOUR RECENT REACTIONS, NEWEST LAST:\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
   return msg;
 }
 
@@ -88,7 +79,7 @@ THE KIND OF ITEM
 - When a selected bucket is given, the item is that bucket, exactly as given: their choice is never overridden. When a selected subtype is given, use it exactly as the subtype.
 
 WHAT YOU WRITE
-A title (at most seven words), a reaction (four to ten words, at most 50 characters), and its dates when it has any.
+A title (three to seven words), a reaction (four to ten words, at most 50 characters), and its dates when it has any.
 
 THE TITLE
 - It says what the item is about, never when it happens or how often.
@@ -127,9 +118,7 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  * itself: today's own weekday is a week ahead. Pure.
  */
 export function weekdayDates(dateStr, todayDayName, timezone) {
-  const todayIndex = DAY_NAMES.findIndex(
-    (d) => d.toLowerCase() === String(todayDayName).toLowerCase(),
-  );
+  const todayIndex = DAY_NAMES.findIndex((d) => d.toLowerCase() === String(todayDayName).toLowerCase());
   if (todayIndex === -1) {
     console.log('[WeekdayDates] not a weekday', { todayDayName });
     return '';
@@ -149,14 +138,7 @@ export function weekdayDates(dateStr, todayDayName, timezone) {
 }
 
 /** The details of one drop, by its kind. */
-export function detailsPrompt({
-  currentDate,
-  dayOfWeek,
-  timezone,
-  userSelectedDate,
-  bucket,
-  subtype,
-}) {
+export function detailsPrompt({ currentDate, dayOfWeek, timezone, userSelectedDate, bucket, subtype }) {
   return `You take the lasting details of one item for Gremly, a calm productivity app: only what is part of the item itself, never planning or scheduling.
 
 TODAY

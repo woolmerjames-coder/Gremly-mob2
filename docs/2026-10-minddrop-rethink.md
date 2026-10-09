@@ -182,4 +182,39 @@ Rebased after the commit: main moved at 10:34 on 9 October (PR #149, Worlds fini
 
 For James: deploy the cortex Worker from `workers/cortex` (`npx wrangler deploy`). Then make one drop that says you finished one of your open todos, and check its card still asks Mark it done. Tell me when it is deployed and I will check `ai_usage` for `minddrop-relate/drop_relate` on `gpt-6-luna` and chat's `entity_match` still on `gemini-3.8-flash`. Rollback: set `MODEL_DROP_RELATE = "gemini-3.8-flash"` and deploy.
 
+Confirmed after James deployed (9 October, 18:47 UTC): his test drop that reported a finished todo ran `minddrop-relate/drop_relate` on `gpt-6-luna` (2.1s), proposed the todo done, and the answer was applied. Chat's matcher had no call since the deploy; `MODEL_ENTITY_MATCH` is unchanged.
+
 Blocking questions: none.
+
+### Stage 2: the title and reaction call, without the kind (9 October)
+
+What changed:
+- `workers/cortex/minddropPrompts.js`: the title prompt works out the kind itself when none is given, and `titleReactionUser` sends `BUCKET` and `SUBTYPE` only when there is one. `TITLE_RULES`, shared with reclassify: the thing itself in their own words, rewritten only when long, rambling or messy, with how long it takes now left out too, and sentence case in place of Title case. The card note rules, section and output field are gone. `REACTION_RULES`: never asks or invites a reply, never says what kind of item it became, no dashes; the variety rule moves between statements and exclamations only. Version `minddrop-prompts-2026-10-18b`.
+- New `workers/cortex/titles.js`: `sentenceCase` (moved out of the request handler), `fallbackTitle`, `dashBackstop` and `lengthBackstop`, each logging a `console.warn` when it fires.
+- `workers/cortex/cortex-index.js`, `enrich-phase1-5a`: no `'log'` default for a missing bucket; the model's title gets `sentenceCase` and is kept at any length; the drop's own words stand in only when the call fails or gives no title; the filler word and Ooh or Oh strips are gone; the dash swap and the 70 character cut stay, logged; the fixed openers are gone, so `speech_message` is the reaction itself; no `card_note` in the reply. `reclassify-after-clarification`: the same title handling, and its reaction gets the same two logged backstops (50 characters).
+- `scripts/minddrop-prompt-replay/`: `run.mjs` gains `title --real` (real drops from `real/drops.json`, gitignored, with the details call and a judge of anything left out of the title that the details do not hold; resumable into `out/real-title.jsonl`), judge questions for the new rules, and the new prompt run without the kind. New `report.mjs` writes `Claude outputs/words-replay.html`. Today's prompts are saved as `old/minddropPrompts-2026-10-09.js`.
+
+Tests: new `minddropPrompts.test.js` (no dashes, no examples, sentence case, no card note, no reaction rule that invites a question, the no dashes rule, the kind only when given) and `titles.test.js` (sentenceCase keeps LLMO, SFDC, FY26 and UK; the fallback cuts at a whole word and keeps an over long single word whole; every backstop logs): 26 tests, written first and failing before the change. All cortex Worker tests: 42 suites, 733 tests, passing. `tsc` clean.
+
+The words replay (the gate): 320 real drops from both accounts (289 from the last 45 days plus every habit and 30 older events, so 47 events), exported with the Supabase MCP, md5 checked; the made up title set twice and the clarify set twice. Against today's prompt as the app showed it:
+- Reactions that ask anything: 0 against 178. Dashes in the reaction: 0 against 18 (an earlier run without the no dashes rule had 8, so the rule went in and everything ran again). Reactions over 70 characters: 1. Capitals changed: 0 against 15. Fallback titles: 0. Short drops given a word they did not type: 0.
+- Left out of the title and not caught by the details: 43 drops of 100 with something left out. 42 of them were already lost under today's prompt, which also leaves times and feelings out of titles; only "before work" is new. They fall in a few groups: a clock time on a todo (the details call has no time for a todo), a part of the day on a todo or an event, a repeat on an event or todo (no field for it), a feeling on anything but a journal (mood is for journals only), how long on a journal, and some judge over reach on long drops.
+- Judge checks, before and after: title adds nothing 316 and 319; title leaves out when, how often, how long and feelings 311 and 305; title keeps their words 308 and 319; reaction about this drop 257 and 275; reaction sounds like a friend and never restates the title 281 and 252; reaction asks nothing 142 and 320. Most of the voice drop is the judge reading a reaction that names the thing (Kasablanca at the Castro, that should sound huge) as restating the title. The prototype's own bubble lines do the same (The booster jab. The vet will be thrilled.).
+- 27 new titles run over 8 words or 60 characters, kept as written; most come from drops of 9 to 11 words.
+
+Deviations:
+- The judge ran on GPT-6 Sol, not Sonnet: Anthropic's API returns 401 from the VM's proxy (Node also needs `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt` to reach it at all).
+- The title length line reads at most eight words (two to eight before) and reclassify's at most seven (three to seven before), so a one word drop keeps one word rather than gaining words to reach the minimum.
+- The title route no longer drops a reaction under 3 characters or a title under 3 characters: under the rule that only the dash swap and the length cut act on model output, only an empty answer is replaced.
+- Reclassify's reaction now also gets the logged dash swap; before it had only the cut.
+
+Plan corrections:
+- Phase 2's event title is not thrown away: `dropSync.ts` saves it as an event's title in place of the title call's. James chose (9 October) that every kind uses the title call's title: stage 4 stops `dropSync` replacing it, and stage 11 removes the field from Phase 2 after checking nothing else reads it.
+- `cortex-index.js` lines after #149 sit about 280 lower: `enrich-phase1-5a` at 9462, the bucket default at 9467, the title handling near 9505 to 9522, openers near 9583, reclassify's titles at 8792 and 8877.
+- The details prompt (`detailsPrompt`, `TIME_ESTIMATE_RULES`) still carries example lists the tightened rule forbids: priority_kind's "such as a reply, an approval or a delivery", the activities listed under each energy type, and the task types listed in the time estimate. Not changed here; for James to place.
+
+From James on 9 October: `sentenceCase` and the fallback stay as formatting; the fallback only for a failed or empty title call, cut at a whole word near 60, logged; no over 60 trigger. Events use the title call's title.
+
+For James: read `Claude outputs/words-replay.html` and say yes or what to change. Two calls are yours: whether the details call should catch what it misses now (a todo's clock time, parts of the day, feelings outside journals), as a separate replayed change to the details prompt, together with its example lists; and whether reactions that name the thing are fine, as in the prototype, or the rule should be tightened and the replay run again. Do not deploy until you say yes; then deploy the cortex Worker from `workers/cortex` with `npx wrangler deploy`. Rollback: redeploy the previous Worker; the app copes with either reply.
+
+Blocking questions: the two calls above.
