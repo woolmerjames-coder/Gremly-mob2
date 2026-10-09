@@ -79,17 +79,36 @@ the model often took its own instruction for their message: plain
 corrections were missed (16 of 24 on `scripts/chat-correction-replay`, 24 of
 24 since).
 
-Known gaps in the weekly pass, from its replay of 18 Oct: something forming
-inside a Chapter they have is mostly noticed in that Chapter's notes rather
-than offered as a Chapter of its own (one of thirteen runs offered the move
-inside a new job's Chapter; whether it should is James's call). Steps that only
-point somewhere can still be offered as a Chapter: one of two runs of the
-unsure week offered a move she never stated (it had no World to go in, so
-nothing was written). The pass sometimes names
-a Chapter's first day as what it was begun for; code refuses that end, so the
-Chapter stays open. What the pass is shown of a Chapter's title and earlier
-notes shapes what it writes: marking a title as theirs had it write that the
-title was theirs, so only notes they wrote are marked now.
+Known gaps in the weekly pass, from its replay of 18 Oct (weekly-2026-10-18u):
+something forming inside a Chapter they have is offered as a Chapter of its
+own (4 of 4 runs), what they are deciding about is offered and asked about
+once (4 of 4), and steps that may lead somewhere they never said they are
+going are put in not sure rather than offered (the unsure week, 2 of 2). One
+made up week still has them offered: someone learning a language, looking at
+flats abroad and writing to a council there is offered "Moving to" that place,
+with "keep it as an idea" among the answers (0 of 5 runs leave it out), which
+is James's call. The pass sometimes names a Chapter's first day as what it was
+begun for; code refuses that end, so the Chapter stays open. What the pass is
+shown of a Chapter's title and earlier notes shapes what it writes: marking a
+title as theirs had it write that the title was theirs, so only notes they
+wrote are marked now.
+
+Gremly's read of their life as background (18 Oct, James's ask). The narrower
+writers (the words, the line about a person, the memory, the Chapter
+questions, the week's questions, the review, the reader) can each be given the
+Life Map the weekly pass writes, as background that is never a record: nothing
+rests on it, nothing cites it, and nothing it says is said unless a record the
+writer is given holds it too (`context/lifeMap.js`, behind
+`LIFE_MAP_BACKGROUND`). Side by side on the three real accounts, two rounds,
+read blind by Sonnet and Sol with the records the writer was given
+(`scripts/shadow/background-compare.sh`), no setting was a clear gain: with the
+Life Map the words were judged better 41 times and worse 30, the line about a
+person 21 and 22, a memory 27 and 22 with more untrue statements (16 against
+7); thinking harder (`CONTEXT_EFFORT_<JOB>`) was much the same at a third more
+cost; Sonnet left out far more lines at the check and cost 15 to 25 times as
+much. The Chapter questions, the review and the week's questions had too few
+real items to read. So it ships off. Each writer's effort can be raised on its
+own without a code change (`effortFor` in `context/llm.js`).
 
 ## Corrections, in three steps
 
@@ -132,6 +151,7 @@ Both workers' `wrangler.toml`. Each says what it does beside it.
 | `WEEKLY_CLASSIFIER` | off (since 18 Oct, James's call) | stays off: it judged by topic and made Worlds and Chapters without a tap. A Chapter forming is offered by the weekly pass |
 | `WEEK_READ_FROM_PASS` | off | "on" when the weekly review's build agrees, the week replay runs with it on, and the week note holds no private matter |
 | `PERSON_WORDS` (both workers) | on (since 8 Oct) | stays on; it needs `supabase/migrations/20261016090000_data_fabric_stage6_person_words.sql` applied first |
+| `LIFE_MAP_BACKGROUND` | off | "on", or a list of writers, once a side by side run shows it helps them: off on 18 Oct after two rounds on real weeks showed no clear gain |
 
 ## Replays and the shadow runner
 
@@ -143,12 +163,20 @@ runner reads live through a read only role and writes nothing.
 | --- | --- |
 | `scripts/morning-replay`, `day-replay`, `life-replay`, `brief-corpus` | the daily picture and the brief |
 | `scripts/reader-replay`, `kinds-replay`, `people-replay` | the ledger, kinds and people |
-| `scripts/filing-replay`, `words-replay`, `first-worlds-replay` | filing, the words and memory, first Worlds. The words replay's `set` mode writes one person's words in the worker's order, with one habit filed in every World, and its judge asks whether each line says something of its own |
+| `scripts/filing-replay`, `words-replay`, `first-worlds-replay` | filing, the words and memory, first Worlds. The words replay's `set` mode writes one person's words in the worker's order, with one habit filed in every World, and its judge asks whether each line says something of its own. Its judge also asks whether a line shows it understands what that part of their life is to them, and `--life-map` gives each writer a made up Life Map as background |
 | `scripts/people-questions-replay`, `chapter-questions-replay`, `review-replay`, `correction-replay` | Gremly's questions and their answers; `chapter-questions-replay --answers` reads made up answers to the Chapter questions |
 | `scripts/chat-correction-replay` | the chat correction check: what puts something right, a delete, and what never does (a plan they change, a question, how Gremly talks, an earlier message) |
 | `scripts/weekly-replay`, `week-replay`, `worlds-parity`, `classifier-replay` | the weekly pass and summary, the weekly read, the classifier. The weekly replay's `unsure` week, its `judge` step and its `questions` step cover what Gremly is not sure of and the week's set of questions; its full week holds a Chapter whose race has passed, to check its end date; its six forming weeks (made up people, three with something forming inside a World, a Chapter or nowhere, three with nothing to offer) check a Chapter forming |
 | `scripts/corrections-replay` | corrections: a label, a date, a never happened, a named line, a private mark, a delete and something said to matter little, a yes and a no to something Gremly was not sure of, and who Gremly understood someone to be, put right or kept |
 | `scripts/chat-replay`, `ask-replay`, `writer-test` | Ask Gremly |
+| `scripts/enrich-replay` | Mind Drop's enrichment rules (`workers/cortex/enrichRules.js`): `time` holds the time estimates to a span on made up tasks, `people` who an item mentions; each beside the rules they replaced with `--old`. On 18 Oct: time 91 of 96 against 93, people 48 of 48 against 48 |
+| `scripts/habit-builder-replay --stage` | the habit builder with Gremly's voice for how long it has known them (`context/gremlyAge.js`) |
+
+`scripts/shadow/background-compare.sh` runs the narrower writers for real
+people under several settings (the Life Map off and on, thinking harder,
+Sonnet) and has two judges read each item beside the base setting blind, with
+the records the writer was given; its report holds real words and is written
+outside the repo.
 
 `scripts/shadow/run.sh <job>` runs one job for one real person on any tree,
 its writes kept aside; `scripts/shadow/README.md` lists the jobs. Jobs that
@@ -177,6 +205,20 @@ summary writer's prompts carry a word list.
 | always | `scripts/shadow` jobs for paths that are gone |
 
 Any table or column that goes with them is James's SQL to write and apply.
+
+Real data still in the repo, from before the data fabric, for James to remove
+(and from history, if he wants): `analyst-output.json`,
+`analyst-v2-result.json`, `summary-v2-result.json`, `vibe-philosopher.json`,
+`vibe2-philosopher.json`, `workers/inngest-jobs/analyst-check.json`,
+`workers/inngest-jobs/summary-v2-stale-all.json`, the built `dist-cortex`, the
+old copy in `gremly-handoff-jan26`, and the data and results under
+`scripts/minddrop-audit` and `scripts/chat-audit` (196 files).
+`workers/cortex/context/contextBuilder.js` is read by nothing. The tests, the
+day and chat replays and the Mind Drop prompts no longer hold James's names or
+his own tasks (18 Oct). The older Mind Drop and chat prompts in
+`workers/cortex/cortex-index.js` still carry examples and dashes (over 300);
+only the time estimate and people rules have been rewritten, with
+`scripts/enrich-replay`, and the rest wants the same, prompt by prompt.
 
 ## What to watch
 
