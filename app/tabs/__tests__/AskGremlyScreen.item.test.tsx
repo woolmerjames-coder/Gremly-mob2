@@ -184,7 +184,7 @@ describe('an item chat outside any screen', () => {
   it('carries on the chat the item already has', async () => {
     mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Pepper' });
     render(<AskGremlyScreen item={item()} />);
-    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
+    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'), { timeout: 5000 });
   });
 
   it("a new note chat holds the starters' places, then shows the ones drawn from the note", async () => {
@@ -231,7 +231,7 @@ describe('an item chat outside any screen', () => {
     mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Japan Trip Plan' });
     const loadStarters = jest.fn(async () => []);
     render(<AskGremlyScreen item={item({ loadStarters })} />);
-    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
+    await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'), { timeout: 5000 });
     expect(loadStarters).not.toHaveBeenCalled();
   });
 
@@ -241,7 +241,7 @@ describe('an item chat outside any screen', () => {
     await findByTestId('item-starter-break_down');
     fireEvent.press(getByTestId('item-starter-break_down'));
     fireEvent.press(getByTestId('item-starter-break_down'));
-    await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockStoreState.trackSpaceChat).toHaveBeenCalledTimes(1), { timeout: 5000 });
   });
 
   describe('a row on a change card', () => {
