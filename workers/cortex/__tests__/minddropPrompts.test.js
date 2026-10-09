@@ -3,7 +3,13 @@
  * house rules: semantic rules only, no examples, no dashes, no card note, and
  * a reaction that never asks the person anything (Mind Drop rethink stage 2).
  */
-import { reclassifyPrompt, titleReactionPrompt, titleReactionUser } from '../minddropPrompts.js';
+import {
+  detailsPrompt,
+  reclassifyPrompt,
+  titleReactionPrompt,
+  titleReactionUser,
+} from '../minddropPrompts.js';
+import { TIME_ESTIMATE_RULES } from '../enrichRules.js';
 import * as PROMPTS from '../minddropPrompts.js';
 
 const title = titleReactionPrompt({ currentDate: '2026-10-09', dayOfWeek: 'Friday' });
@@ -68,5 +74,56 @@ describe('the title and reaction prompt', () => {
       recentReactions: ['First one.', 'Second one.'],
     });
     expect(msg).toMatch(/YOUR RECENT REACTIONS, NEWEST LAST:\n- "First one."\n- "Second one."/);
+  });
+});
+
+describe('the details prompt (stage 2b: every detail left out of a title has a home)', () => {
+  const kinds = [
+    { bucket: 'todo', subtype: null },
+    { bucket: 'habit', subtype: 'start_habit' },
+    { bucket: 'log', subtype: 'journal' },
+    { bucket: 'log', subtype: 'event' },
+    { bucket: 'log', subtype: 'general' },
+  ];
+  const details = kinds.map((k) =>
+    detailsPrompt({
+      currentDate: '2026-10-09',
+      dayOfWeek: 'Friday',
+      timezone: 'America/Los_Angeles',
+      userSelectedDate: null,
+      ...k,
+    }),
+  );
+
+  it('has no examples and no dashes as punctuation', () => {
+    for (const text of details) {
+      expect(text).not.toMatch(/[–—]/);
+      expect(text).not.toMatch(/\S[ \t]+-[ \t]+\S/);
+      expect(text).not.toMatch(
+        /\bexamples?\b|\be\.g\.|\bsuch as\b|\bfor instance\b|\bfor example\b/i,
+      );
+      expect(TIME_ESTIMATE_RULES).not.toMatch(/\bsuch as\b|\bfor example\b|\be\.g\./i);
+    }
+  });
+
+  it('asks for a todo clock time, which the app saves as its due time', () => {
+    expect(details[0]).toMatch(/"event_time": "HH:mm" \| null/);
+    const todoShape = details[0].split('For a todo:')[1].split('For a habit being built')[0];
+    expect(todoShape).toMatch(/"event_time"/);
+  });
+
+  it('places a part of the day they name, even without a clock time', () => {
+    expect(details[0]).toMatch(/part of the day/);
+    expect(details[3]).toMatch(/folded into a word for the day/);
+  });
+
+  it('asks for a mood on any note that says how they feel, not only a journal', () => {
+    expect(details[4]).toMatch(/mood \(any log/);
+    const otherShape = details[4]
+      .split('For an idea or any other log:')[1]
+      .split('For an event:')[0];
+    expect(otherShape).toMatch(/"mood"/);
+    const eventShape = details[3].split('For an event:')[1];
+    expect(eventShape).toMatch(/"mood"/);
   });
 });

@@ -9,6 +9,8 @@
  *     title       the title and reaction for a drop (the old prompt also wrote a card note)
  *     title --real  the same on real drops (real/drops.json), with the details call,
  *                 resumable into out/real-title.jsonl; report.mjs draws the page
+ *     details --real  the details call, old and new, on the same real drops, judged
+ *                 for anything the new title leaves out that the details do not hold
  *     reclassify  the same after the person clarifies a drop
  *     details     a drop's dates, times, effort, state, mood, habit days, people
  *     time        a todo's time estimate, held to a span, through the whole details prompt
@@ -478,6 +480,95 @@ async function realTitle() {
 
 if (part === 'title' && args.includes('--real')) {
   await realTitle();
+  process.exit(0);
+}
+
+// ── details --real: the details call on the same real drops (stage 2b) ────
+// Today's details prompt and the new one, each saved as the Worker saves it
+// (before this build a todo's time and a mood outside a journal were dropped),
+// judged against the new title from title --real: what the title leaves out
+// and the details do not hold, and what kind of detail each is, so the page can
+// tell a miss from a detail with no field on that kind of item.
+const LOST_SCHEMA = {
+  type: 'object',
+  properties: {
+    left_out: { type: 'array', items: { type: 'string' } },
+    not_caught: {
+      type: 'array',
+      items: { type: 'object', properties: { part: { type: 'string' }, what: { type: 'string', enum: ['day or date', 'clock time', 'part of the day', 'how often', 'how long', 'feeling', 'other'] } }, required: ['part', 'what'] },
+    },
+    why: { type: 'string' },
+  },
+  required: ['left_out', 'not_caught', 'why'],
+};
+
+async function lostJudge({ raw, today, title, details }) {
+  const { output, model } = await jsonCall(env, {
+    primary: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+    fallback: { provider: 'openai', model: 'gpt-6-sol' },
+    system: `You check whether what a companion app left out of an item's title was kept in the item's details. First list each part of what they dropped that says when it happens, how often, how long it takes or how they feel, and that the title leaves out, quoting their words. Then list the ones the details do not hold, each with what kind of detail it is: a day, date, time or part of the day is held when a date, time or part of the day field gives it; how often is held when the frequency or days fields give it; how long is held when the time estimate gives it; a feeling is held when the mood gives it. Judge only from what you are shown. Answer in JSON only.`,
+    user: `WHAT THEY DROPPED: "${raw}"\nTODAY: ${today}\nTITLE: ${title}\nDETAILS: ${JSON.stringify(details)}`,
+    schema: LOST_SCHEMA,
+    maxTokens: 4000,
+    effort: 'low',
+    thinking: 'low',
+  });
+  return { ...output, judge_model: model };
+}
+
+// What the Worker kept from the details reply, before this build and after it.
+function asSaved(details, kind, before) {
+  if (!details) return null;
+  const d = { ...details };
+  if (before && kind.bucket === 'todo') delete d.event_time;
+  if (before && !(kind.bucket === 'log' && kind.subtype === 'journal')) delete d.mood;
+  if (kind.bucket !== 'log' && kind.bucket !== 'todo') delete d.event_time;
+  return d;
+}
+
+async function detailsRealOne(r) {
+  const tz = ZONE[r.who] || 'UTC';
+  const day = dayOf(r.at, tz);
+  const ask = (mod) => mini(mod.detailsPrompt({ ...day, timezone: tz, userSelectedDate: null, ...r.kind }), r.raw.substring(0, 1500), { temperature: 0.2, maxOutputTokens: 300 });
+  const [oldD, newD] = await Promise.all([OLD ? ask(OLD) : null, ask(NEW)]);
+  if (!newD) throw new Error('no answer from the new details call');
+  const before = asSaved(oldD, r.kind, true);
+  const after = asSaved(newD, r.kind, false);
+  const today = `${day.currentDate} (${day.dayOfWeek})`;
+  const [lostBefore, lostAfter] = await Promise.all([
+    before ? lostJudge({ raw: r.raw, today, title: r.new.title, details: before }).catch((e) => ({ error: e.message })) : null,
+    lostJudge({ raw: r.raw, today, title: r.new.title, details: after }).catch((e) => ({ error: e.message })),
+  ]);
+  return { i: r.i, ok: true, who: r.who, today: day.currentDate, kind: r.kind, raw: r.raw, title: r.new.title, before, after, lost: { before: lostBefore, after: lostAfter } };
+}
+
+async function realDetails() {
+  const titles = new Map();
+  for (const l of readFileSync(join(HERE, 'out', 'real-title.jsonl'), 'utf8').split('\n').filter(Boolean)) {
+    const o = JSON.parse(l);
+    if (o.ok) titles.set(o.i, o);
+  }
+  const file = join(HERE, 'out', 'real-details.jsonl');
+  const okNow = () => new Set((existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []).map((l) => JSON.parse(l)).filter((o) => o.ok).map((o) => o.i));
+  const done = okNow();
+  const todo = [...titles.keys()].filter((i) => !done.has(i));
+  const budget = Number(flag('--budget') || 140) * 1000;
+  const conc = Number(flag('--conc') || 10);
+  const started = Date.now();
+  let next = 0;
+  async function worker() {
+    while (next < todo.length && Date.now() - started < budget) {
+      const i = todo[next++];
+      const row = await detailsRealOne(titles.get(i)).catch((e) => ({ i, ok: false, error: String(e).slice(0, 200) }));
+      appendFileSync(file, JSON.stringify(row) + '\n');
+    }
+  }
+  await Promise.all(Array.from({ length: conc }, worker));
+  console.log(`[details-replay] ${okNow().size} of ${titles.size} drops done`);
+}
+
+if (part === 'details' && args.includes('--real')) {
+  await realDetails();
   process.exit(0);
 }
 

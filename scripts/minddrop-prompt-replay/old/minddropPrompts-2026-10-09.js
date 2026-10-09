@@ -8,7 +8,7 @@
  * the prompt it replaced by scripts/minddrop-prompt-replay before it shipped.
  */
 
-import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from '../../../workers/cortex/enrichRules.js';
+import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from './enrichRules-2026-10-09.js';
 
 export const MINDDROP_PROMPTS_VERSION = 'minddrop-prompts-2026-10-18a';
 

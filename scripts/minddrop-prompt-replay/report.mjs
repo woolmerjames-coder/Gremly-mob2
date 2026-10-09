@@ -21,6 +21,26 @@ for (const l of readFileSync(join(OUT, 'real-title.jsonl'), 'utf8').split('\n').
 const rows = [...byI.values()].sort((a, b) => a.i - b.i);
 const newest = (prefix, n) => readdirSync(OUT).filter((f) => f.startsWith(prefix) && f.endsWith('.json')).sort().slice(-n).map((f) => JSON.parse(readFileSync(join(OUT, f), 'utf8')));
 const titleRuns = newest('title-', 2);
+
+// Stage 2b: the details call, today's and the new one, on the same drops
+const det = new Map();
+try {
+  for (const l of readFileSync(join(OUT, 'real-details.jsonl'), 'utf8').split('\n').filter(Boolean)) {
+    const o = JSON.parse(l);
+    if (o.ok) det.set(o.i, o);
+  }
+} catch {}
+// Where a detail can live on each kind of item (the columns of todos, habits and notes).
+function hasHome(kind, what) {
+  const b = kind.bucket;
+  if (what === 'day or date' || what === 'part of the day') return true;
+  if (what === 'clock time') return b === 'todo' || b === 'log';
+  if (what === 'how often') return b === 'habit';
+  if (what === 'how long') return b === 'todo' || b === 'habit';
+  if (what === 'feeling') return b === 'log';
+  return null;
+}
+const lostOf = (r, side) => (r.lost?.[side]?.not_caught || []).filter((x) => x && x.part);
 const reclassRuns = newest('reclassify-', 1);
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -74,7 +94,8 @@ const events = rows.filter((r) => r.kind.subtype === 'event');
 const judgeModels = [...new Set(rows.flatMap((r) => [r.judged?.new?.judge_model, r.caught?.judge_model]).filter(Boolean))];
 
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : 'n/a');
-const meta = (d) => [d?.target_date && `day ${d.target_date}`, d?.scheduled_date && `doing ${d.scheduled_date}`, d?.end_date && `until ${d.end_date}`, d?.event_time && `at ${d.event_time}`, d?.time_window && `${d.time_window}`, d?.extracted_frequency && `${d.extracted_frequency}`, d?.extracted_days && `days ${d.extracted_days.join(' ')}`, d?.extracted_start_date && `from ${d.extracted_start_date}`, d?.time_estimate_minutes && `${d.time_estimate_minutes} min`, d?.mood && `mood ${[].concat(d.mood).join(' ')}`].filter(Boolean).join(' · ');
+const PART = { morning: 'morning', day: 'midday or afternoon', evening: 'evening or night' };
+const meta = (d) => [d?.target_date && `on ${d.target_date}`, d?.scheduled_date && `doing it ${d.scheduled_date}`, d?.end_date && `until ${d.end_date}`, d?.event_time && `at ${d.event_time}`, d?.time_window && `part of day: ${PART[d.time_window] || d.time_window}`, d?.extracted_frequency && `${d.extracted_frequency}`, d?.extracted_days && `days ${d.extracted_days.join(' ')}`, d?.extracted_start_date && `from ${d.extracted_start_date}`, d?.time_estimate_minutes && `${d.time_estimate_minutes} min`, d?.mood && `mood ${[].concat(d.mood).join(' ')}`].filter(Boolean).join(' · ');
 const short = (r, side) => {
   const j = r.judged?.[side];
   if (!j || j.error) return '';
@@ -88,6 +109,29 @@ const dropRow = (r) => `<tr>
 <td><b>${esc(r.new.title)}</b>${r.new.fallback ? ' <span class="tag">fallback</span>' : ''}<div class="sub">${esc(r.new.reaction)}</div>${short(r, 'new')}${r.caught?.not_caught?.length ? `<div class="flag miss">Left out of the title and not in the details: ${esc(r.caught.not_caught.join('; '))}</div>` : ''}</td>
 <td class="meta">${esc(meta(r.details))}</td></tr>`;
 const table = (list, empty) => (list.length ? `<div class="sc"><table><thead><tr><th>What they dropped</th><th>Before (as the app showed it)</th><th>After</th><th>Details call</th></tr></thead><tbody>${list.map(dropRow).join('')}</tbody></table></div>` : `<p class="none">${empty}</p>`);
+
+const detRows = [...det.values()].sort((a, b) => a.i - b.i);
+const detCount = (side, home) => detRows.filter((r) => lostOf(r, side).some((x) => hasHome(r.kind, x.what) === home)).length;
+// The judge reads the part of the day field literally: "day" is the middle of the day and the afternoon.
+const partSaved = (r, side) => Boolean(r[side]?.time_window || r[side]?.event_time);
+const detCountKept = (side) => detRows.filter((r) => lostOf(r, side).some((x) => hasHome(r.kind, x.what) === true && !(x.what === 'part of the day' && partSaved(r, side)))).length;
+const detSection = detRows.length
+  ? (() => {
+      const withHome = detRows.filter((r) => lostOf(r, 'after').some((x) => hasHome(r.kind, x.what) === true));
+      const noHome = detRows.filter((r) => lostOf(r, 'after').some((x) => hasHome(r.kind, x.what) === false));
+      const row = (r, home) => `<tr><td class="drop"><span class="who">${r.who === 'J' ? 'You' : 'Tester'} · ${esc(r.today)} · ${kindWord(r.kind)}</span>${esc(r.raw)}</td><td><b>${esc(r.title)}</b></td><td class="meta">${esc(meta(r.before))}</td><td class="meta">${esc(meta(r.after))}</td><td>${lostOf(r, 'after').filter((x) => hasHome(r.kind, x.what) === home).map((x) => `<div class="flag miss">${esc(x.part)} (${esc(x.what)})</div>`).join('')}</td></tr>`;
+      const tbl = (list, home, empty) => (list.length ? `<div class="sc"><table><thead><tr><th>What they dropped</th><th>New title</th><th>Details before</th><th>Details after</th><th>Still lost</th></tr></thead><tbody>${list.map((r) => row(r, home)).join('')}</tbody></table></div>` : `<p class="none">${empty}</p>`);
+      return `<h2>Stage 2b: every detail in its place</h2>
+<p>The details step now asks for a todo's clock time (saved as its time), the part of the day for anything that names one, today's date for anything said of today, and a mood on any note that says how they feel. The Worker now keeps a todo's time and a non journal mood instead of dropping them. Below: the same ${detRows.length} drops and new titles, with today's details step and the new one, judged for anything the title leaves out that the details do not hold.</p>
+<div class="grid">
+<div class="stat ${detCount('after', true) ? 'bad' : 'ok'}"><b>${detCount('after', true)} <small>vs ${detCount('before', true)}</small></b><span>Drops losing a detail that has a place on the item, after vs before</span></div>
+<div class="stat"><b>${detCount('after', false)}</b><span>Drops with a detail that has no place on that kind of item (stays in their words only)</span></div>
+</div>
+<p>Counting a part of the day as kept whenever the part of the day or a time is saved (the judge does not know that "day" covers the afternoon): ${detCountKept('after')} after against ${detCountKept('before')} before. Runs vary by a few drops either way: the same drop can be caught in one run and missed in the next.</p>
+<h3>Still lost, though the item has a place for it</h3>${tbl(withHome, true, 'None.')}
+<h3>No place on that kind of item</h3><p>A repeat on a todo or an event, a feeling on a todo or a habit, how long a journal entry took, and a clock time on a habit. Each stays in their own words on the item.</p>${tbl(noHome, false, 'None.')}`;
+    })()
+  : '';
 
 const judgeTable = `<table class="nums"><thead><tr><th>Judge's check, real drops</th><th>Before</th><th>After</th></tr></thead><tbody>${Q.map((k) => `<tr><td>${QWORDS[k]}</td><td>${rows.filter((r) => judgedOk(r, 'old', k)).length} of ${judgedN('old')}</td><td>${rows.filter((r) => judgedOk(r, 'new', k)).length} of ${judgedN('new')}</td></tr>`).join('')}</tbody></table>`;
 
@@ -118,7 +162,7 @@ details summary{cursor:pointer;font-weight:600;margin:8px 0}
 <div class="stat ${c.newAsks.length ? 'bad' : 'ok'}"><b>${c.newAsks.length} <small>vs ${c.oldAsks}</small></b><span>Reactions that ask anything, after vs before</span></div>
 <div class="stat ${c.newDash.length ? 'bad' : 'ok'}"><b>${c.newDash.length} <small>vs ${c.oldDash}</small></b><span>Dashes in the reaction, so the logged dash swap would fire</span></div>
 <div class="stat ${c.newLong.length ? 'bad' : 'ok'}"><b>${c.newLong.length} <small>vs ${c.oldLong}</small></b><span>Reactions over 70 characters, so the logged cut would fire (before: with its opener)</span></div>
-<div class="stat ${c.notCaught.length ? 'bad' : 'ok'}"><b>${c.notCaught.length}</b><span>Drops with a when, how often, how long or feeling left out of the title and not in the details, of ${c.leftOut.length} with something left out</span></div>
+<div class="stat ${c.notCaught.length ? 'bad' : 'ok'}"><b>${c.notCaught.length}</b><span>Drops with a when, how often, how long or feeling left out of the title and not in today's details step, of ${c.leftOut.length} with something left out (stage 2b below)</span></div>
 <div class="stat ${c.capsNew.length ? 'bad' : 'ok'}"><b>${c.capsNew.length} <small>vs ${c.capsOld.length}</small></b><span>Titles that changed a capital they typed (an acronym or a name)</span></div>
 <div class="stat"><b>${c.rewrote.length}</b><span>Short drops (8 words or fewer) whose new title has a word they did not type</span></div>
 <div class="stat"><b>${c.longTitles.length}</b><span>New titles over 60 characters or 8 words, kept as written</span></div>
@@ -127,8 +171,10 @@ details summary{cursor:pointer;font-weight:600;margin:8px 0}
 ${judgeTable}
 ${c.caughtErr.length ? `<p class="flag">${c.caughtErr.length} drops had no answer from the left out check.</p>` : ''}
 
-<h2>Left out of the title and not caught by the details</h2>
-<p>Each of these would vanish from the card: the title leaves it out and the details call did not catch it.</p>
+${detSection}
+
+<h2>Left out of the title and not caught by today's details step</h2>
+<p>Before stage 2b: each of these would vanish from the card, because the title leaves it out and today's details step did not catch it.</p>
 ${table(c.notCaught, 'None: everything left out of a title was caught by the details.')}
 
 <h2>Events, for you to read</h2>

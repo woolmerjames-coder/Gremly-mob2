@@ -215,6 +215,32 @@ Plan corrections:
 
 From James on 9 October: `sentenceCase` and the fallback stay as formatting; the fallback only for a failed or empty title call, cut at a whole word near 60, logged; no over 60 trigger. Events use the title call's title.
 
-For James: read `Claude outputs/words-replay.html` and say yes or what to change. Two calls are yours: whether the details call should catch what it misses now (a todo's clock time, parts of the day, feelings outside journals), as a separate replayed change to the details prompt, together with its example lists; and whether reactions that name the thing are fine, as in the prototype, or the rule should be tightened and the replay run again. Do not deploy until you say yes; then deploy the cortex Worker from `workers/cortex` with `npx wrangler deploy`. Rollback: redeploy the previous Worker; the app copes with either reply.
+James's answer (9 October): yes to the words, on one condition: nothing left out of a title may be lost; every detail goes to its own place on the item, and the dropped words stay in the item's text. Otherwise fine to move on, which I take to include reactions that name the thing. That condition is stage 2b below. Deploy goes out with 2b.
 
-Blocking questions: the two calls above.
+### Stage 2b: every detail left out of a title goes to its place (9 October)
+
+Added by James on 9 October, as the condition for stage 2's yes: anything the title leaves out has to land in its own field on the item, and nothing may be lost.
+
+Where details can live (columns checked in Supabase): todos have a day, a time (`due_time`), a part of the day, dates to do it by and to do it on, and how long; habits have how often, days, a start day, a part of the day and how long; notes have a day, a time, an end day, a mood and a place. No field exists for a repeat on a todo or a note, a feeling on a todo or a habit, how long a note took, or a clock time on a habit; those stay in the dropped words, which every item keeps.
+
+What changed:
+- `workers/cortex/minddropPrompts.js`, `detailsPrompt`: a todo's clock time comes back as `event_time` (`dropSync` already saves it as the todo's `due_time`); the part of the day is taken from any wording that places it, with a clock time placing it too; anything said of today, or of a part of today, is dated today (a todo's scheduled date, a note's day); an event or note's time falls back to the usual hour of a part of the day they name; a mood on any note that says how they feel; Phase 2's event title in sentence case for builds already out. Examples removed: priority_kind's "such as" list, and the activities listed under each energy type, now defined by what the effort is. Version `minddrop-prompts-2026-10-18c`.
+- `workers/cortex/cortex-index.js`, `enrich-phase2`: keeps `event_time` for a todo and `mood` for any note, which it dropped before. Builds already out save both with no app change.
+- `scripts/minddrop-prompt-replay/`: `details --real` runs today's details step and the new one on the same 320 drops, each as the Worker saves it, with a judge naming each lost detail's kind; `report.mjs` adds a stage 2b section to the words replay page. The saved old prompts now import their own copy of today's `enrichRules.js`.
+
+Tests: four new tests in `minddropPrompts.test.js` (no examples or dashes in the details prompt, a todo time in its shape, parts of the day, mood on any note), failing first. All cortex Worker tests: 41 suites, 631 tests, passing. `tsc` clean.
+
+Replays: made up details set 44 of 44 against 44 of 44 (one run showed 43, noise; two runs after were 44); time estimates 34 of 34. Real drops: drops losing a detail that has a place, 22 against 34 as the judge counts, or 18 against 30 counting a saved part of the day as kept (the judge reads "day" literally); 8 drops hold a detail with no place. Runs vary by about four drops. What still slips: two or three parts of the day on habits that name more than one, "tonight" on an event in some runs, vague timing ("later", "early December", which the rules leave undated on purpose) and some judge over reach.
+
+Deviations: the time estimate rules (`TIME_ESTIMATE_RULES` in `enrichRules.js`) are unchanged. Rewritten without named task types, small screen tasks came out high on every run (text someone an address at 15 to 20 minutes against 5 to 10; booking a table at 25 to 30 against 20 or less), 31 and 32 of 34 against 34 of 34, and a second wording was worse (29 of 34). Per the house rule, that one goes to James rather than being kept or forced.
+
+Plan corrections: none new.
+
+Open for the planning chat (James, 9 October): a date in a drop is not always when the person means to act. The details step already tells a deadline (`target_date`) from a do date (`scheduled_date`), but `dropSync` writes the todo's `due_day` from the deadline first, so a deadline becomes the day it shows on Today. Fixing it means a deadline shows as Due and leaves the do day for the person, which touches the Today rebuild.
+
+For James:
+1. Read the stage 2b section of `Claude outputs/words-replay.html`.
+2. Decide the time estimate rules: keep today's (which name task types as anchors), or take the version without them and its slightly high estimates for small screen tasks.
+3. Deploy stages 2 and 2b together, from Terminal: `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. Rollback: redeploy the previous Worker; the app copes with either reply.
+
+Blocking questions: the time estimate rules (2 above). Stage 3 does not depend on it.

@@ -9716,6 +9716,11 @@ Rules:
         let eventTime = null;
         let endDate = null;
         let eventSmartTitle = null;
+        // A todo's clock time comes back as event_time too; the app saves it as the
+        // todo's due_time (dropSync), so a time left out of the title is kept.
+        if (bucket === 'todo' && parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
+          eventTime = parsed.event_time;
+        }
         if (bucket === 'log') {
           if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
             noteTargetDate = parsed.target_date;
@@ -9771,9 +9776,9 @@ Rules:
             .slice(0, 10);
         }
 
-        // Validate mood (journals only)
+        // Validate mood: any note that says how they feel keeps it (every note has a mood)
         let mood = null;
-        if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
+        if (bucket === 'log' && Array.isArray(parsed.mood)) {
           mood = parsed.mood
             .map((m) => String(m).toLowerCase().trim())
             .filter((m) => VALID_MOODS.includes(m))

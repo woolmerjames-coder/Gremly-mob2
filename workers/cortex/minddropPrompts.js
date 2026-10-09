@@ -11,7 +11,7 @@
 
 import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from './enrichRules.js';
 
-export const MINDDROP_PROMPTS_VERSION = 'minddrop-prompts-2026-10-18b';
+export const MINDDROP_PROMPTS_VERSION = 'minddrop-prompts-2026-10-18c';
 
 // ── The title and the reaction, shared by the drop and its clarification ──
 
@@ -171,6 +171,7 @@ They chose ${userSelectedDate} as this item's day. Use it for the item's date un
 }
 WORKING OUT DAYS
 - Work every date out from today: tomorrow is the day after today.
+- When their words put it later today, or in a part of today, its date is today.
 - A weekday named on its own is the next one still to come, never today: when today is that weekday, it is a week from today. This is each weekday's date:
 ${weekdayDates(currentDate, dayOfWeek, timezone)}
 - Give every date as YYYY-MM-DD.
@@ -185,21 +186,21 @@ FOR A TODO, OR A HABIT BEING BUILT (start_habit)
 ${TIME_ESTIMATE_RULES}
 
 2. time_window
-The part of the day, only when they say it: "morning", "day", "evening", or null.
+The part of the day their words put it in, including a part of the day folded into a word for the day: "morning"; "day" for the middle of the day and the afternoon; "evening" for the evening and the night. A clock time puts it in the part of the day that time falls in. null when their words put it in no part of the day.
 
 3. energy_type
 The kind of effort it takes, one of:
-- deep_focus: thinking, writing or making something that needs sustained attention
-- administrative: arranging, booking, paying, forms and messages
-- physical: moving their body, or being out doing things in the world
-- social: talking to or spending time with other people
-- quick: anything small that takes under ten minutes and little thought
+- deep_focus: it needs sustained, unbroken attention to think, write or make something
+- administrative: it keeps their affairs in order, getting something arranged, settled or dealt with
+- physical: their body does the work, or it means going out and being somewhere
+- social: its point is time or conversation with other people
+- quick: it is small enough to take under ten minutes and little thought
 When unsure, administrative.
 
 4. priority_kind (todos only)
 What state the todo is in, one of:
 - action: something undone that only they hold up; they could do it now.
-- blocker: it cannot go ahead until something outside them happens, such as a reply, an approval or a delivery, and the item says what it waits on.
+- blocker: it cannot go ahead until something outside them happens, and the item says what it waits on.
 - waiting: they are waiting on something outside them but could still work around it; a blocker is a hard stop.
 - decision: a choice they have still to make.
 - momentum: ongoing forward motion rather than one piece of work.
@@ -211,9 +212,13 @@ A date on a todo is one of two things.
 - scheduled_date: when they mean to do the work themselves. It is theirs to move.
 - A date said as a limit, something to be done before, by or until it, is a target date only, never a scheduled date, even when it comes with something to do.
 - A date said as when they will do the action is a scheduled date only.
+- When they say they will do it today, later today or in a part of today, the scheduled date is today.
 - When they say both when something is and when they will act on it, give both: they are two different dates.
 - When a date could be either and their words do not say, give it as the target date and set date_type_ambiguous.
 - The end of the week is its Friday, and the end of the month its last day.
+
+5. event_time (todos only)
+The clock time they give for doing it or for when it is due, as HH:mm on a 24 hour clock, else null. A part of the day without a clock time goes in time_window instead.
 
 FOR A HABIT
 4. extracted_frequency: how often, as they say it, written as daily, weekly, or the number of times a week followed by x/week.
@@ -221,16 +226,16 @@ FOR A HABIT
 6. extracted_start_date: the day they say they start, else null.
 
 FOR AN EVENT (subtype event)
-1. smart_title: the event's name from their words, with every date and time taken out and the people and the place kept, in title case.
+1. smart_title: the event's name from their words, with every date and time taken out and the people and the place kept, in sentence case: a capital for the first word and every other word as they wrote it. (Builds already out show this title for an event; newer builds use the title call's.)
 2. target_date: the day it starts. A date given without a year is in the current year. A day of the month on its own is the next one to come. When they give no day but chose one, that day; otherwise null.
 3. end_date: the last day of an event that runs over several days, else null.
-4. event_time: when it starts, as HH:mm on a 24 hour clock, when they give a time or a part of the day: a part of the day stands for its usual hour, and an hour without am or pm is the one that fits the event. Else null.
+4. event_time: when it starts, as HH:mm on a 24 hour clock. When they give a clock time, that time; an hour without am or pm is the one that fits the event. When they give no clock time but their words say which part of the day it is in, including a part of the day folded into a word for the day, that part's usual hour, never null. Else null.
 
 FOR ANY OTHER LOG
 - A log carries dates too: whenever it says when something is or happens, or that it has moved, give that date as target_date and any time as event_time, whatever kind of log it is.
-7. mood (journals only): up to three of great, good, okay, low, tired, anxious, overwhelmed, frustrated, scattered, grateful, hopeful, focused, calm.
-8. target_date (every log): the day it says something is or happens. When it gives no day but they chose one, that day; otherwise null.
-9. event_time (every log): the time it gives, as HH:mm on a 24 hour clock, else null.
+7. mood (any log, whenever it says how they feel): up to three of great, good, okay, low, tired, anxious, overwhelmed, frustrated, scattered, grateful, hopeful, focused, calm; null when it says nothing of how they feel.
+8. target_date (every log): the day it says something is or happens, which is today when its words place it today, later today or in a part of today. When it gives no day but they chose one, that day; otherwise null.
+9. event_time (every log): the time it gives, as HH:mm on a 24 hour clock. When it gives no clock time but its words say which part of the day it is in, including a part of the day folded into a word for the day, that part's usual hour. Else null.
 
 TAGS (every item)
 8. tags: two to four, lower case and hyphenated, naming its category and its topic, with no filler and no one's name: people go in people.
@@ -251,6 +256,7 @@ For a todo:
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": true | false,
+  "event_time": "HH:mm" | null,
   "people": ["name"] | []
 }
 
@@ -288,6 +294,7 @@ For a journal:
 For an idea or any other log:
 {
   "tags": ["tag", "tag"],
+  "mood": ["mood"] | null,
   "target_date": "YYYY-MM-DD" | null,
   "event_time": "HH:mm" | null,
   "people": ["name"] | []
@@ -297,6 +304,7 @@ For an event:
 {
   "smart_title": "the event's name",
   "tags": ["tag", "tag"],
+  "mood": ["mood"] | null,
   "target_date": "YYYY-MM-DD" | null,
   "end_date": "YYYY-MM-DD" | null,
   "event_time": "HH:mm" | null,
