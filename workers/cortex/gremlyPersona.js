@@ -555,19 +555,6 @@ ${opts.userProfileText}`);
   // 10. Chat-type-specific context
   if (opts.chatType === 'entity' && opts.entityContext) {
     parts.push(opts.entityContext);
-  } else if (opts.chatType === 'space') {
-    if (opts.spaceContext) {
-      parts.push(`=== SPACE CONTEXT ===\n${opts.spaceContext}`);
-    } else if (opts.spaceName) {
-      parts.push(`This conversation is in the user's "${opts.spaceName}" space.`);
-    }
-    parts.push(`TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
-2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
-3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
-4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
-5. When the user mentions an upcoming event without a date, naturally ask for it in a conversational way — like a friend would, not like a form field. Knowing the date makes planning help much better.
-6. Getting a date wrong erodes trust faster than admitting uncertainty.`);
   } else if (opts.chatType === 'general') {
     parts.push(`${GENERAL_INTRO}
 
@@ -577,32 +564,6 @@ ${CONVERSATION_FEELS}
 
 ${GENERAL_TEMPORAL}`);
     if (opts.triage.mode !== 'app_help') parts.push(GENERAL_APP);
-  } else if (opts.chatType === 'world') {
-    if (opts.scopeContext) {
-      parts.push(`=== WORLD CONTEXT ===\n${opts.scopeContext}`);
-    } else if (opts.scopeName) {
-      parts.push(`This conversation is in the user's "${opts.scopeName}" world.`);
-    }
-    parts.push(`TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
-2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
-3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
-4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
-5. When the user mentions an upcoming event without a date, naturally ask for it in a conversational way — like a friend would, not like a form field. Knowing the date makes planning help much better.
-6. Getting a date wrong erodes trust faster than admitting uncertainty.`);
-  } else if (opts.chatType === 'chapter') {
-    if (opts.scopeContext) {
-      parts.push(`=== CHAPTER CONTEXT ===\n${opts.scopeContext}`);
-    } else if (opts.scopeName) {
-      parts.push(`This conversation is in the user's "${opts.scopeName}" chapter.`);
-    }
-    parts.push(`TEMPORAL ACCURACY (CRITICAL):
-1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or a dated thing from their records). Never infer or guess when something is happening.
-2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
-3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
-4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
-5. When the user mentions an upcoming event without a date, naturally ask for it in a conversational way — like a friend would, not like a form field. Knowing the date makes planning help much better.
-6. Getting a date wrong erodes trust faster than admitting uncertainty.`);
   }
 
   // 11. How Gremly knows what it knows, in every kind of chat: asked where
@@ -705,44 +666,6 @@ export function buildEntityContextBlock(opts) {
 // ============================================================================
 
 /**
- * Builds a full GenerationConfig for Space Chat.
- */
-export function buildSpaceChatSystemPrompt(
-  triage,
-  context,
-  spaceName,
-  spaceContext,
-  accountCreatedAt,
-  sessionContextStr,
-  userProfileText,
-  timezone = 'UTC',
-  todayActivity = null,
-) {
-  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
-  const currentDate = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: timezone,
-  }).format(new Date());
-
-  return assembleGenerationConfig({
-    triage,
-    chatType: 'space',
-    currentDate,
-    spaceContext: spaceContext || null,
-    spaceName,
-    conversationContext: context.runningSummary || null,
-    sessionContext: sessionContextStr,
-    userProfileText,
-    accountCreatedAt,
-    timezone,
-    todayActivity,
-  });
-}
-
-/**
  * Builds a full GenerationConfig for Entity Chat.
  */
 export function buildEntityChatConfig(
@@ -801,82 +724,6 @@ export function buildGeneralChatConfig(
     triage,
     chatType: 'general',
     currentDate,
-    conversationContext: context.runningSummary || null,
-    sessionContext: sessionContextStr,
-    userProfileText,
-    accountCreatedAt,
-    timezone,
-    todayActivity,
-  });
-}
-
-/**
- * Builds a full GenerationConfig for World Chat.
- */
-export function buildWorldChatSystemPrompt(
-  triage,
-  context,
-  scopeName,
-  scopeContext,
-  accountCreatedAt,
-  sessionContextStr,
-  userProfileText,
-  timezone = 'UTC',
-  todayActivity = null,
-) {
-  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
-  const currentDate = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: timezone,
-  }).format(new Date());
-
-  return assembleGenerationConfig({
-    triage,
-    chatType: 'world',
-    currentDate,
-    scopeName,
-    scopeContext: scopeContext || null,
-    conversationContext: context.runningSummary || null,
-    sessionContext: sessionContextStr,
-    userProfileText,
-    accountCreatedAt,
-    timezone,
-    todayActivity,
-  });
-}
-
-/**
- * Builds a full GenerationConfig for Chapter Chat.
- */
-export function buildChapterChatSystemPrompt(
-  triage,
-  context,
-  scopeName,
-  scopeContext,
-  accountCreatedAt,
-  sessionContextStr,
-  userProfileText,
-  timezone = 'UTC',
-  todayActivity = null,
-) {
-  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
-  const currentDate = new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: timezone,
-  }).format(new Date());
-
-  return assembleGenerationConfig({
-    triage,
-    chatType: 'chapter',
-    currentDate,
-    scopeName,
-    scopeContext: scopeContext || null,
     conversationContext: context.runningSummary || null,
     sessionContext: sessionContextStr,
     userProfileText,

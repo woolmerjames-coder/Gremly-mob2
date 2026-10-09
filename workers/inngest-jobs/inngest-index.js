@@ -2744,11 +2744,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       { headers },
     ).then((r) => r.json()),
 
-    // 5: Spaces — active
-    fetch(
-      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
-      { headers },
-    ).then((r) => r.json()),
+    // 5: Spaces went with the Worlds rebuild (9 Oct 2026): none are read
+    Promise.resolve([]),
 
     // 6: Space milestones — active
     fetch(

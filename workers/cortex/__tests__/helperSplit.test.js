@@ -137,7 +137,7 @@ test('the lane is asked for in Ask Gremly only, and only with the one call', asy
   let calls = stubFetch(() => jsonResponse({ choices: [{ message: { content: answer } }] }));
   expect(await triageMessage({ ...base, chatType: 'general' })).toMatchObject({ lane: 'agent' });
   expect(calls[0].body.messages[0].content).toContain(LANE_RULES);
-  for (const chatType of ['space', 'world', 'chapter', 'entity']) {
+  for (const chatType of ['entity']) {
     calls = stubFetch(() => jsonResponse({ choices: [{ message: { content: answer } }] }));
     const t = await triageMessage({ ...base, chatType });
     expect(t.lane).toBeUndefined();

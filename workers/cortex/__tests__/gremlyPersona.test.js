@@ -20,11 +20,11 @@ import { SOURCE_RULES, SOURCE_RULES_AGENT, PRIVATE_RULES } from '../../inngest-j
 
 const triage = { mode: 'capture', depth: 'brief', personal: 'none', search: 'none' };
 
-test('Ask Gremly is never asked for a save block; space chat still is', () => {
+test('Ask Gremly is never asked for a save block; item chat still is', () => {
   const general = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', '', 'UTC');
   expect(general.systemPrompt).not.toContain('<!--SAVE:');
-  const space = assembleGenerationConfig({ triage, chatType: 'space', currentDate: 'Wednesday' });
-  expect(space.systemPrompt).toContain('<!--SAVE:');
+  const item = assembleGenerationConfig({ triage, chatType: 'entity', currentDate: 'Wednesday' });
+  expect(item.systemPrompt).toContain('<!--SAVE:');
 });
 
 test('every reply knows the app saves new things after it, and what a general word for an item means', () => {
@@ -45,18 +45,18 @@ test('every reply knows the app saves new things after it, and what a general wo
   expect(systemPrompt).toContain('Reply briefly about the thing itself');
 });
 
-test('Ask Gremly is told how the conversation should feel; space chat is not, yet', () => {
+test('Ask Gremly is told how the conversation should feel; item chat is not, yet', () => {
   const general = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', '', 'UTC');
   expect(general.systemPrompt).toContain('=== HOW THE CONVERSATION FEELS ===');
-  const space = assembleGenerationConfig({ triage, chatType: 'space', currentDate: 'Wednesday' });
-  expect(space.systemPrompt).not.toContain('=== HOW THE CONVERSATION FEELS ===');
+  const item = assembleGenerationConfig({ triage, chatType: 'entity', currentDate: 'Wednesday' });
+  expect(item.systemPrompt).not.toContain('=== HOW THE CONVERSATION FEELS ===');
 });
 
 test('every chat is told how to say where something Gremly knows came from', () => {
-  // a writer that answers from what it is given: Ask Gremly's quick lane, and a chat about an item, a space, a World or a Chapter
+  // a writer that answers from what it is given: Ask Gremly's quick lane, and a chat about an item
   const general = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', '', 'UTC');
   expect(general.systemPrompt).toContain(SOURCE_RULES);
-  for (const chatType of ['entity', 'space', 'world', 'chapter']) {
+  for (const chatType of ['entity']) {
     const { systemPrompt } = assembleGenerationConfig({
       triage,
       chatType,
@@ -72,7 +72,7 @@ test('every chat is told how to say where something Gremly knows came from', () 
 test('every chat, and the agent, is given the private rules every writer about their life is given', () => {
   const general = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', '', 'UTC');
   expect(general.systemPrompt).toContain(PRIVATE_RULES);
-  for (const chatType of ['entity', 'space', 'world', 'chapter']) {
+  for (const chatType of ['entity']) {
     const { systemPrompt } = assembleGenerationConfig({
       triage,
       chatType,
