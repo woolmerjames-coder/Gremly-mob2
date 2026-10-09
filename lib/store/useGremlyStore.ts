@@ -8148,14 +8148,18 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Build date updates from reclassify result
             const dateUpdate: Record<string, unknown> = {};
+            // A deadline is the deadline, never the day to do it (9 Oct 2026): only a
+            // day they said they would do it sets a todo's due_day.
             if (reclassifyResult.target_date) {
-              dateUpdate.due_day = reclassifyResult.target_date;
-              dateUpdate.due_date = reclassifyResult.target_date;
               dateUpdate.target_date = reclassifyResult.target_date;
             }
             if (reclassifyResult.scheduled_date) {
               dateUpdate.scheduled_date = reclassifyResult.scheduled_date;
               dateUpdate.start_date = reclassifyResult.scheduled_date; // For habits
+              if (entityType === 'todo') {
+                dateUpdate.due_day = reclassifyResult.scheduled_date;
+                dateUpdate.due_date = reclassifyResult.scheduled_date;
+              }
             }
 
             const updatedViews: Record<string, unknown> = {

@@ -572,6 +572,41 @@ if (part === 'details' && args.includes('--real')) {
   process.exit(0);
 }
 
+// ── time --real: time estimates on the real todos and habits, old and new ──
+// No gold here: the page compares the two estimates drop by drop, so a rule
+// change that moves small tasks shows up. Resumable into out/real-time.jsonl.
+async function realTime() {
+  const drops = JSON.parse(readFileSync(join(HERE, 'real', 'drops.json'), 'utf8'));
+  const file = join(HERE, 'out', flag('--out') || 'real-time.jsonl');
+  const okNow = () => new Set((existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []).map((l) => JSON.parse(l)).filter((o) => o.ok).map((o) => o.i));
+  const done = okNow();
+  const todo = drops.map((d, i) => [d, i]).filter(([d, i]) => !done.has(i) && (d.table === 'todo' || (d.table === 'habit' && d.subtype !== 'break_habit'))).map(([, i]) => i);
+  const budget = Number(flag('--budget') || 140) * 1000;
+  const started = Date.now();
+  let next = 0;
+  async function worker() {
+    while (next < todo.length && Date.now() - started < budget) {
+      const i = todo[next++];
+      const d = drops[i];
+      const kind = kindOf(d);
+      const tz = ZONE[d.who] || 'UTC';
+      const day = dayOf(d.at, tz);
+      const ask = (mod) => mini(mod.detailsPrompt({ ...day, timezone: tz, userSelectedDate: null, ...kind }), d.raw.substring(0, 1500), { temperature: 0.2, maxOutputTokens: 300 });
+      const row = await Promise.all([OLD ? ask(OLD) : null, ask(NEW)])
+        .then(([o, n]) => ({ i, ok: Boolean(n), raw: d.raw, kind, old: o?.time_estimate_minutes ?? null, new: n?.time_estimate_minutes ?? null }))
+        .catch((e) => ({ i, ok: false, error: String(e).slice(0, 200) }));
+      appendFileSync(file, JSON.stringify(row) + '\n');
+    }
+  }
+  await Promise.all(Array.from({ length: Number(flag('--conc') || 12) }, worker));
+  console.log(`[time-replay] ${okNow().size} drops done`);
+}
+
+if (part === 'time' && args.includes('--real')) {
+  await realTime();
+  process.exit(0);
+}
+
 // ── the run ──────────────────────────────────────────────────────────────
 
 const rows = [];

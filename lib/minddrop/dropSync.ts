@@ -94,8 +94,11 @@ export async function syncDropToSupabase(
       table = 'todos';
       entityType = 'todo';
 
+      // The day to do it comes only from a day they said they would do it (or the
+      // day they dropped it into). A deadline is saved as target_date and leaves
+      // the day for them to pick: the card reads Due, and the morning quick sweep
+      // asks when (James, 9 Oct 2026).
       const dueDay =
-        enrichment?.target_date ||
         enrichment?.scheduled_date ||
         enrichment?.extracted_date?.split('T')[0] ||
         (source === 'today' ? effectiveDueDay : null);

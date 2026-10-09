@@ -211,6 +211,50 @@ describe('syncDropToSupabase', () => {
     expect(result.entityType).toBe('todo');
   });
 
+  // ── A deadline is not the day to do it (James, 9 Oct 2026) ──────
+  const lastInsert = (): Record<string, any> => {
+    const chains = mockFrom.mock.results.map((r: any) => r.value);
+    for (let i = chains.length - 1; i >= 0; i -= 1) {
+      const calls = chains[i]?.insert?.mock?.calls;
+      if (calls?.length) return calls[0][0];
+    }
+    throw new Error('no insert');
+  };
+
+  it('saves a deadline as the deadline and leaves the day to do it for the person', async () => {
+    await syncDropToSupabase(
+      makeDrop({ bucket: 'todo' }),
+      makeEnrichment({ target_date: '2026-04-15' }),
+    );
+    const row = lastInsert();
+    expect(row.target_date).toBe('2026-04-15');
+    expect(row.due_day ?? null).toBeNull();
+  });
+
+  it('sets the day to do it only from a day they said they would do it', async () => {
+    await syncDropToSupabase(
+      makeDrop({ bucket: 'todo' }),
+      makeEnrichment({ target_date: '2026-04-15', scheduled_date: '2026-04-14' }),
+    );
+    const row = lastInsert();
+    expect(row.due_day).toBe('2026-04-14');
+    expect(row.target_date).toBe('2026-04-15');
+    expect(row.scheduled_date).toBe('2026-04-14');
+  });
+
+  it("keeps a todo's clock time as its due time", async () => {
+    await syncDropToSupabase(makeDrop({ bucket: 'todo' }), makeEnrichment({ event_time: '15:45' }));
+    expect(lastInsert().due_time).toBe('15:45');
+  });
+
+  it('keeps a mood on a note that is not a journal', async () => {
+    await syncDropToSupabase(
+      makeDrop({ bucket: 'log', subtype: 'general' }),
+      makeEnrichment({ mood: ['low'] }),
+    );
+    expect(lastInsert().mood).toEqual(['low']);
+  });
+
   it('sets habit frequency from enrichment', async () => {
     const result = await syncDropToSupabase(
       makeDrop({ bucket: 'habit', habitSubtype: 'start_habit' }),
