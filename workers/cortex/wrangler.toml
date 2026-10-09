@@ -29,8 +29,8 @@ CLASSIFY_THINKING_LEVEL = "low"
 CLASSIFY_FALLBACK_PROVIDER = "openai"
 CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
 # Mind Drop: after a drop is classified, ask whether it is about something the user
-# already has (a repeat, a change, a done todo, a habit they did). It runs on the chat
-# matcher's model (MODEL_ENTITY_MATCH). On for James's hands-on test (30 Sep 2026),
+# already has (a repeat, a change, a done todo, a habit they did). It runs on its own
+# model, MODEL_DROP_RELATE below, apart from the chat matcher. On for James's hands-on test (30 Sep 2026),
 # after the replay in docs/minddrop-relate.md. "false" turns it off with no app build;
 # the app then files drops as before.
 MINDDROP_RELATE_ENABLED = "true"
@@ -150,6 +150,12 @@ CHAT_PILL_SPLIT = "on"
 # The matcher reads the whole item list; on a 140 item list Gemini 3.8 Flash found the
 # item every time where Luna missed one in two, at the same speed (scenario gate, 30 Sep 2026).
 MODEL_ENTITY_MATCH = "gemini-3.8-flash"
+# Mind Drop's already have it check has its own model, so chat's matcher above stays on
+# Gemini. GPT-6 Luna at low reasoning matched Gemini on the questions that reach the card
+# at about a tenth of the cost (relate replay, 628 real drops, two runs each, 7 Oct 2026).
+# A failed call retries once on HELPER_FALLBACK_MODEL inside the same 6s limit.
+# Rollback: set it to "gemini-3.8-flash" and deploy.
+MODEL_DROP_RELATE = "gpt-6-luna"
 
 [observability]
 enabled = true

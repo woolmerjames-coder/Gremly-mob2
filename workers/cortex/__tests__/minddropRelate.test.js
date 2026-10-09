@@ -7,9 +7,11 @@ import {
   buildRelateInput,
   changeFor,
   decideRelation,
+  relateDrop,
   shapeItems,
   withKeys,
 } from '../minddropRelate.js';
+import { configureModels } from '../models.js';
 
 const TODAY = '2026-09-30';
 const items = withKeys([
@@ -410,5 +412,64 @@ describe('changeFor (after a pick)', () => {
       from: '2026-10-05',
       to: '2026-10-01',
     });
+  });
+});
+
+describe('relateDrop: its own model setting', () => {
+  const realFetch = globalThis.fetch;
+  const raw = [
+    {
+      id: 'todo-run-00001',
+      type: 'todo',
+      title: 'Book the dentist',
+      due_day: null,
+      due_time: null,
+    },
+  ];
+  function stubFetch() {
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(init.body) });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            { message: { content: '{"relation":"new","entity_id":null,"confidence":90}' } },
+          ],
+        }),
+      };
+    };
+    return calls;
+  }
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    configureModels({});
+  });
+
+  it('runs on MODEL_DROP_RELATE at low reasoning, apart from the chat matcher', async () => {
+    configureModels({
+      OPENAI_API_KEY: 'k',
+      HELPER_MODEL: 'gpt-6-luna',
+      MODEL_ENTITY_MATCH: 'gemini-3.8-flash',
+      MODEL_DROP_RELATE: 'gpt-6-luna',
+    });
+    const calls = stubFetch();
+    await relateDrop({ env: {}, text: 'dentist', todayIso: TODAY, items: raw });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(calls[0].body.model).toBe('gpt-6-luna');
+    expect(calls[0].body.reasoning_effort).toBe('low');
+  });
+
+  it('falls back to the shared helper model, never to the chat matcher, when unset', async () => {
+    configureModels({
+      OPENAI_API_KEY: 'k',
+      HELPER_MODEL: 'gpt-6-luna',
+      MODEL_ENTITY_MATCH: 'gemini-3.8-flash',
+    });
+    const calls = stubFetch();
+    await relateDrop({ env: {}, text: 'dentist', todayIso: TODAY, items: raw });
+    expect(calls[0].body.model).toBe('gpt-6-luna');
   });
 });

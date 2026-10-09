@@ -167,7 +167,11 @@ A wrong match is worse than no match: when in doubt, the relation is new. Never 
 
 Return ONLY JSON: {"considered":["..."],"relation":"new"|"same"|"edit"|"add"|"complete"|"logged"|"remove","entity_id":"..."|null,"change":{"field":"...","value":"...","time":"..."|null}|null,"own_entry":true|false|null,"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
 
-/** The user turn: today, the drop, then every item with its key. */
+/**
+ * The user turn: today, the drop, then every item with its key. The drop stays
+ * before the list: putting it last, so the list could be cached between drops,
+ * made Luna ask less and miss more in the relate replay (runs 3 and 4, 9 Oct 2026).
+ */
 export function buildRelateInput({ todayIso, text, candidates }) {
   const lines = [
     `Today is ${weekdayOf(todayIso)} ${todayIso}.`,
@@ -364,8 +368,11 @@ export async function relateDrop({ env, userId, text, todayIso, items }) {
     const timer = controller ? setTimeout(() => controller.abort(), RELATE_TIMEOUT_MS) : null;
     let res;
     try {
+      // Its own model setting, MODEL_DROP_RELATE, so the chat matcher (MODEL_ENTITY_MATCH)
+      // stays where it is. Low reasoning reaches OpenAI reasoning models only; helperClient
+      // drops it for Gemini, so moving back needs no code change.
       res = await helperFetch(
-        'entity_match',
+        'drop_relate',
         {
           messages: [
             { role: 'system', content: MINDDROP_RELATE_PROMPT },
@@ -374,6 +381,7 @@ export async function relateDrop({ env, userId, text, todayIso, items }) {
           max_tokens: 300,
           temperature: 0,
           response_format: { type: 'json_object' },
+          reasoning_effort: 'low',
         },
         controller ? { signal: controller.signal } : {},
       );

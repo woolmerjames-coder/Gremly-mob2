@@ -71,6 +71,7 @@ export const HELPER_JOB_VARS = {
   sweep_headline: 'MODEL_SWEEP_HEADLINE', // type sweep-headline
   classify_phase1: 'MODEL_CLASSIFY_PHASE1', // Mind Drop v2 chain, only when CLASSIFY_V3_ENABLED is false
   entity_match: 'MODEL_ENTITY_MATCH', // entityMatch.js: does the message refer to an existing item
+  drop_relate: 'MODEL_DROP_RELATE', // minddropRelate.js: is a Mind Drop about something the user already has
   item_topics: 'MODEL_ITEM_TOPICS', // itemDetail.js: starters drawn from a note when its chat opens
   correction_check: 'MODEL_CORRECTION_CHECK', // context/corrections.js: did they say Gremly has something wrong
   wrap_words: 'MODEL_WRAP_WORDS', // wrap/words.js: Gremly's own words in the evening wrap up
