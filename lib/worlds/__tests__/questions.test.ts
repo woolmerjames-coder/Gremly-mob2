@@ -15,20 +15,27 @@ import {
   tellGremly,
   welcomeBack,
   worldsAsk,
+  withFactItems,
   worldsQuestionFrom,
 } from '../questions';
 import { useGremlyStore } from '../../store/useGremlyStore';
 import { callNotRight } from '../../cortex/CortexClient';
 
-type Op = { kind?: string; payload?: unknown; where: [string, string, unknown][] };
+type Op = {
+  table?: string;
+  kind?: string;
+  payload?: unknown;
+  where: [string, string, unknown][];
+};
 const mockOps: Op[] = [];
 let mockRows: Record<string, unknown>[] = [];
+let mockFacts: Record<string, unknown>[] = [];
 let mockFail = false;
 
 jest.mock('../../supabase/client', () => ({
   supabase: {
-    from: () => {
-      const op: Op = { where: [] };
+    from: (table: string) => {
+      const op: Op = { table, where: [] };
       mockOps.push(op);
       const chain: Record<string, unknown> = {};
       Object.assign(chain, {
@@ -46,7 +53,10 @@ jest.mock('../../supabase/client', () => ({
           Promise.resolve(
             mockFail && op.kind === 'update'
               ? { data: null, error: { message: 'no' } }
-              : { data: op.kind ? null : mockRows, error: null },
+              : {
+                  data: op.kind ? null : op.table === 'life_facts' ? mockFacts : mockRows,
+                  error: null,
+                },
           ).then(res, rej),
       });
       return chain;
@@ -138,6 +148,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockOps.length = 0;
   mockFail = false;
+  mockFacts = [];
   s = {
     chapters,
     todos: [{ id: 't1' }],
@@ -170,7 +181,31 @@ describe('a stored question', () => {
       { table: 'todos', id: 't1' },
       { table: 'notes', id: 'n1' },
     ]);
+    expect(q.rests_on_facts).toEqual(['f1']);
     expect(q.choices).toEqual(['Yes', 'No']);
+  });
+
+  it('a suggestion holds the items its facts were read from, once each', () => {
+    const q = withFactItems(
+      start({
+        rests_on: [
+          { table: 'todos', id: 't1' },
+          { table: 'life_facts', id: 'f1' },
+          { table: 'life_facts', id: 'f2' },
+          { table: 'life_facts', id: 'f3' },
+        ],
+      }),
+      [
+        { id: 'f1', source_table: 'todos', source_id: 't9' },
+        { id: 'f2', source_table: 'todos', source_id: 't1' },
+        { id: 'f3', source_table: 'scope_chat_messages', source_id: 'm1' },
+        { id: 'other', source_table: 'habits', source_id: 'h1' },
+      ],
+    );
+    expect(q.rests_on).toEqual([
+      { table: 'todos', id: 't1' },
+      { table: 'todos', id: 't9' },
+    ]);
   });
 
   it('a close: its Chapter and Gremly’s guess, unsure when it gave none it knows', () => {
@@ -188,6 +223,36 @@ describe('a stored question', () => {
     ).toBeNull();
   });
 
+  it('reads what each fact a suggestion rests on was taken from', async () => {
+    mockRows = [
+      row({
+        id: 'q1',
+        kind: 'start_chapter',
+        proposed_change: { title: 'A birthday trip', world_id: 'w1' },
+        rests_on: [
+          { table: 'life_facts', id: 'f1' },
+          { table: 'life_facts', id: 'f2' },
+        ],
+      }),
+    ];
+    mockFacts = [
+      { id: 'f1', source_table: 'todos', source_id: 't7' },
+      { id: 'f2', source_table: 'notes', source_id: 'n4' },
+    ];
+    const [q] = await fetchWorldsQuestions();
+    expect(q.rests_on).toEqual([
+      { table: 'todos', id: 't7' },
+      { table: 'notes', id: 'n4' },
+    ]);
+    const facts = mockOps.find((o) => o.table === 'life_facts');
+    expect(facts?.where).toEqual(
+      expect.arrayContaining([
+        ['in', 'id', ['f1', 'f2']],
+        ['in', 'source_table', ['todos', 'notes', 'habits']],
+      ]),
+    );
+  });
+
   it('reads only these kinds, still waiting', async () => {
     mockRows = [
       row({ id: 'q1', kind: 'start_chapter', proposed_change: { title: 'Yard' } }),
@@ -195,6 +260,8 @@ describe('a stored question', () => {
     ];
     const list = await fetchWorldsQuestions();
     expect(list.map((q) => q.id)).toEqual(['q1']);
+    // no facts to read, so no second read
+    expect(mockOps.filter((o) => o.table === 'life_facts')).toHaveLength(0);
     expect(mockOps[0].where).toEqual(
       expect.arrayContaining([
         ['in', 'kind', ['start_chapter', 'close_chapter', 'while_away']],

@@ -117,7 +117,7 @@ export async function fetchPageDetail(env, userId, page, today, deps = {}) {
         itemsOf(d, userId, links || []),
       ]);
       const lines = [
-        `THIS CHAT IS ON ONE OF THEIR CHAPTERS, opened from its page: "${trim(c.title, 80)}" (id ${c.id})${world ? `, in their World ${worldName(world)} (id ${world.id})` : ''}, ${chapterWhen(c, today)}${closed(c) ? ', closed and part of their story' : ''}. When they say this, it or here, they mean this Chapter, and a step or a note they add here belongs in it, so it is added with chapters set to this Chapter.`,
+        `THIS CHAT IS ON ONE OF THEIR CHAPTERS, opened from its page: "${trim(c.title, 80)}" (id ${c.id})${world ? `, in their World ${worldName(world)} (id ${world.id})` : ''}, ${chapterWhen(c, today)}${closed(c) ? ', closed and part of their story' : ''}. When they say this, it or here, they mean this Chapter, and a step or a note they add here belongs in it, so it is added with chapters set to this Chapter. Something they already have that they want here is moved in by changing its chapters, never added again.`,
       ];
       if (c.card_subtitle) lines.push(`Its words: ${trim(c.card_subtitle, 300)}`);
       if (closed(c) && c.epigraph) lines.push(`Its memory: ${trim(c.epigraph, 400)}`);
@@ -157,7 +157,7 @@ export async function fetchPageDetail(env, userId, page, today, deps = {}) {
     const open = (chapters || []).filter((c) => !closed(c) && c.phase !== 'suggested');
     const done = (chapters || []).filter(closed);
     const lines = [
-      `THIS CHAT IS ON ONE OF THEIR WORLDS, opened from its page: "${worldName(w)}" (id ${w.id})${w.phase === 'archived' ? ', which they hid' : ''}. When they say this, it or here, they mean this World, and something they add here belongs in it, so it is added with worlds set to this World.`,
+      `THIS CHAT IS ON ONE OF THEIR WORLDS, opened from its page: "${worldName(w)}" (id ${w.id})${w.phase === 'archived' ? ', which they hid' : ''}. When they say this, it or here, they mean this World, and something they add here belongs in it, so it is added with worlds set to this World. Something they already have that they want here is moved in by changing its worlds, never added again.`,
     ];
     if (w.card_subtitle) lines.push(`Its words: ${trim(w.card_subtitle, 300)}`);
     lines.push(

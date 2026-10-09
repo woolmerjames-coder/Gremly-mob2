@@ -95,6 +95,37 @@ describe('answering', () => {
     warn.mockRestore();
   });
 
+  it('a suggestion resting on facts files the items those facts were read from', async () => {
+    const mem = memoryDb({
+      chapters: [],
+      chapter_world_links: [],
+      drop_chapter_links: [],
+      life_facts: [
+        { id: 'f-1', user_id: 'u', source_table: 'todos', source_id: 't-7' },
+        { id: 'f-2', user_id: 'u', source_table: 'scope_chat_messages', source_id: 'm-1' },
+        { id: 'f-3', user_id: 'u', source_table: 'todos', source_id: 't-1' },
+      ],
+    });
+    db.mockReturnValue(mem);
+    jsonCall.mockResolvedValue({ output: { answers: true, outcome: 'start', start_date: null, end_date: null }, model: 'm' });
+    const question = {
+      ...start,
+      rests_on: [
+        { table: 'todos', id: 't-1' },
+        { table: 'life_facts', id: 'f-1' },
+        { table: 'life_facts', id: 'f-2' },
+        { table: 'life_facts', id: 'f-3' },
+      ],
+    };
+    const r = await answerChapterQuestion({}, { userId: 'u', question, said: 'Yes please' });
+    const made = mem.tables.chapters[0];
+    expect(r.started).toEqual({ chapter_id: made.id, filed: 2 });
+    expect(mem.tables.drop_chapter_links.map((l) => [l.drop_type, l.drop_id])).toEqual([
+      ['todo', 't-1'],
+      ['todo', 't-7'],
+    ]);
+  });
+
   it('starts the Chapter they said yes to, with what the suggestion rested on in it', async () => {
     const mem = memoryDb({ chapters: [], chapter_world_links: [], drop_chapter_links: [] });
     db.mockReturnValue(mem);

@@ -54,8 +54,13 @@ export interface WorldsQuestion extends WrapQuestion {
   kind: 'start_chapter' | 'close_chapter' | 'while_away';
   status: 'open' | 'asked';
   proposal: StartProposal | CloseProposal;
-  /** What a suggestion rests on: their items, by table and id */
+  /**
+   * What a suggestion rests on: their items, by table and id, and the items
+   * the facts it rests on were taken from (fetchWorldsQuestions)
+   */
   rests_on: { table: string; id: string }[];
+  /** The facts a suggestion rests on, by id, before they are read for their items */
+  rests_on_facts: string[];
   /** A welcome back's questions share one set */
   set_id: string | null;
 }
@@ -119,8 +124,32 @@ export function worldsQuestionFrom(row: Record<string, any>): WorldsQuestion | n
     rests_on: (Array.isArray(row.rests_on) ? row.rests_on : []).filter(
       (r: any) => ITEM_TYPE[r?.table] && typeof r?.id === 'string',
     ),
+    rests_on_facts: (Array.isArray(row.rests_on) ? row.rests_on : [])
+      .filter((r: any) => r?.table === 'life_facts' && typeof r?.id === 'string')
+      .map((r: any) => r.id as string),
     set_id: text(row.set_id) || null,
   };
+}
+
+/**
+ * A suggestion with the items its facts were taken from added to what it
+ * rests on: a fact Gremly read from one of their todos, notes or habits
+ * means that item belongs in the Chapter too. Pure.
+ * @param sources each fact's id with the table and id it was taken from
+ */
+export function withFactItems(
+  q: WorldsQuestion,
+  sources: { id: string; source_table: string | null; source_id: string | null }[],
+): WorldsQuestion {
+  if (!q.rests_on_facts.length) return q;
+  const rests = [...q.rests_on];
+  for (const f of sources) {
+    if (!q.rests_on_facts.includes(f.id) || !f.source_id || !ITEM_TYPE[f.source_table ?? ''])
+      continue;
+    if (!rests.some((r) => r.table === f.source_table && r.id === f.source_id))
+      rests.push({ table: f.source_table as string, id: f.source_id });
+  }
+  return rests.length === q.rests_on.length ? q : { ...q, rests_on: rests };
 }
 
 /** Their open questions about Chapters, those that need an answer first, then oldest first. */
@@ -136,9 +165,23 @@ export async function fetchWorldsQuestions(): Promise<WorldsQuestion[]> {
     .order('created_at', { ascending: true })
     .limit(30);
   if (error) throw error;
-  return ((data ?? []) as Record<string, any>[])
+  const questions = ((data ?? []) as Record<string, any>[])
     .map(worldsQuestionFrom)
     .filter((q): q is WorldsQuestion => !!q);
+  const factIds = [...new Set(questions.flatMap((q) => q.rests_on_facts))];
+  if (!factIds.length) return questions;
+  // the items those facts were read from; without them a suggestion shows
+  // what it rests on as best it can, from its items alone
+  const { data: sources, error: e } = await supabase
+    .from('life_facts')
+    .select('id,source_table,source_id')
+    .in('id', factIds)
+    .in('source_table', Object.keys(ITEM_TYPE));
+  if (e) {
+    console.warn('[questions] could not read what the facts came from:', e.message);
+    return questions;
+  }
+  return questions.map((q) => withFactItems(q, (sources ?? []) as any[]));
 }
 
 /** Whether what a question is about is still there to act on. Pure. */

@@ -732,3 +732,55 @@ SCENARIOS.push(
     expect: { askOrRows: true, some: (c) => c.op === 'add' && c.type === 'chapter' && c.fields?.world === 'wHome' },
   },
 );
+
+// Putting things they already have into a World or Chapter, when they ask
+// (James, 9 Oct: on a Chapter's page Gremly named two todos that belonged and
+// then said it could not put them there). Each item is moved on the card by
+// its chapters; on a page, here is that page.
+const PARTY = {
+  worlds: P.worlds,
+  chapters: [...P.chapters, { id: 'cParty', title: "Sam's 40th in Rome", world: 'wFriends', end: '2026-10-24' }],
+};
+const PARTY_ITEMS = [
+  { id: 'ali', kind: 'todo', title: "Talk to Ali about Sam's birthday", due_day: '2026-10-10' },
+  { id: 'rome', kind: 'todo', title: 'Look into Rome flights if we go', due_day: '2026-10-13' },
+  { id: 'dentist', kind: 'todo', title: 'Book the dentist', due_day: '2026-10-15' },
+];
+const INTO_PARTY = (c) =>
+  c.op === 'change' && c.type === 'todo' && ['ali', 'rome'].includes(c.id) && (c.fields?.chapters?.add || []).includes('cParty');
+SCENARIOS.push(
+  {
+    id: 'page-chapter-gather',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cParty', title: "Sam's 40th in Rome" },
+    text: 'Aren’t there todos to put in here?',
+    items: PARTY_ITEMS,
+    ...PARTY,
+    expect: { keep: false, minRows: 1, row: INTO_PARTY },
+  },
+  {
+    id: 'page-chapter-gather-yes',
+    kind: 'A page of its own',
+    page: { type: 'chapter', id: 'cParty', title: "Sam's 40th in Rome" },
+    history: [
+      { role: 'user', content: 'Aren’t there todos to put in here?' },
+      {
+        role: 'assistant',
+        content:
+          "There are two that go with it: talking to Ali about Sam's birthday, due Saturday 10 October, and looking into Rome flights if you go, due Tuesday 13 October.",
+      },
+    ],
+    text: 'Ok so do it',
+    items: PARTY_ITEMS,
+    ...PARTY,
+    expect: { keep: false, rows: 2, row: INTO_PARTY },
+  },
+  {
+    id: 'places-file-asked',
+    kind: 'Worlds and Chapters',
+    text: 'Put the Rome flights todo in the Sam’s 40th chapter',
+    items: PARTY_ITEMS,
+    ...PARTY,
+    expect: { keep: false, rows: 1, row: (c) => INTO_PARTY(c) && c.id === 'rome' },
+  },
+);

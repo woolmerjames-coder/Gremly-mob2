@@ -180,9 +180,21 @@ export async function answerChapterQuestion(env, { userId, question, said }) {
         [{ chapter_id: id, world_id: plan.start.world_id, owner_id: userId, relevance_score: 1 }],
         'chapter_id,world_id',
       );
-    // what the suggestion rested on goes into the Chapter they said yes to
-    const links = (Array.isArray(question.rests_on) ? question.rests_on : [])
+    // what the suggestion rested on goes into the Chapter they said yes to:
+    // its items, and the items the facts it rests on were read from
+    const rests = Array.isArray(question.rests_on) ? question.rests_on : [];
+    const factIds = rests.filter((r) => r?.table === 'life_facts' && r.id).map((r) => r.id);
+    const sources = factIds.length
+      ? (await d
+          .select(
+            `life_facts?user_id=eq.${userId}&id=in.(${factIds.join(',')})&source_table=in.(${Object.keys(TYPE_OF_TABLE).join(',')})&select=source_table,source_id`,
+          )
+          .catch(() => [])) || []
+      : [];
+    const items = [...rests, ...sources.map((f) => ({ table: f.source_table, id: f.source_id }))]
       .filter((r) => TYPE_OF_TABLE[r?.table] && r.id)
+      .filter((r, i, all) => all.findIndex((x) => x.table === r.table && x.id === r.id) === i);
+    const links = items
       .map((r) => ({
         drop_id: r.id,
         drop_type: TYPE_OF_TABLE[r.table],

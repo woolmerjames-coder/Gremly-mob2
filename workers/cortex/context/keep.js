@@ -21,7 +21,7 @@ import { db as dbFor } from '../../shared/db.js';
 import { helperFetch } from '../helperClient.js';
 import { isHidden, isOpen, readPlaces, worldName } from '../agent/places.js';
 
-export const KEEP_VERSION = 'keep-2026-10-08a';
+export const KEEP_VERSION = 'keep-2026-10-09a';
 
 const MOST_LINES = 40;
 const LINE_CHARS = 300;
@@ -35,7 +35,7 @@ function keepPrompt({ message, reply, page, card, worlds, chapters }) {
     ? `They are in the chat of their ${page.type === 'chapter' ? 'Chapter' : 'World'} ${page.title} (id ${page.id}), so what is kept belongs there unless it plainly belongs elsewhere.\n\n`
     : '';
   const withCard = card
-    ? 'The reply came with changes to their things on a card for them to accept.\n\n'
+    ? 'The reply came with changes to their things on a card for them to accept. What the card changes is theirs already, so only something new beyond those changes is worth keeping.\n\n'
     : '';
   return `You read a message a person sent to Gremly, their companion app, and Gremly's reply to it. Decide whether the reply gives them something new that they will want to come back to later, with enough in it to keep: a list to work through, or ideas, a plan, steps or what Gremly found out for something of theirs. Most replies are not worth keeping. A reply is not worth keeping when it talks with them, answers a quick question, asks them something, tells them about their own plans, week, things or past, or changes their things, since what is theirs is already kept.
 
