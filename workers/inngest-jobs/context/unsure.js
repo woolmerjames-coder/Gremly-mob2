@@ -215,9 +215,14 @@ export function unsurePlan({ output, refs, open = [], people = new Map(), asking
       if (saidNo.has(personId)) return drop('they said it is not so');
     }
     const cited = (Array.isArray(x.refs) ? x.refs : []).map((r) => refs.get(r)).filter(Boolean);
-    if (cited.some((r) => r.private || r.health)) return drop('rests on something private or about health');
+    // what rests on anything private or about health is dropped, except who
+    // someone is, which keeps the records that are neither when there are any
+    // (18 Oct: who a pet is was dropped for also citing a visit to the vet)
+    const marked = cited.filter((r) => r.private || r.health);
+    if (marked.length && (x.kind !== 'who' || marked.length === cited.length))
+      return drop('rests on something private or about health');
     const restsOn = [];
-    for (const r of cited)
+    for (const r of cited.filter((c) => !c.private && !c.health))
       if (tableOf(r) && r.id && !restsOn.some((y) => y.id === r.id))
         restsOn.push({ table: tableOf(r), id: r.id });
     if (!restsOn.length) return drop('rests on no record');

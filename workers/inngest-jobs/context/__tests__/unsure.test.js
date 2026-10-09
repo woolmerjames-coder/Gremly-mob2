@@ -244,6 +244,14 @@ describe('who someone is, understood from the records', () => {
     expect(no.ties).toEqual([]);
   });
 
+  it('keeps who someone is on the records that are neither private nor about health, and drops it when only those rest it', () => {
+    const marked = new Map([...refs, ['f2', { type: 'fact', id: 'f-2', health: true }]]);
+    const kept = unsurePlan({ output: { not_sure: [who({ refs: ['f1', 'f2'] })] }, refs: marked, people, today: TODAY });
+    expect(kept.inserts).toEqual([expect.objectContaining({ rests_on: [{ table: 'life_facts', id: 'f-1' }], status: 'understood' })]);
+    const only = unsurePlan({ output: { not_sure: [who({ refs: ['f2'] })] }, refs: marked, people, today: TODAY });
+    expect(only.dropped.map((d) => d.why)).toEqual(['rests on something private or about health']);
+  });
+
   it('stays understood when not given again, however long ago, and fades once they or a fact said who it is', () => {
     const open = [
       { id: 'u-rue', person_id: 'p-2', kind: 'who', status: 'understood', seen_at: '2026-01-01T00:00:00Z' },
