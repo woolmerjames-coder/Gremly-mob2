@@ -35,6 +35,7 @@ import { buildDcoV4, writeDco } from './context/daily';
 import { handleFirstWorldsApi } from './context/firstWorlds';
 import { handleChapterMemoryApi } from './context/memory';
 import { handlePersonMergeApi } from './context/personTaps';
+import { handlePersonPageApi } from './context/personPage';
 import { handleWordsFreshApi } from './context/words';
 import { sendEvents } from './notifications/planner';
 import { reviewQuestions } from './context/questions';
@@ -4572,6 +4573,11 @@ const appHandler = {
     // decided by their tap, or put back
     if (url.pathname === '/api/person-merge' && request.method === 'POST') {
       return handlePersonMergeApi(request, env, corsResponse);
+    }
+    // and the page itself: the labels on their days and the things to
+    // remember, written again when what they rest on has changed
+    if (url.pathname === '/api/person-page' && request.method === 'POST') {
+      return handlePersonPageApi(request, env, corsResponse, { mode: contextMode });
     }
 
     // Daily brief in Chat: the app's first open, or a fresh brief for a later

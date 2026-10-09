@@ -30,6 +30,8 @@ import { answerChapterQuestion, CHAPTER_QUESTION_KINDS } from './chapterAnswers'
 import { personNow } from '../../shared/day.js';
 import { FACT_TIMINGS, TIMING_RULES, validTiming } from '../../shared/factTiming.js';
 import { restingPassages, rewritePassages, glanceable, tidyDay, moveDayRefs } from './correctionPassages';
+import { loadSomeone } from './personPage';
+import { applyPersonCorrection } from './personCorrection';
 
 export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-18f';
 
@@ -395,6 +397,28 @@ export async function applyCorrection(env, correctionId, runId) {
     const seen = new Set(about.map((f) => f.id));
     facts.splice(0, facts.length, ...about, ...facts.filter((f) => !seen.has(f.id)));
   }
+  // Said on the page Gremly keeps about someone in their life (Worlds
+  // rebuild, stage 5): the facts about that someone come first, whatever
+  // their age, any new fact is tied to them, and their name and who they are
+  // are read from the words as well (personCorrection.js)
+  const onPage =
+    correction.target_kind === 'person' && /^[0-9a-f-]{36}$/i.test(correction.target_ref?.id || '')
+      ? await loadSomeone(d, userId, correction.target_ref.id, { withPage: false })
+      : null;
+  if (onPage) {
+    const ties =
+      (await d.select(
+        `life_fact_people?user_id=eq.${userId}&person_id=in.(${onPage.ids.join(',')})&select=fact_id&order=created_at.desc&limit=200`,
+      )) || [];
+    const ids = [...new Set(ties.map((t) => t.fact_id))];
+    const about = ids.length
+      ? await d.select(
+          `life_facts_now?id=in.(${ids.join(',')})&user_id=eq.${userId}&state=in.(current,planned,unconfirmed,happened)&select=id,statement,about_date,about_date_end,timing,state,private`,
+        )
+      : [];
+    const seen = new Set(about.map((f) => f.id));
+    facts.splice(0, facts.length, ...about, ...facts.filter((f) => !seen.has(f.id)));
+  }
   // An answer to one of Gremly's questions arrives as a correction about that question.
   const [question] = correction.surface === 'question' && correction.target_ref?.id && /^[0-9a-f-]{36}$/i.test(correction.target_ref.id)
     ? await d.select(`gremly_questions?id=eq.${correction.target_ref.id}&user_id=eq.${userId}&select=id,question,status,kind,proposed_change`)
@@ -455,7 +479,7 @@ export async function applyCorrection(env, correctionId, runId) {
 
   const user = `WHAT THE PERSON SAID (${correction.surface}${correction.target_kind ? `, about ${correction.target_kind}` : ''}):
 "${trim(correction.said, 1500)}"
-${question ? `\nTHIS IS THEIR ANSWER TO GREMLY'S QUESTION:\n"${trim(question.question, 400)}"\n` : ''}${thought ? `WHAT GREMLY THOUGHT BUT WAS NOT SURE OF, WHICH THE QUESTION ASKED ABOUT:\n"${trim(thought.thinks, 300)}"\n` : ''}${correction.target_ref?.text ? `\nTHE TEXT THEY MARKED AS NOT RIGHT:\n"${trim(correction.target_ref.text, 800)}"\n` : ''}${choice ? `WHAT THEY CHOSE: ${choice}\n` : ''}
+${question ? `\nTHIS IS THEIR ANSWER TO GREMLY'S QUESTION:\n"${trim(question.question, 400)}"\n` : ''}${thought ? `WHAT GREMLY THOUGHT BUT WAS NOT SURE OF, WHICH THE QUESTION ASKED ABOUT:\n"${trim(thought.thinks, 300)}"\n` : ''}${correction.target_ref?.text ? `\nTHE TEXT THEY MARKED AS NOT RIGHT:\n"${trim(correction.target_ref.text, 800)}"\n` : ''}${choice ? `WHAT THEY CHOSE: ${choice}\n` : ''}${onPage ? `THEY SAID IT ON THE PAGE GREMLY KEEPS ABOUT SOMEONE IN THEIR LIFE: ${trim(onPage.someone.name || '(no name given yet)', 60)}${onPage.someone.relationship ? `, their ${trim(onPage.someone.relationship, 60)}` : ''}\n` : ''}
 ${conversation ? `CONVERSATION AROUND IT:\n${conversation}\n` : ''}
 LEDGER FACTS (ref | state | date, or its day each year | statement):
 ${factLines.join('\n') || '(none)'}
@@ -612,6 +636,31 @@ ${anchorLines.join('\n') || '(none)'}${understoodLines.length ? `\n\nWHO GREMLY 
     await d.insertQuiet('life_facts', newFactRows);
     result.facts_added = newFactRows.length;
   }
+  // on someone's page: what they said there is about that someone, and so is
+  // anything it adds; their name and who they are, as their words give them
+  if (onPage) {
+    if (newFactRows.length)
+      await d.insertIgnore(
+        'life_fact_people',
+        newFactRows.map((f) => ({ fact_id: f.id, person_id: onPage.someone.id, user_id: userId, run_id: runId })),
+        'fact_id,person_id',
+      );
+    // as the record stands now, after any clearing above
+    const [now] =
+      (await d.select(`life_people?id=eq.${onPage.someone.id}&user_id=eq.${userId}&select=id,name,relationship,relationship_by`)) || [];
+    const names = (await d.select(`life_person_names?user_id=eq.${userId}&person_id=eq.${onPage.someone.id}&select=name`)) || [];
+    result.person = now
+      ? await applyPersonCorrection(env, d, {
+          userId,
+          someone: now,
+          names: names.map((n) => n.name),
+          said: correction.said,
+          marked: correction.target_ref?.text || null,
+          person,
+          nowIso,
+        })
+      : { changed: false, gone: true };
+  }
 
   // The sentences resting on what changed, each sent back to its own writer
   // with the records it rests on as they now stand (correctionPassages.js).
@@ -629,6 +678,8 @@ ${anchorLines.join('\n') || '(none)'}${understoodLines.length ? `\n\nWHO GREMLY 
       : []),
     // someone Gremly understood wrongly is part of what changed
     ...unheld,
+    // and so is someone whose name or who they are, they just put right
+    ...(result.person?.changed ? [onPage.someone.id] : []),
   ];
   const resting = await restingPassages(d, userId, { changedIds, privateIds, personIds });
   // the lines they said are not so, or show what they keep private, sent
