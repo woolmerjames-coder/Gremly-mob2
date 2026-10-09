@@ -7,11 +7,14 @@
  * promised to. Space chat still reads the block.
  */
 import {
+  APP_NOW,
+  MODE_TEMPLATES,
   assembleGenerationConfig,
   buildGeneralChatConfig,
   chatAgentPersona,
   chatTurnGuidance,
 } from '../gremlyPersona.js';
+import { HABIT_BUILDER_PROMPT } from '../habitBuilderPrompt.js';
 import { JUST_HAPPENED_RULE } from '../../shared/lifePack.js';
 import { SOURCE_RULES, SOURCE_RULES_AGENT, PRIVATE_RULES } from '../../inngest-jobs/careRules.js';
 
@@ -70,7 +73,11 @@ test('every chat, and the agent, is given the private rules every writer about t
   const general = buildGeneralChatConfig(triage, { runningSummary: '' }, null, '', '', 'UTC');
   expect(general.systemPrompt).toContain(PRIVATE_RULES);
   for (const chatType of ['entity', 'space', 'world', 'chapter']) {
-    const { systemPrompt } = assembleGenerationConfig({ triage, chatType, currentDate: 'Wednesday' });
+    const { systemPrompt } = assembleGenerationConfig({
+      triage,
+      chatType,
+      currentDate: 'Wednesday',
+    });
     expect(systemPrompt).toContain(PRIVATE_RULES);
   }
   expect(chatAgentPersona()).toContain(PRIVATE_RULES);
@@ -110,4 +117,27 @@ test('what the agent is told of triage has no dashes, and nothing for a message 
   }
   expect(chatTurnGuidance({ mode: 'action_ready', personal: 'none' })).toBe('');
   expect(chatTurnGuidance(null)).toBe('');
+});
+
+test('how the app works is told as it is now, once, to every writer in Ask Gremly', () => {
+  // Spaces, the Sweep and Guides and Logs are gone (Stage 4f of the Worlds rebuild)
+  const gone = /\bSpaces?\b(?! are gone)|\bsweep\b|guides? (&|and) logs/i;
+  expect(MODE_TEMPLATES.app_help).toContain(APP_NOW);
+  expect(MODE_TEMPLATES.app_help.replace('Spaces are gone', '')).not.toMatch(gone);
+  expect(APP_NOW).not.toMatch(/\s[-–—]\s|—/);
+  const count = (s) => s.split(APP_NOW).length - 1;
+  for (const mode of ['app_help', 'quick_ask', 'chit_chat']) {
+    const { systemPrompt } = buildGeneralChatConfig(
+      { ...triage, mode },
+      { runningSummary: '' },
+      null,
+      '',
+      '',
+      'UTC',
+    );
+    expect(count(systemPrompt)).toBe(1);
+    expect(systemPrompt).not.toContain('not scoped to any Space');
+  }
+  expect(count(chatAgentPersona())).toBe(1);
+  expect(HABIT_BUILDER_PROMPT).not.toMatch(/\bSpaces?\b/);
 });

@@ -4118,7 +4118,6 @@ When you have enough to propose something concrete, propose it. When the convers
 === CONTEXT AWARENESS ===
 You receive context about the user's existing habits, life situation, and capacity. Use it naturally — don't dump all context at once, weave it in where relevant:
 - If they have many daily habits, lean toward suggesting weekly or 2-3x/week for the new one.
-- If they have a Space that matches the habit domain, mention it as a natural home for the habit.
 - If their life context is relevant (major transition, busy period, etc.), factor it into your suggestions.
 - If they have a habit that conflicts with or complements what they're building, reference it.
 
@@ -4343,18 +4342,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
             .map((h) => {
               let desc = `- "${h.name}" (${h.subtype === 'break_habit' ? 'break' : 'build'})`;
               if (h.frequency) desc += ` — ${h.frequency}`;
-              if (h.space_name) desc += ` [${h.space_name}]`;
               return desc;
             })
             .join('\n');
           contextParts.push(`\n=== EXISTING HABITS ===\n${habitList}`);
         } else {
           contextParts.push('\n=== EXISTING HABITS ===\nNone yet — this is their first habit.');
-        }
-
-        if (context.spaces && context.spaces.length > 0) {
-          const spaceList = context.spaces.map((s) => `- "${s.name}"`).join('\n');
-          contextParts.push(`\n=== USER'S SPACES ===\n${spaceList}`);
         }
 
         if (context.prefill) {
@@ -4853,7 +4846,6 @@ After the user confirms and locks in a habit, check the existing habits listed i
         if (entity.frequency) entityContextParts.push(`Frequency: ${entity.frequency}`);
         if (entity.time_estimate)
           entityContextParts.push(`Time estimate: ${entity.time_estimate} minutes`);
-        if (entity.space_name) entityContextParts.push(`Space: ${entity.space_name}`);
         if (entity.days_since_created !== undefined)
           entityContextParts.push(`Created: ${entity.days_since_created} days ago`);
         if (entity.times_swept)

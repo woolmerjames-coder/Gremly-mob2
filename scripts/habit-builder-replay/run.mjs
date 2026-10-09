@@ -2,7 +2,8 @@
  * The habit builder's replay (workers/cortex/habitBuilderPrompt.js): habits
  * that overlap something Gremly already has, where the builder points the
  * person at it. It must name what the app has now, where it really is: the
- * evening wrap up is in Chat, and Lock In and the Sweep banner are gone.
+ * evening wrap up is in Chat, Worlds took the place of Spaces, and Lock In
+ * and the Sweep banner are gone.
  *
  *   scripts/habit-builder-replay/run.sh [--only id,id] [--repeat n]
  *
@@ -35,6 +36,8 @@ const CONTEXT = `\n\n=== SESSION CONTEXT ===\nExisting habits: none yet.\nUSER P
 const GONE = /evening sweep|sweep banner|organi[sz]e button|daily planner|mind drop tab|chat tab/i;
 // Lock In as the feature's name (locking in a habit they are shaping is fine)
 const LOCK_IN = /\bLock[- ]In\b|\block[- ]ins?\b(?= (are|is|for|as) )/;
+// Spaces as a feature they have (space as an everyday word is fine)
+const SPACES = /\bSpaces\b|\b(your|a|the|its own) Space\b/;
 
 const SCENARIOS = [
   {
@@ -75,6 +78,26 @@ const SCENARIOS = [
       { role: 'user', content: "My partner's been on at me and honestly I'm sick of feeling like I need it. Mostly I vape in the evenings after work" },
     ],
   },
+  {
+    id: 'running-area',
+    look: 'A habit in an area of life they are building up: its World on the Worlds tab, never a Space.',
+    messages: [
+      { role: 'user', content: 'I want to get serious about my running this year' },
+      { role: 'assistant', content: 'Love it. What does serious look like for you?' },
+      { role: 'user', content: 'Training properly for a 10k in the spring, and keeping all my running stuff together in one place' },
+    ],
+    mentions: /World|Chapter/,
+  },
+  {
+    id: 'allotment-project',
+    look: 'A habit toward something with an end: a Chapter in its World, never a Space.',
+    messages: [
+      { role: 'user', content: 'I want to spend a bit of time on my allotment every weekend' },
+      { role: 'assistant', content: "Nice. What's got you wanting to go back to it?" },
+      { role: 'user', content: "I took it on last year and it's got away from me. I want it in shape before summer and to keep track of what needs doing" },
+    ],
+    mentions: /World|Chapter/,
+  },
 ];
 
 async function runOne(s) {
@@ -91,6 +114,7 @@ async function runOne(s) {
     const checks = [
       { name: 'Names nothing the app no longer has', ok: !GONE.test(reply), detail: (reply.match(GONE) || [])[0] || '' },
       { name: 'Never names Lock In', ok: !LOCK_IN.test(reply), detail: (reply.match(LOCK_IN) || [])[0] || '' },
+      { name: 'Never names Spaces', ok: !SPACES.test(reply), detail: (reply.match(SPACES) || [])[0] || '' },
     ];
     const warns = s.mentions ? [{ name: `Mentions ${s.mentions}`, ok: s.mentions.test(reply) }] : [];
     return { id: s.id, ok: checks.every((c) => c.ok), ms: Date.now() - started, checks, warns, reply };
