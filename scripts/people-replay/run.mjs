@@ -9,8 +9,10 @@
  *
  * The records hold a Sam at lunch, a Sam H, "my brother", "my brother Sam", a
  * Sam at work, a nickname and the full name, a sister whose surname changes on
- * marriage, her husband, and a misspelt name. It passes when the two Sams are
- * never one record, the brother is Sam only once the person has said so, who
+ * marriage, her husband, a misspelt name, and a husband spoken of by who he is,
+ * then by his name alone, twice (18 Oct). It passes when the two Sams are
+ * never one record, the husband's three mentions are one record, the brother
+ * is Sam only once the person has said so, who
  * someone is comes only from a record that states it and never refers to the
  * person, and nothing is ever merged. Each plan goes through the check on who
  * someone is before it is kept, as the reader does (data fabric stage 4c),
@@ -64,6 +66,10 @@ const RECORDS = [
   { key: 'sister-husband', states: true, r: journal('2026-10-05T05:00:00Z', 'My sister and her husband Tom are staying with us this weekend to plan the wedding.') },
   { key: 'priya', states: true, r: said('2026-10-05T17:00:00Z', 'Priya from yoga lent me a mat, I need to give it back on Thursday.') },
   { key: 'pryia', states: false, r: said('2026-10-07T17:00:00Z', 'Pryia says the Thursday class is moving to six.') },
+  // one person spoken of three ways: by who he is, then by name alone (18 Oct)
+  { key: 'husband', states: true, r: journal('2026-10-08T05:00:00Z', 'My husband Theo cooked tonight, the best risotto in ages.') },
+  { key: 'theo-birthday', states: false, r: said('2026-10-08T18:00:00Z', "Theo's birthday is 27 April, remind me to plan something.") },
+  { key: 'theo-tennis', states: false, r: journal('2026-10-09T05:00:00Z', 'Played tennis with Theo after work, lost again.') },
 ];
 
 let ids = 0;
@@ -168,6 +174,14 @@ function check(run) {
     { name: 'the brother is Sam only once the person has said so', ok: tooSoon.length === 0 && brotherNamed, detail: `${tooSoon.length} too soon, named after: ${brotherNamed}` },
     { name: 'who someone is comes only from a record that states it', ok: unstated.length === 0, detail: unstated.map((p) => `${p.name || '?'} as ${p.relationship} from ${recordOfFact(store, p.relationship_fact_id)}`).join('; ') || 'all stated' },
     { name: 'who someone is never refers to the person', ok: ownName.length === 0, detail: ownName.map((p) => p.relationship).join('; ') || 'none' },
+    {
+      name: 'one person named three ways is one record',
+      ok: (() => {
+        const [h, b, t] = ['husband', 'theo-birthday', 'theo-tennis'].map((k) => peopleOf(store, k));
+        return h.size > 0 && [...h].some((id) => b.has(id) && t.has(id));
+      })(),
+      detail: ['husband', 'theo-birthday', 'theo-tennis'].map((k) => `${k} ${[...peopleOf(store, k)].join('+') || 'none'}`).join(', '),
+    },
     { name: 'nothing is merged, only proposed', ok: store.merges.every((m) => m.status === 'proposed'), detail: `${store.merges.length} proposed` },
     { name: 'most records tie their facts to someone', ok: tiedSomewhere >= RECORDS.length - 2, detail: `${tiedSomewhere} of ${RECORDS.length}` },
     {

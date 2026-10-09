@@ -24,14 +24,14 @@ import { db, userTimezone, personIdentity } from './db';
 import { jsonCall, modelFor } from './llm';
 import { refreshLifeMapStory } from './story';
 import { invalidateChatCache } from './cache';
-import { peopleAfterCorrection } from './people';
+import { peopleAfterCorrection, undoMerge } from './people';
 import { answerPersonQuestion, settleGuess } from './peopleQuestions';
 import { answerChapterQuestion, CHAPTER_QUESTION_KINDS } from './chapterAnswers';
 import { personNow } from '../../shared/day.js';
 import { FACT_TIMINGS, TIMING_RULES, validTiming } from '../../shared/factTiming.js';
 import { restingPassages, rewritePassages, glanceable, tidyDay, moveDayRefs } from './correctionPassages';
 
-export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-18e';
+export const CORRECTION_PROMPT_VERSION = 'correction-2026-10-18f';
 
 const CORRECTION_SCHEMA = {
   type: 'object',
@@ -91,10 +91,12 @@ const CORRECTION_SCHEMA = {
     line_refs: { type: 'array', items: { type: 'string' } },
     // who Gremly understood someone to be, without being told, that they say is not so
     understood_wrong: { type: 'array', items: { type: 'string' } },
+    // two records Gremly joined as one person, without being told, that they say are two (peopleJoin.js)
+    joined_wrong: { type: 'array', items: { type: 'string' } },
     // whether their answer says what Gremly thought is so (context/unsure.js)
     guess_holds: { type: 'string', enum: ['yes', 'no', 'unsure'], nullable: true },
   },
-  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'set_aside_facts', 'new_facts', 'retire_anchor_refs', 'line_refs', 'understood_wrong', 'guess_holds'],
+  required: ['understood', 'answers_question', 'corrected_facts', 'changed_facts', 'happened_facts', 'private_fact_refs', 'set_aside_facts', 'new_facts', 'retire_anchor_refs', 'line_refs', 'understood_wrong', 'joined_wrong', 'guess_holds'],
 };
 
 /**
@@ -127,6 +129,7 @@ WHAT TO DO
 - When the question asked about something Gremly thought but was not sure of, say in guess_holds whether their answer says it is so: yes, no, or unsure when it does not say. When it is so, record it as a new fact, as their answer and the question together say it, in their words wherever they gave any, unless the ledger already holds it. Otherwise guess_holds is null.
 - When they ask Gremly to delete something, forget it or stop holding it, set aside every fact it concerns: Gremly stops holding them, and never takes them up again. Nothing about them was wrong, so mark nothing corrected for it. Saying how much something matters to them is never that ask.
 - When what they say shows that who Gremly understood someone to be, without being told, is not so, give its ref in understood_wrong. When they also say who that person is, record it as a new fact.
+- When what they say shows that people Gremly joined as one person, without being told, are two different people, give its ref in joined_wrong.
 - When they ask for something to be kept private, mark the facts it concerns as private. Private things stay off notifications, headlines and card lines, and appear only where the person opens things on purpose, in their own words. Nothing about it was wrong, so mark nothing corrected for it.
 - If they stated what is true, record it as a new fact in their words, with the day it is about whenever it has one: for something that comes round every year, the date of one of its days; for a stretch of time, its first day, and its last day in about_date_end. When the ledger already holds what they say, as they say it, add nothing beside it.
 - Give each new fact its state as of today: planned when it is still ahead, current when it holds now or is under way today, and happened when it has happened.
@@ -425,6 +428,25 @@ export async function applyCorrection(env, correctionId, runId) {
     )) || [];
   const understoodRefs = new Map(understoodRows.map((p, i) => [`u${i + 1}`, p]));
   const understoodLines = [...understoodRefs].map(([ref, p]) => `${ref} | ${trim(p.name, 60)} | ${trim(p.relationship, 60)}`);
+  // people Gremly joined as one from the records, never told (peopleJoin.js)
+  const joinRows = ((await d.select(
+    `person_merges?user_id=eq.${userId}&status=eq.merged&select=id,kept_id,merged_id,moved&order=decided_at.desc&limit=40`,
+  )) || []).filter((m) => m.moved?.by === 'understood');
+  const joinPeople = joinRows.length
+    ? new Map(
+        ((await d.select(
+          `life_people?user_id=eq.${userId}&id=in.(${[...new Set(joinRows.flatMap((m) => [m.kept_id, m.merged_id]))].join(',')})&select=id,name,relationship`,
+        )) || []).map((p) => [p.id, p]),
+      )
+    : new Map();
+  const joinRefs = new Map(joinRows.map((m, i) => [`j${i + 1}`, m]));
+  const joinLines = [...joinRefs].map(([ref, m]) => {
+    const who = (id) => {
+      const p = joinPeople.get(id);
+      return p ? `${trim(p.name || '(no name)', 60)}${p.relationship ? `, ${trim(p.relationship, 60)}` : ''}` : '(gone)';
+    };
+    return `${ref} | ${who(m.kept_id)} and ${who(m.merged_id)} | ${trim(m.moved?.why, 200)}`;
+  });
   const { anchorRefs, anchorLines, profile, dcoRows, storyItems } = await loadAround(env, userId, today);
   const person = await personIdentity(env, userId);
   // what they said about lines Gremly showed them reaches those lines even
@@ -439,7 +461,7 @@ LEDGER FACTS (ref | state | date, or its day each year | statement):
 ${factLines.join('\n') || '(none)'}
 
 LIVE DATE ANCHORS (ref | date | title):
-${anchorLines.join('\n') || '(none)'}${understoodLines.length ? `\n\nWHO GREMLY UNDERSTOOD SOMEONE TO BE FROM THE RECORDS, WITHOUT BEING TOLD (ref | name | who):\n${understoodLines.join('\n')}` : ''}${shown.length ? `\n\nTHE LINES GREMLY SHOWED THEM THAT THIS MAY BE ABOUT (ref | where | how it is seen | line):\n${shown.map((l) => `${l.ref} | ${l.where} | ${l.glance ? 'seen at a glance' : 'seen when they open it'} | ${trim(l.text, 300)}`).join('\n')}` : ''}`;
+${anchorLines.join('\n') || '(none)'}${understoodLines.length ? `\n\nWHO GREMLY UNDERSTOOD SOMEONE TO BE FROM THE RECORDS, WITHOUT BEING TOLD (ref | name | who):\n${understoodLines.join('\n')}` : ''}${joinLines.length ? `\n\nPEOPLE GREMLY JOINED AS ONE FROM THE RECORDS, WITHOUT BEING TOLD (ref | the records joined | why):\n${joinLines.join('\n')}` : ''}${shown.length ? `\n\nTHE LINES GREMLY SHOWED THEM THAT THIS MAY BE ABOUT (ref | where | how it is seen | line):\n${shown.map((l) => `${l.ref} | ${l.where} | ${l.glance ? 'seen at a glance' : 'seen when they open it'} | ${trim(l.text, 300)}`).join('\n')}` : ''}`;
 
   const { output, model } = await jsonCall(env, {
     primary: modelFor(env, 'rewrite'),
@@ -499,6 +521,15 @@ ${anchorLines.join('\n') || '(none)'}${understoodLines.length ? `\n\nWHO GREMLY 
     unheld.push(p.id);
   }
   result.understood_put_right = unheld.length;
+  // people Gremly joined as one, which they say are two: apart again, as they were
+  let unjoined = 0;
+  for (const ref of [...new Set(output.joined_wrong || [])]) {
+    const m = joinRefs.get(ref);
+    if (!m) continue;
+    const r = await undoMerge(d, userId, m.id);
+    if (r.undone) unjoined += 1;
+  }
+  result.joins_undone = unjoined;
 
   // Changed: the old version stays in their history as what was planned.
   const changedFacts = [];

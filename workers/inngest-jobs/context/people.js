@@ -20,7 +20,7 @@ import { db } from './db';
 import { jsonCall, modelFor } from './llm';
 import { personBlock, CARE_RULES } from '../careRules';
 
-export const PEOPLE_PROMPT_VERSION = 'people-2026-10-08m';
+export const PEOPLE_PROMPT_VERSION = 'people-2026-10-18n';
 
 /** Known people shown to a prompt at most. */
 const MAX_KNOWN = 150;
@@ -31,7 +31,8 @@ export const PEOPLE_RULES = `PEOPLE
 - Give someone not yet known a new_ref of your own making, starting with n, the same for every mention of that one person in what you are shown and different for anyone else.
 - Each entry is one human being in their life. Several people spoken of together are never one entry: list each one the record names, and nothing for those it does not.
 - A name is what someone is called. Who they are to the person, or a group they belong to, is never a name.
-- Use a known person's ref only when the record makes clear it is that person. When you are unsure which known person someone is, or whether they are one, give them once as someone not yet known, with maybe_ref, and give no known ref for them.
+- Someone the record calls by a name a known person is called is that known person, unless something in the record sets them apart: a different tie to the person, a part of their life that known person has no place in, or both spoken of at once as two. Someone the record calls by who they are to the person is the known person with that tie. Give that known person's ref.
+- When more than one known person could be meant, give the ref of the one the record plainly fits. When none plainly fits, or something sets them apart from every known person it could be, give them once as someone not yet known, with maybe_ref when one of them may still be meant, and give no known ref for them.
 - Give who someone is only when the person states it in this record, in their own words. Give it from the person's side, as who they are to the person, in words that name only that relationship. When the record says only who they are to someone else, give that instead, naming that someone as the person would. Never infer it from a name, an activity, an occasion, their being with the person, or anything else.
 - Who someone is is shown to the person, so no part of it ever refers to the person, by name or in any other way.
 - When the record gives a known person a name the list does not have for them, give that name with their ref.

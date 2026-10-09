@@ -22,6 +22,7 @@
  *   scripts/shadow/run.sh up-next --user <uuid>
  *   scripts/shadow/run.sh people-check --user <uuid> [--limit n]
  *   scripts/shadow/run.sh person-question --user <uuid> [--even-if-waiting]
+ *   scripts/shadow/run.sh people-join --user <uuid>
  *   scripts/shadow/run.sh not-sure --user <uuid> --week-end YYYY-MM-DD --replies <file> [--at ISO]
  *   scripts/shadow/run.sh chapter-questions --user <uuid>
  *   scripts/shadow/run.sh ask --user <uuid> --day YYYY-MM-DD [--at HH:MM] [--sizes compact,full]
@@ -92,6 +93,7 @@ import * as stage5Summary from '../../workers/inngest-jobs/summaryFromPass';
 import * as stage5Writer from '../../workers/inngest-jobs/summaryPlanWriter';
 import * as stage6People from '../../workers/inngest-jobs/context/personWords.js';
 import * as lifeMapMod from '../../workers/inngest-jobs/context/lifeMap.js';
+import * as peopleJoinMod from '../../workers/inngest-jobs/context/peopleJoin.js';
 // a namespace import, so a tree without what Gremly is not sure of still bundles
 import * as unsureMod from '../../workers/inngest-jobs/context/unsure.js';
 
@@ -905,6 +907,19 @@ const JOBS = {
           choices: r.choices,
         })),
       }),
+    };
+  },
+
+  // Two records of one person joined when the records make it plain (18 Oct):
+  // what the join step would say of each proposed pair, writing nothing
+  async 'people-join'() {
+    const userId = flag('--user');
+    if (!userId) fail('people-join needs --user');
+    return {
+      at: flag('--at') || new Date().toISOString(),
+      userId,
+      run: () => peopleJoinMod.settleProposedJoins(env, userId, { dryRun: true }),
+      summarise: (out) => ({ pairs: out?.pairs, model: out?.model, verdicts: out?.verdicts }),
     };
   },
 

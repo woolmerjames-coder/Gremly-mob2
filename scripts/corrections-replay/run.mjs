@@ -260,6 +260,34 @@ function scenarios() {
       judge: 'that Bo is her brother',
     },
     {
+      id: 'joined-wrong',
+      look: 'Gremly joined two records of Kit as one person without being told, and she says they are two: they are apart again.',
+      said: 'The Kit I climb with and Kit from the office are two different people.',
+      facts: [fact('kit-climb', 'Noor went climbing with Kit on 3 October.', { state: 'happened', about_date: '2026-10-03' }), fact('kit-work', 'Noor and Kit presented the Hartley pitch on 6 October.', { state: 'happened', about_date: '2026-10-06' }), book()],
+      people: [
+        { key: 'kit', name: 'Kit', relationship: null, facts: ['kit-climb', 'kit-work'] },
+        { key: 'kit2', name: 'Kit', relationship: null, facts: [], mergedInto: 'kit' },
+      ],
+      joins: [{ kept: 'kit', merged: 'kit2', moved: ['kit-work'] }],
+      sentences: [{ at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' }],
+      put: {},
+      joined: { apart: [['kit', 'kit2']] },
+    },
+    {
+      id: 'joined-kept',
+      look: 'Something else about Kit is put right: the two records Gremly joined stay one.',
+      said: 'The climbing with Kit was on the 4th, not the 3rd.',
+      facts: [fact('kit-climb', 'Noor went climbing with Kit on 3 October.', { state: 'happened', about_date: '2026-10-03' }), fact('kit-gym', 'Noor met Kit at the climbing gym on 7 October.', { state: 'happened', about_date: '2026-10-07' }), book()],
+      people: [
+        { key: 'kit', name: 'Kit', relationship: null, facts: ['kit-climb', 'kit-gym'] },
+        { key: 'kit2', name: 'Kit', relationship: null, facts: [], mergedInto: 'kit' },
+      ],
+      joins: [{ kept: 'kit', merged: 'kit2', moved: ['kit-gym'] }],
+      sentences: [{ at: 'thread', text: 'Reading again, with a long novel finished in September.', facts: ['book'], expect: 'same' }],
+      put: { 'kit-climb': ['corrected', 'changed'] },
+      joined: { one: [['kit', 'kit2']] },
+    },
+    {
       id: 'understood-kept',
       look: 'Something else about Bo is put right: who Gremly understood him to be is kept.',
       said: 'The dinner with Bo was on the 5th, not the 4th.',
@@ -408,9 +436,21 @@ function build(s) {
       // understood: who Gremly understood them to be from the records, never told (context/unsure.js)
       relationship_by: p.by || 'gremly',
       relationship_fact_id: factId.get(p.fact) || null,
-      merged_into: null,
+      merged_into: p.mergedInto ? personId.get(p.mergedInto) : null,
       hidden_at: null,
     })),
+    // two records Gremly joined as one without being told (context/peopleJoin.js)
+    person_merges: (s.joins || []).map((j) => ({
+      id: uuid(),
+      user_id: USER,
+      kept_id: personId.get(j.kept),
+      merged_id: personId.get(j.merged),
+      status: 'merged',
+      reason: 'proposed by the reader',
+      moved: { names: [], facts: j.moved.map((k) => factId.get(k)), kept_patch: {}, kept_before: {}, by: 'understood', why: 'Both records name Kit, and nothing in them sets them apart.' },
+      decided_at: '2026-10-08T00:00:00Z',
+    })),
+    life_person_names: people.filter((p) => p.name).map((p) => ({ person_id: p.id, user_id: USER, name: p.name, fact_id: null, by: 'gremly' })),
     life_fact_people: people.flatMap((p) => (p.facts || []).map((k) => ({ user_id: USER, fact_id: factId.get(k), person_id: p.id }))),
     passage_refs: refs.map((r, i) => ({ id: i + 1, ...r })),
     user_daily_state: [{ id: dayId, user_id: USER, date: TODAY, dco }],
@@ -535,6 +575,11 @@ async function runOne(s, i) {
     checks.push({ name: `who Gremly understood ${k} to be is put right`, ok: !personNow(k)?.relationship && current.mem.tables.life_unsure.some((u) => u.person_id === personId.get(k) && u.status === 'said_no'), detail: `${personNow(k)?.relationship} (${personNow(k)?.relationship_by})` });
   for (const k of s.understood?.kept || [])
     checks.push({ name: `who Gremly understood ${k} to be is kept`, ok: personNow(k)?.relationship_by === 'understood' && !!personNow(k)?.relationship, detail: `${personNow(k)?.relationship} (${personNow(k)?.relationship_by})` });
+  // two records Gremly joined: apart again when they say they are two, one otherwise
+  for (const [a, b] of s.joined?.apart || [])
+    checks.push({ name: `${a} and ${b} are apart again`, ok: !personNow(b)?.merged_into && current.mem.tables.person_merges.some((m) => m.status === 'undone'), detail: `${personNow(b)?.merged_into ? 'still joined' : 'apart'}` });
+  for (const [a, b] of s.joined?.one || [])
+    checks.push({ name: `${a} and ${b} stay one`, ok: personNow(b)?.merged_into === personId.get(a), detail: `${personNow(b)?.merged_into ? 'one' : 'apart'}` });
   const moved = [];
   where.forEach((w, j) => {
     const changed = after[j] !== before[j];

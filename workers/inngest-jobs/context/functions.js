@@ -45,6 +45,7 @@ import { writePersonWords } from './personWords';
 import { writeMemory, chaptersWantingMemory } from './memory';
 import { makeFirstWorlds, firstWorldsEvents, filedTotals } from './firstWorlds';
 import { writeQuestionSet } from './peopleQuestions';
+import { settleProposedJoins } from './peopleJoin';
 import { reviewLedger } from './review';
 import { chapterQuestionsForDay, chapterQuestionEvents } from './chapterQuestions';
 import { chapterQuestionsOn } from '../../shared/questionRules.js';
@@ -796,7 +797,8 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
   // ── People: the weekly check and the week's questions (data fabric 4c) ──
   // In the weekly pipe after the words and the memories: who someone is, and
   // names, made before the check existed are checked against the person's
-  // words, once each; then this week's set of questions about the people in
+  // words, once each; two records the records make plainly one person are
+  // joined (undoable); then this week's set of questions about the people in
   // their life and what Gremly is not sure of may be written, when any is
   // worth asking and no set is waiting (context/peopleQuestions.js).
   const people = inngest.createFunction(
@@ -826,10 +828,22 @@ export function createContextFunctions(inngest, { backfill = null } = {}) {
           return { error: String(err?.message || err).slice(0, 200) };
         }
       });
+      // two records of one person are joined when the records make it plain;
+      // what is unclear stays proposed and is asked in the set (peopleJoin.js)
+      const joined = await step.run('join', async () => {
+        try {
+          return await settleProposedJoins(env, userId, { dryRun: shadow });
+        } catch (err) {
+          console.warn(
+            `[ALERT][People] the proposed joins of ${userId} could not be settled, left to be asked: ${err?.message || err}`,
+          );
+          return { error: String(err?.message || err).slice(0, 200) };
+        }
+      });
       const asked = await step.run('ask', () =>
         writeQuestionSet(env, userId, { dryRun: shadow }),
       );
-      return { user_id: userId, checked, asked };
+      return { user_id: userId, checked, joined, asked };
     },
   );
 

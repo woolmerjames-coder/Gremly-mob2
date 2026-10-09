@@ -10,6 +10,7 @@ import { writeMemory, chaptersWantingMemory } from '../memory.js';
 import { makeFirstWorlds } from '../firstWorlds.js';
 import { recheckPeople } from '../people.js';
 import { writeQuestionSet } from '../peopleQuestions.js';
+import { settleProposedJoins } from '../peopleJoin.js';
 
 jest.mock('../words.js', () => ({ writeWords: jest.fn() }));
 jest.mock('../memory.js', () => ({ writeMemory: jest.fn(), chaptersWantingMemory: jest.fn() }));
@@ -18,6 +19,7 @@ jest.mock('../people.js', () => ({
   recheckPeople: jest.fn(),
 }));
 jest.mock('../peopleQuestions.js', () => ({ writeQuestionSet: jest.fn() }));
+jest.mock('../peopleJoin.js', () => ({ settleProposedJoins: jest.fn() }));
 jest.mock('../db.js', () => ({
   ...jest.requireActual('../db.js'),
   personIdentity: async () => ({ first_name: 'Robin' }),
@@ -233,10 +235,12 @@ describe('the weekly people step', () => {
   beforeEach(() => {
     recheckPeople.mockReset();
     writeQuestionSet.mockReset();
+    settleProposedJoins.mockReset();
   });
 
-  it('checks the records, then may ask this week\'s set, live', async () => {
+  it('checks the records, joins what is plainly one person, then may ask this week\'s set, live', async () => {
     recheckPeople.mockResolvedValue({ checked: 4, who_cleared: 1 });
+    settleProposedJoins.mockResolvedValue({ pairs: 2, joined: 1 });
     writeQuestionSet.mockResolvedValue({ written: true });
     const { byId } = functions({});
     const s = step();
@@ -245,10 +249,11 @@ describe('the weekly people step', () => {
       step: s,
       env: ON,
     });
-    expect(s.order).toEqual(['run:check', 'run:ask']);
+    expect(s.order).toEqual(['run:check', 'run:join', 'run:ask']);
+    expect(settleProposedJoins).toHaveBeenCalledWith(ON, U, { dryRun: false });
     expect(recheckPeople).toHaveBeenCalledWith(ON, U, expect.objectContaining({ shadow: false }));
     expect(writeQuestionSet).toHaveBeenCalledWith(ON, U, { dryRun: false });
-    expect(out).toMatchObject({ checked: { checked: 4 }, asked: { written: true } });
+    expect(out).toMatchObject({ checked: { checked: 4 }, joined: { joined: 1 }, asked: { written: true } });
   });
 
   it('writes nothing for someone not live, and still asks when the check fails, saying so', async () => {
@@ -263,6 +268,7 @@ describe('the weekly people step', () => {
       env,
     });
     expect(writeQuestionSet).toHaveBeenCalledWith(env, U, { dryRun: true });
+    expect(settleProposedJoins).toHaveBeenCalledWith(env, U, { dryRun: true });
     expect(out.checked).toEqual({ error: 'down' });
     expect(warn.mock.calls[0][0]).toMatch(/\[ALERT\]\[People\]/);
     warn.mockRestore();
