@@ -489,13 +489,13 @@ describe('restoreItem', () => {
   });
 
   // =========================================================================
-  // Integration with listBySpace (verifies restored items are visible)
+  // Integration with search (verifies restored items are visible)
   // =========================================================================
 
   describe('integration with queries', () => {
     const testSpaceId = 'space-restore-test';
 
-    it('restored todo appears in listBySpace', async () => {
+    it('restored todo appears in search again', async () => {
       // Create todo in space
       const todo = await repo.create({
         type: 'todo',
@@ -506,19 +506,19 @@ describe('restoreItem', () => {
       // Archive it
       await archiveTodo(todo.id);
 
-      // Should NOT appear in listBySpace
-      let results = await repo.listBySpace(testSpaceId);
+      // Should NOT appear in search results
+      let results = await repo.search('Space todo');
       expect(results.find((r) => r.id === todo.id)).toBeUndefined();
 
       // Restore it
       await repo.restoreItem(todo.id, 'todo');
 
-      // Should NOW appear in listBySpace
-      results = await repo.listBySpace(testSpaceId);
+      // Should NOW appear in search results
+      results = await repo.search('Space todo');
       expect(results.find((r) => r.id === todo.id)).toBeDefined();
     });
 
-    it('restored habit appears in listBySpace', async () => {
+    it('restored habit appears in search again', async () => {
       // Create habit in space
       const habit = await repo.create({
         type: 'habit',
@@ -531,19 +531,19 @@ describe('restoreItem', () => {
       // Archive it
       await archiveHabit(habit.id);
 
-      // Should NOT appear in listBySpace
-      let results = await repo.listBySpace(testSpaceId);
+      // Should NOT appear in search results
+      let results = await repo.search('Space habit');
       expect(results.find((r) => r.id === habit.id)).toBeUndefined();
 
       // Restore it
       await repo.restoreItem(habit.id, 'habit');
 
-      // Should NOW appear in listBySpace
-      results = await repo.listBySpace(testSpaceId);
+      // Should NOW appear in search results
+      results = await repo.search('Space habit');
       expect(results.find((r) => r.id === habit.id)).toBeDefined();
     });
 
-    it('restored note appears in listBySpace', async () => {
+    it('restored note appears in search again', async () => {
       // Create note in space
       const note = await repo.create({
         type: 'note',
@@ -555,15 +555,15 @@ describe('restoreItem', () => {
       // Archive it
       await archiveNote(note.id);
 
-      // Should NOT appear in listBySpace
-      let results = await repo.listBySpace(testSpaceId);
+      // Should NOT appear in search results
+      let results = await repo.search('Space note');
       expect(results.find((r) => r.id === note.id)).toBeUndefined();
 
       // Restore it
       await repo.restoreItem(note.id, 'note');
 
-      // Should NOW appear in listBySpace
-      results = await repo.listBySpace(testSpaceId);
+      // Should NOW appear in search results
+      results = await repo.search('Space note');
       expect(results.find((r) => r.id === note.id)).toBeDefined();
     });
 

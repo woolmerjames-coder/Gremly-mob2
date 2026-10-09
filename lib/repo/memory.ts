@@ -12,17 +12,11 @@ import type {
   TagsMeta,
 } from '../types';
 import { genId, nowIso } from '../types';
-import { recordZ, spaceInsertSchema, type SpaceInsert } from '../schemas';
+import { recordZ } from '../schemas';
 import { eventBus } from '../events';
 import { getDateService } from '../date';
 import { dateService } from '../date/DateService';
-import type {
-  IRepo,
-  CreateRecordInput,
-  UpdateRecordInput,
-  GroupedByType,
-  ListByTypeOptions,
-} from './IRepo';
+import type { IRepo, CreateRecordInput, UpdateRecordInput, ListByTypeOptions } from './IRepo';
 
 /**
  * In-memory repository implementation for development and testing.
@@ -124,9 +118,6 @@ export class MemoryRepo implements IRepo {
   private lists: Map<string, import('./types').List> = new Map();
   private listItemsStore: Map<string, import('./types').ListItem> = new Map();
   private events: import('./types').EventLog[] = [];
-
-  // Phase 10.4: Space defaults storage
-  private spaceDefaults: Map<string, any> = new Map();
 
   constructor(userId?: string) {
     this.currentUserId = userId || 'memory-user';
@@ -467,19 +458,6 @@ export class MemoryRepo implements IRepo {
     return false;
   }
 
-  async listBySpace(spaceId: ID, opts?: { tagNames?: string[] }): Promise<AppRecord[]> {
-    let items = this.data.filter(
-      (r) => r.space_id === spaceId && r.owner_id === this.currentUserId && !this.isArchived(r),
-    );
-
-    if (opts?.tagNames && opts.tagNames.length > 0) {
-      const wanted = opts.tagNames;
-      items = items.filter((r) => hasAll((r as any).tags as string[] | null | undefined, wanted));
-    }
-
-    return items;
-  }
-
   async search(text: string): Promise<AppRecord[]> {
     const q = text.toLowerCase();
     return this.data.filter((r) => {
@@ -497,15 +475,6 @@ export class MemoryRepo implements IRepo {
         (r.type === 'todo' || r.type === 'note') && r.body?.toLowerCase().includes(q);
       return titleMatch || bodyMatch;
     });
-  }
-
-  async searchInSpace(
-    spaceId: ID,
-    text: string,
-  ): Promise<{ items: AppRecord[]; chats: import('../types').SpaceChat[] }> {
-    const items = (await this.search(text)).filter((r) => r.space_id === spaceId);
-    // MemoryRepo doesn't store space chats; return empty array for chats
-    return { items, chats: [] };
   }
 
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
@@ -1328,98 +1297,6 @@ export class MemoryRepo implements IRepo {
   // SPACE METHODS (Phase 5)
   // ==========================
 
-  async listSpaces(): Promise<Space[]> {
-    return this.spaces.filter((s) => s.owner_id === this.currentUserId);
-  }
-
-  async createSpace(input: SpaceInsert): Promise<Space> {
-    const payload = spaceInsertSchema.parse(input);
-    const now = nowIso();
-
-    const space: Space = {
-      id: genId('space'),
-      owner_id: this.currentUserId,
-      name: payload.name,
-      icon: payload.icon ?? null,
-      theme: payload.theme ?? 'deepTeal',
-      created_at: now,
-      updated_at: now,
-    };
-
-    this.spaces.unshift(space);
-    return space;
-  }
-
-  async getSpaceById(spaceId: string): Promise<Space | null> {
-    return this.spaces.find((s) => s.id === spaceId && s.owner_id === this.currentUserId) ?? null;
-  }
-
-  async updateSpace(spaceId: string, patch: Partial<SpaceInsert>): Promise<Space> {
-    const idx = this.spaces.findIndex((s) => s.id === spaceId && s.owner_id === this.currentUserId);
-    if (idx < 0) throw new Error('Space not found');
-
-    const updated: Space = {
-      ...this.spaces[idx],
-      ...patch,
-      updated_at: nowIso(),
-    };
-
-    this.spaces[idx] = updated;
-    return updated;
-  }
-
-  async deleteSpace(spaceId: string): Promise<void> {
-    this.spaces = this.spaces.filter(
-      (s) => !(s.id === spaceId && s.owner_id === this.currentUserId),
-    );
-  }
-
-  async getSpaceItemCounts(
-    spaceId: string,
-  ): Promise<{ todos: number; habits: number; notes: number }> {
-    const items = this.data.filter(
-      (r) => r.space_id === spaceId && r.owner_id === this.currentUserId,
-    );
-    return {
-      todos: items.filter((r) => r.type === 'todo').length,
-      habits: items.filter((r) => r.type === 'habit').length,
-      notes: items.filter((r) => r.type === 'note').length,
-    };
-  }
-
-  async listBySpaceGrouped(
-    spaceId: string,
-    opts?: { tagNames?: string[] },
-  ): Promise<GroupedByType> {
-    const items = await this.listBySpace(spaceId, opts);
-
-    return {
-      habits: items.filter((r) => r.type === 'habit'),
-      todos: items.filter((r) => r.type === 'todo'),
-      notes: items.filter((r) => r.type === 'note'),
-    };
-  }
-
-  async getSpaceSummary(spaceId: string): Promise<string | null> {
-    const space = await this.getSpaceById(spaceId);
-    return space?.summary_cached ?? null;
-  }
-
-  // Phase 10.8: Space Insight stubs
-  async getLatestSpaceInsight(spaceId: string): Promise<{
-    summary: string;
-    summary_at: string;
-    tokens: number;
-  } | null> {
-    // Memory backend doesn't support insights yet
-    return null;
-  }
-
-  async getSpaceInsightHistory(spaceId: string, limit?: number): Promise<any[]> {
-    // Memory backend doesn't support insights yet
-    return [];
-  }
-
   // ==========================
   // TAG AND PEOPLE METHODS (Phase 7+ stubs)
   // ==========================
@@ -1774,27 +1651,6 @@ export class MemoryRepo implements IRepo {
     this.events.push(event);
   }
 
-  // Phase 10.4 - Space defaults for Cortex biasing
-
-  /**
-   * Get defaults_json for a space.
-   * Returns null if not found.
-   */
-  async getSpaceDefaults(spaceId: string): Promise<any | null> {
-    return this.spaceDefaults.get(spaceId) ?? null;
-  }
-
-  /**
-   * Set/update defaults_json for a space (shallow merge).
-   * Returns updated defaults_json.
-   */
-  async setSpaceDefaults(spaceId: string, patch: Record<string, any>): Promise<any> {
-    const existing = this.spaceDefaults.get(spaceId) ?? {};
-    const merged = { ...existing, ...patch };
-    this.spaceDefaults.set(spaceId, merged);
-    return merged;
-  }
-
   // --------------------------------------------------------------------------
   // Notes methods (IRepo interface)
   // --------------------------------------------------------------------------
@@ -1910,99 +1766,6 @@ export class MemoryRepo implements IRepo {
   }
 
   // ============================================================================
-  // Phase 12: Milestones (stub implementations)
-  // ============================================================================
-
-  async listMilestones(_spaceId: string): Promise<import('../types').SpaceMilestone[]> {
-    return [];
-  }
-
-  async getActiveMilestone(_spaceId: string): Promise<import('../types').SpaceMilestone | null> {
-    return null;
-  }
-
-  async createMilestone(
-    spaceId: string,
-    payload: {
-      name: string;
-      date?: string | null;
-      is_active?: boolean;
-      sort_order?: number;
-      title?: string;
-      note?: string | null;
-    },
-  ): Promise<import('../types').SpaceMilestone> {
-    const now = getDateService().nowTimestamp();
-    return {
-      id: genId('milestone'),
-      space_id: spaceId,
-      owner_id: this.currentUserId,
-      name: payload.name || payload.title || 'Untitled',
-      title: payload.name || payload.title || 'Untitled',
-      date: payload.date ?? null,
-      note: payload.note ?? null,
-      completed: false,
-      completed_at: null,
-      is_active: payload.is_active ?? true,
-      sort_order: payload.sort_order ?? 0,
-      created_at: now,
-      updated_at: now,
-    };
-  }
-
-  async updateMilestone(
-    _id: string,
-    _patch: Partial<{
-      name: string;
-      title: string;
-      date: string | null;
-      note: string | null;
-      completed: boolean;
-      completed_at: string | null;
-      is_active: boolean;
-      sort_order: number;
-    }>,
-  ): Promise<import('../types').SpaceMilestone> {
-    throw new Error('MemoryRepo.updateMilestone not implemented');
-  }
-
-  async completeMilestone(_milestoneId: string): Promise<import('../types').SpaceMilestone> {
-    throw new Error('MemoryRepo.completeMilestone not implemented');
-  }
-
-  async deleteMilestone(_milestoneId: string): Promise<void> {
-    // no-op
-  }
-
-  // ============================================================================
-  // Phase 12: SpaceMeta (stub implementations)
-  // ============================================================================
-
-  async getSpaceMeta(_spaceId: string): Promise<import('../types').SpaceMeta | null> {
-    return null;
-  }
-
-  async upsertSpaceMeta(
-    spaceId: string,
-    payload: { success_criteria?: string | null; other_context?: string | null },
-  ): Promise<import('../types').SpaceMeta> {
-    const now = getDateService().nowTimestamp();
-    return {
-      id: genId('spacemeta'),
-      space_id: spaceId,
-      owner_id: this.currentUserId,
-      success_criteria: payload.success_criteria ?? null,
-      other_context: payload.other_context ?? null,
-      created_at: now,
-      updated_at: now,
-    };
-  }
-
-  async deleteSpaceMeta(_spaceId: string): Promise<void> {
-    // no-op
-  }
-
-  // ============================================================================
   // Phase 12: Pinned Items (stub implementations)
   // ============================================================================
 
@@ -2016,104 +1779,6 @@ export class MemoryRepo implements IRepo {
 
   async toggleNotePinned(_noteId: string, _isPinned: boolean): Promise<void> {
     // no-op
-  }
-
-  async getPinnedItemsForSpace(_spaceId: string): Promise<{
-    todos: import('../types').Todo[];
-    habits: import('../types').Habit[];
-    notes: import('../types').Note[];
-  }> {
-    return { todos: [], habits: [], notes: [] };
-  }
-
-  async getPinnedCountForSpace(_spaceId: string): Promise<number> {
-    return 0;
-  }
-}
-
-/**
- * MemorySpaceChatRepo - In-memory space chat storage (Phase 8+ Spaces v2)
- */
-export class MemorySpaceChatRepo {
-  private chats: import('../types').SpaceChat[] = [];
-
-  constructor(private currentUserId: string = 'memory-user') {}
-
-  /**
-   * Get a single chat by ID
-   */
-  async getById(chatId: string): Promise<import('../types').SpaceChat | null> {
-    const chat = this.chats.find((c) => c.id === chatId && c.user_id === this.currentUserId);
-    return chat || null;
-  }
-
-  async list(
-    spaceId: string,
-    opts?: { includeArchived?: boolean },
-  ): Promise<import('../types').SpaceChat[]> {
-    let filtered = this.chats.filter(
-      (c) => c.user_id === this.currentUserId && c.scope_id === spaceId,
-    );
-
-    if (!opts?.includeArchived) {
-      filtered = filtered.filter((c) => !c.archived_at);
-    }
-
-    // Sort by pinned first, then by updated_at desc
-    return filtered.sort((a, b) => {
-      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-    });
-  }
-
-  async create(
-    spaceId: string,
-    input: import('../types').SpaceChatCreateInput,
-  ): Promise<import('../types').SpaceChat> {
-    const now = nowIso();
-    const chat: import('../types').SpaceChat = {
-      id: genId('chat'),
-      user_id: this.currentUserId,
-      scope_id: spaceId,
-      title: input.title,
-      pinned: false,
-      archived_at: null,
-      last_message_snippet: null,
-      updated_at: now,
-      metadata_json: null,
-      created_at: now,
-    };
-
-    this.chats.push(chat);
-    return chat;
-  }
-
-  async update(
-    chatId: string,
-    patch: import('../types').SpaceChatUpdateInput,
-  ): Promise<import('../types').SpaceChat> {
-    const idx = this.chats.findIndex((c) => c.id === chatId && c.user_id === this.currentUserId);
-    if (idx < 0) throw new Error('Chat not found');
-
-    const updated: import('../types').SpaceChat = {
-      ...this.chats[idx],
-      ...patch,
-      updated_at: nowIso(),
-    };
-
-    this.chats[idx] = updated;
-    return updated;
-  }
-
-  async delete(chatId: string): Promise<void> {
-    const idx = this.chats.findIndex((c) => c.id === chatId && c.user_id === this.currentUserId);
-    if (idx < 0) throw new Error('Chat not found');
-
-    this.chats[idx] = {
-      ...this.chats[idx],
-      archived_at: nowIso(),
-      updated_at: nowIso(),
-    };
   }
 }
 

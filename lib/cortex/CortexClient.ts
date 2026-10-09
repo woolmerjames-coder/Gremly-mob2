@@ -49,7 +49,6 @@ export interface SpaceChatStreamingResult {
   /** The Worker's clock for this turn: triage, card, time before the reply, reply */
   timing?: { triage_ms: number; card_ms: number; pre_ms: number; reply_ms: number } | null;
   saveable?: any | null;
-  promotion?: any | null;
   latency_ms?: number;
   sources?: Array<{ title: string; url: string }>;
   search_query?: string;
@@ -496,7 +495,6 @@ export function callSpaceChatStreaming(
           entity_card: data.entity_card ?? null,
           timing: data.timing ?? null,
           saveable: data.saveable ?? null,
-          promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
           sources: data.sources,
           search_query: data.search_query,
@@ -644,7 +642,6 @@ export function callGeneralChatStreaming(
           entity_card: data.entity_card ?? null,
           timing: data.timing ?? null,
           saveable: data.saveable ?? null,
-          promotion: data.promotion ?? null,
           latency_ms: data.latency_ms,
           sources: data.sources,
           search_query: data.search_query,

@@ -23,7 +23,7 @@ import { OverlayProvider } from '../../contexts/OverlayContext';
 import type { IRepo } from '../../lib/repo/IRepo';
 import type { User } from '@supabase/supabase-js';
 import type { ICortexEngine } from '../../cortex/ICortexEngine';
-import type { AppRecord, Space, Tag, Person } from '../../lib/types';
+import type { AppRecord, Tag, Person } from '../../lib/types';
 
 /**
  * Assert provider is valid and return it or a passthrough stub
@@ -153,7 +153,6 @@ export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
     getById: defaultNull,
     getAll: defaultEmptyArray,
     listByType: defaultEmptyArray,
-    listBySpace: defaultEmptyArray,
     search: defaultEmptyArray,
     countUnsorted: defaultZero,
     listDueToday: defaultEmptyArray,
@@ -163,27 +162,6 @@ export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
     completeHabit: defaultVoid,
     completeTodo: defaultVoid,
     undoCompletion: defaultVoid,
-    listSpaces: defaultEmptyArray,
-    createSpace: jest.fn().mockResolvedValue({
-      id: 'mock-space-id',
-      name: 'Mock Space',
-      created_at: new Date().toISOString(),
-      owner_id: 'test-user-1',
-    } as Space),
-    getSpaceById: defaultNull,
-    updateSpace: jest.fn().mockResolvedValue({
-      id: 'mock-space-id',
-      name: 'Updated Mock Space',
-      created_at: new Date().toISOString(),
-      owner_id: 'test-user-1',
-    } as Space),
-    deleteSpace: defaultVoid,
-    listBySpaceGrouped: jest.fn().mockResolvedValue({
-      habits: [],
-      todos: [],
-      notes: [],
-    }),
-    getSpaceSummary: defaultNull,
     listTags: defaultEmptyArray,
     listPeople: defaultEmptyArray,
     createPerson: jest.fn().mockResolvedValue({
@@ -234,62 +212,10 @@ export const makeMockRepo = (overrides: Partial<IRepo> = {}): IRepo => {
     getHabitProgressForDate: defaultZero,
     getHabitProgressForWeek: defaultZero,
 
-    // Phase 12: Milestones
-    listMilestones: jest.fn().mockResolvedValue([]),
-    getActiveMilestone: jest.fn().mockResolvedValue(null),
-    createMilestone: jest.fn().mockResolvedValue({
-      id: 'mock-milestone-id',
-      space_id: 'mock-space-id',
-      name: 'Mock Milestone',
-      date: null,
-      completed: false,
-      completed_at: null,
-      is_active: true,
-      sort_order: 0,
-      owner_id: 'test-user-1',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }),
-    updateMilestone: jest.fn().mockResolvedValue({
-      id: 'mock-milestone-id',
-      name: 'Updated Milestone',
-      date: null,
-      completed: false,
-      completed_at: null,
-      is_active: true,
-      sort_order: 0,
-      owner_id: 'test-user-1',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }),
-    completeMilestone: jest.fn().mockResolvedValue({
-      id: 'mock-milestone-id',
-      name: 'Mock Milestone',
-      completed: true,
-      completed_at: new Date().toISOString(),
-      is_active: false,
-    }),
-    deleteMilestone: jest.fn().mockResolvedValue(undefined),
-
-    // Phase 12: Space Meta
-    getSpaceMeta: jest.fn().mockResolvedValue(null),
-    upsertSpaceMeta: jest.fn().mockResolvedValue({
-      id: 'mock-meta-id',
-      space_id: 'mock-space-id',
-      success_criteria: null,
-      other_context: null,
-      owner_id: 'test-user-1',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }),
-    deleteSpaceMeta: jest.fn().mockResolvedValue(undefined),
-
     // Phase 12: Pinned
     toggleTodoPinned: jest.fn().mockResolvedValue(undefined),
     toggleHabitPinned: jest.fn().mockResolvedValue(undefined),
     toggleNotePinned: jest.fn().mockResolvedValue(undefined),
-    getPinnedItemsForSpace: jest.fn().mockResolvedValue({ todos: [], habits: [], notes: [] }),
-    getPinnedCountForSpace: jest.fn().mockResolvedValue(0),
 
     ...overrides,
   } as IRepo;

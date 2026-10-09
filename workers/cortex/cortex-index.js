@@ -116,7 +116,6 @@
  * - Preset action support (break_down, research, think_through, whats_blocking, etc.)
  * - Sweep context support (times_moved, days_unscheduled, is_overdue)
  * - Save detection in responses (notes, checklists)
- * - Space promotion detection for complex tasks
  * - Streaming and non-streaming support
  *
  * v5.0 (2026-02-16):
@@ -5742,9 +5741,6 @@ Almost never suggest creating a Space. Only if ALL true:
                 // Use cleaned content (without suggestion block) for display
                 fullContent = cleanContent;
 
-                // Detect space promotion suggestion
-                const promotion = detectSpacePromotion(fullContent, messages.length);
-
                 const latency = Date.now() - t0;
                 // Strip SAVE comment and markdown images before sending to client
                 const displayContent = fullContent
@@ -5757,7 +5753,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   full_content: displayContent,
                   saveable,
                   save_suggestion,
-                  promotion,
                   latency_ms: latency,
                   sources: sources,
                   images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
@@ -5770,7 +5765,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   latency_ms: latency,
                   content_length: fullContent.length,
                   has_saveable: saveable?.detected,
-                  has_promotion: promotion?.suggested,
                   used_search: !!searchQuery,
                   images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
                 });
@@ -6080,14 +6074,10 @@ Almost never suggest creating a Space. Only if ALL true:
             .replace(/<!--SAVE:.*$/s, '')
             .trim();
 
-          // Detect space promotion suggestion
-          const promotion = detectSpacePromotion(content, messages.length);
-
           console.log('[EntityChat] Complete', {
             latency_ms: latency,
             content_length: content.length,
             has_saveable: saveable?.detected,
-            has_promotion: promotion?.suggested,
             used_search: !!searchQuery,
           });
 
@@ -6136,7 +6126,6 @@ Almost never suggest creating a Space. Only if ALL true:
             content,
             saveable,
             save_suggestion,
-            promotion,
             latency_ms: latency,
             sources,
             search_query: searchQuery,
@@ -6724,38 +6713,6 @@ Return ONLY valid JSON:
           type: isChecklist ? 'checklist' : 'note',
           checklist_items: checklistItems,
           has_save_suggestion: false,
-        };
-      }
-
-      // Helper: Detect space promotion suggestion
-      function detectSpacePromotion(content, messageCount) {
-        if (!content) return { suggested: false };
-
-        const lower = content.toLowerCase();
-
-        // Check if AI suggested a space
-        const spacePatterns = [
-          'create a space',
-          'set up a space',
-          'make a space',
-          'becoming a project',
-          'becoming a solid project',
-          'want me to set up a space',
-          'want me to create a space',
-        ];
-
-        const aiSuggested = spacePatterns.some((pattern) => lower.includes(pattern));
-
-        // Only surface promotion if AI explicitly suggested it
-        // Don't auto-suggest based on message count alone
-        if (!aiSuggested) {
-          return { suggested: false };
-        }
-
-        return {
-          suggested: true,
-          reason: 'AI detected this may work better as a Space with multiple tracked items.',
-          source: 'ai_suggested',
         };
       }
 
