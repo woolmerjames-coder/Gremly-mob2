@@ -48,6 +48,14 @@ describe('prompts', () => {
     expect(rulesOnly).not.toMatch(/\([^)]*,[^)]*,[^)]*\)/);
   });
 
+  it('tell the question writer to ask in everyday words and never name a kind of item', () => {
+    for (const t of AMBIGUITY_TYPES) {
+      expect(buildClarifyPrompt(t)).toContain(
+        'never name a kind of item, the app, or where or how it will be kept',
+      );
+    }
+  });
+
   it('never send the fixed fallback copy to the model', () => {
     const p = allPrompts();
     for (const cfg of Object.values(CLARIFY_TYPE_CONFIGS)) {
@@ -502,17 +510,37 @@ describe('normalizeClassifyV3', () => {
 });
 
 describe('buildClarification', () => {
-  it('rejects questions that use app words', () => {
+  let warn;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+  const backstops = () => warn.mock.calls.map((c) => c[0]).filter((m) => /backstop/.test(m));
+
+  it('reads no words: the prompts carry the rule against app words (9 Oct 2026)', () => {
     const r = buildClarification('bucket', 'Should I save this as a note?', [
-      'A thing',
-      'B thing',
-      'C thing',
+      'Track it',
+      'Save it',
+      'Log it',
     ]);
-    expect(r.clarification_question).toBe(CLARIFY_TYPE_CONFIGS.bucket.fallbackQuestion);
-    expect(r.question_source).toBe('fallback');
+    expect(r.clarification_question).toBe('Should I save this as a note?');
+    expect(r.question_source).toBe('model');
+    expect(r.labels_source).toBe('model');
+    expect(backstops()).toEqual([]);
   });
 
-  it('swaps an over long label for its fixed label rather than cutting it mid word', () => {
+  it('swaps an over long question for the fixed one, and logs it', () => {
+    const r = buildClarification(
+      'bucket',
+      'Is this something that you would like to get done at some point soon or later on?',
+      ['Need to do it', 'Thinking about it', 'Just remembering'],
+    );
+    expect(r.question_source).toBe('fallback');
+    expect(r.clarification_question).toBe(CLARIFY_TYPE_CONFIGS.bucket.fallbackQuestion);
+    expect(backstops()).toEqual(['[Clarify] backstop: question too long, fixed question used']);
+  });
+
+  it('swaps an over long label for its fixed label rather than cutting it mid word, and logs it', () => {
     const r = buildClarification('habit_or_todo', 'Is yoga a regular thing?', [
       'Only this weekend',
       'I am committing to a regular yoga practice every single week',
@@ -522,32 +550,18 @@ describe('buildClarification', () => {
       'Only this weekend',
       'A regular thing',
     ]);
-  });
-
-  it('keeps good labels and swaps only the ones using app words', () => {
-    const r = buildClarification(
-      'habit_or_todo',
-      'Is this a one off session or regular practice?',
-      ['Just once for now', 'A regular workout habit'],
-      null,
-      'Do strength exercises',
-    );
-    expect(r.labels_source).toBe('mixed');
-    expect(r.clarification_options.map((o) => o.label)).toEqual([
-      'Just once for now',
-      'A regular thing',
-    ]);
     expect(r.clarification_options[1]).toMatchObject({
       bucket: 'habit',
       habitSubtype: 'start_habit',
     });
+    expect(backstops()).toEqual(['[Clarify] backstop: label length, fixed label used']);
   });
 
-  it('uses the whole fixed set when every label fails', () => {
+  it('uses the whole fixed set when every label fails, and logs it', () => {
     const r = buildClarification('bucket', 'What about the gym?', [
-      'Track it',
-      'Save it',
-      'Log it',
+      'I really need to get to the gym this week',
+      'I keep thinking about going to the gym more',
+      'I just want to remember the gym exists',
     ]);
     expect(r.labels_source).toBe('fallback');
     expect(r.clarification_options.map((o) => o.label)).toEqual(
@@ -555,28 +569,13 @@ describe('buildClarification', () => {
     );
   });
 
-  it('allows a word the user wrote in the drop itself', () => {
-    const labels = ['Make the list', 'Thinking about it', 'Just remembering it'];
-    const own = buildClarification(
-      'bucket',
-      'Want to make the packing list?',
-      labels,
-      null,
-      'packing list',
-    );
-    expect(own.question_source).toBe('model');
-    expect(own.labels_source).toBe('model');
-    const notOwn = buildClarification(
-      'bucket',
-      'Want to make the packing list?',
-      labels,
-      null,
-      'packing',
-    );
-    expect(notOwn.question_source).toBe('fallback');
+  it('uses the fixed set for a wrong number of labels, and logs it', () => {
+    const r = buildClarification('bucket', 'Want to make the packing list?', ['Make it', 'Later']);
+    expect(r.labels_source).toBe('fallback');
+    expect(backstops()).toEqual(['[Clarify] backstop: wrong number of labels, fixed set used']);
   });
 
-  it('removes dashes from model text', () => {
+  it('removes dashes from model text, and logs each swap', () => {
     const r = buildClarification('bucket', 'What about yoga — really?', [
       'Need to do it',
       'Thinking – maybe',
@@ -584,6 +583,7 @@ describe('buildClarification', () => {
     ]);
     expect(r.clarification_question).toBe('What about yoga, really?');
     expect(r.clarification_options[1].label).toBe('Thinking, maybe');
+    expect(backstops()).toEqual(['[Clarify] backstop: dash swap', '[Clarify] backstop: dash swap']);
   });
 
   it('maps a goal option to break_habit when the behaviour is one to cut back', () => {

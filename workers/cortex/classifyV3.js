@@ -467,12 +467,6 @@ export const CLARIFY_TYPE_CONFIGS = {
   },
 };
 
-// OUTPUT GUARD ONLY (never sent to a model): model written questions and
-// labels that use the app's own category vocabulary are rejected in code and
-// replaced with the fixed copy for the type.
-const APP_VOCABULARY =
-  /\b(todos?|to-dos?|habits?|logs?|logging|notes?|track(?:ing)?|tasks?|capture|save|list|diary|bucket|category|entry)\b/i;
-
 const MAX_QUESTION_CHARS = 90;
 const MAX_LABEL_CHARS = 40;
 
@@ -492,6 +486,11 @@ const LABEL_RULES = `Each label is a short first person reply in the user's own 
 The question and labels talk only about the thing in the drop and what the user means to do, in everyday words. They never refer to the app, to how it will handle the item, or to what kind of item it becomes, so none of the outcome names above appear in them. The one exception is a drop addressed to Gremly or a question the user wants answered, where the question may offer to talk it over with Gremly now. They never use dashes, and labels have no full stop.`;
 
 const QUESTION_RULES = `question: a short spoken question of at most nine words. It names what the drop is about in the user's own terms, so it could not be asked of any other drop. The labels must read as natural, direct replies to it, so it asks the choice the labels offer rather than an open question. It does not lean towards any option and adds nothing the drop does not say. It should sound like a warm, curious friend checking in, not a form.`;
+
+// The question writer's prompt has no outcome names above it, so it says in
+// its own words what LABEL_RULES says of them (Mind Drop rethink, 9 Oct 2026:
+// this rule replaced the word list code used to check the words against).
+const WRITER_WORDS_RULE = `Gremly keeps each drop as one kind of item, and the person never needs to know which. So the question and labels ask, in the words the person would use, about the thing itself and what they mean to do with it, and never name a kind of item, the app, or where or how it will be kept.`;
 
 const HABIT_DIRECTION_RULE = `habit_direction: when an option would create a habit, say whether the behaviour in the drop is one the user wants to build up ("build") or to reduce, stop or avoid ("break"). Use null when no option creates a habit.`;
 
@@ -693,13 +692,16 @@ What is unclear: ${AMBIGUITY_DESCRIPTIONS[type]}.${ambiguityReason ? ` Note from
 ${QUESTION_RULES}
 labels: exactly ${n}, in this order: ${describeOptionOrder(type)}.
 ${LABEL_RULES}
+${WRITER_WORDS_RULE}
 ${HABIT_DIRECTION_RULE}
 
 Return one JSON object and nothing else, with the fields question (string), labels (array of ${n} strings) and habit_direction ("build", "break" or null).`;
 }
 
-function cleanText(s, max) {
+function cleanText(s, max, logAs = null) {
   if (typeof s !== 'string') return '';
+  // the dash swap, logged whenever it fires on the model's words
+  if (logAs && /[–—]/.test(s)) console.warn('[Clarify] backstop: dash swap', { what: logAs });
   return s
     .replace(/\s*[–—]\s*/g, ', ')
     .replace(/\s+/g, ' ')
@@ -708,29 +710,41 @@ function cleanText(s, max) {
     .substring(0, max);
 }
 
+const wordCount = (s) => s.split(' ').length;
+
 /**
- * Build the clarification question + options for an ambiguity type.
- * Uses model-written words when they pass validation, otherwise the fixed
- * fallbacks for that type. Always returns a usable popup.
+ * Build the clarification question + options for an ambiguity type from the
+ * model's words. The prompts carry the rules for the words (QUESTION_RULES and
+ * LABEL_RULES: the person's everyday words, never the app or its kinds of
+ * item), and code reads no words (Mind Drop rethink, 9 Oct 2026). What is left
+ * are backstops that read only length or sameness, each logged whenever it
+ * fires: the dash swap; a question that is empty, over MAX_QUESTION_CHARS or
+ * over twelve words takes the type's fixed question; a label that is empty,
+ * over MAX_LABEL_CHARS or over seven words takes its option's fixed label; and
+ * a wrong number of labels, or two the same, takes the fixed set. Always
+ * returns a usable popup.
  */
-export function buildClarification(ambiguityType, question, labels, habitDirection, dropText = '') {
+export function buildClarification(
+  ambiguityType,
+  question,
+  labels,
+  habitDirection,
+  _dropText = '',
+) {
   const type = AMBIGUITY_TYPES.includes(ambiguityType) ? ambiguityType : 'bucket';
   const cfg = CLARIFY_TYPE_CONFIGS[type];
-  const usesAppVocabulary = (s) => {
-    const m = s.match(new RegExp(APP_VOCABULARY.source, 'gi')) || [];
-    // Words the user wrote in the drop itself are the subject, not app jargon.
-    const own = String(dropText || '').toLowerCase();
-    return m.some((w) => !new RegExp(`\\b${w.toLowerCase()}\\b`).test(own));
-  };
 
-  let finalQuestion = cleanText(question, 200);
+  let finalQuestion = cleanText(question, 200, 'question');
   let questionSource = 'model';
-  if (
-    !finalQuestion ||
-    finalQuestion.length > MAX_QUESTION_CHARS ||
-    usesAppVocabulary(finalQuestion) ||
-    finalQuestion.split(' ').length > 12
-  ) {
+  const questionLong =
+    !!finalQuestion && (finalQuestion.length > MAX_QUESTION_CHARS || wordCount(finalQuestion) > 12);
+  if (!finalQuestion || questionLong) {
+    if (questionLong)
+      console.warn('[Clarify] backstop: question too long, fixed question used', {
+        type,
+        chars: finalQuestion.length,
+        words: wordCount(finalQuestion),
+      });
     finalQuestion = cfg.fallbackQuestion;
     questionSource = 'fallback';
   } else if (!/[?]$/.test(finalQuestion)) {
@@ -738,24 +752,33 @@ export function buildClarification(ambiguityType, question, labels, habitDirecti
   }
 
   // Labels are never cut mid word. When the model gives the right number of
-  // labels, each one that fails a check (too long, app vocabulary) is swapped
-  // for the fixed label of that option, so the good, specific labels are kept.
-  // A wrong count, or duplicates after the swap, uses the fixed set.
-  const cleanedLabels = Array.isArray(labels) ? labels.map((l) => cleanText(l, 200)) : [];
-  const labelOk = (l) =>
-    l.length >= 2 &&
-    l.length <= MAX_LABEL_CHARS &&
-    l.split(' ').length <= 7 &&
-    !usesAppVocabulary(l);
+  // labels, each one too short or too long is swapped for the fixed label of
+  // that option, so the good, specific labels are kept. A wrong count, or
+  // duplicates after the swap, uses the fixed set.
+  const cleanedLabels = Array.isArray(labels) ? labels.map((l) => cleanText(l, 200, 'label')) : [];
+  const labelOk = (l) => l.length >= 2 && l.length <= MAX_LABEL_CHARS && wordCount(l) <= 7;
   let finalLabels = cfg.options.map((o) => o.fallbackLabel);
   let labelsSource = cfg.fixedLabels ? 'fixed' : 'fallback';
   if (!cfg.fixedLabels && cleanedLabels.length === cfg.options.length) {
     const merged = cleanedLabels.map((l, i) => (labelOk(l) ? l : cfg.options[i].fallbackLabel));
     const kept = cleanedLabels.filter(labelOk).length;
+    if (kept < merged.length)
+      console.warn('[Clarify] backstop: label length, fixed label used', {
+        type,
+        swapped: merged.length - kept,
+      });
     if (kept > 0 && new Set(merged.map((l) => l.toLowerCase())).size === merged.length) {
       finalLabels = merged;
       labelsSource = kept === merged.length ? 'model' : 'mixed';
+    } else {
+      console.warn('[Clarify] backstop: labels unusable or the same, fixed set used', { type });
     }
+  } else if (!cfg.fixedLabels) {
+    console.warn('[Clarify] backstop: wrong number of labels, fixed set used', {
+      type,
+      got: cleanedLabels.length,
+      want: cfg.options.length,
+    });
   }
 
   const direction = habitDirection === 'break' ? 'break' : 'build';
@@ -1001,7 +1024,8 @@ export function normalizeClassifyV3(parsed, text = '', opts = {}) {
     // asks the person (unsure), and a missing drop as one stays missing.
     let split = parsed.split === 'clear' || parsed.split === 'unsure' ? parsed.split : null;
     if (!split) {
-      if (!quiet)
+      // only v3.8 says how sure a split is; an older version never does
+      if (!quiet && version === 'v3.8')
         console.warn('[ClassifyV3] multi drop with no split from the classifier; it will ask', {
           version,
         });

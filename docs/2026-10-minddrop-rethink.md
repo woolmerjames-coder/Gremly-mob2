@@ -139,6 +139,22 @@ Blocking questions: only if you cannot go on without an answer.
 
 Keep it short and plain. No dashes as punctuation.
 
+## Deploy order and the ship day checklist
+
+Kept by the builder, from James's answers of 9 October. Where it differs from the plan's deploy table, this wins.
+
+- **One app build.** There is one TestFlight build, made once every stage is done, stage 11's clean up and stage 12 included, and the planning chat has done its final check. Stage 11 goes in this build, not a later one. The simulator checks after stages 6 and 8 stay.
+- **Before ship day,** cortex Worker deploys are fine as long as `CLASSIFY_PROMPT` stays "v3.7" in `wrangler.toml`: every change since stage 2b keeps the builds already out working (they ignore `split` and `as_one`, and never send `piece_questions` or `write_question`). The simulator checks need the new routes, so a cortex deploy comes before each. `CLASSIFY_SPLIT_AUTO` is "false" from stage 3's gate.
+- **Everything that waits for the app goes out on ship day,** the same day the TestFlight build goes out, so no build sees a Worker that runs ahead of it. Each stage adds its lines below.
+
+**Ship day checklist** (the day the TestFlight build goes out):
+
+1. Classifier v3.8: in `workers/cortex/wrangler.toml` set `CLASSIFY_PROMPT = "v3.8"` (`CLASSIFY_SPLIT_AUTO` stays "false"), then deploy cortex: `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. Rollback: set it back to "v3.7" and deploy again. v3.8 then serves every build: builds already out ignore `split` and `as_one`, and without `piece_questions` they get no piece questions.
+2. Deploy inngest-jobs (stage 2c: the brief, the notification counts and the daily context count a todo with only a deadline on its deadline day): `cd ~/Documents/gremly-mob2/workers/inngest-jobs && npx wrangler deploy`.
+3. Confirm the data fabric's Worker changes are live (stage 9 needs them): an `assign-worlds` reply carries `filed`. Stage 9 gives the check.
+4. Run the old questions SQL (stage 8 writes it).
+5. Anything later stages add.
+
 ## Stage notes
 
 (The builder adds notes here.)
@@ -301,3 +317,28 @@ Tests: `classifyV3.test.js`: the version, the frozen v3.7, v4.1, v4 and second o
 Deviations: the plan asks for one locked run; each prompt was run a second time to read run to run noise, and the official numbers are the first run's. A missing `as_one` is null and saved as a note (the planning chat's decision) rather than the first piece's kind (plan stage 3, step 5). One drop of 4,000 had no answer (Gemini 503 with the backup too slow), as happens today.
 
 For James: see the stage 3 gate message.
+
+### Stage 3, after the gate (9 October)
+
+James's answers (from the planning chat):
+1. The clear list had wrong splits, so v3.8 ships with `CLASSIFY_SPLIT_AUTO = "false"`, set now in `wrangler.toml`. No more tuning runs now. Stage 7 records on each split card what the classifier said (clear or unsure) and what the person tapped (split, keep as one, not now) in `app_events`, with no words; after a few weeks James decides from that whether to turn automatic splits on.
+2. v3.8 goes to everyone on ship day; `CLASSIFY_PROMPT` stays "v3.7" until then (the ship day checklist above).
+3. The question checker's word list goes.
+4. Stage 2c: the weekly review and how full a day looks stay on planned days only.
+5. One TestFlight build, after stages 11 and 12 and the planning chat's final check (the deploy order above).
+
+What changed:
+- `workers/cortex/classifyV3.js`, `buildClarification`: the word list (`APP_VOCABULARY`) is gone, so code reads none of the question's or labels' words. What stays are backstops that read only length or sameness, each now logged with `console.warn` whenever it fires: the dash swap; a question that is empty, over 90 characters or over twelve words takes the fixed question; a label under two or over 40 characters, or over seven words, takes its fixed label; a wrong number of labels, or two the same, takes the fixed set.
+- The question writer's prompt (`buildClarifyPrompt`, for the `clarify-ambiguity` route and the writer inside `classify-v3`) gains one semantic rule, `WRITER_WORDS_RULE`: Gremly keeps each drop as one kind of item and the person never needs to know which, so the question and labels ask in the words the person would use about the thing itself and what they mean to do with it, and never name a kind of item, the app, or where or how it will be kept. `LABEL_RULES` already said this, but by pointing at "the outcome names above", which the writer's prompt never lists. The classifier prompts are untouched (v3.7 and v3.8 hash as frozen).
+- `classifyV3.js`: the warning for a multi drop with no split fires only for v3.8, as older versions never give one.
+- `workers/cortex/wrangler.toml`: `CLASSIFY_SPLIT_AUTO = "false"`, and the comments say why and when `CLASSIFY_PROMPT` changes.
+
+How often the word list fired: the stage 3 runs saved only the question each drop ended with, not the words the checker saw, so they cannot tell the word list apart from the length checks. Together those replaced 10 of 101 questions in the first v3.8 run and 16 of 98 in the second, which is not rare, so I took the other branch: added the rule, then checked it on the 113 drops that asked in either run (the whole drop or a piece), with the word list already removed so every question shown is the model's own. Without the rule the word list would have fired on 18 of 96 questions and 13 of 255 labels, several naming the kinds outright ("Is Inbox zero a task, goal, or note?", "Are these sunglasses a task, idea, or note?"). With the rule: 11 of 94 questions and 10 of 249 labels, none naming a kind that way; what is left is "make running a habit" (nine questions, the everyday sense of the word) and "save this" for a drop addressed to Gremly, which `LABEL_RULES` allows. No length backstop fired on questions; the label length backstop fired 5 times (0 without the rule). The VM cannot reach Anthropic, so the writer in these runs was its backup, GPT 4.1 mini. In production the writer is Sonnet: of the 12 questions saved since 29 September, none was the fixed copy.
+
+Tests: `classifyV3.test.js`: words are not read (a question naming a kind is kept), each backstop swaps and logs, the dash swap logs each time, the writer's prompt carries the new rule; the prompt rule tests pass. All cortex Worker tests: 41 suites, 645 tests, passing.
+
+For James (questions, not blocking):
+- `buildClarification` also adds a question mark when the model's question has none and drops a full stop from the end of a label. Neither reads words, but neither is the dash swap or a length cut. Keep them, log them, or remove them?
+- "Make this a habit" in a question: everyday words or a kind of item? If the latter, the rule needs one more sentence and the same check.
+
+Carried to later stages: stage 4 sends `write_question: false` (the Worker part is built in stage 4) and saves an unsure split with no `as_one` as a note, logged; stage 7's Keep as one uses `as_one` (meta "Kept as one", a note when it is missing, logged) and records the split telemetry above.

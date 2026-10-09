@@ -27,3 +27,7 @@ Locked set, 9 October 2026, through run-v3-worker.mjs with piece_questions: v38 
 run v38b, against base37 and a second v3.7 run base37b. v38: 97.4%, 16 wrong without asking, 10 needless,
 multi 35/35, pieces 75/76. v38b: 97.5%, 15, 9, 35/35, 76/76. base37: 97.6%, 16, 8, 33/35, 72/76.
 base37b: 97.1%, 11, 18, 34/35, 73/76. Gate page: round2/split-gate.mjs.
+After the gate (9 October 2026): classifyV3.js changed outside the classifier prompts only, in
+buildClarification (the word list removed, length backstops logged) and the question writer's
+prompt (buildClarifyPrompt, one rule added). The v3.7 and v3.8 prompt hashes above are unchanged.
+workers/cortex/classifyV3.js sha256 98b824795f8610ae683611b97b470465a5fe0e03affaae7f774795e89d5a22ef
