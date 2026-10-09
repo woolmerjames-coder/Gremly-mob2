@@ -527,7 +527,7 @@ export default function ChapterDetailScreen() {
         </View>
       </ScrollView>
 
-      {!closed && !closing ? <GremlyBox slug={slug} onPress={() => setChatOpen(true)} /> : null}
+      {!closed && !closing ? <GremlyBox onPress={() => setChatOpen(true)} /> : null}
       <PageChat
         visible={chatOpen}
         kind="chapter"

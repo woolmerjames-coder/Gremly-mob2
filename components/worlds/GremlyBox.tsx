@@ -1,13 +1,14 @@
 /**
  * The box at the foot of the Worlds home, a World and a Chapter, with Gremly
- * sitting on it. It opens the page's own chat over the page
+ * sitting on it, the same moving Gremly as on Ask Gremly's box. It opens the
+ * page's own chat over the page
  * (components/worlds/PageChat.tsx); on the Worlds home, a fresh one. Above
  * it, on the Worlds home, the one question Gremly has waiting (stage 3).
  */
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { resolveMascotAsset } from '../../lib/store/mascotRegistry';
+import MascotLottie from '../../app/components/MascotLottie';
 import { F, W } from '../../lib/worlds/look';
 import { Diamond } from './parts';
 
@@ -15,13 +16,15 @@ export const BOX_SPACE = 92;
 /** The room the question above the box takes, when there is one. */
 export const CHIP_SPACE = 48;
 
+// Gremly sits on the box as he does on Ask Gremly's (app/tabs/AskGremlyScreen.tsx):
+// 95 by 111, his feet 23 down into the box
+const MASCOT_OVER_BOX = 23;
+
 export function GremlyBox({
-  slug,
   onPress,
   above,
   chip,
 }: {
-  slug: string;
   onPress: () => void;
   /** Sits this far up, over a tab bar that already keeps clear of the screen's edge */
   above?: number;
@@ -56,12 +59,14 @@ export function GremlyBox({
           </Pressable>
         </View>
       ) : null}
-      <Image
-        source={resolveMascotAsset(slug)}
-        style={[styles.g, { bottom: 46 + edge }]}
-        resizeMode="contain"
+      <Pressable
+        onPress={onPress}
+        style={[styles.g, { bottom: 10 + edge + 54 - MASCOT_OVER_BOX }]}
         accessible={false}
-      />
+        testID="gremly-box-mascot"
+      >
+        <MascotLottie />
+      </Pressable>
       <Pressable
         onPress={onPress}
         style={({ pressed }) => [styles.box, pressed && { borderColor: W.moss }]}
@@ -86,7 +91,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   fade: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
-  g: { position: 'absolute', right: 22, width: 64, height: 64, zIndex: 3 },
+  g: { position: 'absolute', right: 14, width: 95, height: 111, zIndex: 3 },
   box: {
     height: 54,
     flexDirection: 'row',
@@ -105,7 +110,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   ph: { flex: 1, fontFamily: F.body, fontSize: 16, color: '#8a8a8a' },
-  chips: { flexDirection: 'row', marginRight: 68, paddingBottom: 10 },
+  chips: { flexDirection: 'row', marginRight: 104, paddingBottom: 10 },
   chip: {
     flexShrink: 1,
     flexDirection: 'row',

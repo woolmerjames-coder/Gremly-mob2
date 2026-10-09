@@ -510,7 +510,7 @@ export default function WorldsScreen() {
         ) : null}
       </Sheet>
 
-      <GremlyBox slug="gremly-mascot" onPress={() => setChatOpen(true)} above={72} chip={chip} />
+      <GremlyBox onPress={() => setChatOpen(true)} above={72} chip={chip} />
       <PageChat visible={chatOpen} kind="home" onClose={closeChat} />
 
       <UndoSnack bottom={72 + BOX_SPACE + (chip ? CHIP_SPACE : 0) + 12} />

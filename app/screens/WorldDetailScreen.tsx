@@ -236,7 +236,7 @@ export default function WorldDetailScreen() {
         ) : null}
       </ScrollView>
 
-      <GremlyBox slug={slug} onPress={() => setChatOpen(true)} />
+      <GremlyBox onPress={() => setChatOpen(true)} />
       <PageChat visible={chatOpen} kind="world" id={id} title={name} onClose={closeChat} />
 
       <Sheet visible={!!sheet} onClose={() => setSheet(null)} label={name}>

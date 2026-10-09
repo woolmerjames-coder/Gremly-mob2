@@ -276,8 +276,17 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
       const created = await actions(type).create(createColumns(type, rest));
       const id = created?.id as string | undefined;
       if (!id) throw new Error('It was not saved.');
-      const undoLinks =
-        worlds || chapters ? await applyLinks(type, id, { worlds, chapters }) : null;
+      let undoLinks: (() => Promise<void>) | null = null;
+      try {
+        undoLinks = worlds || chapters ? await applyLinks(type, id, { worlds, chapters }) : null;
+      } catch (err) {
+        // not put where the card said, so it is not kept at all: a row that
+        // says it could not be saved leaves nothing behind
+        await actions(type)
+          .remove(id)
+          .catch((e: unknown) => console.warn('[changes] could not take it away again', e));
+        throw err;
+      }
       return ok(async () => {
         if (undoLinks) await undoLinks();
         await actions(type).remove(id);

@@ -11,9 +11,12 @@
  * The box on the Worlds home opens the same chat with no page: fresh each
  * time, with Gremly's own line, keeping no thread of its own; what was said
  * there is in Ask Gremly's list of chats, to carry on.
+ *
+ * It opens as a sheet over the page, as in the mockup, with the page dimmed
+ * above it; a tap above the sheet or its close button puts it away.
  */
 import { useMemo } from 'react';
-import { Modal } from 'react-native';
+import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import {
   CalendarClock,
   CircleCheck,
@@ -26,6 +29,10 @@ import {
 } from 'lucide-react-native';
 import AskGremlyScreen from '../../app/tabs/AskGremlyScreen';
 import type { ItemStarter } from '../../lib/chat/itemStarters';
+import { W } from '../../lib/worlds/look';
+
+/** How much of the screen the chat's sheet takes; the page shows above it. */
+const SHEET_SHARE = 0.86;
 
 export type PageKind = 'world' | 'chapter' | 'home';
 
@@ -99,6 +106,9 @@ export function PageChat({
   title?: string;
   onClose: () => void;
 }) {
+  const { height } = useWindowDimensions();
+  const sheetHeight = Math.round(height * SHEET_SHARE);
+  const top = height - sheetHeight;
   const item = useMemo(
     () =>
       kind === 'home' || !id || !title
@@ -109,23 +119,47 @@ export function PageChat({
             opener: HOME_OPENER,
             starters: PAGE_STARTERS.home,
             onClose,
+            sheet: { top },
           }
         : {
             anchor: { id, type: kind, title },
             label: LABEL[kind],
             starters: PAGE_STARTERS[kind],
             onClose,
+            sheet: { top },
           },
-    [id, kind, title, onClose],
+    [id, kind, title, onClose, top],
   );
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="fullScreen"
-      onRequestClose={onClose}
-    >
-      {visible ? <AskGremlyScreen item={item} /> : null}
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <Pressable
+          style={styles.scrim}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close the chat"
+          testID="page-chat-scrim"
+        />
+        <View style={[styles.sheet, { height: sheetHeight }]} accessibilityViewIsModal>
+          {visible ? <AskGremlyScreen item={item} /> : null}
+        </View>
+      </View>
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: 'flex-end' },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: W.scrim },
+  sheet: {
+    backgroundColor: W.linen,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#1A3328',
+    shadowOpacity: 0.16,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: -10 },
+    elevation: 12,
+  },
+});

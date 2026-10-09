@@ -199,6 +199,12 @@ export type ItemChatOptions = {
    */
   loadStarters?: () => Promise<ItemStarter[]>;
   onClose: () => void;
+  /**
+   * Shown as a sheet over its page rather than a full screen (a World's or a
+   * Chapter's chat, components/worlds/PageChat.tsx): the sheet's top, from the
+   * top of the screen, so the keyboard is measured against it
+   */
+  sheet?: { top: number };
 };
 
 /** How long a new item chat waits for starters drawn from the item */
@@ -2041,22 +2047,54 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
   );
 
   const inConversation = activeChat !== null;
+  // a page's chat as a sheet over its page (the Worlds rebuild's mockup)
+  const sheet = item?.sheet ?? null;
 
   return (
     <SafeAreaView
-      style={[styles.safe, item ? { paddingTop: insets.top } : null]}
+      style={[styles.safe, item && !sheet ? { paddingTop: insets.top } : null]}
       edges={embedded || item ? ['left', 'right'] : ['top', 'left', 'right']}
     >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={sheet ? sheet.top : 0}
         enabled={!embedded}
       >
         {/* Header. Inside the Gremly home the switch above names the page, so
             this is a slim row: history on the left, the chat's title in the
             middle, save and new chat on the right. */}
-        {item ? (
+        {item && sheet ? (
+          // a page's chat as a sheet: Gremly, on the page, and a close
+          <View testID="item-chat-header">
+            <View style={styles.sheetGrab} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle} numberOfLines={1} accessibilityRole="header">
+                {item.anchor?.title ? `Gremly, on ${item.anchor.title}` : 'Gremly'}
+              </Text>
+              {inConversation ? (
+                <TouchableOpacity
+                  style={styles.sheetBtnPlain}
+                  onPress={() => setSaveSheetVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save from this chat"
+                >
+                  <Bookmark size={20} color={MOSS} />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={styles.sheetClose}
+                onPress={item.onClose}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                testID="item-chat-close"
+              >
+                <X size={20} color={MOSS} strokeWidth={2.2} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : item ? (
           // an item's chat: back to the item, the item named in the middle
           <View style={styles.chatHeader} testID="item-chat-header">
             <TouchableOpacity
@@ -2450,7 +2488,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             ) : null}
           </>
         ) : (
-          <View style={styles.bottomSection}>
+          <View
+            style={[
+              styles.bottomSection,
+              sheet ? { paddingBottom: Math.max(insets.bottom, 12) + 4 } : null,
+            ]}
+          >
             <View style={styles.composerContainer}>
               <SaveIndicatorPill
                 count={extractions.length}
@@ -2478,9 +2521,11 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 placeholder={
                   awaitingAnswer
                     ? BRIEF_COPY.answerPlaceholder
-                    : inConversation || item
-                      ? 'Type a message...'
-                      : 'Ask Gremly anything...'
+                    : sheet
+                      ? 'Say more'
+                      : inConversation || item
+                        ? 'Type a message...'
+                        : 'Ask Gremly anything...'
                 }
                 initialText={autoSendKey ? undefined : prefillPrompt || undefined}
               />
@@ -2777,6 +2822,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 10,
+  },
+  // a page's chat as a sheet (the Worlds rebuild's mockup)
+  sheetGrab: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(46,85,64,0.16)',
+    marginTop: 8,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 20,
+    paddingRight: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  sheetTitle: {
+    flex: 1,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 20,
+    lineHeight: 25,
+    color: '#1A3328',
+  },
+  sheetBtnPlain: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  sheetClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EAF2E8',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chatHeaderBtn: {
     width: 44,
