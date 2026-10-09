@@ -21,7 +21,7 @@ import { AGENT_PROMPT_VERSION } from './prompt.js';
 import { readWeek, weekFrameOf, weekLine, weekVariant } from './brief.js';
 import { placesContext, readPlaces } from './places.js';
 
-export const CHAT_AGENT_VERSION = `chat-2026-10-17b/${AGENT_PROMPT_VERSION}`;
+export const CHAT_AGENT_VERSION = `chat-2026-10-20a/${AGENT_PROMPT_VERSION}`;
 
 /** How many of their items the search before the first step offers. */
 const FOUND_LIMIT = 8;
