@@ -296,7 +296,7 @@ export function formatDailyFocusForChat(focus, today = null) {
 function formatLifeMapForChat(lifeMap, lane, opts = {}) {
   if (!lifeMap?.domains) return '';
 
-  const parts = ['=== LIFE MAP — WHAT MATTERS TO THIS PERSON ==='];
+  const parts = ['=== LIFE MAP: WHAT MATTERS TO THIS PERSON ==='];
 
   for (const domain of lifeMap.domains) {
     const isMatchingDomain =

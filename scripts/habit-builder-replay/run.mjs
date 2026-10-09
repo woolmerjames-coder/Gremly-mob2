@@ -4,7 +4,7 @@
  * person at it. It must name what the app has now, where it really is: the
  * evening wrap up is in Chat, and Lock In and the Sweep banner are gone.
  *
- *   scripts/habit-builder-replay/run.sh [--only id,id] [--repeat n]
+ *   scripts/habit-builder-replay/run.sh [--only id,id] [--repeat n] [--stage NEW|BUILDING|TRUSTED]
  *
  * The model is CHAT_MODEL (workers/cortex/wrangler.toml), as the habit builder
  * runs. Every name and message is made up.
@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { HABIT_BUILDER_PROMPT } from '../../workers/cortex/habitBuilderPrompt.js';
 import { geminiGenerate } from '../../workers/cortex/geminiClient.js';
 import { configureModels } from '../../workers/cortex/models.js';
+import { getAgeGuidance } from '../../workers/cortex/context/gremlyAge.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -28,7 +29,16 @@ const only = flag('--only');
 const repeat = Math.max(1, Number(flag('--repeat') || 1));
 const MODEL = flag('--model') || 'gemini-3-flash-preview';
 
-const CONTEXT = `\n\n=== SESSION CONTEXT ===\nExisting habits: none yet.\nUSER PROFILE: Alex, works in client services, lives with their partner Jo.`;
+// --stage NEW, BUILDING or TRUSTED adds Gremly's voice for how long it has known them, as the habit builder does
+const STAGE_AT = { NEW: [3, 0], BUILDING: [30, 12], TRUSTED: [120, 40] };
+const stage = flag('--stage');
+const age = stage
+  ? getAgeGuidance(new Date(Date.now() - STAGE_AT[stage][0] * 86400000).toISOString(), { message_count: STAGE_AT[stage][1] })
+  : null;
+const CONTEXT = `\n\n=== SESSION CONTEXT ===\nExisting habits: none yet.\nUSER PROFILE: Alex, works in client services, lives with their partner Jo.${age ? `\n${age.promptGuidance}\n` : ''}`;
+// a pattern said as how they always are, or, while Gremly is new, any pattern claimed
+const ABSOLUTE = /\byou (always|never)\b/i;
+const NOTICED = /\bI(['’]ve| have) noticed\b|\byou tend to\b/i;
 
 // What no reply may say: things the app no longer has
 // (top priorities in general are fine; Lock In as a feature is checked below)
@@ -91,6 +101,12 @@ async function runOne(s) {
     const checks = [
       { name: 'Names nothing the app no longer has', ok: !GONE.test(reply), detail: (reply.match(GONE) || [])[0] || '' },
       { name: 'Never names Lock In', ok: !LOCK_IN.test(reply), detail: (reply.match(LOCK_IN) || [])[0] || '' },
+      ...(age
+        ? [
+            { name: 'Never says how they always or never are', ok: !ABSOLUTE.test(reply), detail: (reply.match(ABSOLUTE) || [])[0] || '' },
+            ...(age.stage === 'NEW' ? [{ name: 'Claims no pattern while new', ok: !NOTICED.test(reply), detail: (reply.match(NOTICED) || [])[0] || '' }] : []),
+          ]
+        : []),
     ];
     const warns = s.mentions ? [{ name: `Mentions ${s.mentions}`, ok: s.mentions.test(reply) }] : [];
     return { id: s.id, ok: checks.every((c) => c.ok), ms: Date.now() - started, checks, warns, reply };

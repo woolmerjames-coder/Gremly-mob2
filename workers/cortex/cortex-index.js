@@ -169,6 +169,7 @@ import { fetchInngestWorker } from './inngestWorker.js';
 import { getUserProfile } from './context/userProfile.js';
 import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
+import { TIME_ESTIMATE_RULES, PEOPLE_RULES } from './enrichRules.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
 import { weekReadResponse } from './weekRead.js';
@@ -10324,125 +10325,7 @@ Do NOT invent or over-infer.
 --------------------------------
 FOR TODOS & BUILD HABITS (start_habit):
 --------------------------------
-1. time_estimate_minutes
-Estimate in 5-minute increments from 5 to 240 minutes.
-Use factor-based reasoning, not category lookup.
-
-=== ESTIMATION FRAMEWORK ===
-
-Think through these factors for EVERY task:
-
-**FACTOR 1: What's the core action?**
-Estimate the minimum time if everything went perfectly.
-- Send a text: 1-2 min
-- Make a phone call: 10-15 min
-- Walk somewhere: depends on distance
-- Write something: depends on length/complexity
-- Physical task: depends on scope
-
-**FACTOR 2: Do I need to leave my current location?**
-- Staying put (home/desk): no addition
-- Leaving the house: +15-20 min minimum (getting ready, keys, shoes, return, settle back in)
-- Going somewhere specific: add realistic travel time (round trip)
-
-**FACTOR 3: Are other people or animals involved?**
-- Solo task: you control the pace
-- Another person: +10-15 min (coordination, waiting, social dynamics, conversations run long)
-- Animal (dog walk, vet): +10-15 min (unpredictability, their pace not yours)
-- Group/meeting: +15-20 min (gathering, small talk, herding cats)
-
-**FACTOR 4: Physical world or digital?**
-- Digital: more predictable, usually faster
-- Physical: more variables, more can go wrong, round UP
-
-**FACTOR 5: Is this bounded or open-ended?**
-- Bounded ("pay bill", "send email"): clearer end point, estimate tighter
-- Open-ended ("clean garage", "work on project"): no natural stopping point, estimate higher
-
-**FACTOR 6: What commonly goes wrong?**
-- Can't find something: +5-10 min
-- Technical issues: +5-10 min
-- Waiting (on hold, in line): +10-15 min
-- Unexpected conversation: +10 min
-
-=== THE PROCESS ===
-
-1. Identify the core action and base time
-2. Apply each relevant factor
-3. Add up the total
-4. Round UP to nearest 5 minutes
-5. When uncertain between two estimates, choose the higher one
-
-=== EXAMPLES WITH REASONING ===
-
-**"Walk Bella" (dog walk)**
-- Core: walking (20-25 min)
-- Leave house: yes (+10 min prep/return)
-- Animal involved: yes (+10 min for sniffing, unpredictability)
-- Physical: yes (round up)
-→ Total: 40-45 min → **45 min**
-
-**"Call mom"**
-- Core: phone conversation (15 min)
-- Leave house: no
-- Other person: yes (+15 min, mom calls run long)
-- Digital: yes
-→ Total: 30 min → **30 min**
-
-**"Buy groceries"**
-- Core: shopping (20 min in store)
-- Leave house: yes (+10 min)
-- Travel: yes (+20 min round trip)
-- Physical: yes (round up)
-- Can go wrong: lines, can't find items (+10 min)
-→ Total: 60 min → **60 min**
-
-**"Pay electric bill"**
-- Core: online payment (3-5 min)
-- Leave house: no
-- Solo: yes
-- Digital: yes
-- Bounded: yes
-→ Total: 5-10 min → **10 min**
-
-**"Dentist appointment"**
-- Core: appointment (30-45 min)
-- Leave house: yes (+10 min)
-- Travel: yes (+30 min round trip)
-- Other people: yes (waiting room +15 min)
-- Physical: yes
-→ Total: 85-100 min → **90 min**
-
-**"Write quarterly report"**
-- Core: writing/analysis (60-90 min)
-- Leave house: no
-- Solo: yes
-- Digital: yes
-- Open-ended: somewhat (scope can expand)
-- Deep focus required: yes (add buffer for getting into flow)
-→ Total: 90-120 min → **90 min** (or 120 if complex)
-
-**"Text Sarah about dinner"**
-- Core: typing a message (1-2 min)
-- Everything else: no
-→ Total: 5 min → **5 min**
-
-=== RANGE ANCHORS ===
-
-- Minimum: 5 min (truly instant digital tasks)
-- Maximum: 240 min (4 hours, major project blocks)
-- Most common range: 15-60 min
-
-=== CRITICAL RULES ===
-
-- ALWAYS round UP, never down
-- When uncertain, choose the higher estimate
-- "Quick" tasks that involve leaving the house are never under 30 min
-- Tasks involving other people are rarely under 20 min
-- If the user specifies a duration ("30 min run"), honor their estimate
-- Don't be afraid to estimate 45, 50, 55 min — use the full range
-
-NOTE: If the subtype is "break_habit", SKIP time estimation entirely — return time_estimate_minutes: null. Break habits are about NOT doing something, so they don't have a duration.
+${TIME_ESTIMATE_RULES}
 
 2. time_window
 Only if explicitly mentioned:
@@ -10656,19 +10539,7 @@ TAGS (ALL TYPES):
 --------------------------------
 PEOPLE EXTRACTION:
 --------------------------------
-9. people
-Extract names of people mentioned in the text. Include:
-- Explicit names: "John", "Sarah", "Dr. Smith", "Dave"
-- Relationship words: "mom", "dad", "sister", "brother", "boss", "wife", "husband"
-- Possessive patterns: 
-  - "Dave's birthday" → extract "Dave"
-  - "dad's anniversary" → extract "dad"
-  - "mom's birthday" → extract "mom"
-  - "Sarah's wedding" → extract "Sarah"
-- Referenced people: "the one Sarah recommended" → extract "Sarah"
-- Birthday/event context: "birthday April 27" with name in context → extract that name
-
-Return as array of strings, max 10 people.
+${PEOPLE_RULES}
 
 === OUTPUT ===
 Return ONLY valid JSON.
