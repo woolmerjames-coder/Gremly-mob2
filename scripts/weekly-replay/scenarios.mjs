@@ -15,9 +15,11 @@
  *           a Chapter: their own app with a launch they told Gremly about,
  *           worked on inside its World; a trip filed nowhere; a move inside
  *           a Chapter for a new job. Each is offered as a Chapter.
- *   forming-have-it, forming-said-no, forming-none
+ *   forming-have-it, forming-said-no, forming-none, forming-hinted
  *           the launch that already has a Chapter, the trip they said no to,
- *           and four weeks of ordinary life: nothing is offered.
+ *           four weeks of ordinary life and steps that only point to a move:
+ *           nothing is offered. forming-deciding: a trip still being decided
+ *           is asked about once at most, as an offer or a question.
  */
 
 export const USER = '00000000-0000-4000-8000-0000000000bb';
@@ -822,6 +824,69 @@ function formingInside() {
   };
 }
 
+/** A trip they are still deciding whether to take: asked about once at most, as an offer or a question. */
+function formingDeciding() {
+  const trip = [
+    keyed('flights', 'Look at flights to Lisbon if we go', '2026-10-28'),
+    keyed('leave', 'Ask Sam if we can both get the time off for the wedding', '2026-11-03'),
+  ];
+  const s = base({
+    name: 'Mara',
+    pronouns: 'she/her',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 6, active_days_last_30: 22 },
+    tables: {
+      life_facts: [
+        fact('wedding', "Ines's wedding in Lisbon is on 12 December.", { timing: 'day', state: 'planned', about_date: '2026-12-12', observed_at: at('2026-10-27'), last_confirmed_at: at('2026-11-04') }),
+        fact('deciding', 'Mara has not decided whether to go to the wedding in Lisbon, and needs to talk it over with Sam.', { timing: 'standing', state: 'current', observed_at: at('2026-11-04'), last_confirmed_at: at('2026-11-04') }),
+        fact('work', 'Mara works as a pharmacist.', { timing: 'standing', state: 'current' }),
+      ],
+      life_people: [person('sam', 'Sam', 'partner'), person('ines', 'Ines', 'friend')],
+      worlds: [world('travel', 'Travel'), world('friends', 'Friends')],
+      notes: [journal('j-wed', '2026-11-04', '21:00', 'Wednesday', 'Still not sure about Lisbon. Would love to see Ines married but December is a lot.')],
+      todos: [...trip, ...everyday()],
+      daily_ritual_progress: busyWeek(),
+    },
+  });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, [['wedding', 'ines'], ['deciding', 'sam']]);
+  return {
+    id: 'forming-deciding',
+    look: 'A wedding trip they are still deciding about: it may be offered as a Chapter they can say no to, and it is asked about once at most.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], askedOnce: ['wedding', 'deciding'] },
+  };
+}
+
+/** Steps that only point somewhere: a move they never state. Nothing is offered. */
+function formingHinted() {
+  const s = base({
+    name: 'Rui',
+    pronouns: 'he/him',
+    absence: { last_active_day: '2026-11-08', active_days_last_7: 6, active_days_last_30: 24 },
+    tables: {
+      life_facts: [
+        fact('lesson', 'Rui had a Spanish lesson on 3 November.', { about_date: '2026-11-03' }),
+        fact('flats', 'Rui looked at flats to rent in Seville on 5 November.', { about_date: '2026-11-05' }),
+        fact('council', 'Rui emailed the engineering council about working in Spain on 6 November.', { about_date: '2026-11-06' }),
+        fact('job', 'Rui works as a civil engineer.', { timing: 'standing', state: 'current' }),
+      ],
+      life_people: [person('ana', 'Ana', 'sister')],
+      worlds: [world('home', 'Home'), world('work', 'Work')],
+      notes: [journal('j-sev', '2026-11-05', '22:00', 'Thursday', 'Spent the evening looking at flats in Seville. Some of them have amazing terraces.')],
+      todos: [keyed('vocab', 'Spanish vocabulary, ten minutes', '2026-11-02', { status: 'completed', completed_at: at('2026-11-02', '20:00') }), ...everyday()],
+      daily_ritual_progress: busyWeek(),
+    },
+  });
+  s.tables.life_fact_people = ties(s.tables.life_facts, s.tables.life_people, []);
+  return {
+    id: 'forming-hinted',
+    look: 'Steps that only point to a move he never states: no Chapter is offered; what Gremly thinks belongs in what it is not sure of.',
+    periodEnd: '2026-11-08',
+    ...s,
+    truth: { cards: [1, 5], private: [], health: [], unstated: [], noted: false, forming: { offered: false }, unsure: { life: true } },
+  };
+}
+
 /** Four weeks of ordinary life: nothing with a shape of its own is forming. */
 function formingNone() {
   const s = base({
@@ -869,4 +934,6 @@ export const SCENARIOS = [
   formingOfferedBefore(),
   formingInside(),
   formingNone(),
+  formingDeciding(),
+  formingHinted(),
 ];

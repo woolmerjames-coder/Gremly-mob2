@@ -310,6 +310,14 @@ export function checkPass(s, output, refsSnapshot) {
       }
     }
   }
+  // one thing is asked about once: the questions and a Chapter forming together
+  if (s.truth.askedOnce) {
+    const keyOfFact = new Map(s.tables.life_facts.map((f) => [f.id, f.key]));
+    const about = (r) => s.truth.askedOnce.includes(keyOfFact.get(refs.get(r)?.id));
+    const asked = (output?.questions || []).filter((q) => about(q.fact_ref)).length;
+    const offered = (output?.chapter_forming || []).filter((f) => (f.rests_on || []).some(about)).length;
+    add('it is asked about once at most', asked + offered <= 1, `${asked} questions, ${offered} offers`);
+  }
   if (s.truth.unsure) {
     for (const key of s.truth.unsure.who || []) {
       const id = s.tables.life_people.find((p) => p.key === key)?.id;

@@ -893,6 +893,7 @@ function validateAtoms(
   brief: SummaryBrief,
   facts: HardFacts,
   errors: string[],
+  readsWords = true,
 ): void {
   // image_hint is photo-search metadata, not a factual atom. Strip image_hint values from
   // the scanned text so a scenic keyword cannot trip the date or number scanners.
@@ -940,6 +941,13 @@ function validateAtoms(
 
   // Weekday/date agreement for structured day_of_week fields (existing)
   validateWeekdayDateAgreement(deck, facts, errors);
+
+  // The two checks below read the deck's own words, and run only for the old
+  // summary path (generateAdaptiveSummary), which has no words check of its own
+  // and goes once it is retired. The summary from the weekly pass leaves them to
+  // its writer's rules and the shared words check (18 Oct: no pattern matching
+  // in worker code).
+  if (!readsWords) return;
 
   // Weekday-in-prose ban (v0.7a structural fix). Weekday words appear ONLY in structured
   // day_of_week fields; anywhere else is hallucination territory and rejected outright.
@@ -1094,6 +1102,7 @@ export function factCheckDeterministic(
   deck: unknown,
   brief: SummaryBrief,
   facts: HardFacts,
+  { readsWords = true }: { readsWords?: boolean } = {},
 ): FactCheckResult {
   const errors: string[] = [];
 
@@ -1155,7 +1164,7 @@ export function factCheckDeterministic(
   });
 
   validateSourceRefs(deck, brief, facts, errors);
-  validateAtoms(deck, brief, facts, errors);
+  validateAtoms(deck, brief, facts, errors, readsWords);
   validateHeroMoodArcLength(deck, facts, errors);
 
   return { ok: errors.length === 0, errors };

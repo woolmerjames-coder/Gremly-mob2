@@ -37,7 +37,7 @@ import { weekCountLines } from './context/weekCounts';
 import { wordsRequest, wordsProblem } from '../shared/check/words.js';
 import type { Card, Deck, HardFacts, SummaryBrief, SourceRef } from './summaryTypes';
 
-export const PLAN_WRITER_VERSION = 'summary-plan-2026-10-18a';
+export const PLAN_WRITER_VERSION = 'summary-plan-2026-10-18b';
 const DEFAULT_WRITER_MODEL = 'claude-sonnet-5-5';
 
 // ── The writer ─────────────────────────────────────────────────────────────
@@ -540,7 +540,8 @@ export async function checkDeck(
     confirm?: AskWords;
   },
 ): Promise<DeckCheck> {
-  const fc = factCheckDeterministic(raw, brief, facts);
+  // dates, numbers, quotes and shapes by code; never the deck's words (18 Oct)
+  const fc = factCheckDeterministic(raw, brief, facts, { readsWords: false });
   // a deck written from a plan always has cards: none is a deck to write again
   const cardsGiven = (raw as { cards?: unknown[] })?.cards;
   if (!Array.isArray(cardsGiven) || !cardsGiven.length) fc.errors.push('it gave no cards');

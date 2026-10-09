@@ -66,7 +66,7 @@ import {
   applyUnsure,
 } from './unsure';
 
-export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18r';
+export const WEEKLY_PROMPT_VERSION = 'weekly-2026-10-18u';
 
 function trim(text, n) {
   const s = String(text || '')
@@ -408,11 +408,12 @@ CHAPTERS
 
 A CHAPTER FORMING
 - Look across their whole life as everything here shows it: what they told Gremly, the ledger, their journal, what they said, their list, what they added lately and where each is filed. Notice whether something with a shape of its own is forming that they do not yet have as a Chapter: something the records show them working towards, going through or planning, often with dates. A single task, or something they simply keep up, is not one. Most weeks none is.
-- It may be growing inside one of their Worlds, or within a Chapter they have. A World holds a whole part of their life and never stands in for a Chapter within it, and something within a Chapter they have, with a shape and days of its own beyond that Chapter's, is a Chapter of its own.
-- Only what the records show them doing or planning is offered, and its title and question say nothing the records do not state. What the records only point to, including where the steps they are taking may lead, is never offered as a Chapter: it belongs in not_sure.
-- When one is, give it in chapter_forming: a short title as they would name it, the World it belongs in, its dates only when what they told Gremly says when it happens, and in rests_on everything it rests on: what they told Gremly about it and what they added that it would hold, all of which must belong to it. The days things were written are never its dates. Give at most one, the clearest, and say in unsure whether you are unsure it is a Chapter rather than something passing.
+- It may be growing inside one of their Worlds, or within a Chapter they have. A World holds a whole part of their life and never stands in for a Chapter within it. Something within a Chapter they have, with a shape and days of its own beyond that Chapter's, is offered as a Chapter of its own, even when what it holds is filed in that Chapter: a mention in that Chapter's notes does not stand in for it.
+- Offer only what the records state they are doing, have planned or are deciding about, named as the records name it, and say nothing in its title or question that the records do not state. Steps they are taking that may lead somewhere they have not said they are going are not that: where those steps may lead is only what Gremly thinks, so it is never offered as a Chapter and is given in not_sure instead, to be asked from there.
+- When one is, give it in chapter_forming: a short title as they would name it, the World it belongs in, its dates only when what they told Gremly says when it happens, and in rests_on everything it rests on: what they told Gremly about it and what they added that it would hold, all of which must belong to it. The days things were written are never its dates. Give at most one, the clearest, and say in unsure whether, though they are plainly doing it, it may be too brief or passing to be a Chapter.
 - Write one short, warm question to them, offering it by its title without presuming, and two to four short answers they could tap, among them a no. When you are unsure, one of them leaves it as an idea for now.
 - Never offer one already waiting for their answer, one offered before or one they already have. Something private may be part of it, and is never named or hinted at in its title or its question.
+- A Chapter forming is asked about once: no question in questions asks about the same thing, in any words.
 
 ${NOT_SURE_RULES}
 
@@ -675,6 +676,13 @@ export async function gatherWeek(env, userId, tz, periodEnd) {
   };
 }
 
+/**
+ * What the check is told a thing on their list is: one marked done is what it
+ * names, done (18 Oct: the check refused "bought the bulbs" resting on a done
+ * "Buy tulip bulbs").
+ */
+const ON_THEIR_LIST = 'on their own list, where done means they did what it says, on that day';
+
 /** What they added lately, read for the pass: the last this many days, at most this many things. */
 export const LATELY_DAYS = 28;
 export const LATELY_MOST = 120;
@@ -881,7 +889,7 @@ export function renderWeek(g, today) {
   const itemLines = [...items.values()].map((t) => {
     const m = readFrom.get(t.id);
     const ref = add('t', { type: 'item', ...t, private: !!m?.private, health: !!m?.health });
-    return shown(ref, `${ref} | ${t.added ? `added ${t.added}` : 'added before this week'}${t.done ? `, done ${t.done}` : ''}${t.due ? `, due ${t.due}` : ''}${marksOf(t.id)} | ${trim(t.title, 100)}`, 'on their own list');
+    return shown(ref, `${ref} | ${t.added ? `added ${t.added}` : 'added before this week'}${t.done ? `, done ${t.done}` : ''}${t.due ? `, due ${t.due}` : ''}${marksOf(t.id)} | ${trim(t.title, 100)}`, ON_THEIR_LIST);
   });
   // what they added lately, by a ref a Chapter forming can rest on, with
   // where each is filed: the Worlds and open Chapters by their refs
@@ -894,7 +902,7 @@ export function renderWeek(g, today) {
       ...(it.chapters || []).filter((id) => chapterRefOf.has(id)).map((id) => `${chapterRefOf.get(id)} ${trim(chapterName.get(id), 50)}`),
     ];
     const what = it.type === 'note' ? (it.subtype === 'journal' ? 'journal entry' : 'note') : it.type === 'todo' ? 'on their list' : 'habit';
-    return shown(ref, `${ref} | ${what} | added ${dayOf(it.created_at)}${it.done ? `, done ${it.done}` : ''}${it.private ? ' [private]' : ''}${it.health ? ' [health]' : ''} | ${where.length ? `filed in ${where.join('; ')}` : 'filed in no World or Chapter'} | ${trim(it.title, 100)}${it.body && it.body !== it.title ? `: ${trim(it.body, 200)}` : ''}`, 'something they added themselves');
+    return shown(ref, `${ref} | ${what} | added ${dayOf(it.created_at)}${it.done ? `, done ${it.done}` : ''}${it.private ? ' [private]' : ''}${it.health ? ' [health]' : ''} | ${where.length ? `filed in ${where.join('; ')}` : 'filed in no World or Chapter'} | ${trim(it.title, 100)}${it.body && it.body !== it.title ? `: ${trim(it.body, 200)}` : ''}`, it.type === 'todo' ? ON_THEIR_LIST : 'something they added themselves');
   });
   const formingLines = [
     ...((g.forming?.waiting || []).map((x) => `- waiting for their answer: ${trim(x.title, 80)}`)),
