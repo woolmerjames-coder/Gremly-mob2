@@ -186,7 +186,7 @@ describe('selectDiscoveredPeople', () => {
   it('discovers people from habits and notes too', () => {
     const state = makeState({
       habits: [
-        makeHabit({ name: 'Exercise with Dave', views: { people: ['Dave'] } as any }),
+        makeHabit({ name: 'Exercise with Theo', views: { people: ['Theo'] } as any }),
       ],
       notes: [
         makeNote({ body: 'Chatted with Eve', views: { people: ['Eve'] } as any }),
@@ -194,7 +194,7 @@ describe('selectDiscoveredPeople', () => {
     });
     const result = selectDiscoveredPeople(state as any);
     expect(result).toHaveLength(2);
-    expect(result.map((p) => p.name).sort()).toEqual(['Dave', 'Eve']);
+    expect(result.map((p) => p.name).sort()).toEqual(['Eve', 'Theo']);
   });
 
   it('ignores archived items', () => {

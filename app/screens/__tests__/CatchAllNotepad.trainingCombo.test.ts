@@ -53,14 +53,14 @@ describe('Training speech combo — reaction event handler', () => {
     const result = simulateTrainingReactionHandler({
       trainingDropStep: 1,
       isTrainingMode: true,
-      rawReaction: 'Bella time!',
-      message: 'Nice one! Bella time!',
+      rawReaction: 'Pepper time!',
+      message: 'Nice one! Pepper time!',
       getTrainingDropPrompt: jest.fn(),
       pendingRef,
     });
 
     expect(result).toEqual({ stashed: true });
-    expect(pendingRef.current).toBe('Bella time!');
+    expect(pendingRef.current).toBe('Pepper time!');
   });
 
   it('step 1: stashes null when no rawReaction', () => {
@@ -167,7 +167,7 @@ describe('Training speech combo — gauge modal dismiss', () => {
   }
 
   it('combines stashed reaction with training prompt', () => {
-    const pendingRef = { current: 'Bella time!' };
+    const pendingRef = { current: 'Pepper time!' };
     const getPrompt = () => ({ message: 'Now try dropping another thought!' });
 
     const result = simulateGaugeDismiss({
@@ -175,7 +175,7 @@ describe('Training speech combo — gauge modal dismiss', () => {
       getTrainingDropPrompt: getPrompt,
     });
 
-    expect(result).toBe('Bella time!\n\nNow try dropping another thought!');
+    expect(result).toBe('Pepper time!\n\nNow try dropping another thought!');
     expect(pendingRef.current).toBeNull(); // Ref should be cleared
   });
 

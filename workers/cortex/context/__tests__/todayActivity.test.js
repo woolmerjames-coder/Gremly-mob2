@@ -18,7 +18,7 @@ function reads(asked = []) {
     const q = u.searchParams;
     let rows = [];
     if (u.pathname.endsWith('/notes') && q.get('subtype') === 'eq.event') {
-      rows = [{ title: 'Dinner with Jen', event_time: '19:00', target_date: q.get('target_date') }];
+      rows = [{ title: 'Dinner with Mira', event_time: '19:00', target_date: q.get('target_date') }];
     }
     return { ok: true, json: async () => rows, text: async () => JSON.stringify(rows) };
   });
@@ -42,7 +42,7 @@ test('after midnight it reads their day, and that day’s calendar has all passe
     (u) => u.pathname.endsWith('/notes') && u.searchParams.get('subtype') === 'eq.event',
   );
   expect(events.searchParams.get('target_date')).toBe('eq.2026-10-03');
-  expect(text).toContain('Events done: "Dinner with Jen" (19:00)');
+  expect(text).toContain('Events done: "Dinner with Mira" (19:00)');
   expect(text).not.toContain('Still ahead');
 });
 
@@ -54,7 +54,7 @@ test('with no day given it reads the calendar’s date, as before', async () => 
   const habits = asked.find((u) => u.pathname.endsWith('/habit_progress'));
   expect(habits.searchParams.get('occurred_day')).toBe('eq.2026-10-04');
   // 7pm on the Sunday is still ahead at 1:46am
-  expect(text).toContain('Still ahead: "Dinner with Jen" (19:00)');
+  expect(text).toContain('Still ahead: "Dinner with Mira" (19:00)');
 });
 
 test('what they did today counts by when it was done, whatever its status says', async () => {

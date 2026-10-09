@@ -189,19 +189,19 @@ describe('gremlyAge', () => {
       return d.toISOString();
     };
 
-    it('NEW stage guidance mentions asking questions', () => {
+    it('NEW stage guidance asks rather than assumes', () => {
       const result = getAgeGuidance(null, null);
 
       expect(result.promptGuidance).toContain('VOICE MODE: NEW');
-      expect(result.promptGuidance).toContain('Ask questions');
+      expect(result.promptGuidance).toContain('Ask rather than assume');
     });
 
-    it('BUILDING stage guidance mentions hedging', () => {
+    it('BUILDING stage guidance says what it noticed as lately, never as how they are', () => {
       const signals = { message_count: 15, patterns: { todoCount: 25 } };
       const result = getAgeGuidance(createDateDaysAgo(30), signals);
 
       expect(result.promptGuidance).toContain('VOICE MODE: BUILDING');
-      expect(result.promptGuidance).toContain('Hedge');
+      expect(result.promptGuidance).toContain('noticed lately, never as how they are');
     });
 
     it('TRUSTED stage guidance mentions warm familiar relationship', () => {

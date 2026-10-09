@@ -41,7 +41,7 @@ const ITEMS = [
   { id: 'report', kind: 'todo', title: 'Write the quarterly report', due_day: FRI, minutes: 180, note: 'upcoming' },
   { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: MON, minutes: 60, note: 'upcoming' },
   { id: 'taxes', kind: 'todo', title: 'Do taxes', due_day: TUE, minutes: 60, note: 'upcoming' },
-  { id: 'vet', kind: 'todo', title: 'Book the vet for Bella', due_day: WED, minutes: 15, note: 'upcoming' },
+  { id: 'vet', kind: 'todo', title: 'Book the vet for Pepper', due_day: WED, minutes: 15, note: 'upcoming' },
   { id: 'passport', kind: 'todo', title: 'Renew passport', due_day: THU, minutes: 30, note: 'upcoming' },
   { id: 'gift', kind: 'todo', title: 'Find a present for Sam', due_day: THU, minutes: 45, note: 'upcoming' },
   { id: 'garage', kind: 'todo', title: 'Clear out the garage', due_day: SAT, minutes: 120, note: 'upcoming' },

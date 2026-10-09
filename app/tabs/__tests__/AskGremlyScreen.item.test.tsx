@@ -139,7 +139,7 @@ import AskGremlyScreen from '../AskGremlyScreen';
 import { ITEM_STARTERS } from '../../../lib/chat/itemStarters';
 
 const item = (over: Record<string, unknown> = {}) => ({
-  anchor: { id: 't1', type: 'todo' as const, title: 'Walk Bella' },
+  anchor: { id: 't1', type: 'todo' as const, title: 'Walk Pepper' },
   label: 'Todo',
   initialPrompt: null,
   starters: ITEM_STARTERS.todo,
@@ -160,10 +160,10 @@ describe('an item chat outside any screen', () => {
     const opened = item();
     const { getByTestId, getByText, findByTestId } = render(<AskGremlyScreen item={opened} />);
     expect(getByTestId('item-chat-header')).toBeTruthy();
-    expect(getByText('Walk Bella')).toBeTruthy();
+    expect(getByText('Walk Pepper')).toBeTruthy();
     expect(getByText('Todo')).toBeTruthy();
     await findByTestId('chat-about-opener');
-    expect(getByTestId('bubble').props.children).toMatch(/Walk Bella/);
+    expect(getByTestId('bubble').props.children).toMatch(/Walk Pepper/);
     expect(getByTestId('item-starter-break_down')).toBeTruthy();
     expect(mockFindItemChat).toHaveBeenCalledWith('u1', 't1');
     expect(opened.onClose).not.toHaveBeenCalled();
@@ -182,7 +182,7 @@ describe('an item chat outside any screen', () => {
   });
 
   it('carries on the chat the item already has', async () => {
-    mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Bella' });
+    mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Pepper' });
     render(<AskGremlyScreen item={item()} />);
     await waitFor(() => expect(mockStoreState.setActiveGeneralChat).toHaveBeenCalledWith('c9'));
   });
@@ -255,16 +255,16 @@ describe('an item chat outside any screen', () => {
         status: 'open',
         changes: [],
         card: [
-          { cid: 'c1', op: 'change', type: 'todo', id: 't1', title: 'Walk Bella', fields: {} },
+          { cid: 'c1', op: 'change', type: 'todo', id: 't1', title: 'Walk Pepper', fields: {} },
           { cid: 'c2', op: 'change', type: 'todo', id: 't2', title: 'Call the vet', fields: {} },
         ],
       },
     };
     beforeEach(() => {
-      mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Bella' });
+      mockFindItemChat.mockResolvedValue({ id: 'c9', title: 'Walk Pepper' });
       mockChat.messages = [card];
       mockStoreState.todos = [
-        { id: 't1', name: 'Walk Bella' },
+        { id: 't1', name: 'Walk Pepper' },
         { id: 't2', name: 'Call the vet' },
       ];
       mockStoreState.notes = [];

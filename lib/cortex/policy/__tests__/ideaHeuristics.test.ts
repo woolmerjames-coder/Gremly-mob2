@@ -25,7 +25,7 @@ describe('idea heuristics', () => {
   });
 
   it('ignores pure question', () => {
-    const result = analyzeIdeaShape('What should we do in Puerto Escondido?');
+    const result = analyzeIdeaShape('What should we do in Sagres?');
     expect(result.looksLikeIdea).toBe(false);
     expect(result.reasons).toContain('question');
   });

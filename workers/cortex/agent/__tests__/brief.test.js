@@ -247,7 +247,7 @@ describe('the day the agent knows', () => {
   it("knows what today is about, from Gremly's picture of their day", () => {
     const dco = {
       lead_story: {
-        what: 'Anniversary weekend with Dave in San Diego',
+        what: 'Anniversary weekend with Theo in San Diego',
         why_today: 'A multi-day trip celebrating your anniversary, running through Sunday.',
       },
       day_frame: { away: { label: 'San Diego anniversary trip', through: '2026-10-04' } },
@@ -255,7 +255,7 @@ describe('the day the agent knows', () => {
     };
     expect(dayMeaning(dco)).toBe(
       "WHAT TODAY IS ABOUT (Gremly's picture of their day)\n" +
-        '- Anniversary weekend with Dave in San Diego: A multi-day trip celebrating your anniversary, running through Sunday.\n' +
+        '- Anniversary weekend with Theo in San Diego: A multi-day trip celebrating your anniversary, running through Sunday.\n' +
         '- Away: San Diego anniversary trip, until Sunday 2026-10-04\n' +
         "- How Gremly's brief is pitching today: Keep things warm and unhurried.",
     );
@@ -616,14 +616,14 @@ describe('a message typed while the evening wrap up is under way', () => {
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday or Monday?",
-        item: { id: VET, kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday or Monday?",
+        item: { id: VET, kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     });
     const text = wrapContext(wrap);
     expect(text).toContain("THEIR MESSAGE ANSWERS GREMLY'S QUESTION");
     expect(text).toContain(
-      `Gremly asked: "Is Bella's vet visit on Friday or Monday?", about their todo "Take Bella to the vet" (id ${VET}), Fri 9 Oct.`,
+      `Gremly asked: "Is Pepper's vet visit on Friday or Monday?", about their todo "Take Pepper to the vet" (id ${VET}), Fri 9 Oct.`,
     );
     // the case that changes nothing comes first, and is the whole turn
     expect(text).toContain('Then see whether that item already agrees with the answer.');

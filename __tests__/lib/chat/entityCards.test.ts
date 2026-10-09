@@ -30,7 +30,7 @@ const dentist = {
 const vet = {
   id: 'n1',
   type: 'note' as const,
-  title: 'Bella Vet Appointment',
+  title: 'Pepper Vet Appointment',
   due_day: null,
   due_time: null,
 };
@@ -140,12 +140,12 @@ describe('entity card wording', () => {
     );
     expect(
       editPillTitle({
-        entity_title: 'Bella Vet Appointment',
+        entity_title: 'Pepper Vet Appointment',
         entity_type: 'note',
         field: 'due_day',
         to: '2031-10-03',
       }),
-    ).toBe('Update Bella Vet Appointment to Fri 3 Oct');
+    ).toBe('Update Pepper Vet Appointment to Fri 3 Oct');
     expect(
       editPillTitle({ entity_title: 'Morning run', field: 'frequency', to: 'three days a week' }),
     ).toBe('Update Morning run to three days a week');

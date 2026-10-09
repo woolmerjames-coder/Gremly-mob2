@@ -108,7 +108,7 @@ describe('Talk it through and the first week line', () => {
     mockParams = {
       mode: 'chat',
       talkKey: 'talk-1',
-      talkAbout: { id: 't1', type: 'todo', title: 'Walk Bella', label: 'To-do' },
+      talkAbout: { id: 't1', type: 'todo', title: 'Walk Pepper', label: 'To-do' },
     };
     render(<GremlyHomeScreen />);
     expect(mockFocus).not.toHaveBeenCalled();

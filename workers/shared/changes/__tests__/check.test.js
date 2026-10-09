@@ -328,7 +328,7 @@ describe('other changes', () => {
 
   it("reads a change to today's plan", () => {
     const plan = (p) => checkChange({ op: 'plan', plan: p }, ctx(null)).ok;
-    expect(plan({ kind: 'add_block', title: 'Pick up Bella', start: 900 })).toBe(true);
+    expect(plan({ kind: 'add_block', title: 'Pick up Pepper', start: 900 })).toBe(true);
     expect(plan({ kind: 'add_block', title: '', start: 900 })).toBe(false);
     expect(plan({ kind: 'plan_move', id: 't1', start: 2000 })).toBe(false);
   });

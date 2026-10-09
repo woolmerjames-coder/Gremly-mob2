@@ -285,7 +285,7 @@ Create a SHORT, scannable title (3-5 words ideal, max 7 words).
 - Remove context that belongs in tags instead
 
 EXAMPLES:
-- "Pick up Bella from the walker" → "Pick up Bella"
+- "Pick up Pepper from the walker" → "Pick up Pepper"
 - "Call mom about weekend plans" → "Call mom" 
 - "Buy groceries for dinner" → "Buy groceries"
 - "Schedule dentist appointment for next week" → "Schedule dentist"
@@ -311,7 +311,7 @@ EXAMPLES:
 
 === PEOPLE RULES ===
 Extract proper names as people, NOT as tags.
-- "Bella", "Mom", "Dr. Smith", "Dave" → people array
+- "Pepper", "Mom", "Dr. Smith", "Theo" → people array
 - These should NEVER appear in tags
 
 === TIME ESTIMATE (todos only) ===

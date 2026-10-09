@@ -167,8 +167,8 @@ describe('Phase 1C: Aggressive Tag Filtering', () => {
     });
 
     it('handles mixed prefix formats', () => {
-      const result = filterAndNormalizeTags(['#project', '@Dave', '*journal', 'wellness']);
-      expect(result).toContain('@dave'); // Normalized to lowercase
+      const result = filterAndNormalizeTags(['#project', '@Theo', '*journal', 'wellness']);
+      expect(result).toContain('@theo'); // Normalized to lowercase
       expect(result).toContain('*journal');
       expect(result).toContain('#project');
       expect(result).toContain('#wellness');

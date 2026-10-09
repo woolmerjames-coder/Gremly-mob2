@@ -173,7 +173,7 @@ describe('the stream, in Gemini shape', () => {
   test('text across chunk boundaries, a function call and the usage', async () => {
     const raw = [
       ev({ type: 'response.created', response: { id: 'r1' } }),
-      ev({ type: 'response.output_text.delta', delta: 'Bella ' }),
+      ev({ type: 'response.output_text.delta', delta: 'Pepper ' }),
       // one event split across two chunks
       ev({ type: 'response.output_text.delta', delta: 'is home.' }).slice(0, 30),
       ev({ type: 'response.output_text.delta', delta: 'is home.' }).slice(30),
@@ -189,7 +189,7 @@ describe('the stream, in Gemini shape', () => {
       ev({ type: 'response.completed', response: { model: 'gpt-6-luna', usage: USAGE } }),
     ];
     const out = await readAsSurface(geminiShapedStream(sse(raw), () => {}));
-    expect(out.reply).toBe('Bella is home.');
+    expect(out.reply).toBe('Pepper is home.');
     expect(out.calls).toEqual([
       {
         name: 'web_search',

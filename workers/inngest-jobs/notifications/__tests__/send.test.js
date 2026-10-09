@@ -241,7 +241,7 @@ describe('decide', () => {
   });
 
   it('gives the words what makes a day not clear: habits, Sweep and what is dated today', async () => {
-    // 2 October for Dave: no meetings, nothing due, but habits, Sweep and a trip
+    // 2 October for Theo: no meetings, nothing due, but habits, Sweep and a trip
     gatherBrief.mockResolvedValue({
       now: 7 * 60,
       meetings: [],

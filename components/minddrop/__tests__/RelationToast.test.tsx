@@ -36,7 +36,7 @@ const payload = (
   target: { id: string; type: 'todo' | 'habit' | 'note' } | null = { id: 'n1', type: 'note' },
 ) => ({
   icon: 'moved' as const,
-  title: 'Moved “Bella Vet Appointment” to Thu 1 Oct, 4:00pm',
+  title: 'Moved “Pepper Vet Appointment” to Thu 1 Oct, 4:00pm',
   detail: 'Drop archived',
   undo,
   target,
@@ -47,7 +47,7 @@ describe('RelationToast', () => {
     const undo = jest.fn(async () => {});
     const { findByText, getByTestId } = render(<RelationToastHost />);
     act(() => eventBus.emit('minddrop:relation_done', payload(undo)));
-    await findByText('Moved “Bella Vet Appointment” to Thu 1 Oct, 4:00pm');
+    await findByText('Moved “Pepper Vet Appointment” to Thu 1 Oct, 4:00pm');
     await findByText('Drop archived');
     fireEvent.press(getByTestId('relation-toast-undo'));
     await waitFor(() => expect(undo).toHaveBeenCalledTimes(1));

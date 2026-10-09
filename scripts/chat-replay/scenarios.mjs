@@ -18,7 +18,7 @@ export const SCENARIOS = [
     id: 'vet-friday',
     kind: 'Change an existing item',
     text: 'I need to change the vet appointment to friday',
-    items: [{ id: 'vet', kind: 'todo', title: 'Take Bella to the Vet', due_day: '2026-10-05', due_time: '10:00' }],
+    items: [{ id: 'vet', kind: 'todo', title: 'Take Pepper to the Vet', due_day: '2026-10-05', due_time: '10:00' }],
     expect: { rows: 1, row: (c) => c.op === 'change' && c.id === 'vet' && c.fields?.day === '2026-10-09' },
   },
   {
@@ -50,13 +50,13 @@ export const SCENARIOS = [
   {
     id: 'mexico-note',
     kind: 'Add to a note',
-    text: 'Add to the Mexico note: look at the Oaxaca to Puerto Escondido flight instead of the bus',
+    text: 'Add to the Mexico note: look at the Porto to Sagres flight instead of the bus',
     items: [
       {
         id: 'mex',
         kind: 'note',
         title: 'Mexico trip ideas',
-        body: 'Mexico City, Oaxaca, Puerto Escondido. The bus from Oaxaca to the coast takes nine hours.',
+        body: 'Mexico City, Porto, Sagres. The bus from Porto to the coast takes nine hours.',
       },
     ],
     expect: {
@@ -65,10 +65,10 @@ export const SCENARIOS = [
       row: (c) => {
         if (c.op !== 'change' || c.id !== 'mex') return false;
         const text = c.fields?.text ?? c.fields?.body;
-        const flight = (t) => /fl(y|ight)/i.test(t) && /Puerto Escondido/i.test(t);
+        const flight = (t) => /fl(y|ight)/i.test(t) && /Sagres/i.test(t);
         if (text && typeof text === 'object' && 'add' in text) return flight(String(text.add));
         const all = JSON.stringify(c.fields || {});
-        return flight(all) && /bus from Oaxaca to the coast/i.test(all);
+        return flight(all) && /bus from Porto to the coast/i.test(all);
       },
     },
   },

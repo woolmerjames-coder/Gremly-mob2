@@ -16,13 +16,13 @@ describe('chat anchor', () => {
   const item = {
     id: 'todo-1',
     type: 'todo' as const,
-    title: 'Take Bella for a walk',
+    title: 'Take Pepper for a walk',
     label: 'To-do',
   };
 
   it('saves the item on the opener and reads it back from the chat', () => {
     const anchor = anchorOf(item);
-    expect(anchor).toEqual({ id: 'todo-1', type: 'todo', title: 'Take Bella for a walk' });
+    expect(anchor).toEqual({ id: 'todo-1', type: 'todo', title: 'Take Pepper for a walk' });
     const messages = [
       msg({ id: 'a', content: 'Sure, let us talk', metadata_json: anchorMetadata(anchor) as any }),
       msg({ id: 'b', role: 'user', content: 'I keep putting it off' }),

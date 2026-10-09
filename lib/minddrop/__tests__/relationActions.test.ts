@@ -38,14 +38,14 @@ jest.mock('../../date/DateService', () => ({ dateService: { today: () => '2026-0
 const todo: RelationEntity = {
   id: 't1',
   type: 'todo',
-  title: 'Send Q3 deck to Rachel',
+  title: 'Send Q3 deck to Priya',
   due_day: '2026-10-01',
   due_time: null,
 };
 const other: RelationEntity = {
   id: 't2',
   type: 'todo',
-  title: 'Send Q4 plan to Rachel',
+  title: 'Send Q4 plan to Priya',
   due_day: null,
   due_time: null,
 };
@@ -53,7 +53,7 @@ const other: RelationEntity = {
 function baseDrop(over: Partial<QueuedDrop> = {}): QueuedDrop {
   return {
     localId: 'drop-1',
-    text: 'Sent the deck to Rachel',
+    text: 'Sent the deck to Priya',
     source: 'minddrop',
     phase: 'classified',
     classifyEngine: 'v3',
@@ -80,7 +80,7 @@ function heldNote(rel: DropRelation, classified: Partial<HeldRelation['classifie
     id: 'note-1',
     type: 'note',
     title: 'Sent the deck',
-    body: 'Sent the deck to Rachel',
+    body: 'Sent the deck to Priya',
     subtype: 'catchall',
     views: {
       minddrop_stage: 'enriched',
@@ -94,14 +94,14 @@ function resetStore(notes: any[]) {
   mockState.todos = [
     {
       id: 't1',
-      name: 'Send Q3 deck to Rachel',
+      name: 'Send Q3 deck to Priya',
       due_day: '2026-10-01',
       completed_at: null,
       archived: false,
     },
     {
       id: 't2',
-      name: 'Send Q4 plan to Rachel',
+      name: 'Send Q4 plan to Priya',
       due_day: null,
       completed_at: null,
       archived: false,
@@ -244,7 +244,7 @@ describe('applyDropRelation', () => {
     );
     expect(mockState.archiveNote).toHaveBeenCalledWith('note-1', 'minddrop_relation');
     expect(relationOfNote().status).toBe('applied');
-    expect(outcome.summary).toBe('Send Q3 deck to Rachel is done.');
+    expect(outcome.summary).toBe('Send Q3 deck to Priya is done.');
 
     await outcome.undo();
     expect(mockRevert).toHaveBeenCalled();
@@ -323,7 +323,7 @@ describe('applyDropRelation', () => {
       { field: 'body_add', from: null, to: 'with the appendix' },
       { source: 'minddrop' },
     );
-    expect(outcome.summary).toMatch(/Kept Send Q3 deck to Rachel/);
+    expect(outcome.summary).toMatch(/Kept Send Q3 deck to Priya/);
   });
 
   it('removes the item for a cancellation, and Undo restores it', async () => {
@@ -345,13 +345,13 @@ describe('applyDropRelation', () => {
     const logged: DropRelation = {
       kind: 'edit',
       intent: 'logged',
-      entity: { id: 'h1', type: 'habit', title: 'Walk Bella', frequency: 'daily', logged_days: [] },
+      entity: { id: 'h1', type: 'habit', title: 'Walk Pepper', frequency: 'daily', logged_days: [] },
       others: [],
       confidence: 95,
       change: { field: 'logged', from: null, to: '2026-09-30' },
     };
     resetStore([heldNote(logged)]);
-    mockState.habits = [{ id: 'h1', name: 'Walk Bella', frequency: 'daily' }];
+    mockState.habits = [{ id: 'h1', name: 'Walk Pepper', frequency: 'daily' }];
     mockState.habitProgress = [{ habit_id: 'h1', occurred_day: '2026-09-30' }];
     await expect(applyDropRelation('note-1')).rejects.toThrow('already logged');
     expect(applyEntityChange).not.toHaveBeenCalled();
@@ -405,7 +405,7 @@ describe('what the toast says', () => {
     expect(w.confirm).toBe('Moved');
     expect(w.toast).toEqual({
       icon: 'moved',
-      title: 'Moved “Send Q3 deck to Rachel” to Thu 1 Oct, 4:00pm',
+      title: 'Moved “Send Q3 deck to Priya” to Thu 1 Oct, 4:00pm',
       detail: 'Drop archived',
     });
 
@@ -417,7 +417,7 @@ describe('what the toast says', () => {
         false,
         false,
       ).toast.title,
-    ).toBe('Marked “Send Q3 deck to Rachel” done');
+    ).toBe('Marked “Send Q3 deck to Priya” done');
     const same = held({
       kind: 'same',
       intent: 'same',
@@ -428,9 +428,9 @@ describe('what the toast says', () => {
     });
     expect(outcomeWords(same, todo, null, false, false)).toMatchObject({
       confirm: 'Kept one',
-      toast: { icon: 'kept', title: 'Kept “Send Q3 deck to Rachel”' },
+      toast: { icon: 'kept', title: 'Kept “Send Q3 deck to Priya”' },
     });
-    const habit: RelationEntity = { id: 'h1', type: 'habit', title: 'Walk Bella' };
+    const habit: RelationEntity = { id: 'h1', type: 'habit', title: 'Walk Pepper' };
     const journal = {
       ...held(complete),
       classified: { ...held(complete).classified, bucket: 'log' as const, subtype: 'journal' },
@@ -449,7 +449,7 @@ describe('what the toast says', () => {
         .toast,
     ).toEqual({
       icon: 'logged',
-      title: 'Logged “Walk Bella” for today',
+      title: 'Logged “Walk Pepper” for today',
       detail: 'Your journal entry stays',
     });
   });

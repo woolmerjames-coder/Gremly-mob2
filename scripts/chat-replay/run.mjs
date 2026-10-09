@@ -268,7 +268,7 @@ async function runOne(s, modelKey) {
       timezone: TZ,
       messages: [...(s.history || []), { role: 'user', content: s.text }],
       preload: {
-        profileText: s.profileText || 'IDENTITY: Alex. Lives in San Francisco with their partner Jo and their dog Bella. Works in client services, and is building an app on the side.',
+        profileText: s.profileText || 'IDENTITY: Alex. Lives in San Francisco with their partner Jo and their dog Pepper. Works in client services, and is building an app on the side.',
         // the week ahead, and the ledger's dated things ahead when the scenario has them
         sessionContext: [
           formatWeekAhead(weekOf(s, to)),

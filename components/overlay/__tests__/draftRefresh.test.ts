@@ -85,21 +85,21 @@ describe('refreshedDraft', () => {
   it('brings in every part that changed and that they left alone', () => {
     const moved = {
       ...was,
-      compactTitle: 'Vet visit for Bella',
+      compactTitle: 'Vet visit for Pepper',
       itemReminders: [{ id: 'r1' }],
-      todo: { ...was.todo, title: 'Vet visit for Bella', due_day: '2026-10-09' },
+      todo: { ...was.todo, title: 'Vet visit for Pepper', due_day: '2026-10-09' },
     };
     const out = refreshedDraft(was, was, moved, null);
-    expect(out.compactTitle).toBe('Vet visit for Bella');
+    expect(out.compactTitle).toBe('Vet visit for Pepper');
     expect(out.itemReminders).toEqual([{ id: 'r1' }]);
-    expect(out.todo).toEqual({ ...was.todo, title: 'Vet visit for Bella', due_day: '2026-10-09' });
+    expect(out.todo).toEqual({ ...was.todo, title: 'Vet visit for Pepper', due_day: '2026-10-09' });
   });
 
   it('leaves a part they changed, even when the item changed it too', () => {
     const draft = { ...was, todo: { ...was.todo, due_day: '2026-10-12' }, compactTitle: 'Vet' };
     const moved = {
       ...was,
-      compactTitle: 'Vet visit for Bella',
+      compactTitle: 'Vet visit for Pepper',
       todo: { ...was.todo, due_day: '2026-10-09' },
     };
     expect(refreshedDraft(draft, was, moved, null)).toEqual({});

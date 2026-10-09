@@ -2814,7 +2814,7 @@ describe('selectSweepCandidatesUnified: held drops', () => {
   const relation = (status: string) => ({
     kind: 'same',
     intent: 'same',
-    entity: { id: 't9', type: 'todo', title: 'Walk Bella' },
+    entity: { id: 't9', type: 'todo', title: 'Walk Pepper' },
     others: [],
     confidence: 90,
     extra: null,

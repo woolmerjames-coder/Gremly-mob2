@@ -203,7 +203,7 @@ describe('applying the change card', () => {
   it('set times that could not be saved are not done', async () => {
     (patchDailyThreadMeta as jest.Mock).mockRejectedValueOnce(new Error('offline'));
     const res = await applyDayChanges(
-      [change({ cid: 'c1', kind: 'add_block', title: 'Pick up Bella', start: 900 })],
+      [change({ cid: 'c1', kind: 'add_block', title: 'Pick up Pepper', start: 900 })],
       ctx,
     );
     expect(res).toMatchObject({ done: [], failed: ['c1'], frameChanged: false });

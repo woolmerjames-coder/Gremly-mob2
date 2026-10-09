@@ -21,14 +21,14 @@ import {
 const todo: RelationEntity = {
   id: 't1',
   type: 'todo',
-  title: 'Send Q3 deck to Rachel',
+  title: 'Send Q3 deck to Priya',
   due_day: '2026-10-01',
   due_time: null,
 };
 const note: RelationEntity = {
   id: 'n1',
   type: 'note',
-  title: 'Bella Vet Appointment',
+  title: 'Pepper Vet Appointment',
   due_day: '2026-10-02',
   due_time: null,
   target_date: '2026-10-02',
@@ -36,7 +36,7 @@ const note: RelationEntity = {
 const habit: RelationEntity = {
   id: 'h1',
   type: 'habit',
-  title: 'Walk Bella',
+  title: 'Walk Pepper',
   frequency: 'daily',
   logged_days: ['2026-09-29'],
 };
@@ -165,7 +165,7 @@ describe('words', () => {
       primary: 'Yes, remove it',
       secondary: 'Keep it',
     });
-    expect(relationLine(every[3])).toBe('Mark “Send Q3 deck to Rachel” done? Tap to check');
+    expect(relationLine(every[3])).toBe('Mark “Send Q3 deck to Priya” done? Tap to check');
   });
 });
 

@@ -2,9 +2,9 @@ import { briefNoCardSection, briefQuestionSection } from '../briefTurn.js';
 
 describe('the reply to the brief’s question', () => {
   it('names the question and keeps the reply to it', () => {
-    const out = briefQuestionSection("Is Bella's vet appointment on October 1 or October 2?");
+    const out = briefQuestionSection("Is Pepper's vet appointment on October 1 or October 2?");
     expect(out).toContain("=== THE BRIEF'S QUESTION ===");
-    expect(out).toContain('"Is Bella\'s vet appointment on October 1 or October 2?"');
+    expect(out).toContain('"Is Pepper\'s vet appointment on October 1 or October 2?"');
     expect(out).toContain('do not ask a question of your own');
   });
 

@@ -32,7 +32,7 @@ const ALEX_ITEMS = [
 ];
 
 
-const VET_VISIT = { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', due_day: '2026-10-09', minutes: 60, note: 'upcoming' };
+const VET_VISIT = { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', due_day: '2026-10-09', minutes: 60, note: 'upcoming' };
 
 const SAT_ITEMS = [
   { id: 'taxes', kind: 'todo', title: 'Do taxes', due_day: '2026-10-03', minutes: 60, note: 'due today' },
@@ -40,7 +40,7 @@ const SAT_ITEMS = [
   { id: 'deck', kind: 'todo', title: 'Send the partner deck', due_day: '2026-10-05', minutes: 60, note: 'upcoming' },
   { id: 'gift', kind: 'todo', title: 'Find a present for Sam', due_day: '2026-10-05', minutes: 45, note: 'upcoming' },
   { id: 'qbr', kind: 'todo', title: 'Schedule the QBR', due_day: '2026-10-08', minutes: 20, note: 'upcoming' },
-  { id: 'vet', kind: 'todo', title: 'Book the vet for Bella', due_day: '2026-10-09', minutes: 15, note: 'upcoming' },
+  { id: 'vet', kind: 'todo', title: 'Book the vet for Pepper', due_day: '2026-10-09', minutes: 15, note: 'upcoming' },
   { id: 'pushups', kind: 'habit', title: 'Pushups', minutes: 10, note: 'habit today' },
 ];
 
@@ -226,9 +226,9 @@ export const SCENARIOS = [
     look: 'Takes the prep todo off the list, nothing else.',
     today: '2026-10-01',
     at: '20:30',
-    text: "the vet appointment got cancelled, Bella's fine",
+    text: "the vet appointment got cancelled, Pepper's fine",
     items: [
-      { id: 'sample', kind: 'todo', title: "Get a sample for Bella's vet appointment", due_day: '2026-10-02', minutes: 10, note: 'upcoming' },
+      { id: 'sample', kind: 'todo', title: "Get a sample for Pepper's vet appointment", due_day: '2026-10-02', minutes: 10, note: 'upcoming' },
       { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'upcoming' },
     ],
     meetings: [],
@@ -338,8 +338,8 @@ export const SCENARIOS = [
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
-        item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     },
     items: [...SAT_ITEMS, VET_VISIT],
@@ -361,15 +361,15 @@ export const SCENARIOS = [
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
-        item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     },
     asked: [
       {
-        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
         fact: {
-          statement: "Alex wrote that Bella's vet visit had been moved to Monday 12 October.",
+          statement: "Alex wrote that Pepper's vet visit had been moved to Monday 12 October.",
           about_date: '2026-10-12',
           state: 'planned',
           private: false,
@@ -377,7 +377,7 @@ export const SCENARIOS = [
           source_table: 'notes',
           source_kind: 'journal',
           source_question: null,
-          source_quote: 'Vet rang, Bella is now Monday the 12th',
+          source_quote: 'Vet rang, Pepper is now Monday the 12th',
           observed_at: '2026-10-01T18:00:00Z',
         },
       },
@@ -399,8 +399,8 @@ export const SCENARIOS = [
       step: 'questions',
       decisions: [],
       answering: {
-        question: "Is Bella's vet visit on Friday 9 October or Monday 12 October?",
-        item: { id: 'vetvisit', kind: 'todo', title: 'Take Bella to the vet', when: 'Fri 9 Oct' },
+        question: "Is Pepper's vet visit on Friday 9 October or Monday 12 October?",
+        item: { id: 'vetvisit', kind: 'todo', title: 'Take Pepper to the vet', when: 'Fri 9 Oct' },
       },
     },
     items: [...SAT_ITEMS, VET_VISIT],
@@ -557,12 +557,12 @@ export const SCENARIOS = [
     today: '2026-10-02',
     at: '18:30',
     history: [
-      { role: 'user', content: "I need to sort Dave's anniversary present" },
+      { role: 'user', content: "I need to sort Theo's anniversary present" },
       { role: 'assistant', content: "It's on your list already. When is your anniversary?" },
     ],
     text: "it's on the 10th",
     items: [
-      { id: 'gift', kind: 'todo', title: 'Get Dave an anniversary present', minutes: 60, note: 'no day' },
+      { id: 'gift', kind: 'todo', title: 'Get Theo an anniversary present', minutes: 60, note: 'no day' },
       { id: 'mum', kind: 'todo', title: 'Call Mum', due_day: '2026-10-02', minutes: 20, note: 'due today' },
     ],
     meetings: [],
@@ -853,13 +853,13 @@ export const SCENARIOS = [
   {
     id: 'wrap-undo-later',
     title: 'During the wrap up: one they sent to a later night, wanted tomorrow',
-    look: 'Book the vet for Bella, set to come back on Monday, gets tomorrow (Sunday 4 October) as its day.',
+    look: 'Book the vet for Pepper, set to come back on Monday, gets tomorrow (Sunday 4 October) as its day.',
     today: '2026-10-03',
     at: '21:15',
     text: 'Bring the vet one back for tomorrow instead',
     wrap: {
       step: 'journal',
-      decisions: [{ id: 'vet', type: 'todo', title: 'Book the vet for Bella', outcome: 'to come back on Monday', was: 'was due Friday 9 October' }],
+      decisions: [{ id: 'vet', type: 'todo', title: 'Book the vet for Pepper', outcome: 'to come back on Monday', was: 'was due Friday 9 October' }],
     },
     items: SAT_ITEMS,
     meetings: [],

@@ -72,7 +72,7 @@ describe('the day record', () => {
   it('a set time taken off in the thread is gone', () => {
     const blocks = blocksOf(
       frame({
-        blocks: [{ id: 'mem', title: 'Pick up Bella', start: 900, end: null, travel: false }],
+        blocks: [{ id: 'mem', title: 'Pick up Pepper', start: 900, end: null, travel: false }],
       }),
       { fixed_removed: ['mem'] },
     );

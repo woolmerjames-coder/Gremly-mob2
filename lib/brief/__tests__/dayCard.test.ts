@@ -88,7 +88,7 @@ describe('countdown chip', () => {
   const anchors = [
     { label: 'James planned to send the deck on Friday.', date: '2026-10-02' },
     {
-      label: 'James and Dave celebrate their anniversary.',
+      label: 'James and Theo celebrate their anniversary.',
       short_label: 'Anniversary',
       date: '2026-10-13',
     },

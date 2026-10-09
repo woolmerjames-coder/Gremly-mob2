@@ -78,7 +78,7 @@ describe("Gremly's chat voice on the agent", () => {
           date: '2026-10-04',
           meetings: [],
           allDay: [],
-          todos: [{ id: 'v1', title: 'Take Bella to the vet', due_time: '10:00:00' }],
+          todos: [{ id: 'v1', title: 'Take Pepper to the vet', due_time: '10:00:00' }],
         },
       ],
       overdue: [],
@@ -89,7 +89,7 @@ describe("Gremly's chat voice on the agent", () => {
       week,
       found: 'THEIR ITEMS THAT SHARE WORDS WITH THIS MESSAGE (open ones, searched just now): none.',
     });
-    expect(c).toContain('Take Bella to the vet (id v1) at 10:00am');
+    expect(c).toContain('Take Pepper to the vet (id v1) at 10:00am');
     expect(c).not.toContain(plain);
     expect(c).toContain('=== LIFE MAP ===');
     expect(c.endsWith('searched just now): none.')).toBe(true);

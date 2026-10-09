@@ -63,7 +63,7 @@ const todo = {
 const record = { ...todo, type: 'todo' as const };
 
 /** What the chat's card writes when it adds to the item's notes. */
-const ADDED = "Bring Bella's vaccination record";
+const ADDED = "Bring Pepper's vaccination record";
 const afterAdd = {
   ...todo,
   body: `${todo.body}\n\n${ADDED}`,

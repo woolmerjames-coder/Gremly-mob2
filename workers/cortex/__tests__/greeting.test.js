@@ -7,12 +7,12 @@ import { greetingFacts, greetingPrompt, partOfDay } from '../greeting.js';
 
 const focus = {
   lifeMoment: 'Anniversary weekend in San Diego',
-  briefHeadline: 'In San Diego for anniversary weekend with Dave.',
+  briefHeadline: 'In San Diego for anniversary weekend with Theo.',
   namedAnchors: [
-    { type: 'person', label: 'Dave' },
+    { type: 'person', label: 'Theo' },
     { type: 'place', label: 'San Diego' },
   ],
-  leadStory: { what: 'Anniversary weekend with Dave', why_today: 'It runs through Sunday.' },
+  leadStory: { what: 'Anniversary weekend with Theo', why_today: 'It runs through Sunday.' },
 };
 
 test('the facts: the day, its people, what is still to come, what waits in the app', () => {
@@ -24,9 +24,9 @@ test('the facts: the day, its people, what is still to come, what waits in the a
   });
   expect(facts).toEqual([
     'Where their life is: Anniversary weekend in San Diego',
-    'Today in a line: In San Diego for anniversary weekend with Dave.',
-    'What matters most today: Anniversary weekend with Dave. It runs through Sunday.',
-    'People in their day: Dave',
+    'Today in a line: In San Diego for anniversary weekend with Theo.',
+    'What matters most today: Anniversary weekend with Theo. It runs through Sunday.',
+    'People in their day: Theo',
     'Still to come today: 3:56pm Flight to San Francisco',
     "Today's brief is written and waiting for them, not read yet.",
     '3 things wait for a decision before the day closes.',

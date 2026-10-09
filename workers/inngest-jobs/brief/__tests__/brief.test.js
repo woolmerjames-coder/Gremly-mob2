@@ -295,7 +295,7 @@ describe("the writer's words", () => {
         why: 'They mentioned it last week',
         facts: [],
       },
-      anchors: [{ date: '2026-10-13', label: 'Anniversary with Dave', short_label: 'Anniversary' }],
+      anchors: [{ date: '2026-10-13', label: 'Anniversary with Theo', short_label: 'Anniversary' }],
       overdue: 0,
       unsorted: 2,
       reaction: null,
