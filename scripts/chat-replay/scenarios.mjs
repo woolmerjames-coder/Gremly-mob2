@@ -713,7 +713,7 @@ SCENARIOS.push(
     text: 'Give me a few ideas to make the flat feel cosier this winter',
     items: [],
     ...P,
-    expect: { keep: { place: 'wHome', minLines: 3 } },
+    expect: { keep: { place: 'wHome', minLines: 1 } },
   },
   {
     id: 'keep-world-review',

@@ -117,7 +117,7 @@ export async function fetchPageDetail(env, userId, page, today, deps = {}) {
         itemsOf(d, userId, links || []),
       ]);
       const lines = [
-        `THIS CHAT IS ON ONE OF THEIR CHAPTERS, opened from its page: "${trim(c.title, 80)}" (id ${c.id})${world ? `, in their World ${worldName(world)} (id ${world.id})` : ''}, ${chapterWhen(c, today)}${closed(c) ? ', closed and part of their story' : ''}. When they say this, it or here, they mean this Chapter, and a step or a note they add here belongs in it, so it is added with chapters set to this Chapter. Something they already have that they want here is moved in by changing its chapters, never added again.`,
+        `THIS CHAT IS ON ONE OF THEIR CHAPTERS, opened from its page: "${trim(c.title, 80)}" (id ${c.id})${world ? `, in their World ${worldName(world)} (id ${world.id})` : ''}, ${chapterWhen(c, today)}${closed(c) ? ', closed and part of their story' : ''}. When they say this, it or here, they mean this Chapter, and a step or a note they add here belongs in it, so it is added with chapters set to this Chapter. Something they already have that they want here is moved in by changing its chapters, never added again.${closed(c) ? '' : ' When they say it is finished, closing it is what they are asking for.'}`,
       ];
       if (c.card_subtitle) lines.push(`Its words: ${trim(c.card_subtitle, 300)}`);
       if (closed(c) && c.epigraph) lines.push(`Its memory: ${trim(c.epigraph, 400)}`);
