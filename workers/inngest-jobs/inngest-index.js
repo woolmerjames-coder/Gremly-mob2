@@ -34,6 +34,7 @@ import { handleDayTurnApi } from './brief/dayTurn';
 import { buildDcoV4, writeDco } from './context/daily';
 import { handleFirstWorldsApi } from './context/firstWorlds';
 import { handleChapterMemoryApi } from './context/memory';
+import { handlePersonMergeApi } from './context/personTaps';
 import { handleWordsFreshApi } from './context/words';
 import { sendEvents } from './notifications/planner';
 import { reviewQuestions } from './context/questions';
@@ -4566,6 +4567,11 @@ const appHandler = {
     }
     if (url.pathname === '/api/words-fresh' && request.method === 'POST') {
       return handleWordsFreshApi(request, env, corsResponse, { send: sendEvents });
+    }
+    // the people page (Worlds rebuild, stage 5): a merge Gremly proposed,
+    // decided by their tap, or put back
+    if (url.pathname === '/api/person-merge' && request.method === 'POST') {
+      return handlePersonMergeApi(request, env, corsResponse);
     }
 
     // Daily brief in Chat: the app's first open, or a fresh brief for a later

@@ -3392,6 +3392,8 @@ const cortexHandler = {
         'worlds-changed',
         'chapter-said-no',
         'chapter-guess',
+        'person-merge',
+        'person-page',
       ]);
       const AUTH_REQUIRED_LANES = new Set(['general_chat']);
 
@@ -7336,6 +7338,49 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
                 ? { user_id: authenticatedUserId, chapter_id: id }
                 : { user_id: authenticatedUserId, table, id },
             ),
+          },
+        ).catch(() => null);
+        if (!res) return j({ error: 'could not reach the pipeline' }, 502);
+        return j(await res.json().catch(() => ({ error: 'bad reply' })), res.ok ? 200 : res.status);
+      }
+
+      // =========================
+      // === THE PEOPLE PAGE (Worlds rebuild, stage 5) ===
+      // person-merge: two records Gremly proposed as one person, made one or
+      // kept apart by their tap, or put back with Undo.
+      // person-page: the page Gremly keeps about someone in their life, the
+      // labels on their dates and the things to remember, written again when
+      // what it rests on has changed and returned as it stands.
+      // =========================
+      if (type === 'person-merge' || type === 'person-page') {
+        const uuid = (v) => (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? v : null);
+        const forward =
+          type === 'person-merge'
+            ? ['merge', 'decline', 'undo'].includes(body.act) && uuid(body.merge_id)
+              ? { user_id: authenticatedUserId, merge_id: body.merge_id, act: body.act }
+              : null
+            : uuid(body.person_id)
+              ? { user_id: authenticatedUserId, person_id: body.person_id }
+              : null;
+        if (!forward)
+          return j(
+            {
+              error:
+                type === 'person-merge'
+                  ? 'merge_id and act are required'
+                  : 'person_id is required',
+            },
+            400,
+          );
+        if (!env.INNGEST_WORKER_URL || !env.INNGEST_ADMIN_KEY)
+          return j({ error: 'not configured' }, 503);
+        const res = await fetchInngestWorker(
+          env,
+          type === 'person-merge' ? '/api/person-merge' : '/api/person-page',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-admin-key': env.INNGEST_ADMIN_KEY },
+            body: JSON.stringify(forward),
           },
         ).catch(() => null);
         if (!res) return j({ error: 'could not reach the pipeline' }, 502);
