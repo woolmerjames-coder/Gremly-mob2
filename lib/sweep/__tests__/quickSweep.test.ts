@@ -132,3 +132,32 @@ describe('needsDecision: a todo with a deadline and no day planned (stage 2c)', 
     expect(needsDecision(c.candidate, today)).toBe(false);
   });
 });
+
+describe('needsDecision: questions (stage 8)', () => {
+  const swept = { swept_at: '2026-09-01T10:00:00Z', subtype: 'catchall' };
+
+  it('a question made today or yesterday is in; an older one has lapsed', () => {
+    const asked = (day: string) =>
+      card(day, 'note', { ...swept, views: { needs_clarification: true, ask_since: day } });
+    expect(needsDecision(asked(today).candidate, today)).toBe(true);
+    expect(needsDecision(asked('2026-10-01').candidate, today)).toBe(true);
+    expect(needsDecision(asked('2026-09-30').candidate, today)).toBe(false);
+  });
+
+  it('a habit with a question is in, and one without is not', () => {
+    const habit = (views: Record<string, unknown>) =>
+      ({
+        id: 'h',
+        kind: 'habit',
+        createdAt: '2026-10-02T04:00:00Z',
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: true,
+        raw: { id: 'h', views },
+      }) as unknown as SweepCandidate;
+    expect(
+      needsDecision(habit({ split: { status: 'pending', pieces: [] }, ask_since: today }), today),
+    ).toBe(true);
+    expect(needsDecision(habit({}), today)).toBe(false);
+  });
+});

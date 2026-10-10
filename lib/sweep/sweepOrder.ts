@@ -13,7 +13,7 @@
  * item is now, and goneSinceStart says when an answer cleared the item, so
  * its card is passed over.
  */
-import { liveAsksOf } from '../minddrop/asks';
+import { sweepAskOf, type SweepWindow } from '../minddrop/asks';
 import { computeSweepCardMeta } from './computeSweepCardMeta';
 import type { SweepCandidate, SweepCardMeta } from './types';
 
@@ -22,27 +22,32 @@ type Fields = Record<string, unknown> & { views?: Record<string, unknown> | null
 
 /**
  * The question a card asks before it can be swept, if any, by the one set of
- * ask rules (lib/minddrop/asks.ts): a live relation on a drop of any kind (a
- * same included), then a live question. The day windows for the wrap up and
- * the quick sweep, and the split, come with stage 8.
+ * ask rules (lib/minddrop/asks.ts, stage 8): a live ask in this Sweep's window
+ * (the wrap up: made that day; the quick sweep: that day or the day before),
+ * a same or relation first, then a split, then a question.
  */
-export function sweepCardAsks(c: SweepCandidate): 'relation' | 'clarify' | null {
+export function sweepCardAsks(
+  c: SweepCandidate,
+  today: string,
+  when: SweepWindow,
+): 'relation' | 'split' | 'clarify' | null {
   const raw = (c.raw ?? {}) as Fields;
-  const asks = liveAsksOf(raw as Parameters<typeof liveAsksOf>[0]);
-  if (asks.some((a) => a.kind === 'relation' || a.kind === 'same')) return 'relation';
-  return asks.some((a) => a.kind === 'clarify') ? 'clarify' : null;
+  const ask = sweepAskOf(raw as Parameters<typeof sweepAskOf>[0], today, when);
+  if (!ask) return null;
+  return ask.kind === 'same' ? 'relation' : ask.kind;
 }
 
 /**
- * Questions first ("is this one you already have?" before a clarification,
- * since its answer can change other cards), then todos, events and notes.
- * Order within each group is kept.
+ * Questions first ("is this one you already have?" before a split and a
+ * clarification, since its answer can change other cards), then todos,
+ * events and notes. Order within each group is kept.
  */
-export function orderSweepCards<T extends Card>(cards: T[]): T[] {
-  const asks = cards.map((c) => sweepCardAsks(c.candidate));
+export function orderSweepCards<T extends Card>(cards: T[], today: string, when: SweepWindow): T[] {
+  const asks = cards.map((c) => sweepCardAsks(c.candidate, today, when));
   const rest = cards.filter((_, i) => !asks[i]);
   return [
     ...cards.filter((_, i) => asks[i] === 'relation'),
+    ...cards.filter((_, i) => asks[i] === 'split'),
     ...cards.filter((_, i) => asks[i] === 'clarify'),
     ...rest.filter((c) => c.candidate.kind === 'todo'),
     ...rest.filter((c) => c.candidate.kind === 'note' && c.meta.noteCardType === 'event'),

@@ -7,10 +7,11 @@
  * A todo needs one when it is past its day, has no day and was never decided
  * (decided_at, set by the database whenever it gets a day, a Lock In or a
  * resurface date), was skipped in an earlier Sweep, or resurfaces today.
- * A note needs one when Sweep has a question for it, or it is a drop not yet
- * swept; an upcoming event only waits for a reminder, so it is left for the
- * evening. Any card with a question (is this one you already have? what is
- * this?) is always in.
+ * A note needs one when it is a drop not yet swept; an upcoming event only
+ * waits for a reminder, so it is left for the evening. Any card with a live
+ * question made that day or the day before (is this one you already have?
+ * one job or two? what is this?) is always in, a habit's included (the ask
+ * rules, lib/minddrop/asks.ts).
  *
  * The worker counts the same way (workers/inngest-jobs/notifications/
  * sweepCount.js, quickSweepItems): keep the two in step.
@@ -23,7 +24,7 @@ import type { SweepCandidate, SweepCardMeta } from './types';
 type Row = Record<string, unknown>;
 
 export function needsDecision(c: SweepCandidate, today: string): boolean {
-  if (sweepCardAsks(c)) return true;
+  if (sweepCardAsks(c, today, 'quick')) return true;
   const raw = (c.raw ?? {}) as Row;
   const skipped = !!raw.skipped_in_sweep_at;
   const resurface = (raw.resurface_at as string | null | undefined) ?? null;

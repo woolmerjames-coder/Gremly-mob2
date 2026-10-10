@@ -1,0 +1,328 @@
+{
+  "about": "Which questions Sweep asks (Mind Drop rethink stage 8). The app (lib/minddrop/asks.ts, sweepAskOf, and the Sweep selectors) and the Worker (workers/inngest-jobs/notifications/sweepCount.js, rowAsks and the counts) both run these cases and must agree. wrapup: tonight's wrap up asks it. quick: the morning's quick sweep asks it. Each item is otherwise not a Sweep card, so it is a card only for its question.",
+  "today": "2026-10-02",
+  "tz": "Europe/London",
+  "dayEndHour": 3,
+  "cases": [
+    {
+      "name": "a question made today",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "needs_clarification": true,
+        "views": {
+          "needs_clarification": true,
+          "ask_since": "2026-10-02"
+        }
+      },
+      "wrapup": true,
+      "quick": true
+    },
+    {
+      "name": "a question made yesterday",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-01T12:00:00Z",
+        "needs_clarification": true,
+        "views": {
+          "needs_clarification": true,
+          "ask_since": "2026-10-01"
+        }
+      },
+      "wrapup": false,
+      "quick": true
+    },
+    {
+      "name": "a question made two days ago",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-09-30T12:00:00Z",
+        "needs_clarification": true,
+        "views": {
+          "needs_clarification": true,
+          "ask_since": "2026-09-30"
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    },
+    {
+      "name": "a question answered",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "needs_clarification": true,
+        "clarification_resolved": true,
+        "views": {
+          "needs_clarification": true,
+          "clarification_resolved": true,
+          "ask_since": "2026-10-02"
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    },
+    {
+      "name": "a question kept in views only, made today",
+      "kind": "todo",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "needs_clarification": true,
+          "ask_since": "2026-10-02"
+        }
+      },
+      "wrapup": true,
+      "quick": true
+    },
+    {
+      "name": "a question with no ask day, made today",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "needs_clarification": true,
+        "views": {
+          "needs_clarification": true
+        }
+      },
+      "wrapup": true,
+      "quick": true
+    },
+    {
+      "name": "a question with no ask day, made two days ago",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-09-30T12:00:00Z",
+        "needs_clarification": true,
+        "views": {
+          "needs_clarification": true
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    },
+    {
+      "name": "a question with no ask day, made at 1:30 in the morning, before the day ended: made yesterday",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T00:30:00Z",
+        "needs_clarification": true,
+        "views": {
+          "needs_clarification": true
+        }
+      },
+      "wrapup": false,
+      "quick": true
+    },
+    {
+      "name": "is this one you already have, made today, on a todo",
+      "kind": "todo",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-02",
+          "relation": {
+            "status": "pending",
+            "kind": "edit",
+            "intent": "complete",
+            "surface": "sweep",
+            "confidence": 90,
+            "entity": {
+              "id": "t9",
+              "type": "todo",
+              "title": "Book the pet sitter"
+            },
+            "others": [],
+            "change": {
+              "field": "completed",
+              "from": null,
+              "to": "done"
+            },
+            "classified": {
+              "bucket": "todo",
+              "subtype": null,
+              "habitSubtype": null,
+              "needsClarification": false,
+              "ambiguityType": null,
+              "clarificationQuestion": null,
+              "clarificationOptions": null
+            }
+          }
+        }
+      },
+      "wrapup": true,
+      "quick": true
+    },
+    {
+      "name": "same as this one, made yesterday, on a habit",
+      "kind": "habit",
+      "item": {
+        "created_at": "2026-10-01T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-01",
+          "relation": {
+            "status": "pending",
+            "kind": "same",
+            "intent": "same",
+            "surface": "sweep",
+            "confidence": 95,
+            "extra": null,
+            "entity": {
+              "id": "h9",
+              "type": "habit",
+              "title": "Run"
+            },
+            "others": [],
+            "classified": {
+              "bucket": "habit",
+              "subtype": null,
+              "habitSubtype": "start_habit",
+              "needsClarification": false,
+              "ambiguityType": null,
+              "clarificationQuestion": null,
+              "clarificationOptions": null
+            }
+          }
+        }
+      },
+      "wrapup": false,
+      "quick": true
+    },
+    {
+      "name": "a relation that was let go",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-02",
+          "relation": {
+            "status": "lapsed",
+            "kind": "same",
+            "intent": "same",
+            "surface": "card",
+            "confidence": 95,
+            "extra": null,
+            "entity": {
+              "id": "n9",
+              "type": "note",
+              "title": "Dentist"
+            },
+            "others": [],
+            "classified": {
+              "bucket": "log",
+              "subtype": "general",
+              "habitSubtype": null,
+              "needsClarification": false,
+              "ambiguityType": null,
+              "clarificationQuestion": null,
+              "clarificationOptions": null
+            }
+          }
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    },
+    {
+      "name": "a relation an older build wrote without its kind",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-02",
+          "relation": {
+            "status": "pending"
+          }
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    },
+    {
+      "name": "an unsure split made today",
+      "kind": "todo",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-02",
+          "split": {
+            "status": "pending",
+            "pieces": [
+              {
+                "text": "a",
+                "kind": "todo"
+              },
+              {
+                "text": "b",
+                "kind": "todo"
+              }
+            ]
+          }
+        }
+      },
+      "wrapup": true,
+      "quick": true
+    },
+    {
+      "name": "an unsure split made yesterday",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-01T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-01",
+          "split": {
+            "status": "pending",
+            "pieces": [
+              {
+                "text": "a",
+                "kind": "note"
+              },
+              {
+                "text": "b",
+                "kind": "note"
+              }
+            ]
+          }
+        }
+      },
+      "wrapup": false,
+      "quick": true
+    },
+    {
+      "name": "a split kept as one",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "ask_since": "2026-10-02",
+          "split": {
+            "status": "kept"
+          }
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    },
+    {
+      "name": "an older build's note still waiting on a split, made today",
+      "kind": "note",
+      "item": {
+        "created_at": "2026-10-02T12:00:00Z",
+        "views": {
+          "is_multi": true,
+          "minddrop_stage": "multi_pending",
+          "multi_items": [
+            {
+              "text": "a"
+            },
+            {
+              "text": "b"
+            }
+          ]
+        }
+      },
+      "wrapup": false,
+      "quick": false
+    }
+  ]
+}

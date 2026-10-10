@@ -43,6 +43,16 @@ jest.mock('../../../lib/wrapup/session', () => ({
   currentWrap: () => mockWrap,
 }));
 
+// The ask answers (lib/minddrop/askActions.ts): Sweep's Not now lets a question go
+const mockLapse = jest.fn();
+const mockAnswer = jest.fn();
+jest.mock('../../../lib/minddrop/askActions', () => ({
+  __esModule: true,
+  lapseAsk: (...args: unknown[]) => mockLapse(...args),
+  answerAsk: (...args: unknown[]) => mockAnswer(...args),
+  notNow: jest.fn(),
+}));
+
 // Mock store selectors: useSweepCandidatesUnified returns candidates with meta from store
 let mockCandidates: SweepCandidate[] = [];
 // Which kind of note card a note is drawn as (general notes can be made a todo)
@@ -80,7 +90,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     const state = {
       todos: mockStoreTodos,
       notes: mockLiveNotes,
-      habits: [],
+      habits: mockStoreHabits,
       worlds: [],
       dropWorldLinks: [],
       chapters: [],
@@ -125,6 +135,10 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     calendarEvents: {},
     userCalendarEvents: [],
     currentDate: '2025-01-01',
+    // the items a question on a card means (the question strip reads them)
+    todos: mockStoreTodos,
+    habits: [],
+    habitProgress: [],
     notes: [],
     worlds: [],
     dropWorldLinks: [],
@@ -150,6 +164,8 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
 let mockStoreTodos: any[] = [];
 // Notes as the store has them now (an answer earlier in the Sweep may have cleared one)
 let mockLiveNotes: any[] = [];
+// Habits as the store has them (a habit joins the deck only for a question)
+let mockStoreHabits: any[] = [];
 
 // Mock RepoProvider
 const mockCreate = jest.fn(() => Promise.resolve({ id: 'test-note-id' }));
@@ -784,5 +800,228 @@ describe('CardDeckScreen: a todo that has come back twice', () => {
     expect(result.queryByTestId('todo-keep-or-let-go')).toBeNull();
     expect(result.getByText('Today · 0h')).toBeTruthy();
     expect(result.queryByText(/^Later/)).toBeNull();
+  });
+});
+
+describe('CardDeckScreen: a card with a question (Mind Drop rethink stage 8)', () => {
+  // 8:40 PM on Wednesday 30 September in Los Angeles: tonight's wrap up
+  const ds = getDateService() as any;
+  let was: { clock: () => Date; timezone: string; hour: number };
+  const today = '2026-09-30';
+  const options = [
+    {
+      id: 'opt_1',
+      label: 'It’s booked',
+      action: { bucket: 'log', subtype: 'event', target_date: true, scheduled_date: false },
+    },
+    {
+      id: 'opt_2',
+      label: 'I need to book it',
+      action: { bucket: 'todo', subtype: null, target_date: false, scheduled_date: false },
+    },
+  ];
+  /** The deck's cards, with their items in the store as the deck reads them now. */
+  const deal = (...cards: SweepCandidate[]) => {
+    mockCandidates = cards;
+    mockLiveNotes = cards.filter((c) => c.kind === 'note').map((c) => c.raw);
+    mockStoreHabits = cards.filter((c) => c.kind === 'habit').map((c) => c.raw);
+    mockStoreTodos = [
+      ...mockStoreTodos,
+      ...cards.filter((c) => c.kind === 'todo').map((c) => c.raw),
+    ];
+  };
+  const asking = (views: Record<string, unknown>, kind: 'note' | 'habit' = 'note') =>
+    ({
+      ...mockNoteCandidate,
+      id: 'q1',
+      kind,
+      raw: {
+        ...mockNoteCandidate.raw,
+        id: 'q1',
+        title: 'Dentist',
+        name: 'Dentist',
+        needs_clarification: true,
+        clarification_question: 'Is the dentist already booked?',
+        clarification_options: options,
+        views: { needs_clarification: true, ask_since: today, ...views },
+      },
+    }) as unknown as SweepCandidate;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    was = { clock: ds.clock, timezone: ds.getTimezone(), hour: ds.getDayBoundaryHour() };
+    ds.setTimezone('America/Los_Angeles');
+    ds.setDayBoundaryHour(3);
+    ds.clock = () => new Date('2026-10-01T03:40:00Z');
+    mockRouteParams = { cards: 'wrap' };
+    mockNoteCardType = 'general';
+    mockStoreTodos = [];
+    mockLiveNotes = [];
+    mockStoreHabits = [];
+    mockWrap = null;
+    mockLapse.mockResolvedValue(true);
+    mockAnswer.mockResolvedValue(null);
+    mockApply.mockImplementation(async (d: { candidateId: string; candidateKind: 'todo' }) =>
+      saved(d.candidateId, d.candidateKind),
+    );
+  });
+  afterEach(() => {
+    ds.clock = was.clock;
+    ds.setTimezone(was.timezone);
+    ds.setDayBoundaryHour(was.hour);
+  });
+
+  it('asks it on the card with the strip, and its choices wait: no popup', async () => {
+    deal(asking({}));
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Is the dentist already booked?'));
+    expect(result.getByText('I need to book it')).toBeTruthy();
+    expect(result.queryByText('Make it a todo')).toBeNull();
+    expect(result.queryByTestId('clarification-popup')).toBeNull();
+  });
+
+  it('an answer goes through the same path as on the card', async () => {
+    deal(asking({}));
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('I need to book it'));
+    fireEvent.press(result.getByTestId('sweep-ask-q1-option-opt_2'));
+    await waitFor(() =>
+      expect(mockAnswer).toHaveBeenCalledWith('q1', expect.objectContaining({ optionId: 'opt_2' })),
+    );
+  });
+
+  it('Not now lets the question go: it is not asked again', async () => {
+    deal(asking({}));
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Is the dentist already booked?'));
+    fireEvent.press(result.getByTestId('sweep-ask-q1-not-now'));
+    await waitFor(() =>
+      expect(mockLapse).toHaveBeenCalledWith('q1', expect.objectContaining({ kind: 'clarify' })),
+    );
+  });
+
+  it('moving on without answering lets it go, and the decision is saved as usual', async () => {
+    deal(asking({}), mockTodoCandidate);
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Is the dentist already booked?'));
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+    await waitFor(() => result.getByText('Test task'));
+    expect(mockLapse).toHaveBeenCalledWith('q1', expect.objectContaining({ kind: 'clarify' }));
+    expect(mockApply.mock.calls[0][0]).toMatchObject({ candidateId: 'q1', action: 'keep' });
+  });
+
+  it('the wrap up does not ask a question from yesterday; the morning quick sweep does', async () => {
+    deal(asking({ ask_since: '2026-09-29' }));
+    const wrap = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => wrap.getByText('Dentist'));
+    expect(wrap.queryByText('Is the dentist already booked?')).toBeNull();
+    wrap.unmount();
+
+    mockRouteParams = { cards: 'quick' };
+    const quick = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => quick.getByText('Is the dentist already booked?'));
+  });
+
+  it('a habit is on the deck only for its question: moving on decides nothing', async () => {
+    deal(asking({}, 'habit'), mockTodoCandidate);
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Is the dentist already booked?'));
+    fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
+    await waitFor(() => result.getByText('Test task'));
+    expect(mockLapse).toHaveBeenCalledTimes(1);
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  it('Same as this one? shows both items, with Keep just one and Keep both', async () => {
+    mockStoreTodos = [{ id: 'had', name: 'Call the vet about the booster', due_day: today }];
+    deal({
+      ...mockTodoCandidate,
+      id: 'dupe',
+      raw: {
+        ...mockTodoCandidate.raw,
+        id: 'dupe',
+        name: 'Ring the vet about the booster jab',
+        created_at: '2026-10-01T00:40:00Z',
+        views: {
+          ask_since: today,
+          relation: {
+            kind: 'same',
+            intent: 'same',
+            entity: { id: 'had', type: 'todo', title: 'Call the vet about the booster' },
+            others: [],
+            confidence: 95,
+            extra: null,
+            status: 'pending',
+            surface: 'sweep',
+            classified: {
+              bucket: 'todo',
+              subtype: null,
+              habitSubtype: null,
+              needsClarification: false,
+              ambiguityType: null,
+              clarificationQuestion: null,
+              clarificationOptions: null,
+            },
+          },
+        },
+      },
+    } as unknown as SweepCandidate);
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Same as this one?'));
+    expect(result.getByTestId('sweep-ask-dupe-item')).toBeTruthy();
+    expect(result.getByText('Added 3 hrs ago')).toBeTruthy();
+    expect(result.getByText('Keep just one')).toBeTruthy();
+    fireEvent.press(result.getByText('Keep both'));
+    await waitFor(() =>
+      expect(mockAnswer).toHaveBeenCalledWith('dupe', { kind: 'relation', yes: false }),
+    );
+  });
+
+  it('asks nothing while an answer is being filed', async () => {
+    deal(asking({ clarification_processing: true }));
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Dentist'));
+    expect(result.queryByText('Is the dentist already booked?')).toBeNull();
+  });
+
+  it('offers Keep as one on a piece of a clear split made today, until one of its pieces is sorted', async () => {
+    const piece = (index: number) =>
+      ({
+        ...mockTodoCandidate,
+        id: `p${index}`,
+        createdAt: '2026-10-01T01:00:00Z',
+        raw: {
+          ...mockTodoCandidate.raw,
+          id: `p${index}`,
+          name: `Piece ${index}`,
+          created_at: '2026-10-01T01:00:00Z',
+          views: { split_group: { id: 'd1', index, count: 2, said: 'clear' } },
+        },
+      }) as unknown as SweepCandidate;
+    deal(piece(0), piece(1));
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => result.getByText('Piece 0'));
+    expect(result.getByTestId('sweep-splitbar-d1')).toBeTruthy();
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
+    await waitFor(() => result.getByText('Piece 1'));
+    // the first piece has its decision now: keeping them as one would undo it
+    expect(result.queryByTestId('sweep-splitbar-d1')).toBeNull();
+  });
+
+  it('has no split step: an older note still waiting on a split does not hold the cards up', async () => {
+    mockCandidates = [mockTodoCandidate];
+    mockLiveNotes = [
+      {
+        id: 'multi',
+        title: 'Two things',
+        views: {
+          is_multi: true,
+          minddrop_stage: 'multi_pending',
+          multi_items: [{ text: 'a' }, { text: 'b' }],
+        },
+      },
+    ];
+    const result = render(<CardDeckScreen navigation={mockNavigation} />);
+    await waitFor(() => expect(result.getByText('Test task')).toBeTruthy());
   });
 });

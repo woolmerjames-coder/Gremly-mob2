@@ -150,9 +150,9 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
 **Ship day checklist** (the day the TestFlight build goes out):
 
 1. Classifier v3.8: in `workers/cortex/wrangler.toml` set `CLASSIFY_PROMPT = "v3.8"` (`CLASSIFY_SPLIT_AUTO` stays "false"), then deploy cortex: `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. Rollback: set it back to "v3.7" and deploy again. v3.8 then serves every build: builds already out ignore `split` and `as_one`, and without `piece_questions` they get no piece questions.
-2. Deploy inngest-jobs (stage 2c: the brief, the notification counts and the daily context count a todo with only a deadline on its deadline day): `cd ~/Documents/gremly-mob2/workers/inngest-jobs && npx wrangler deploy`.
+2. Deploy inngest-jobs (stage 2c: the brief, the notification counts and the daily context count a todo with only a deadline on its deadline day; stage 8: the morning and evening counts follow the ask rules, habits with a question included): `cd ~/Documents/gremly-mob2/workers/inngest-jobs && npx wrangler deploy`.
 3. Confirm the data fabric's Worker changes are live (stage 9 needs them): an `assign-worlds` reply carries `filed`. Stage 9 gives the check.
-4. Run the old questions SQL (stage 8 writes it), before the build reaches people: from stage 6 the app lets old questions go itself as it loads, one write each, and one account has 139 of them.
+4. Run the old questions SQL (in the stage 8 note below), before the build reaches people: from stage 6 the app lets old questions go itself as it loads, one write each, and one account has 139 of them.
 5. Anything later stages add.
 
 ## Stage notes
@@ -496,3 +496,79 @@ Tests: `bookedReminder.test.ts` (what is still ahead: days away, tomorrow after 
 Deviations: the prototype has neither; both are as you asked on 9 October. A go to doctors drop with no booking yet still asks as before (I need to book it files a todo); only a booked one gets the day and the reminder.
 
 For James: in the simulator, a booked appointment (for example: dentist on the 20th, already booked, or anything the classifier is unsure is booked) shows When is it? with Pick a date; pick a day and a time, then Want a reminder?. Nothing to deploy.
+
+### Stage 8: Sweep asks with the strip, and the quick sweep (9 October)
+
+What changed:
+- Which cards (`lib/store/selectors.ts`, `sweepCandidatesAsOf`): any todo, note or habit with a question Sweep asks is a card, whatever its kind or day. Tonight's wrap up (`selectWrapUp`) asks live questions made that day; Sweep's list, which the quick sweep is cut from (`selectSweepCandidatesUnified`), those made that day or the day before. A habit joins only for its question, as a plain card. Order: a same or relation first, then a split, then a question (`asks.sweepAskOf`, `sweepOrder.sweepCardAsks` and `orderSweepCards` now take the day and which Sweep). `quickSweep.needsDecision` asks the same rule.
+- Sweep's card asks with the same strip as Mind Drop (`CardAsk` with `place="sweep"`), where the card's choices go (`SweepCardNew` gains `askStrip`, `askOpen` and `splitBar`): the choices wait while it is open and come back once it is answered or let go. Both popups are gone from Sweep, with the clarification and relation state and handlers. The question is read from the item as the store has it now, and nothing is asked while an answer is being filed.
+- Asked once: Not now in Sweep lets the question go (`lapseAsk`, the plain outcome written, the item as it was), and so does moving on to another card without answering, however it went (a swipe, a choice, the last card's finish). A question being answered is never let go, and a decision that did not save and brings its card back is not a moving on.
+- Same as this one? in Sweep shows both items, the one you had with its state and the drop with when it was added (Added 3 hrs ago), with Keep just one (stage 6's, with Undo) and Keep both.
+- An answer that clears the card's item (a yes, Keep just one, Split, Keep as one, or an answer that deletes or converts it) moves on to the next card once the strip has closed; an answered question turns the card over, as an answered popup did.
+- Moving on from a habit card saves nothing on the habit (a swipe left never archives it).
+- The split step is gone (`SweepMultiSplitStep`, its two handlers with their bare creates and their own title and details calls, and the step state). An unsure split asks on its card. A piece of a clear split made that day shows Split into 3 and Keep as one (the stage 7 `SplitBar`), until one of its pieces has its decision in this Sweep; the other pieces drop out of the deck as they are archived.
+- The Worker (`workers/inngest-jobs/notifications/sweepCount.js`): `rowAsks` is the ask rules as the Worker counts them, reading `views.ask_since` and the split status on todos, notes and habits (habits are now read for a question). The evening count asks those made that day, the quick count that day or the day before, with the person's day end. `countBoth` gains `habits`, and the brief's Sweep line names habits with a question, so its parts add up to the number it gives.
+- Shared cases: `workers/shared/sweepAskCases.json` (16 cases: each kind of ask made today, yesterday and before, answered, let go, kept, an older build's split note, one made at 1:30 in the morning before the day ended), run by an app test and a Worker test, each also checking which cards the wrap up and the quick sweep hold. The file headers of `asks.ts` and `sweepCount.js` say the two must stay in step.
+
+Impact audit for what left Sweep:
+- `ClarificationPopup` stays: the item's own screen (`UnifiedOverlayV2`) and `OverlayContext` still use it.
+- `RelationPopup` is now opened by nothing: `OverlayContext` still holds `openRelationPopup`, which no screen calls (RecentDrops only keeps its type). Left for stage 11's dead code pass.
+- `SweepMultiSplitStep` is no longer rendered anywhere (only `MultiSplitModal` imports a type from it). Stage 11.
+- `ensureEntityClarification` and `resolveMultiDropAsSingle` stay: the item's screen and `OverlayContext` use the first, and `askActions` (an older split note's lapse) follows the second's outcome.
+
+Tests: `sweepAskCases.test.ts` and `sweepAskCases.test.js` (the shared cases both sides), `CardDeckScreen.test.tsx` (the strip on the card and no popup; an answer through the card's path; Not now lets it go; moving on lets it go and saves the decision; yesterday's question in the quick sweep and not the wrap up; a habit card saves nothing; Same as this one? with both items and Keep both; nothing asked while an answer is filed; Keep as one on a piece until a piece is sorted; no split step), `selectors.test.ts` (live asks only; a habit as a plain card; the wrap up and the quick sweep windows; the order with a split), `sweepOrder.test.ts`, `quickSweep.test.ts`, `sweepCount.test.js` (old asks lapse), `brief.test.js`. Every test related to the changed files: 82 suites, 1,443 tests, 1,283 passing and none failing (160 skipped in the 14 suites already wholly skipped). `tsc` clean; eslint has no new errors (`CardDeckScreen` keeps the three it had for refs written as it renders).
+
+Cold review (a separate model, on the diff): ten findings. Fixed: the card's turn over could stick on after an answer that also cleared the card, so every later card spun; an answer that deleted or converted the item left the strip on a false That did not go through; moving on while an answer was still saving could let that answered question go; the last card's question was not let go when the cards finished; a decision that did not save let go of the next card's question; Keep as one could undo a piece already sorted in this Sweep; the Worker's count parts did not add up with habits; the shared cases did not test the day end. Left: when an answer turns the item into another kind on its Sweep card (a todo answered It's booked), the card is drawn again and Want a reminder? does not show (unclear drops are saved as notes, so a booked answer keeps the same item); and a question shown on its card the day after it was made, then sent off with Not now, is asked by neither Sweep and lets go at the next load, though the meta line says Sweep will ask again.
+
+Deviations:
+- The pieces of a split made in Sweep, and the note a split was kept as, are not added to tonight's deck (Sweep works from the cards it opened with); they are cards the next time.
+- Want a reminder? shows in Sweep too, after a booked answer, as it is the same strip.
+
+Plan corrections:
+- The plan's split SQL marks the split kept but leaves `is_multi` and the multi stage; the SQL below also makes them one ordinary note, as the app's own lapse does (stage 7).
+- Counts today: 274 notes, 2 todos and 2 habits hold a question asked before `ask_since` existed (the plan said 277 notes; your simulator load let three go), 89 notes still wait on a split, and no relation is waiting without its day.
+
+For James:
+- Ship day: deploy inngest-jobs (checklist item 2 now says stage 8), and run this once, before the build reaches people (checklist item 4). One paste, no temporary tables; the last line shows what is left, which should be four zeros:
+
+```sql
+-- Questions nobody answered before this build (no ask day): let them go, as the new rules would.
+update notes set clarification_resolved = true,
+  views = coalesce(views, '{}'::jsonb) || '{"clarification_resolved": true, "clarification_lapsed": true}'::jsonb
+where coalesce(archived, false) = false
+  and (needs_clarification is true or views->>'needs_clarification' = 'true')
+  and not (coalesce(clarification_resolved, false) or coalesce(views->>'clarification_resolved', 'false') = 'true')
+  and not (coalesce(views, '{}'::jsonb) ? 'ask_since');
+
+update todos set clarification_resolved = true,
+  views = coalesce(views, '{}'::jsonb) || '{"clarification_resolved": true, "clarification_lapsed": true}'::jsonb
+where coalesce(archived, false) = false
+  and (needs_clarification is true or views->>'needs_clarification' = 'true')
+  and not (coalesce(clarification_resolved, false) or coalesce(views->>'clarification_resolved', 'false') = 'true')
+  and not (coalesce(views, '{}'::jsonb) ? 'ask_since');
+
+update habits set clarification_resolved = true,
+  views = coalesce(views, '{}'::jsonb) || '{"clarification_resolved": true, "clarification_lapsed": true}'::jsonb
+where coalesce(archived, false) = false
+  and (needs_clarification is true or views->>'needs_clarification' = 'true')
+  and not (coalesce(clarification_resolved, false) or coalesce(views->>'clarification_resolved', 'false') = 'true')
+  and not (coalesce(views, '{}'::jsonb) ? 'ask_since');
+
+-- Drops still waiting on a split: kept as one ordinary note, as they look today.
+update notes set views = views || '{"split": {"status": "kept", "lapsed": true}, "is_multi": false, "minddrop_stage": "enriched"}'::jsonb
+where coalesce(archived, false) = false
+  and views->>'is_multi' = 'true'
+  and views->>'minddrop_stage' = 'multi_pending';
+
+-- What is left (should be 0, 0, 0, 0)
+select
+  (select count(*) from notes where coalesce(archived, false) = false and (needs_clarification is true or views->>'needs_clarification' = 'true') and not (coalesce(clarification_resolved, false) or coalesce(views->>'clarification_resolved', 'false') = 'true') and not (coalesce(views, '{}'::jsonb) ? 'ask_since')) as notes_left,
+  (select count(*) from todos where coalesce(archived, false) = false and (needs_clarification is true or views->>'needs_clarification' = 'true') and not (coalesce(clarification_resolved, false) or coalesce(views->>'clarification_resolved', 'false') = 'true') and not (coalesce(views, '{}'::jsonb) ? 'ask_since')) as todos_left,
+  (select count(*) from habits where coalesce(archived, false) = false and (needs_clarification is true or views->>'needs_clarification' = 'true') and not (coalesce(clarification_resolved, false) or coalesce(views->>'clarification_resolved', 'false') = 'true') and not (coalesce(views, '{}'::jsonb) ? 'ask_since')) as habits_left,
+  (select count(*) from notes where coalesce(archived, false) = false and views->>'is_multi' = 'true' and views->>'minddrop_stage' = 'multi_pending') as splits_left;
+```
+
+- Simulator moments for stage 8 (with 7, 9 and 10 at the end): leave a question on a drop's card with Not now, then open tonight's wrap up: the question asks on the Sweep card with the strip, no popup; Not now there lets it go and the card carries on. A duplicate left on its card shows Same as this one? with both items. A clear split's piece in the wrap up offers Keep as one. The morning quick sweep asks yesterday's questions once.
+
+Blocking questions: none.
+

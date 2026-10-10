@@ -1,9 +1,11 @@
 /**
  * asks.ts: the one set of rules for every question about a drop (Mind Drop
- * rethink stage 6). The card follows them now; Sweep and the Worker's morning
- * count follow them fully from stage 8. Pure, so the card, Sweep's selectors
- * and the tests can read it without the store; what writes is in
- * askActions.ts.
+ * rethink stages 6 to 8). The card, Sweep's cards and selectors, and the
+ * Worker's morning and evening counts all follow them. Pure, so the card,
+ * Sweep's selectors and the tests can read it without the store; what writes
+ * is in askActions.ts. The Worker counts with its own copy (rowAsks in
+ * workers/inngest-jobs/notifications/sweepCount.js): keep the two in step;
+ * both run the shared cases in workers/shared/sweepAskCases.json.
  *
  * Four kinds of ask:
  * - relation: done, log, change, add, remove, or which one
@@ -28,9 +30,10 @@
  *   ask that arrived after the settle never shows on the card.
  * - Not now (on the card): the strip closes and the item stays exactly as it
  *   was saved; ask_on_card becomes false. Nothing is resolved or skipped.
- * - In Sweep (stage 8): the evening wrap up shows live asks made that day, the
- *   morning quick sweep those made that day or the day before. Passing a
- *   question in Sweep lets it go.
+ * - In Sweep (stage 8, sweepAskOf): the evening wrap up asks live asks made
+ *   that day, the morning quick sweep those made that day or the day before,
+ *   a same or relation first, then a split, then a question. Not now there,
+ *   or moving on without an answer, lets it go: Sweep asks each once.
  * - Lapse: once the day after ask_since is over (or when passed in Sweep), the
  *   ask lapses and the plain outcome is written: clarify becomes resolved with
  *   clarification_lapsed; split becomes kept as one; relation and same become
@@ -175,16 +178,41 @@ export function keptForSweep(item: AskItem | null | undefined, today?: string): 
   return liveAsksOf(item, today).some((a) => a.kind !== 'same');
 }
 
+/** Which Sweep: tonight's wrap up, or the morning's quick sweep. */
+export type SweepWindow = 'wrapup' | 'quick';
+
+/**
+ * The order Sweep asks in (stage 8): a same or a relation first, as its answer
+ * can change other cards, then a split, then a question.
+ */
+const SWEEP_ORDER: Record<AskKind, number> = { relation: 0, same: 0, split: 1, clarify: 2 };
+
+/**
+ * The ask Sweep shows on an item's card, or null: a live ask made that day for
+ * the wrap up, that day or the day before for the quick sweep, the first in
+ * Sweep's order. Sweep asks it once: Not now there, or moving on without an
+ * answer, lets it go (askActions.lapseAsk).
+ */
+export function sweepAskOf(
+  item: AskItem | null | undefined,
+  today: string | undefined,
+  when: SweepWindow,
+): Ask | null {
+  const ds = getDateService();
+  const day = today ?? ds.today();
+  const shown = liveAsksOf(item, day).filter((a) => {
+    const age = ds.daysBetween(a.since, day);
+    return when === 'wrapup' ? age === 0 : age <= 1;
+  });
+  shown.sort((a, b) => SWEEP_ORDER[a.kind] - SWEEP_ORDER[b.kind]);
+  return shown[0] ?? null;
+}
+
 /** Whether Sweep shows the item's ask: the wrap up those made today, the quick sweep today or yesterday. */
 export function sweepShowsAsk(
   item: AskItem | null | undefined,
   today: string | undefined,
-  when: 'wrapup' | 'quick',
+  when: SweepWindow,
 ): boolean {
-  const ds = getDateService();
-  const day = today ?? ds.today();
-  return liveAsksOf(item, day).some((a) => {
-    const age = ds.daysBetween(a.since, day);
-    return when === 'wrapup' ? age === 0 : age <= 1;
-  });
+  return !!sweepAskOf(item, today, when);
 }

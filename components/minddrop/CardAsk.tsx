@@ -19,6 +19,11 @@
  * - CardDupe is the quiet duplicate line, with Keep just one: the drop glides
  *   into the one they had, which pulses once it arrives.
  *
+ * In Sweep (stage 8, `place="sweep"`), the same strip asks on the Sweep card:
+ * Not now there lets the ask go (askActions.lapseAsk) rather than keeping it
+ * for later, and Same as this one? shows both items, the one they had and
+ * the drop with when it was added.
+ *
  * After a yes: the cards that go are held in place, the change is made, the
  * strip closes, the cards slide away, the toast comes in with Undo, and
  * Gremly's bubble says what happened (the outcome's own words, no new call).
@@ -41,7 +46,8 @@ import { AskStrip, ASK_CLOSE_MS, type AskButton } from './AskStrip';
 import { DupeLine } from './DupeLine';
 import { KIND_ICONS } from './DropCard';
 import type { Ask } from '../../lib/minddrop/asks';
-import { answerAsk, notNow } from '../../lib/minddrop/askActions';
+import { answerAsk, lapseAsk, notNow } from '../../lib/minddrop/askActions';
+import { relativeTime } from '../../lib/minddrop/cardHelpers';
 import {
   buildFallbackClarification,
   hasUsableClarification,
@@ -178,6 +184,7 @@ export function ItemRow({
   change,
   extra,
   logged,
+  sub: given,
   testID,
 }: {
   entity: RelationEntity;
@@ -185,6 +192,8 @@ export function ItemRow({
   extra?: string | null;
   /** Log it was tapped: the next dot fills */
   logged?: boolean;
+  /** the line under the title, in place of the item's own state */
+  sub?: string | null;
   testID?: string;
 }) {
   const item = storeItemOf(entity);
@@ -194,7 +203,9 @@ export function ItemRow({
   const done = week ? Math.min(week.target, week.done + (logged ? 1 : 0)) : 0;
 
   let sub: string | null;
-  if (
+  if (given) {
+    sub = given;
+  } else if (
     change &&
     change.field !== 'body_add' &&
     change.field !== 'completed' &&
@@ -352,10 +363,19 @@ function clarifyWords(item: UnifiedDrop): { question: string; options: Clarifica
 export function CardAsk({
   item,
   ask,
+  place = 'card',
+  onShowing,
+  onAnswer,
   testID,
 }: {
   item: UnifiedDrop;
   ask: Ask | null;
+  /** on a Mind Drop card, or on a Sweep card (stage 8) */
+  place?: 'card' | 'sweep';
+  /** whether a strip is showing (Sweep keeps the card's choices back while it is) */
+  onShowing?: (showing: boolean) => void;
+  /** an answer has been given (Sweep never lets go of a question being answered) */
+  onAnswer?: () => void;
   testID?: string;
 }) {
   const reduced = useReducedMotion();
@@ -410,6 +430,11 @@ export function CardAsk({
     [swapMs],
   );
 
+  const showing = !!shown;
+  React.useEffect(() => {
+    onShowing?.(showing);
+  }, [showing, onShowing]);
+
   // A new ask, or none: the one showing closes and the next comes in. Want a
   // reminder? stays until it is answered: the question it follows has gone by then.
   React.useEffect(() => {
@@ -429,9 +454,11 @@ export function CardAsk({
   const id = item.id;
   const tid = testID ?? `minddrop-ask-${id}`;
 
+  // Not now: on the card it keeps the ask for Sweep; in Sweep it lets it go
+  const letGo = (): Promise<unknown> => (place === 'sweep' ? lapseAsk(id, shown.ask) : notNow(id));
   const onNotNow = () => {
-    notNow(id).catch((err) => {
-      console.warn('[CardAsk] Not now did not save', { id, error: String(err) });
+    letGo().catch((err) => {
+      console.warn('[CardAsk] Not now did not save', { id, place, error: String(err) });
       setError(DIDNT_GO);
     });
   };
@@ -442,6 +469,7 @@ export function CardAsk({
     opts: { isFreeText?: boolean; when?: ClarificationWhen | null } = {},
   ) => {
     setError(null);
+    onAnswer?.();
     const key = askKey(shown.ask);
     answerAsk(id, {
       kind: 'clarify',
@@ -471,6 +499,7 @@ export function CardAsk({
       return;
     }
     setError(null);
+    onAnswer?.();
     const answer = answerAsk(id, { kind: 'clarify', optionId, isFreeText: undefined, when });
     // the reminder step says so if this does not go through
     answer.catch((err) =>
@@ -484,6 +513,7 @@ export function CardAsk({
     const yes = async (picked?: RelationEntity) => {
       busy.current = true;
       setError(null);
+      onAnswer?.();
       const leaving = leavingCardIds(id, picked);
       if (leaving.length) eventBus.emit('minddrop:cards_leaving', { ids: leaving, hold: true });
       try {
@@ -509,6 +539,7 @@ export function CardAsk({
     };
     const no = () => {
       setError(null);
+      onAnswer?.();
       answerAsk(id, { kind: 'relation', yes: false }).catch((err) => {
         console.warn('[CardAsk] keeping it as new did not save', { id, error: String(err) });
         setError(DIDNT_GO);
@@ -565,15 +596,26 @@ export function CardAsk({
     const tick = rel.intent === 'logged' || rel.intent === 'complete';
     return {
       question: relationQuestion(rel),
-      extra: (
-        <ItemRow
-          entity={entity}
-          change={change}
-          extra={rel.kind === 'same' ? rel.extra : null}
-          logged={logged}
-          testID={`${tid}-item`}
-        />
-      ),
+      extra:
+        place === 'sweep' && rel.kind === 'same' ? (
+          // both side by side: the one they had, and this drop with when it was added
+          <View style={styles.both}>
+            <ItemRow entity={entity} testID={`${tid}-item`} />
+            <ItemRow
+              entity={{ id, type: item.kind, title: item.title || item.text || '' }}
+              sub={item.created_at ? `Added ${relativeTime(item.created_at)}` : null}
+              testID={`${tid}-drop`}
+            />
+          </View>
+        ) : (
+          <ItemRow
+            entity={entity}
+            change={change}
+            extra={rel.kind === 'same' ? rel.extra : null}
+            logged={logged}
+            testID={`${tid}-item`}
+          />
+        ),
       buttons: [
         {
           key: 'yes',
@@ -605,6 +647,7 @@ export function CardAsk({
     const split = async () => {
       busy.current = true;
       setError(null);
+      onAnswer?.();
       // the card waits in place while its pieces are saved, then gives way to them
       eventBus.emit('minddrop:cards_leaving', { ids: [id], hold: true, as: 'fade' });
       try {
@@ -621,6 +664,7 @@ export function CardAsk({
     };
     const keep = () => {
       setError(null);
+      onAnswer?.();
       keepSplitAsOne(id)
         .then((kept) => {
           // nothing changed (the item has gone, or it was answered elsewhere): say so
@@ -646,7 +690,7 @@ export function CardAsk({
       ],
       hint: 'Keep as one is the safe choice',
       onNotNow: () => {
-        notNow(id)
+        letGo()
           .then(() => logSplitAnswer('unsure', 'not_now', pieces.length, target))
           .catch((err) => {
             console.warn('[CardAsk] Not now did not save', { id, error: String(err) });
@@ -889,6 +933,7 @@ const styles = StyleSheet.create({
   miniTitle: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 14, color: '#1A3328' },
   miniSub: { fontFamily: 'Inter-Regular', fontSize: 12.5, color: '#5C6660' },
   dots: { flexDirection: 'row', gap: 4, marginLeft: 'auto' },
+  both: { gap: 6 },
   pieces: { gap: 6 },
   piece: {
     flexDirection: 'row',

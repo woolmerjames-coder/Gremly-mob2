@@ -108,6 +108,15 @@ type SweepCardNewProps = {
   dayLoad?: (day: string) => number;
   /** The day this card's todo comes back on when put off for Later; null when Later has no day to offer */
   laterDay?: string | null;
+  /**
+   * The card's question (Mind Drop rethink stage 8): the strip sits where the
+   * card's choices go; while it is open (`askOpen`) they wait, and once it is
+   * answered or let go, they come back.
+   */
+  askStrip?: React.ReactNode;
+  askOpen?: boolean;
+  /** Above the choices: a split's Keep as one, on its pieces made that day */
+  splitBar?: React.ReactNode;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,6 +143,9 @@ export function SweepCardNew({
   sweepIntent = 'tomorrow',
   dayLoad,
   laterDay = null,
+  askStrip = null,
+  askOpen = false,
+  splitBar = null,
 }: SweepCardNewProps) {
   // ── Action zone state ──
   const [selectedAction, setSelectedAction] = useState<TodoAction>(
@@ -453,7 +465,9 @@ export function SweepCardNew({
           onWorldPress={() => setShowWorldPicker(true)}
           keepOpens={asking ? () => setKeepOpened(true) : undefined}
         >
-          {candidate.kind === 'todo' && (
+          {askStrip ? <View style={askOpen ? styles.askSlot : null}>{askStrip}</View> : null}
+          {!askOpen && splitBar ? splitBar : null}
+          {!askOpen && candidate.kind === 'todo' && (
             <TodoActionZone
               candidate={candidate}
               meta={meta}
@@ -487,7 +501,7 @@ export function SweepCardNew({
               asking={asking}
             />
           )}
-          {candidate.kind === 'note' && meta.noteCardType === 'idea' && (
+          {!askOpen && candidate.kind === 'note' && meta.noteCardType === 'idea' && (
             <IdeaActionZone
               candidate={candidate}
               meta={meta}
@@ -509,7 +523,7 @@ export function SweepCardNew({
               }}
             />
           )}
-          {candidate.kind === 'note' && meta.noteCardType === 'general' && (
+          {!askOpen && candidate.kind === 'note' && meta.noteCardType === 'general' && (
             <GeneralNoteActionZone
               candidate={candidate}
               meta={meta}
@@ -531,7 +545,7 @@ export function SweepCardNew({
               }}
             />
           )}
-          {candidate.kind === 'note' && meta.noteCardType === 'event' && (
+          {!askOpen && candidate.kind === 'note' && meta.noteCardType === 'event' && (
             <EventActionZone
               candidate={candidate}
               meta={meta}
@@ -564,7 +578,7 @@ export function SweepCardNew({
               onTogglePrepTodo={() => setShowPrepTodoInput((v) => !v)}
             />
           )}
-          {candidate.kind === 'note' && !meta.noteCardType && (
+          {!askOpen && candidate.kind === 'note' && !meta.noteCardType && (
             <GeneralNoteActionZone
               candidate={candidate}
               meta={meta}
@@ -871,6 +885,7 @@ function getTypeConfig(candidate: SweepCandidate, meta?: SweepCardMeta) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  askSlot: { marginTop: 4 },
   cardOverlayContainer: {
     flex: 1,
     position: 'relative',

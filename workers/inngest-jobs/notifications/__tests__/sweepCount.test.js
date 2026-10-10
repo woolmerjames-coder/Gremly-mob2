@@ -110,12 +110,20 @@ describe('countSweep: notes', () => {
     expect(countSweep({ notes, today, tz })).toBe(1);
   });
 
-  it('leaves out swept notes and journals, unless a question waits on them', () => {
+  it('leaves out swept notes and journals, unless a question Sweep asks waits on them', () => {
     const pending = { status: 'pending', classified: { bucket: 'note' } };
     const notes = [
       note({ swept_at: '2026-10-01T19:00:00Z' }),
       note({ subtype: 'journal' }),
+      // made today: asked
       note({ subtype: 'journal', relation: pending }),
+      note({
+        subtype: 'catchall',
+        created_at: '2026-09-01T18:00:00Z',
+        swept_at: '2026-09-02T03:00:00Z',
+        views: { relation: pending, ask_since: today },
+      }),
+      // asked a month ago and never answered: it has lapsed (stage 8)
       note({
         subtype: 'catchall',
         created_at: '2026-09-01T18:00:00Z',
@@ -204,6 +212,14 @@ describe('the quick sweep: what still needs a decision', () => {
     const notes = [
       note({ subtype: 'list', created_at: '2026-10-02T14:00:00Z' }), // 7am today
       note({ subtype: 'event', target_date: '2026-10-07' }),
+      note({
+        subtype: 'catchall',
+        created_at: '2026-09-01T18:00:00Z',
+        swept_at: '2026-09-02T03:00:00Z',
+        relation: { classified: { bucket: 'log' }, status: 'pending' },
+        ask_since: morning,
+      }),
+      // a question from a month ago has lapsed: not asked (stage 8)
       note({
         subtype: 'catchall',
         created_at: '2026-09-01T18:00:00Z',

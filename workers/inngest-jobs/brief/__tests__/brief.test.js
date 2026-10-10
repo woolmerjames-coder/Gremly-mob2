@@ -639,6 +639,11 @@ describe('the Sweep number the brief may name', () => {
     expect(line).toContain('6 of them were added after their last Sweep');
   });
 
+  it('names habits with a question among the parts, so the parts add up (stage 8)', () => {
+    const line = sweepLine({ ...g, sweep: { ...sweep, quick: 7, habits: 1, newSince: 1 } });
+    expect(line).toContain('6 todos with no day yet, 1 habits with a question');
+  });
+
   it('says nothing is waiting when everything has been decided', () => {
     const line = sweepLine({ ...g, sweep: { ...sweep, quick: 0, noDay: 0, newSince: 0 } });
     expect(line).toMatch(/^nothing/);

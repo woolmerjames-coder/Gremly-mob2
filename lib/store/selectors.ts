@@ -15,7 +15,7 @@ import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
 import { summaryForDay } from '../weeklySummary/currentSummary';
-import { isRelationPending } from '../minddrop/dropRelation';
+import { sweepShowsAsk, type SweepWindow } from '../minddrop/asks';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
 import { dayOfWeek, pausedOn, weekAround } from '../week/habitWeek';
@@ -755,8 +755,9 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
 
 /**
  * Unified sweep candidates with pre-computed display metadata.
- * Includes todos (overdue, due today, undated), notes (ideas, general),
- * and habits that need start date confirmation.
+ * Includes todos (overdue, due today, undated), notes (ideas, general), and
+ * any todo, note or habit with a question Sweep asks: here, the quick sweep's
+ * window (made today or yesterday), as this list is the quick sweep's base.
  *
  * Sort order:
  * 1. Cards with a question
@@ -766,15 +767,26 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectWorlds, selectDropWorldLinks, selectStepsOnClosedChapters],
+  [
+    selectTodos,
+    selectNotes,
+    selectWorlds,
+    selectDropWorldLinks,
+    selectStepsOnClosedChapters,
+    selectHabits,
+  ],
   (
     todos,
     notes,
     worlds,
     dropWorldLinks,
     left,
+    habits,
   ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> =>
-    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString(), left),
+    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString(), left, {
+      habits,
+      asks: 'quick',
+    }),
 );
 
 /**
@@ -790,7 +802,16 @@ export function sweepCandidatesAsOf(
   today: string,
   /** Steps left on a closed Chapter, which stay with it (selectStepsOnClosedChapters) */
   left: Set<string> = new Set(),
+  /**
+   * Habits (a habit with a question Sweep asks joins as a plain card), and
+   * which Sweep's question window counts (lib/minddrop/asks.ts): the wrap up
+   * asks those made that day, the quick sweep that day or the day before.
+   */
+  more: { habits?: ReadonlyArray<Habit>; asks?: SweepWindow } = {},
 ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> {
+  const window: SweepWindow = more.asks ?? 'wrapup';
+  const asking = (item: unknown) =>
+    sweepShowsAsk(item as Parameters<typeof sweepShowsAsk>[0], today, window);
   {
     const sevenDaysAgo = ds().addDays(today, -7);
     const candidates: SweepCandidate[] = [];
@@ -800,11 +821,13 @@ export function sweepCandidatesAsOf(
       if (todo.archived || todo.completed_at || left.has(todo.id)) {
         continue;
       }
+      // a question Sweep asks brings it in whatever its day (stage 8)
+      const asks = asking(todo);
 
       // Check resurface date first - if set for the future, skip entirely
       const resurfaceAt = (todo as any).resurface_at;
       const hasFutureResurface = resurfaceAt && resurfaceAt > today;
-      if (hasFutureResurface) {
+      if (hasFutureResurface && !asks) {
         continue;
       }
 
@@ -819,7 +842,7 @@ export function sweepCandidatesAsOf(
       // Check if todo should resurface today (remind me later)
       const shouldResurface = resurfaceAt && resurfaceAt <= today;
 
-      if (isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
+      if (asks || isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
         candidates.push({
           id: todo.id,
           kind: 'todo',
@@ -837,16 +860,16 @@ export function sweepCandidatesAsOf(
     // Process notes
     for (const note of notes) {
       if (note.archived) continue;
-      // A drop waiting on "is this one you already have?" is asked in Sweep
-      // whatever its kind or day, like a split (lib/minddrop/dropRelation.ts)
-      const relationPending = isRelationPending(note.views);
+      // A question Sweep asks (is this one you already have? one job or two?
+      // what is this?) brings it in whatever its kind or day (stage 8)
+      const relationPending = asking(note);
       if (note.subtype === 'journal' && !relationPending) continue;
 
       const resurfaceAt = (note as any).resurface_at;
       const sweptAt = (note as any).swept_at;
 
       // Skip notes with FUTURE resurface date (not time yet)
-      if (resurfaceAt && resurfaceAt > today) {
+      if (resurfaceAt && resurfaceAt > today && !relationPending) {
         continue;
       }
 
@@ -920,6 +943,23 @@ export function sweepCandidatesAsOf(
       }
     }
 
+    // A habit with a question Sweep asks: a plain card with the question
+    for (const habit of more.habits ?? []) {
+      if (habit.archived || !asking(habit)) continue;
+      const createdAt = habit.created_at ?? '';
+      candidates.push({
+        id: habit.id,
+        kind: 'habit',
+        createdAt,
+        dropId: (habit as any).drop_id ?? null,
+        skippedInSweepAt: null,
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: ds().dayOf(createdAt) === today,
+        raw: habit as any,
+      } satisfies SweepCandidateHabit);
+    }
+
     // Compute meta for each candidate
     const withMeta = candidates.map((candidate) => ({
       candidate,
@@ -937,9 +977,9 @@ export function sweepCandidatesAsOf(
 
       // 0. Cards with a question first: the answers can change other cards
       //    (lib/sweep/sweepOrder.ts)
-      const asks = { relation: 0, clarify: 1 } as const;
-      const aAsks = sweepCardAsks(a.candidate);
-      const bAsks = sweepCardAsks(b.candidate);
+      const asks = { relation: 0, split: 1, clarify: 2 } as const;
+      const aAsks = sweepCardAsks(a.candidate, today, window);
+      const bAsks = sweepCardAsks(b.candidate, today, window);
       if (aAsks || bAsks) {
         if (!bAsks) return -1;
         if (!aAsks) return 1;
@@ -954,8 +994,8 @@ export function sweepCandidatesAsOf(
       if (a.candidate.isDueToday && !b.candidate.isDueToday) return -1;
       if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
 
-      // 4. Group by kind: todos → notes
-      const kindOrder: Record<string, number> = { todo: 0, note: 1 };
+      // 4. Group by kind: todos → notes → habits
+      const kindOrder: Record<string, number> = { todo: 0, note: 1, habit: 2 };
       const aOrder = kindOrder[aKind] ?? 2;
       const bOrder = kindOrder[bKind] ?? 2;
       if (aOrder !== bOrder) return aOrder - bOrder;
@@ -982,10 +1022,17 @@ export const selectWrapUp = createSelector(
     // the person's day as the store has it, so the cards are worked out again when it rolls over
     (state: GremlyState) => state.currentDate,
     selectStepsOnClosedChapters,
+    selectHabits,
   ],
-  (todos, notes, worlds, dropWorldLinks, _day, left) => {
+  (todos, notes, worlds, dropWorldLinks, _day, left, habits) => {
     const day = ds().ritualDay();
-    return { cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day, left) };
+    // tonight's wrap up asks the questions made today (lib/minddrop/asks.ts)
+    return {
+      cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day, left, {
+        habits,
+        asks: 'wrapup',
+      }),
+    };
   },
 );
 

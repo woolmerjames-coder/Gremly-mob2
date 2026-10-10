@@ -13,6 +13,7 @@ import {
   selectTodosDueToday,
   selectTodayCompletedItems,
   selectSweepCandidatesUnified,
+  selectQuickSweepCandidates,
   selectOverdueTodos,
   selectUnscheduledTodosForMiniSweep,
   selectRecentDrops,
@@ -2238,7 +2239,7 @@ describe('selectSweepCandidatesUnified: held drops', () => {
     },
   });
 
-  it('asks about a held drop whatever its kind or day, like a split', () => {
+  it('asks about a held drop whatever its kind, while the question is live (stage 8)', () => {
     const old = '2025-12-10T09:00:00Z';
     const state = makeState({
       notes: [
@@ -2246,6 +2247,14 @@ describe('selectSweepCandidatesUnified: held drops', () => {
           id: 'held',
           subtype: 'journal',
           created_at: old,
+          // asked yesterday: the quick sweep still asks it
+          views: { relation: relation('pending'), ask_since: '2025-12-14' },
+        } as any),
+        makeNote({
+          id: 'lapsed',
+          subtype: 'journal',
+          created_at: old,
+          // asked on its own day, five days ago: no longer asked
           views: { relation: relation('pending') },
         } as any),
         makeNote({ id: 'plain-journal', subtype: 'journal', created_at: old } as any),
@@ -2253,14 +2262,59 @@ describe('selectSweepCandidatesUnified: held drops', () => {
           id: 'answered',
           subtype: 'catchall',
           created_at: old,
-          views: { relation: relation('kept') },
+          views: { relation: relation('kept'), ask_since: '2025-12-15' },
         } as any),
       ],
     });
     const ids = selectSweepCandidatesUnified(state as any).map((i) => i.candidate.id);
     expect(ids).toContain('held');
+    expect(ids).not.toContain('lapsed');
     expect(ids).not.toContain('plain-journal');
     expect(ids).not.toContain('answered');
+  });
+
+  it('brings in a habit with a question Sweep asks, as a plain card', () => {
+    const state = makeState({
+      habits: [
+        {
+          id: 'h1',
+          name: 'Run',
+          created_at: '2025-12-15T09:00:00Z',
+          views: { relation: relation('pending'), ask_since: '2025-12-15' },
+        },
+        { id: 'h2', name: 'Read', created_at: '2025-12-15T09:00:00Z', views: {} },
+      ],
+    } as any);
+    const cards = selectSweepCandidatesUnified(state as any);
+    expect(cards.map((i) => i.candidate.id)).toEqual(['h1']);
+    expect(cards[0].candidate.kind).toBe('habit');
+  });
+
+  it('the wrap up asks the questions made today, and the quick sweep those from yesterday too', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'today',
+          subtype: 'catchall',
+          created_at: '2025-12-01T09:00:00Z',
+          swept_at: '2025-12-02T09:00:00Z',
+          views: { needs_clarification: true, ask_since: '2025-12-15' },
+        } as any),
+        makeNote({
+          id: 'yesterday',
+          subtype: 'catchall',
+          created_at: '2025-12-01T09:00:00Z',
+          swept_at: '2025-12-02T09:00:00Z',
+          views: { needs_clarification: true, ask_since: '2025-12-14' },
+        } as any),
+      ],
+    });
+    expect(selectWrapUp(state as any).cards.map((i) => i.candidate.id)).toEqual(['today']);
+    expect(
+      selectQuickSweepCandidates(state as any)
+        .map((i) => i.candidate.id)
+        .sort(),
+    ).toEqual(['today', 'yesterday']);
   });
 
   it('puts cards with a question ahead of everything, even an overdue todo', () => {
@@ -2274,6 +2328,12 @@ describe('selectSweepCandidatesUnified: held drops', () => {
           views: { needs_clarification: true },
         } as any),
         makeNote({
+          id: 'split',
+          subtype: 'catchall',
+          created_at: '2025-12-15T11:00:00Z',
+          views: { split: { status: 'pending', pieces: [] } },
+        } as any),
+        makeNote({
           id: 'held',
           subtype: 'catchall',
           created_at: '2025-12-15T10:00:00Z',
@@ -2282,7 +2342,8 @@ describe('selectSweepCandidatesUnified: held drops', () => {
       ],
     });
     const ids = selectSweepCandidatesUnified(state as any).map((i) => i.candidate.id);
-    expect(ids.slice(0, 3)).toEqual(['held', 'unclear', 'overdue']);
+    // is this one you already have? first, then a split, then a question
+    expect(ids.slice(0, 4)).toEqual(['held', 'split', 'unclear', 'overdue']);
   });
 });
 
