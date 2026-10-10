@@ -160,6 +160,7 @@ export function chatCacheKey(userId) {
  * @param {object} p.preload for chatContext; found may be a promise (the search started alongside triage), else the search runs here; triage is how triage read the message; today is the person's day when the caller knows it (workers/shared/day.js), and dayEndHour the hour it ends
  * @param {object} [p.week] the person's week as the app sent it (lib/cortex/CortexClient.ts WeekTurnContext); with it Gremly knows where their weekly review stands and can put the button to it under a reply
  * @param {boolean} [p.worlds] the app build can apply changes to Worlds and Chapters (the request's worldsCard): Gremly is told theirs, with ids, and can put changes to them on the card
+ * @param {boolean} [p.noteKinds] the app build can write a note's kind (the request's noteKinds)
  * @param {(line: string) => void} [p.onStatus]
  * @param {object} [p.deps] { ctx, models, agent, now } for tests and replays
  * @returns {Promise<object>} ok with reply, card and tasks, or not ok with why
@@ -173,6 +174,7 @@ export async function runChatTurn({
   preload = {},
   week: sentWeek = null,
   worlds = false,
+  noteKinds = false,
   onStatus,
   deps = {},
 }) {
@@ -193,8 +195,8 @@ export async function runChatTurn({
   const theirWeek = readWeek(sentWeek ? { ...sentWeek, under_way: null } : null, today);
   const weekFrame = weekFrameOf(theirWeek, today);
   const ctx = deps.ctx
-    ? { ...deps.ctx, today, week: weekFrame }
-    : toolContext(env, { userId, today, timezone: tz, week: weekFrame });
+    ? { ...deps.ctx, today, week: weekFrame, noteKinds: deps.ctx.noteKinds ?? noteKinds === true }
+    : toolContext(env, { userId, today, timezone: tz, week: weekFrame, noteKinds });
   const [found, places, page] = await Promise.all([
     preload.found !== undefined
       ? Promise.resolve(preload.found).catch(() => '')

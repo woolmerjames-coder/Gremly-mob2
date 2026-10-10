@@ -152,6 +152,35 @@ describe('find_items', () => {
     expect(r.text).toContain(`- habit | id ${HABIT} | Run | 3x/week | open`);
   });
 
+  it("names each note's kind, and says when one is from their calendar", async () => {
+    const note = (detail, title) => ({
+      type: 'note',
+      id: NOTE,
+      title,
+      day: null,
+      time: null,
+      state: 'open',
+      detail,
+      snippet: '',
+    });
+    const db = fakeDb(
+      {},
+      {
+        find_items: [
+          note('catchall', 'Friday off work'),
+          note('event', 'Dinner with Priya'),
+          note('idea', 'Street food podcast'),
+          note('calendar', 'Team offsite'),
+        ],
+      },
+    );
+    const r = await runTool(ctxWith(db), 'find_items', { types: ['note'] });
+    expect(r.text).toContain(`- note | id ${NOTE} | Friday off work | note | open`);
+    expect(r.text).toContain(`- note | id ${NOTE} | Dinner with Priya | event | open`);
+    expect(r.text).toContain(`- note | id ${NOTE} | Street food podcast | idea | open`);
+    expect(r.text).toContain(`- note | id ${NOTE} | Team offsite | from their calendar | open`);
+  });
+
   it('says so when nothing matched', async () => {
     const r = await runTool(ctxWith(fakeDb({}, { find_items: [] })), 'find_items', {
       query: 'zzz',
@@ -613,6 +642,60 @@ describe('propose_changes', () => {
     // a fix proposed on its own would replace the rows that made it
     expect(r.text).toContain(
       'Proposing again puts a new card in place of this one, so a fix goes in with every change above that should stay.',
+    );
+  });
+
+  it("sets a note's kind for an app build that can write it, and drops it for one that cannot", async () => {
+    const routes = {
+      'notes?': (path) =>
+        path.includes(NOTE)
+          ? [
+              {
+                id: NOTE,
+                title: 'Friday off work',
+                subtype: 'catchall',
+                archived: false,
+                views: {},
+              },
+            ]
+          : [],
+      drop_world_links: [],
+      drop_chapter_links: [],
+      'worlds?': [],
+      'chapters?': [],
+    };
+    const changes = [
+      { op: 'change', type: 'note', id: NOTE, fields: { kind: 'event', day: '2026-10-09' } },
+    ];
+    const newer = await runTool(
+      { ...ctxWith(fakeDb(routes)), noteKinds: true },
+      'propose_changes',
+      {
+        changes,
+      },
+    );
+    expect(newer.result.changes[0].fields).toEqual({ kind: 'event', day: '2026-10-09' });
+    expect(newer.text).toContain('- c1 change note “Friday off work”: kind event; day Fri 9 Oct');
+    const older = await runTool(ctxWith(fakeDb(routes)), 'propose_changes', { changes });
+    expect(older.result.changes).toEqual([]);
+    expect(older.text).toContain(
+      "- c1: this app cannot set a note's kind yet: leave kind out; a note given its day is an event",
+    );
+  });
+
+  it('tells the model a journal entry keeps its kind', async () => {
+    const db = fakeDb({
+      'notes?': [{ id: NOTE, title: 'Sunday reflections', subtype: 'journal', archived: false }],
+      drop_world_links: [],
+      drop_chapter_links: [],
+      'worlds?': [],
+      'chapters?': [],
+    });
+    const r = await runTool({ ...ctxWith(db), noteKinds: true }, 'propose_changes', {
+      changes: [{ op: 'change', type: 'note', id: NOTE, fields: { kind: 'idea' } }],
+    });
+    expect(r.text).toContain(
+      '- c1: a journal entry stays a journal entry; its kind is never changed',
     );
   });
 

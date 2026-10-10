@@ -28,7 +28,7 @@ jest.mock('../../minddrop/ids', () => ({ generateDropId: () => `id-${++mockIds}`
 import { applyChange, applyChanges } from '../apply';
 import { checkChange, type Change } from '../model';
 import { contextFor } from '../snapshot';
-import { rowWords, doneWords, scheduleWords } from '../words';
+import { buttonWords, rowWords, doneWords, scheduleWords } from '../words';
 import { changeLogOf } from '../../chat/changeHistory';
 import {
   upsertDropWorldLinks,
@@ -366,6 +366,80 @@ describe('an item added into a Chapter', () => {
     expect(outcomes[0]).toMatchObject({ ok: false, reason: 'failed' });
     expect(mockState.todos).toHaveLength(before);
     warn.mockRestore();
+  });
+});
+
+describe("a note's kind", () => {
+  it('makes a note an event with its day, and Undo makes it a note again', async () => {
+    const c = checked({
+      op: 'change',
+      type: 'note',
+      id: 'n1',
+      fields: { kind: 'event', day: '2026-10-09' },
+    });
+    const o = await applyChange(c, { source: 'chat' });
+    expect(note()).toMatchObject({ subtype: 'event', target_date: '2026-10-09' });
+    expect(o).toMatchObject({ ok: true, summary: 'Packing is now an event, Fri 9 Oct.' });
+    // the item's history says what kind it was
+    expect(changeLogOf(note().views).find((e) => e.field === 'kind')).toMatchObject({
+      from: 'note',
+      to: 'event',
+    });
+    if (o.ok) await o.revert();
+    expect(note()).toMatchObject({ subtype: 'catchall', target_date: null });
+  });
+
+  it('a plain note given a day is an event, as a new one with a day is', async () => {
+    const c = checked({ op: 'change', type: 'note', id: 'n1', fields: { day: '2026-10-09' } });
+    await applyChange(c, { source: 'chat' });
+    expect(note()).toMatchObject({ subtype: 'event', target_date: '2026-10-09' });
+  });
+
+  it('an idea given a day stays an idea, and a plain note is stored as catchall', async () => {
+    note().subtype = 'idea';
+    await applyChange(
+      checked({ op: 'change', type: 'note', id: 'n1', fields: { day: '2026-10-09' } }),
+      { source: 'chat' },
+    );
+    expect(note().subtype).toBe('idea');
+    await applyChange(checked({ op: 'change', type: 'note', id: 'n1', fields: { kind: 'note' } }), {
+      source: 'chat',
+    });
+    expect(note().subtype).toBe('catchall');
+  });
+
+  it('adds a note of the kind asked for', async () => {
+    await applyChange(
+      checked({
+        op: 'add',
+        type: 'note',
+        fields: { name: 'Street food podcast', kind: 'idea', day: '2026-10-20' },
+      }),
+      { source: 'chat' },
+    );
+    expect(mockState.createNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'Street food podcast', subtype: 'idea' }),
+    );
+    await applyChange(
+      checked({ op: 'add', type: 'note', fields: { name: 'Jo dinner', day: '2026-10-17' } }),
+      { source: 'chat' },
+    );
+    expect(mockState.createNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'Jo dinner', subtype: 'event', target_date: '2026-10-17' }),
+    );
+  });
+
+  it('reads on the card as what it becomes', () => {
+    const make = checked({
+      op: 'change',
+      type: 'note',
+      id: 'n1',
+      fields: { kind: 'event', day: '2026-10-09' },
+    });
+    expect(rowWords(make, { relative: false })).toBe('Make Packing an event, Fri 9 Oct');
+    expect(buttonWords(make)).toBe('Yes, change it');
+    const add = checked({ op: 'add', type: 'note', fields: { name: 'Podcast', kind: 'idea' } });
+    expect(rowWords(add)).toBe('Add idea “Podcast”');
   });
 });
 

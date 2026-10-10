@@ -1862,6 +1862,29 @@ to 53 at about 3.2s, but its replies were sloppier), and Gemini caching.
   first, with Suggest one (one draft tied to the week's priorities) and
   Skip. A "Gremly replied" pill shows when a reply lands below the fold, and
   the opener says "a few minutes".
+- A note's kind (James, 10 Oct, from a chat of 7 Oct where two plans were
+  saved as plain notes and Gremly said it could not make them events). The
+  change model has a `kind` field on notes (note, event, idea; stored in
+  `subtype`, a plain note as catchall). A journal entry reads as journal and
+  is never made or unmade (`journal_entry`). A plain note given a day becomes
+  an event (`writeFor`), as a new dated note always did. `find_items` and
+  `get_item` name the kind. Only an app build that sends `noteKinds` can have
+  a kind on its card; for an older one the row is dropped (`kind_not_here`)
+  and the day alone is used. The Save items pill now saves an event as an
+  event on its day (`lib/chat/pillNote.ts`); before, every event lost its day.
+  The app tells Gremly what was saved from a chat with the pill, and changes
+  accepted on the quick card (`chatHistoryOf`), so "those notes" can be found.
+  Triage: a question, complaint or suggestion about a change Gremly could make
+  is agent (`LANE_RULES`); lane test set 94.5, 94.8, 94.8 before and 96.3,
+  95.6, 96.3 after, dev 95.4, 93.6 before and 95.4, 95.4 after, no new quick
+  to agent misses; his three messages 0 of 15 before, 15 of 15 after. The
+  labelling guide (`scripts/chat-audit/data/LABEL_GUIDE_LANE.md`, not in git)
+  still needs the new line; no labelled turn changes under it. Chat replay
+  scenarios `notes-into-events`, `can-you-make-them-events`,
+  `notes-into-events-old-build`, `new-idea`, `new-event`, `event-moved`,
+  `event-cancelled`, `journal-stays`. A separate rule line about kinds in
+  `propose_changes` made `page-chapter-dates` ask the month far more often,
+  so the kinds are one sentence after the event sentence instead.
 
 ## How to work here
 

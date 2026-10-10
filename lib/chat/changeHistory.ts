@@ -64,6 +64,8 @@ const FIELDS = new Set<string>([
   'reminder',
   'list',
   'part_of_day',
+  // a note's kind: note, event or idea
+  'kind',
   'worlds',
   'chapters',
   'tags',
@@ -307,6 +309,8 @@ export function changeLine(entry: ChangeEntry): { icon: HistoryIcon; title: stri
         icon: 'moved',
         title: entry.now ? `Set for the ${entry.now}` : 'Part of the day taken off',
       };
+    case 'kind':
+      return { icon: 'note', title: `Made ${entry.to === 'note' ? 'a note' : `an ${entry.to}`}` };
     case 'worlds':
     case 'chapters':
     case 'tags':

@@ -921,7 +921,12 @@ export function dayContext(
 async function readLife(ctx, userId, today, tz) {
   try {
     return lifePackText(
-      await loadLifePack(ctx.db, userId, { today, tz, size: chatLifeSize(ctx.env), personWords: personWordsOn(ctx.env) }),
+      await loadLifePack(ctx.db, userId, {
+        today,
+        tz,
+        size: chatLifeSize(ctx.env),
+        personWords: personWordsOn(ctx.env),
+      }),
     );
   } catch (err) {
     console.warn(
@@ -981,9 +986,17 @@ export async function runBriefTurn({ env, userId, body, useAgent, dayTurn, onSta
   // their week, when this app build sends it: the week's tools and changes come with it
   const week = readWeek(body?.week, req.date);
   const weekFrame = weekFrameOf(week, req.date);
+  // the app build can write a note's kind
+  const noteKinds = body?.noteKinds === true;
   const ctx = deps.ctx
-    ? { ...deps.ctx, today: req.date, day, week: weekFrame }
-    : toolContext(env, { userId, today: req.date, timezone, day, week: weekFrame });
+    ? {
+        ...deps.ctx,
+        today: req.date,
+        day,
+        week: weekFrame,
+        noteKinds: deps.ctx.noteKinds ?? noteKinds,
+      }
+    : toolContext(env, { userId, today: req.date, timezone, day, week: weekFrame, noteKinds });
   const wrap = readWrap(body?.wrap);
   const question = questionInPlay(req, wrap);
   const [person, dco, dayEndHour, source, life] = await Promise.all([

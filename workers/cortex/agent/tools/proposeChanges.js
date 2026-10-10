@@ -14,6 +14,7 @@ import {
   OPS,
   TYPES as FIELD_TYPES,
   GROUPS,
+  NOTE_KINDS,
   PLACE_OPS,
   PLACE_OP_WORDS,
   PLACE_TYPES,
@@ -82,7 +83,7 @@ Rules:
 - Fields marked * are ${GROUPS.asked}.
 - Days are YYYY-MM-DD, worked out from today's date. Times are on a 12 hour clock with am or pm, the way every time you read is written.
 - To empty a field, name it in clear. To add to an item's text rather than replace it, use text_add.
-- Gremly keeps todos, habits and notes. Something that happens on a set day or at a set time whatever they do is an event, and an event is a note with the day it happens and, when known, its time and when it ends. Something they need to do is a todo.
+- Gremly keeps todos, habits and notes. Something that happens on a set day or at a set time whatever they do is an event, and an event is a note with the day it happens and, when known, its time and when it ends. Something they need to do is a todo. A note's kind says whether it is a note, an event or an idea; change its kind to make one into another, and a journal entry always stays one.
 - A todo has one date, the day to do it; set a deadline only when they name one.
 - A habit is archived only when the person asks to stop it; to leave it out for today, use skip_today.
 - To turn an item into another kind, use convert with to, and fields for the new item.
@@ -116,6 +117,7 @@ const PLACE_FIELDS = {
 
 const FIELDS_SPEC = {
   name: str('the new name or title'),
+  kind: strEnum(NOTE_KINDS, 'what kind of note it is'),
   text: str('new text that replaces what the item says'),
   text_add: str('text to add to what the item says'),
   day: day('the day'),
@@ -366,6 +368,8 @@ const HINTS = {
     'another change on this card is already about that item; put everything for one item in one change',
   add_needs_name: 'a new item needs a name',
   op_not_for_type: 'that operation does not apply to that kind of item',
+  kind_not_here:
+    "this app cannot set a note's kind yet: leave kind out; a note given its day is an event",
   future_day: 'a habit cannot be logged for a day still to come',
   bad_days: 'days must be YYYY-MM-DD',
   bad_convert: 'convert needs to, another kind of item',
@@ -459,6 +463,8 @@ function hint(reason) {
       return `${field} cannot be added to`;
     case 'not_an_event':
       return `${field} belongs to events; give the note its day in the same change`;
+    case 'journal_entry':
+      return 'a journal entry stays a journal entry; its kind is never changed';
     case 'unknown_link':
       return `one of the ${field} ids is not one of theirs`;
     case 'unknown_list_item':
@@ -625,6 +631,7 @@ function fieldWords(field, value, ctx, names) {
     return `${field} ${dayWords(value, ctx.today)}`;
   }
   if (field === 'time' || field === 'end_time') return `${field} ${clock(value)}`;
+  if (field === 'kind') return `kind ${value}`;
   if (field === 'worlds' || field === 'chapters') {
     const n = (ids) => ids.map((id) => names.get(id) || id).join(', ');
     return [
@@ -839,6 +846,11 @@ function makeProposeChanges({ plan, week = false, ease = false, places = false }
         if (EASE_OP_NAMES.includes(c?.op)) {
           if (ease) return toEaseChange(c, i);
           early.push({ cid: `c${i + 1}`, reason: 'unknown_op' });
+          return null;
+        }
+        // a note's kind, only for an app build that can write it (the request's noteKinds)
+        if (!ctx.noteKinds && c?.fields && typeof c.fields === 'object' && 'kind' in c.fields) {
+          early.push({ cid: `c${i + 1}`, reason: 'kind_not_here' });
           return null;
         }
         if (c?.op !== 'plan') return toModelChange(c, i);

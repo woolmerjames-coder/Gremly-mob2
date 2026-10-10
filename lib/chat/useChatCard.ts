@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import type { SpaceChatMessage } from '../types';
+import type { EntityCard, SpaceChatMessage } from '../types';
 import type { AgentTask } from '../cortex/CortexClient';
 import type { Change } from '../changes/model';
 import { applyChanges } from '../changes/apply';
@@ -51,8 +51,27 @@ export function chatCardMeta(
 }
 
 /**
- * The conversation as Gremly is told it: what was said, and what each card
- * came to, in words.
+ * What they saved from the conversation with the Save items pill, or accepted
+ * on the quick reply's own card (lib/chat/entityCards.ts), as a line Gremly is
+ * told, so a later message about "those notes" can be found and is never met
+ * with Gremly saying it saved nothing. Cards still waiting, turned down or
+ * undone changed nothing and say nothing.
+ */
+function entityCardWords(m: SpaceChatMessage): string | null {
+  const meta = m.metadata_json as { type?: unknown; status?: unknown; card?: EntityCard } | null;
+  if (m.role !== 'system' || meta?.type !== 'entity-card' || meta.status !== 'applied') return null;
+  const card = meta.card;
+  if (!card || card.kind === 'choose' || !card.entity?.title) return null;
+  const { title, type } = card.entity;
+  if (card.kind === 'view') {
+    return card.saved ? `(They saved “${title}” from this conversation, as a ${type}.)` : null;
+  }
+  return `(They accepted a change to their ${type} “${title}”.)`;
+}
+
+/**
+ * The conversation as Gremly is told it: what was said, what each card came
+ * to, and what they saved from it, in words.
  */
 export function chatHistoryOf(
   messages: SpaceChatMessage[],
@@ -63,6 +82,11 @@ export function chatHistoryOf(
     if (meta?.type === 'brief-changes') {
       const words = cardOutcomeWords(meta as BriefChangesMeta);
       if (words) out.push({ role: 'user', content: words });
+      continue;
+    }
+    const saved = entityCardWords(m);
+    if (saved) {
+      out.push({ role: 'user', content: saved });
       continue;
     }
     // what they kept from a reply, and where (lib/worlds/keep.ts)

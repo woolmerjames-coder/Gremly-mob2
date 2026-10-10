@@ -271,6 +271,54 @@ describe('a Chapter Gremly offered', () => {
 });
 
 describe('what Gremly is told', () => {
+  it('what they saved from the conversation, and changes they accepted on the quick card', () => {
+    const card = (over: Record<string, unknown>) =>
+      ({
+        id: String(Math.random()),
+        role: 'system',
+        content: 'Entity card',
+        metadata_json: { type: 'entity-card', status: 'applied', ...over },
+      }) as unknown as SpaceChatMessage;
+    const told = chatHistoryOf([
+      { id: 'u1', role: 'user', content: "I've got Friday off work" } as SpaceChatMessage,
+      card({
+        card: {
+          kind: 'view',
+          saved: true,
+          entity: { id: 'n1', type: 'note', title: 'Friday Off Work' },
+        },
+      }),
+      card({
+        card: {
+          kind: 'edit',
+          entity: { id: 'n2', type: 'note', title: 'See Michelle' },
+          change: { field: 'body_add', from: null, to: 'First time since' },
+        },
+      }),
+      // still waiting, or turned down: nothing happened
+      card({
+        status: 'pending',
+        card: { kind: 'view', saved: true, entity: { id: 'n3', type: 'note', title: 'Not yet' } },
+      }),
+      card({
+        status: 'declined',
+        card: {
+          kind: 'edit',
+          entity: { id: 'n4', type: 'todo', title: 'Said no' },
+          change: { field: 'due_day', from: null, to: '2026-10-09' },
+        },
+      }),
+    ]);
+    expect(told).toEqual([
+      { role: 'user', content: "I've got Friday off work" },
+      {
+        role: 'user',
+        content: '(They saved “Friday Off Work” from this conversation, as a note.)',
+      },
+      { role: 'user', content: '(They accepted a change to their note “See Michelle”.)' },
+    ]);
+  });
+
   it('the conversation, with what each card came to', () => {
     const history = chatHistoryOf([
       { id: '1', role: 'user', content: 'Move the vet to Friday', metadata_json: null },

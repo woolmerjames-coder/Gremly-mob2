@@ -9,7 +9,14 @@
  */
 import { canonicalToFrequencyJson } from '../habits/frequencyUtils';
 import { generateDropId } from '../minddrop/ids';
-import { fieldDef, scheduleLabel, scheduleOf, type ItemType, type Schedule } from './model';
+import {
+  fieldDef,
+  noteKindOf,
+  scheduleLabel,
+  scheduleOf,
+  type ItemType,
+  type Schedule,
+} from './model';
 
 type Item = Record<string, any>;
 
@@ -108,6 +115,10 @@ export function writeFor(type: ItemType, item: Item, fields: Record<string, any>
       case 'flag':
         set(def.column, value);
         break;
+      case 'note_kind':
+        // a plain note is stored as catchall, as Mind Drop saves one
+        set(def.column, value === 'note' ? 'catchall' : value);
+        break;
       case 'tags': {
         const current = strings(item.tags);
         const next = current
@@ -172,6 +183,12 @@ export function writeFor(type: ItemType, item: Item, fields: Record<string, any>
         throw new Error(`No way to write ${field}`);
     }
   }
+  // A plain note given a day is an event from then on, as a new note with a
+  // day is (createColumns) and as Mind Drop saves one; the week ahead and the
+  // calendar read events by their kind. A kind they asked for is kept.
+  if (type === 'note' && fields.day && !('kind' in fields) && noteKindOf(item.subtype) === 'note') {
+    set('subtype', 'event');
+  }
   return w;
 }
 
@@ -192,7 +209,7 @@ export function createColumns(
     Object.assign(cols, scheduleColumns(fields.schedule ?? { per: 'day', times: 1 }));
     cols.subtype = 'start_habit';
   }
-  if (type === 'note') {
+  if (type === 'note' && !('kind' in fields)) {
     cols.subtype = cols.target_date ? 'event' : 'catchall';
   }
   return cols;

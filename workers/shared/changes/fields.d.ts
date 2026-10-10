@@ -1,11 +1,15 @@
 // Types for fields.js, for the app's TypeScript.
 export type ItemType = 'todo' | 'habit' | 'note';
+/** The kinds a note can be made; a journal entry is read as 'journal' and never made here */
+export type NoteKind = 'note' | 'event' | 'idea';
+export declare const NOTE_KINDS: NoteKind[];
 export type FieldKind =
   | 'text'
   | 'day'
   | 'time'
   | 'minutes'
   | 'enum'
+  | 'note_kind'
   | 'flag'
   | 'schedule'
   | 'tags'

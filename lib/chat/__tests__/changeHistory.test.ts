@@ -163,6 +163,13 @@ describe('the words', () => {
     expect(
       changeDetail(entry({ field: 'body_add', was: null, now: 'bring the insurance card' }), now),
     ).toBe('“bring the insurance card” · from Mind Drop · just now');
+    // a note made another kind of note
+    expect(changeLine(entry({ field: 'kind', from: 'note', to: 'event' })).title).toBe(
+      'Made an event',
+    );
+    expect(changeLine(entry({ field: 'kind', from: 'idea', to: 'note' })).title).toBe(
+      'Made a note',
+    );
   });
 
   it('says how long ago in plain words', () => {

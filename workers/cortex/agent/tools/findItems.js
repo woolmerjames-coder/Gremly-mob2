@@ -11,6 +11,10 @@
 
 import { arr, day, int, obj, str, strEnum } from './schema.js';
 import { clock, dayWords, trim } from './words.js';
+import { noteKindOf } from '../../../shared/changes/check.js';
+
+/** A note's kind as the model reads it: event, idea, journal or note; from their calendar says so. */
+const noteDetail = (detail) => (detail === 'calendar' ? 'from their calendar' : noteKindOf(detail));
 
 const STATES = ['open', 'done', 'archived', 'any'];
 const TYPES = ['todo', 'habit', 'note'];
@@ -57,7 +61,7 @@ export const findItems = {
         trim(i.title, 90) || '(untitled)',
         when,
         i.type === 'habit' && i.detail ? i.detail : '',
-        i.type === 'note' && i.detail ? i.detail : '',
+        i.type === 'note' ? noteDetail(i.detail) : '',
         i.state,
         i.snippet && trim(i.snippet, 120) !== trim(i.title, 120) ? `“${trim(i.snippet, 120)}”` : '',
       ].filter(Boolean);

@@ -131,6 +131,10 @@ export declare function itemTitle(
   type: string,
   item: Record<string, any> | null | undefined,
 ): string;
+/** What kind of note a subtype is: event, idea, journal, or note for every plain note. */
+export declare function noteKindOf(
+  subtype: string | null | undefined,
+): 'note' | 'event' | 'idea' | 'journal';
 export declare function beforeValue(
   type: string,
   item: Record<string, any> | null | undefined,

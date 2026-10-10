@@ -222,6 +222,126 @@ export const SCENARIOS = [
       row: (c) => c.op === 'add' && c.type === 'todo' && (!c.fields?.day || c.fields.day < '2026-11-01'),
     },
   },
+  // A note's kind (note, event, idea), modelled on a real chat of 7 October:
+  // two plans saved as plain notes, and asking why they were not events.
+  {
+    id: 'notes-into-events',
+    kind: "A note's kind",
+    history: [
+      { role: 'user', content: "I've got Friday off work and I'm seeing Robin tomorrow night" },
+      { role: 'assistant', content: 'A long weekend coming, nice. How are you feeling about seeing Robin?' },
+      // the Save items pill's receipts, as the app tells them (lib/chat/useChatCard.ts chatHistoryOf)
+      { role: 'user', content: '(They saved “Friday off work” from this conversation, as a note.)' },
+      { role: 'user', content: '(They saved “See Robin” from this conversation, as a note.)' },
+    ],
+    text: 'Those two notes you just made, why didn’t you make them events?',
+    items: [
+      { id: 'off', kind: 'note', title: 'Friday off work', subtype: 'catchall' },
+      { id: 'robin', kind: 'note', title: 'See Robin', subtype: 'catchall' },
+    ],
+    expect: {
+      minRows: 1,
+      maxRows: 2,
+      row: (c) => c.op === 'change' && c.fields?.kind === 'event' && !!c.fields?.day,
+      some: (c) => c.id === 'off' && c.fields?.day === '2026-10-09',
+    },
+  },
+  {
+    id: 'can-you-make-them-events',
+    kind: "A note's kind",
+    history: [
+      { role: 'user', content: "I've got Friday off work and I'm seeing Robin tomorrow night" },
+      { role: 'assistant', content: 'A long weekend coming, nice. How are you feeling about seeing Robin?' },
+      // the Save items pill's receipts, as the app tells them (lib/chat/useChatCard.ts chatHistoryOf)
+      { role: 'user', content: '(They saved “Friday off work” from this conversation, as a note.)' },
+      { role: 'user', content: '(They saved “See Robin” from this conversation, as a note.)' },
+      { role: 'user', content: 'There should be a way to turn those notes into events, with their days and times' },
+      { role: 'assistant', content: 'That would make them much easier to see on your days.' },
+    ],
+    text: 'So can you do that for me?',
+    items: [
+      { id: 'off', kind: 'note', title: 'Friday off work', subtype: 'catchall' },
+      { id: 'robin', kind: 'note', title: 'See Robin', subtype: 'catchall' },
+    ],
+    expect: {
+      minRows: 1,
+      maxRows: 2,
+      row: (c) => c.op === 'change' && c.fields?.kind === 'event' && !!c.fields?.day,
+      // asking what time they see Robin is fair; Friday needs nothing more
+      some: (c) => c.id === 'off' && c.fields?.day === '2026-10-09',
+    },
+  },
+  {
+    id: 'notes-into-events-old-build',
+    kind: "A note's kind, on an older build",
+    oldBuild: true,
+    history: [
+      { role: 'user', content: "I've got Friday off work and I'm seeing Robin tomorrow night" },
+      { role: 'assistant', content: 'A long weekend coming, nice. How are you feeling about seeing Robin?' },
+      // the Save items pill's receipts, as the app tells them (lib/chat/useChatCard.ts chatHistoryOf)
+      { role: 'user', content: '(They saved “Friday off work” from this conversation, as a note.)' },
+      { role: 'user', content: '(They saved “See Robin” from this conversation, as a note.)' },
+    ],
+    text: 'Those two notes you just made, why didn’t you make them events?',
+    items: [
+      { id: 'off', kind: 'note', title: 'Friday off work', subtype: 'catchall' },
+      { id: 'robin', kind: 'note', title: 'See Robin', subtype: 'catchall' },
+    ],
+    // an older build cannot write the kind: the day alone makes each an event
+    expect: {
+      minRows: 1,
+      maxRows: 2,
+      row: (c) => c.op === 'change' && !!c.fields?.day && !('kind' in (c.fields || {})),
+    },
+  },
+  {
+    id: 'new-idea',
+    kind: "A note's kind",
+    text: 'Idea: a short podcast about the history of street food. Keep that for me',
+    items: [],
+    expect: { rows: 1, row: (c) => c.op === 'add' && c.type === 'note' && c.fields?.kind === 'idea' },
+  },
+  {
+    id: 'new-event',
+    kind: "A note's kind",
+    text: "Jo's birthday dinner is on the 17th at 7pm, can you add it?",
+    items: [],
+    expect: {
+      minRows: 1,
+      maxRows: 2,
+      some: (c) =>
+        c.op === 'add' &&
+        c.type === 'note' &&
+        c.fields?.kind === 'event' &&
+        c.fields?.day === '2026-10-17' &&
+        c.fields?.time === '19:00',
+    },
+  },
+  {
+    id: 'event-moved',
+    kind: 'Change an event',
+    text: 'Dinner with Priya moved to Thursday at 8pm',
+    items: [{ id: 'priya', kind: 'note', title: 'Dinner with Priya', subtype: 'event', day: '2026-10-06', time: '19:30' }],
+    expect: {
+      rows: 1,
+      row: (c) => c.op === 'change' && c.id === 'priya' && c.fields?.day === '2026-10-08' && c.fields?.time === '20:00',
+    },
+  },
+  {
+    id: 'event-cancelled',
+    kind: 'Cancel an event',
+    text: "Dinner with Priya on Tuesday is off, she can't make it",
+    items: [{ id: 'priya', kind: 'note', title: 'Dinner with Priya', subtype: 'event', day: '2026-10-06', time: '19:30' }],
+    expect: { askOrRows: true, rows: 1, row: (c) => c.op === 'archive' && c.id === 'priya' },
+  },
+  {
+    id: 'journal-stays',
+    kind: "A note's kind",
+    text: 'Make my Sunday reflections an idea instead',
+    items: [{ id: 'sun', kind: 'note', title: 'Sunday reflections', subtype: 'journal' }],
+    // a journal entry stays one: nothing on the card, and it says so
+    expect: { rows: 0 },
+  },
 ];
 
 /** The calendar for the week ahead, for the preload (context/weekAhead.js). */

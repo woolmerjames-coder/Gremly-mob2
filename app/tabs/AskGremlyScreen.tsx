@@ -26,6 +26,7 @@ import { useOpenEntity } from '../../hooks/useOpenEntity';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
+import { pillNoteColumns, pillNoteSubtype } from '../../lib/chat/pillNote';
 import { ChatHistorySheet } from '../../components/chat/ChatHistorySheet';
 import {
   callGeneralChatStreaming,
@@ -2641,7 +2642,9 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               }
               const bucket =
                 item.type === 'todo' ? 'todo' : item.type === 'habit' ? 'habit' : 'log';
-              const subtype = item.type === 'note' ? item.subtype || 'general' : null;
+              // an event keeps its kind and its day (lib/chat/pillNote.ts)
+              const subtype =
+                item.type === 'note' || item.type === 'event' ? pillNoteSubtype(item) : null;
               const enrichText = item.title + (item.body ? '. ' + item.body : '');
 
               // Call both in parallel
@@ -2713,7 +2716,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 const note = await store.createNote({
                   title: smartTitle,
                   body: item.body || item.title,
-                  subtype: subtype || 'general',
+                  ...pillNoteColumns(item),
                   tags,
                   views,
                   ai_placed: true,

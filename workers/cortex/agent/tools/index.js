@@ -81,7 +81,10 @@ export function isSignal(name) {
 }
 
 /** The context every tool runs with, for one turn. */
-export function toolContext(env, { userId, today, timezone, day = null, week = null }) {
+export function toolContext(
+  env,
+  { userId, today, timezone, day = null, week = null, noteKinds = false },
+) {
   return {
     env,
     userId,
@@ -91,6 +94,8 @@ export function toolContext(env, { userId, today, timezone, day = null, week = n
     cache: new Map(),
     day,
     week,
+    // the app build can write a note's kind (the request's noteKinds)
+    noteKinds: noteKinds === true,
   };
 }
 

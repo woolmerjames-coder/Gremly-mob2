@@ -2337,6 +2337,8 @@ async function answerWithAgent({
     week: body.week && typeof body.week === 'object' ? body.week : null,
     // their Worlds and Chapters, for an app build that can apply changes to them (Worlds rebuild, stage 2)
     worlds: body.worldsCard === true,
+    // a note's kind (note, event, idea), for an app build that can write it
+    noteKinds: body.noteKinds === true,
     onStatus: (line) => {
       send({ searching: true, query: line, isLoadingHint: true }).catch(() => {});
     },

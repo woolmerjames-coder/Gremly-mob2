@@ -5,7 +5,7 @@
  * a move. Done and check ins are not history: the item shows those itself.
  */
 import { historyDay, historyWhen } from '../chat/changeHistory';
-import { scheduleLabel, scheduleOf, type Change, type ItemType } from './model';
+import { noteKindOf, scheduleLabel, scheduleOf, type Change, type ItemType } from './model';
 import { listWords, minutesWords, scheduleWords, type NameLookup } from './words';
 
 type Item = Record<string, any>;
@@ -146,6 +146,11 @@ export function historyLines(
           was: was ? minutesWords(was) : null,
           now: value ? minutesWords(value) : null,
         });
+        break;
+      }
+      case 'kind': {
+        const was = noteKindOf(item.subtype);
+        lines.push({ field, from: was, to: value, was, now: value });
         break;
       }
       case 'part_of_day':

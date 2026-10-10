@@ -218,6 +218,8 @@ export function beforeValue(type, item, field) {
     case 'reminder':
     case 'list':
       return Array.isArray(raw) ? raw : [];
+    case 'note_kind':
+      return noteKindOf(raw);
     default:
       return raw == null || raw === '' ? null : raw;
   }
@@ -225,6 +227,14 @@ export function beforeValue(type, item, field) {
 
 function isEvent(item) {
   return !!item && (item.subtype === 'event' || !!normDay(item.target_date));
+}
+
+/**
+ * What kind of note a subtype is: event, idea or journal as they are, and
+ * every plain note (catchall, general and older names) a note.
+ */
+export function noteKindOf(subtype) {
+  return subtype === 'event' || subtype === 'idea' || subtype === 'journal' ? subtype : 'note';
 }
 
 // ── One field ───────────────────────────────────────────────────────────────
@@ -267,6 +277,11 @@ function readField(type, field, raw, before, ctx) {
     }
     case 'enum':
       if (!def.values.includes(raw)) return { error: `bad_value:${field}` };
+      return raw === before ? { noop: true } : { value: raw };
+    case 'note_kind':
+      if (!def.values.includes(raw)) return { error: `bad_value:${field}` };
+      // the journal keeps its own entries: one is never made into another kind
+      if (before === 'journal') return { error: `journal_entry:${field}` };
       return raw === before ? { noop: true } : { value: raw };
     case 'flag':
       if (typeof raw !== 'boolean') return { error: `bad_value:${field}` };

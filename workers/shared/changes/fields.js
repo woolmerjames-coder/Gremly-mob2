@@ -15,6 +15,7 @@
  * - clear: the field can be emptied
  * - add: text that can be added to as well as replaced
  * - events: a note field that belongs to events (a note with a date)
+ * - values: the values an enum takes, or the kinds a note can be made
  *
  * Off limits, whatever is asked: anything synced from a calendar, bookkeeping
  * (ids, owners, timestamps, Sweep's marks, the classifier's flags, the
@@ -224,6 +225,9 @@ export const WEEK_LIMITS = {
 const NAME_MAX = 200;
 const TEXT_MAX = 4000;
 
+/** The kinds a note can be made: its subtype, with a plain note stored as catchall. */
+export const NOTE_KINDS = ['note', 'event', 'idea'];
+
 export const TYPES = {
   todo: {
     ops: ['add', 'change', 'done', 'reopen', 'archive', 'restore', 'convert'],
@@ -382,6 +386,16 @@ export const TYPES = {
     ops: ['add', 'change', 'archive', 'restore', 'convert'],
     fields: {
       name: { kind: 'text', group: 'main', column: 'title', max: NAME_MAX, about: 'its title' },
+      // what kind of note it is (its subtype). A journal entry is read as one
+      // and never made or unmade here: the journal keeps its own entries.
+      kind: {
+        kind: 'note_kind',
+        values: NOTE_KINDS,
+        group: 'main',
+        column: 'subtype',
+        about:
+          'what kind of note it is: a note, an event (something that happens on a day, kept with that day) or an idea; a journal entry is always one',
+      },
       text: {
         kind: 'text',
         group: 'main',

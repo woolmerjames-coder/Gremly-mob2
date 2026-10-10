@@ -12,6 +12,7 @@
  *   scripts/chat-replay/run.sh --with-ease              and the habits eased now, as a build that can pause a habit sends them
  *   scripts/chat-replay/run.sh --triage                 each message read by triage first, as cortex-index.js does, and the agent told how it reads (data fabric stage 4e)
  *   scripts/chat-replay/run.sh --places                 every scenario from an app build that can change Worlds and Chapters, with Alex's usual ones (Worlds rebuild, stage 2); a scenario with worlds of its own always is
+ *   scripts/chat-replay/run.sh --old-build              every scenario from an app build that cannot write a note's kind (before noteKinds); a scenario with oldBuild always is
  *
  * Keys come from the environment (OPENAI_API_KEY, GEMINI_TEST_API_KEY).
  * Output goes to scripts/chat-replay/out/ (gitignored).
@@ -135,8 +136,9 @@ function dbFor(s, to) {
       rows.todos.push({ id, name: x.title, title: x.title, body: '', notes: '', due_day: x.due_day || null, due_time: x.due_time ? `${x.due_time}:00` : null, time_estimate_minutes: null, reminders_json: [], completed_at: null, archived: false, views: {} });
     if (x.kind === 'habit')
       rows.habits.push({ id, name: x.title, title: x.title, frequency: 'weekly', cadence: 'weekly', target_per_period: 3, days_active: null, frequency_json: null, notes: '', archived: false, reminders_json: [], views: {} });
+    // a note's kind is the scenario's (an idea when it does not say), with its day and time when it is an event
     if (x.kind === 'note')
-      rows.notes.push({ id, title: x.title, body: x.body || '', subtype: 'idea', target_date: null, archived: false, reminders_json: [], views: {} });
+      rows.notes.push({ id, title: x.title, body: x.body || '', subtype: x.subtype || 'idea', target_date: x.day || null, event_time: x.time ? `${x.time}:00` : null, archived: false, reminders_json: [], views: {} });
   }
   const typeOf = { todos: 'todo', habits: 'habit', notes: 'note' };
   // their Worlds and Chapters, as the tables have them
@@ -212,7 +214,7 @@ function dbFor(s, to) {
         .filter((i) => !words.length || score(i) > 0)
         .sort((x, y) => score(y) - score(x))
         .slice(0, a.p_limit || 12)
-        .map((i) => ({ type: i.type, id: i.r.id, title: i.r.name || i.r.title, day: i.r.due_day || null, time: i.r.due_time || null, state: 'open', detail: null, snippet: i.r.body || '' }));
+        .map((i) => ({ type: i.type, id: i.r.id, title: i.r.name || i.r.title, day: i.r.due_day || i.r.target_date || null, time: i.r.due_time || i.r.event_time || null, state: 'open', detail: i.type === 'note' ? i.r.subtype : null, snippet: i.r.body || '' }));
     },
   };
 }
@@ -359,6 +361,8 @@ async function runOne(s, modelKey) {
       week: theirWeekFor(s, to),
       // an app build that can change Worlds and Chapters
       worlds: placesOn(s),
+      // and write a note's kind, unless the scenario or the run says the build is older
+      noteKinds: !s.oldBuild && !args.includes('--old-build'),
       deps: {
         now: () => Date.parse(s.nowIso || NOW_ISO),
         ctx: { env, userId: USER, timezone: TZ, cache: new Map(), db },

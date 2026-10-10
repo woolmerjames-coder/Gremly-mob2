@@ -445,6 +445,8 @@ export function buildBriefTurnRequest(
     chat_id: threadId,
     ...(wrap ? { wrap } : {}),
     ...(week ? { week } : {}),
+    // this build writes a note's kind, so Gremly can set it on the card
+    noteKinds: true,
   };
 }
 

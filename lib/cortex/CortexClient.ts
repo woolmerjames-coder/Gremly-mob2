@@ -425,6 +425,8 @@ export function callGeneralChatStreaming(
       // and changes to Worlds and Chapters, for someone who has the Worlds tab
       // every build from the Worlds rebuild can show and change Worlds and Chapters (stage 4)
       worldsCard: true,
+      // and write a note's kind (note, event, idea), so Gremly can set it on the card
+      noteKinds: true,
       agentTasks: opts.agentTasks ?? [],
       ...(opts.week ? { week: opts.week } : {}),
       userId: opts.userId,
@@ -2157,6 +2159,8 @@ export interface BriefTurnRequest extends DayTurnRequest {
   wrap?: WrapTurnContext;
   /** Their week, from an app build that can show the weekly review */
   week?: WeekTurnContext;
+  /** This build writes a note's kind (note, event, idea), so Gremly can set it on the card */
+  noteKinds?: boolean;
 }
 
 /**

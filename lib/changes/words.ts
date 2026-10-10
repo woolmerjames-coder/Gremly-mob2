@@ -27,6 +27,13 @@ const DAY_KIND_WORDS = [
   ['weekend_day', 'a day off'],
 ] as const;
 const KIND = { todo: 'todo', habit: 'habit', note: 'note' } as const;
+// a note's own kinds, as a row and a closing line say them
+const NOTE_KIND_WORDS: Record<string, string> = {
+  note: 'a note',
+  event: 'an event',
+  idea: 'an idea',
+};
+const noteKindWords = (k: unknown): string => NOTE_KIND_WORDS[String(k)] ?? 'a note';
 
 type Opts = { relative?: boolean };
 
@@ -90,6 +97,7 @@ function reminderWords(
 function fieldPhrases(change: Change, names: NameLookup, opts: Opts): string[] {
   const f = change.fields ?? {};
   const out: string[] = [];
+  if ('kind' in f) out.push(noteKindWords(f.kind));
   if ('day' in f || 'time' in f) {
     const day = 'day' in f ? f.day : change.before?.day;
     const time = 'time' in f ? f.time : change.before?.time;
@@ -321,13 +329,25 @@ export function rowWords(change: Change, opts: Opts & { names?: NameLookup } = {
   switch (change.op) {
     case 'add': {
       const rest = Object.fromEntries(
-        Object.entries(change.fields ?? {}).filter(([k]) => k !== 'name'),
+        Object.entries(change.fields ?? {}).filter(([k]) => k !== 'name' && k !== 'kind'),
       );
       const phrases = fieldPhrases({ ...change, fields: rest }, names, opts);
-      return [`Add ${KIND[change.type as keyof typeof KIND]} “${t}”`, ...phrases].join(', ');
+      // a note says its kind: an event, an idea or a note
+      const kind = change.fields?.kind;
+      const what =
+        change.type === 'note' && typeof kind === 'string' && kind in NOTE_KIND_WORDS
+          ? kind
+          : KIND[change.type as keyof typeof KIND];
+      return [`Add ${what} “${t}”`, ...phrases].join(', ');
     }
     case 'change': {
       const f = change.fields ?? {};
+      if ('kind' in f) {
+        // "Make Friday off an event, Fri 9 Oct"
+        const rest = Object.fromEntries(Object.entries(f).filter(([k]) => k !== 'kind'));
+        const others = fieldPhrases({ ...change, fields: rest }, names, opts);
+        return [`Make ${t} ${noteKindWords(f.kind)}`, ...others].join(', ');
+      }
       const phrases = fieldPhrases(change, names, opts);
       if ('day' in f || 'time' in f) {
         const was = movedFrom(change, opts);
@@ -401,6 +421,7 @@ export function buttonWords(change: Change): string {
       return 'Yes, add it';
     case 'change': {
       const f = change.fields ?? {};
+      if ('kind' in f) return 'Yes, change it';
       if ('day' in f) return 'Yes, move it';
       if ('time' in f) return 'Yes, change the time';
       if (Object.keys(f).length === 1 && 'name' in f) return 'Yes, rename it';

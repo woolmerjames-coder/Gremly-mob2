@@ -12,10 +12,11 @@ import {
   normMinutes,
   normSchedule,
   normTime,
+  noteKindOf,
   scheduleLabel,
   scheduleOf,
 } from '../check';
-import { EASE_OPS, GROUPS, OPS, TYPES, WEEK_OPS } from '../fields';
+import { EASE_OPS, GROUPS, NOTE_KINDS, OPS, TYPES, WEEK_OPS } from '../fields';
 
 const TODAY = '2026-10-02';
 const todo = {
@@ -356,6 +357,67 @@ describe('a card', () => {
       { cid: 'c3', reason: 'conflict' },
       { cid: 'c5', reason: 'no_item' },
     ]);
+  });
+});
+
+describe("a note's kind", () => {
+  const plain = { id: 'n2', title: 'Friday off work', subtype: 'catchall' };
+  const journal = { id: 'j1', title: 'Sunday reflections', subtype: 'journal' };
+
+  it('reads every plain note as a note, and events, ideas and journal entries as they are', () => {
+    for (const s of ['catchall', 'general', 'everything_else', 'note', null, undefined]) {
+      expect(noteKindOf(s)).toBe('note');
+    }
+    expect(noteKindOf('event')).toBe('event');
+    expect(noteKindOf('idea')).toBe('idea');
+    expect(noteKindOf('journal')).toBe('journal');
+    expect(beforeValue('note', plain, 'kind')).toBe('note');
+    expect(beforeValue('note', event, 'kind')).toBe('event');
+    expect(NOTE_KINDS).toEqual(['note', 'event', 'idea']);
+  });
+
+  it('makes a note an event with its day, and the event fields come with it', () => {
+    expect(change({ kind: 'event', day: '2026-10-09', time: '19:00' }, plain, 'note')).toEqual({
+      ok: true,
+      change: {
+        cid: null,
+        op: 'change',
+        type: 'note',
+        id: 'n2',
+        title: 'Friday off work',
+        fields: { kind: 'event', day: '2026-10-09', time: '19:00' },
+        before: { kind: 'note', day: null, time: null },
+      },
+    });
+  });
+
+  it('makes an event or an idea a note again, and does nothing for the kind it already is', () => {
+    const r = change({ kind: 'idea' }, event, 'note');
+    expect(r.ok && r.change.fields).toEqual({ kind: 'idea' });
+    expect(change({ kind: 'event' }, event, 'note')).toEqual({ ok: false, reason: 'no_change' });
+  });
+
+  it('never makes or unmakes a journal entry, and takes only the kinds it has', () => {
+    expect(change({ kind: 'idea' }, journal, 'note')).toEqual({
+      ok: false,
+      reason: 'journal_entry:kind',
+    });
+    expect(change({ kind: 'journal' }, plain, 'note')).toEqual({
+      ok: false,
+      reason: 'bad_value:kind',
+    });
+    expect(change({ kind: null }, plain, 'note')).toEqual({
+      ok: false,
+      reason: 'cannot_clear:kind',
+    });
+  });
+
+  it('gives a new note its kind', () => {
+    const r = checkChange(
+      { op: 'add', type: 'note', fields: { name: 'Street food podcast', kind: 'idea' } },
+      ctx(null),
+    );
+    expect(r.ok && r.change.fields).toEqual({ name: 'Street food podcast', kind: 'idea' });
   });
 });
 
