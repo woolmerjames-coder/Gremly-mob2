@@ -3496,71 +3496,9 @@ const cortexHandler = {
         'calm',
       ];
 
-      // --- Day name to number mapping (0=Sunday, 1=Monday, ..., 6=Saturday) ---
-      const DAY_NAME_TO_NUMBER = {
-        sunday: 0,
-        sun: 0,
-        monday: 1,
-        mon: 1,
-        tuesday: 2,
-        tue: 2,
-        tues: 2,
-        wednesday: 3,
-        wed: 3,
-        thursday: 4,
-        thu: 4,
-        thur: 4,
-        thurs: 4,
-        friday: 5,
-        fri: 5,
-        saturday: 6,
-        sat: 6,
-      };
-
       // --- Clarification confidence threshold ---
       // Below this confidence, AI should ask a clarifying question instead of guessing
       const BUCKET_CONFIDENCE_THRESHOLD = 0.7;
-
-      // Parse day names from text and return array of day numbers
-      function parseDaysFromText(text) {
-        if (!text) return null;
-        const lower = text.toLowerCase();
-        const days = new Set();
-
-        // Match day names (including plurals like "Tuesdays")
-        const dayPattern =
-          /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\b/gi;
-        const matches = lower.match(dayPattern);
-
-        if (matches && matches.length > 0) {
-          for (const match of matches) {
-            // Remove trailing 's' for plurals
-            const singular = match.replace(/s$/, '');
-            const dayNum = DAY_NAME_TO_NUMBER[singular];
-            if (dayNum !== undefined) {
-              days.add(dayNum);
-            }
-          }
-        }
-
-        // Also check for "weekends" / "weekdays"
-        if (/\bweekends?\b/i.test(lower)) {
-          days.add(0); // Sunday
-          days.add(6); // Saturday
-        }
-        if (/\bweekdays?\b/i.test(lower)) {
-          days.add(1);
-          days.add(2);
-          days.add(3);
-          days.add(4);
-          days.add(5);
-        }
-
-        if (days.size === 0) return null;
-
-        // Return sorted array
-        return Array.from(days).sort((a, b) => a - b);
-      }
 
       function isSenseMakingJournal(text) {
         const t = String(text || '').trim();
@@ -3614,83 +3552,6 @@ const cortexHandler = {
           if (st === 'general' && isSenseMakingJournal(text)) st = 'journal';
         }
         return { bucket: b, subtype: st };
-      }
-
-      // =========================
-      // Tag quality filter (Phase 2)
-      // =========================
-      const STOP_TAGS = new Set([
-        'a',
-        'an',
-        'the',
-        'and',
-        'or',
-        'but',
-        'to',
-        'of',
-        'for',
-        'in',
-        'on',
-        'at',
-        'with',
-        'from',
-        'into',
-        'over',
-        'under',
-        'than',
-        'then',
-        'expected',
-        'expect',
-        'expecting',
-        'more',
-        'less',
-        'very',
-        'just',
-        'really',
-        'pretty',
-        'kind',
-        'this',
-        'that',
-        'these',
-        'those',
-        'today',
-        'tonight',
-        'yesterday',
-        'tomorrow',
-        'week',
-        'month',
-        'morning',
-        'evening',
-        'thing',
-        'things',
-        'stuff',
-        'place',
-        'places',
-        'good',
-        'great',
-        'nice',
-        'ok',
-        'okay',
-        'fine',
-        'note',
-        'notes',
-        'meeting',
-        'meetings',
-        'thought',
-        'thoughts',
-        'journal',
-        'reflection',
-        'reflect',
-        'track',
-        'review',
-        'manage',
-      ]);
-
-      function isStopTag(t) {
-        const s = String(t || '')
-          .trim()
-          .toLowerCase();
-        return STOP_TAGS.has(s);
       }
 
       // =========================
@@ -9377,7 +9238,6 @@ Rules:
               .replace(/[^a-z0-9-]/g, ''),
           )
           .filter((t) => t.length >= 2 && t.length <= 30)
-          .filter((t) => !isStopTag(t))
           .slice(0, 7);
 
         // Validate time estimate (not for break habits)
@@ -9499,10 +9359,6 @@ Rules:
             if (validDays.length > 0) {
               extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
             }
-          }
-          // Fallback: parse from text
-          if (!extractedDays) {
-            extractedDays = parseDaysFromText(text);
           }
         }
 
