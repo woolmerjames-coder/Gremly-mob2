@@ -98,7 +98,6 @@ import { supabase } from '../../lib/supabase/client';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
 import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
-import type { CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useEchoSafeText } from '../../hooks/useEchoSafeText';
@@ -348,15 +347,6 @@ function formatPrefillChip(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   return `${PREFILL_MONTH_NAMES[m - 1]} ${d}`;
 }
-
-// Legacy UISuggestion stub - suggestion chips removed but code references remain
-type UISuggestion = {
-  type: string;
-  label?: string;
-  title?: string;
-  body?: string;
-  payload?: any;
-};
 
 type MindDropInputProps = {
   value: string;
@@ -2074,12 +2064,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return { submissionId, dropId };
   }, []);
 
+  /** Whether the drop went into the queue; the classifier sorts it after. */
   type SaveResult = {
-    created: { todos: string[]; notes: string[]; habits: string[] };
-    createdDetails: OrganizedDetail[];
-    suggestions?: UISuggestion[];
-    decisionMode?: CortexResponse['mode'];
-    decisionConfidence?: number;
+    submitted: boolean;
     justCrossedFed?: boolean;
   };
 
@@ -2097,7 +2084,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     if (!effectiveText) {
       resetState();
-      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+      return { submitted: false };
     }
 
     // Use the same dropId from CatchAllNotepad ref for pending item correlation
@@ -2128,38 +2115,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       dropIdRef.current = null;
       submissionIdRef.current = null;
 
-      // Map log subtype to UI-friendly format
-      const noteSubtype =
-        result.bucket === 'log'
-          ? result.subtype === 'journal'
-            ? 'journal'
-            : result.subtype === 'idea'
-              ? 'idea'
-              : 'general'
-          : undefined;
-
-      return {
-        created: {
-          todos: result.bucket === 'todo' ? [result.entityId!] : [],
-          notes: result.bucket === 'log' ? [result.entityId!] : [],
-          habits: result.bucket === 'habit' ? [result.entityId!] : [],
-        },
-        createdDetails: [
-          {
-            kind: result.bucket === 'log' ? 'note' : result.bucket!,
-            noteSubtype,
-          },
-        ],
-        decisionConfidence: result.confidence,
-        decisionMode: 'auto',
-        justCrossedFed: result.justCrossedFed,
-      };
+      return { submitted: true, justCrossedFed: result.justCrossedFed };
     } else {
       console.error('[MindDrop:NewPipeline] Submit failed:', result.error);
       // Also clear refs on failure so user can retry with fresh IDs
       dropIdRef.current = null;
       submissionIdRef.current = null;
-      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+      return { submitted: false };
     }
   }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds, prefillDate]);
 
@@ -2598,7 +2560,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setShowGaugeModal(true);
         }, 3000);
       }
-    } else if (result.createdDetails?.length > 0) {
+    } else if (result.submitted) {
       // During Day 1 training: skip generic speech, show training prompt instead
       if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 4) {
         advanceTrainingDropStep(); // synchronous, updates store immediately

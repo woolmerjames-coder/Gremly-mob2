@@ -11,16 +11,10 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
-import { heuristicClassify } from '../lib/minddrop/heuristicClassify';
-import {
-  preparePhotoDropText,
-  isPhotoOnlyDrop,
-  getPhotoDropDefaults,
-} from '../lib/minddrop/photoDrop';
+import { preparePhotoDropText } from '../lib/minddrop/photoDrop';
 import { generateDropId } from '../lib/minddrop/ids';
 import { enqueue } from '../lib/minddrop/dropQueue';
 import { triggerProcessing } from '../lib/minddrop/dropPipeline';
-import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
 import { networkStatus } from '../lib/network/NetworkStatus';
@@ -57,12 +51,6 @@ export interface SubmitResult {
   dropId: string;
   /** The created entity ID (if successful) */
   entityId?: string;
-  /** The classified bucket */
-  bucket?: MindDropBucket;
-  /** The classification confidence (0-1) */
-  confidence?: number;
-  /** The log subtype (for log bucket) */
-  subtype?: LogSubtype | null;
   /** The due date if extracted */
   dueDate?: string | null;
   /** Error if submission failed */
@@ -148,22 +136,8 @@ export function useMindDropSubmit(): {
           };
         }
 
-        // Classify the drop - immediate heuristic for optimistic UI
-        let bucket: MindDropBucket;
-        let subtypeHint: LogSubtype | null;
-
-        if (isPhotoOnlyDrop({ text, photoUris })) {
-          const defaults = getPhotoDropDefaults();
-          bucket = defaults.bucket;
-          subtypeHint = defaults.subtype;
-        } else {
-          // Heuristic for immediate optimistic UI
-          const heuristic = heuristicClassify(text, {
-            hasAttachments: photoUris.length > 0,
-          });
-          bucket = heuristic.bucket;
-          subtypeHint = heuristic.subtypeHint;
-        }
+        // No kind is guessed here: the classifier sorts the drop (Mind Drop
+        // rethink stage 11 removed the word list guess, which nothing read)
 
         // Saved as typed
         const entityText = effectiveText;
@@ -225,9 +199,6 @@ export function useMindDropSubmit(): {
         return {
           success: true,
           dropId: queuedDrop.localId,
-          bucket, // Heuristic bucket (will be updated by processor)
-          confidence: 0.5, // Heuristic confidence
-          subtype: subtypeHint,
           justCrossedFed: gaugePreview.justCrossedFed,
         };
       } catch (error) {
