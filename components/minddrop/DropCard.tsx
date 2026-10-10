@@ -32,6 +32,7 @@ import Reanimated, {
   withSequence,
   withTiming,
   Easing,
+  FadeInUp,
   cancelAnimation,
 } from 'react-native-reanimated';
 import {
@@ -126,6 +127,12 @@ export interface DropCardProps {
   footer?: React.ReactNode;
   /** stage 6: changes when Keep just one folds a drop into this card, which pulses once */
   pulseKey?: number;
+  /**
+   * stage 9: where it lives, the last part of the meta line (a Chapter, else a
+   * World), with one tap to change it. One that comes after the card settled
+   * fades in alone.
+   */
+  place?: { text: string; onPress?: () => void } | null;
   style?: ViewStyle;
 }
 
@@ -189,6 +196,42 @@ function CatchDot({ reduced }: { reduced: boolean }) {
   return <Reanimated.View style={[styles.catch, style]} testID="drop-card-catch" />;
 }
 
+/** A place that arrives after the card settled rises in alone (the prototype's .35s). */
+const PLACE_LATE = FadeInUp.duration(350)
+  .easing(EASE_OUT)
+  .withInitialValues({ opacity: 0, transform: [{ translateY: 3 }] });
+
+/** Where it lives, the meta line's last part: a tap changes it. */
+function PlacePart({
+  text,
+  onPress,
+  late,
+  style,
+}: {
+  text: string;
+  onPress?: () => void;
+  late: boolean;
+  style: object;
+}) {
+  // decided when it first shows: in time it comes with the rest of the line
+  const [entering] = React.useState(() => (late ? PLACE_LATE : undefined));
+  return (
+    <Reanimated.View entering={entering} style={entering ? undefined : style}>
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        hitSlop={8}
+        style={styles.metaPart}
+        accessible={false}
+        testID="drop-card-meta-place"
+      >
+        <Compass size={13} strokeWidth={2.2} color={C.muted} />
+        <Text style={styles.metaText}>{text}</Text>
+      </Pressable>
+    </Reanimated.View>
+  );
+}
+
 /** One of the three waiting dots in a landed card's meta line. */
 function WaitDot({ delay, reduced }: { delay: number; reduced: boolean }) {
   const t = useSharedValue(0);
@@ -222,6 +265,7 @@ export function DropCard({
   splitBar,
   footer,
   pulseKey,
+  place,
   style,
 }: DropCardProps) {
   const reduced = useReducedMotion();
@@ -295,7 +339,16 @@ export function DropCard({
     transform: [{ translateY: 3 * (1 - settledV.value) }],
   }));
 
-  const label = cardAccessibilityLabel(kind, sorted ? title : rawTitle, meta, stage);
+  // the card has been seen settled: a place that arrives now fades in alone
+  const [settledSeen, setSettledSeen] = React.useState(settled);
+  React.useEffect(() => {
+    if (settled) setSettledSeen(true);
+  }, [settled]);
+
+  const placeText = settled && place?.text ? place.text : null;
+  const label = [cardAccessibilityLabel(kind, sorted ? title : rawTitle, meta, stage), placeText]
+    .filter(Boolean)
+    .join('. ');
   const talk = settled && !!onTalk;
   const hasBelow = !!(dupeLine || footer || askStrip || talk);
 
@@ -307,6 +360,14 @@ export function DropCard({
         testID={testID}
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityActions={
+          placeText && place?.onPress
+            ? [{ name: 'place', label: 'Change where it lives' }]
+            : undefined
+        }
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'place') place?.onPress?.();
+        }}
         style={[styles.row, hasBelow && styles.rowAbove]}
       >
         <Reanimated.View style={[styles.tile, tileStyle]} testID="drop-card-tile">
@@ -383,6 +444,14 @@ export function DropCard({
                       );
                     })
                   : null}
+                {placeText ? (
+                  <PlacePart
+                    text={placeText}
+                    onPress={place?.onPress}
+                    late={settledSeen && !reduced}
+                    style={laterStyle}
+                  />
+                ) : null}
               </>
             )}
           </View>

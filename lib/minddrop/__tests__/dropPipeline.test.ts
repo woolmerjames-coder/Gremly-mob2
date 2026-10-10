@@ -101,6 +101,7 @@ jest.mock('../../notifications/ask', () => ({
   maybeAsk: jest.fn().mockResolvedValue(false),
 }));
 
+import { startDropFiling } from '../fileDrop';
 import {
   dropTimingMeta,
   startQueueRunner,
@@ -419,7 +420,7 @@ describe('dropPipeline', () => {
       expect(dequeue).toHaveBeenCalledWith('killed-1');
     });
 
-    it('files each piece of a clear split where it lives', async () => {
+    it('a clear split’s pieces are filed as they are filled, not again at the end (stage 9)', async () => {
       await startQueueRunner();
       const drop = makeDrop({ localId: 'split-parent', phase: 'saved' });
       const done = {
@@ -460,15 +461,34 @@ describe('dropPipeline', () => {
       await new Promise((r) => setTimeout(r, 0));
 
       const filed = (global.fetch as jest.Mock).mock.calls.map((c) => JSON.parse(c[1].body));
-      expect(filed).toEqual([
-        expect.objectContaining({ entity_id: 'p0', entity_type: 'todo', text: 'buy milk' }),
-        expect.objectContaining({ entity_id: 'p1', entity_type: 'habit', text: 'walk daily' }),
-      ]);
+      expect(filed.filter((b) => b.type === 'assign-worlds')).toEqual([]);
       expect(logAppEvent).toHaveBeenCalledWith(
         'drop_timing',
         { type: 'drop', id: 'split-parent' },
         expect.objectContaining({ kind: 'split', split: 'clear', pieces: 2 }),
       );
+    });
+
+    it('a drop whose filing started at the save is not filed again when it completes (stage 9)', async () => {
+      await startQueueRunner();
+      const drop = makeDrop({
+        localId: 'filed-1',
+        phase: 'saved',
+        supabaseId: 'row-filed-1',
+        entityType: 'todo',
+      });
+      startDropFiling(drop);
+      (getQueue as jest.Mock).mockResolvedValue([drop]);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'saved' ? jest.fn().mockResolvedValue({ ...drop, phase: 'complete' }) : null,
+      );
+      mockPendingDrops.set('filed-1', { id: 'filed-1' });
+      await triggerProcessing();
+      await new Promise((r) => setTimeout(r, 0));
+      const filed = (global.fetch as jest.Mock).mock.calls
+        .map((c) => JSON.parse(c[1].body))
+        .filter((b) => b.type === 'assign-worlds');
+      expect(filed).toEqual([expect.objectContaining({ entity_id: 'row-filed-1' })]);
     });
   });
 });

@@ -665,6 +665,46 @@ describe('handleSaved', () => {
     expect(typeof out.settledAt).toBe('number');
   });
 
+  it('starts filing as soon as the drop is saved, with its words, title and kind (stage 9)', async () => {
+    gates['assign-worlds'] = gate();
+    const d = await savedDrop();
+    await flush();
+    // asked at the save, before the settle
+    expect(sentOf('assign-worlds')).toEqual([
+      expect.objectContaining({
+        entity_id: 'row-1',
+        entity_type: 'todo',
+        text: 'call mum about sunday',
+        smart_title: 'Call mum',
+        bucket: 'todo',
+      }),
+    ]);
+    gates['assign-worlds'].open();
+    const out = await handleSaved(d);
+    // the same filing, not a second one
+    expect(sentOf('assign-worlds')).toHaveLength(1);
+    expect(out.filingIn).toBe('in_time');
+  });
+
+  it('the settle waits for filing within the five seconds, and one that comes later is after the settle', async () => {
+    gates['assign-worlds'] = gate();
+    const d = await savedDrop();
+    let done = false;
+    const settling = handleSaved(d).then((out) => {
+      done = true;
+      return out;
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    // details are in; filing is not: still waiting
+    expect(done).toBe(false);
+    const out = await settling;
+    expect(out).toMatchObject({
+      phase: 'complete',
+      detailsIn: 'in_time',
+      filingIn: 'after_settle',
+    });
+  });
+
   it('does not hold the details for a slow reminder call', async () => {
     gates['enrich-phase2b'] = gate();
     const d = await savedDrop({ reminderIntent: true });

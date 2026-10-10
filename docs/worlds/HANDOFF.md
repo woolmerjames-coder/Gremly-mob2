@@ -256,6 +256,15 @@ The rules on questions, decided:
 The chip is not in the prototype. Mock the drop card's third row with it
 and get James's yes before building it.
 
+Built (Mind Drop rethink stage 9, 9 October): the drop card's part of the
+filing chip. The card's meta line ends with where the drop lives (the
+Chapter, else the World, else nothing; `lib/minddrop/dropPlace.ts`, one
+formatter for both), and a tap opens `WorldsChapterPicker`. Filing starts
+as soon as the drop is saved, Gremly's filing is put on the store's links as
+it replies (`lib/minddrop/fileDrop.ts`), and `app_events` kind `place_change`
+counts the places people change from a card. The Worlds build only adds the
+same place to the wrap up's cards.
+
 ## What exists today
 
 The screens, all replaced:

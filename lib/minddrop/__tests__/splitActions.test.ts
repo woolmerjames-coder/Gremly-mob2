@@ -35,7 +35,7 @@ jest.mock('../relationActions', () => ({
   shouldRelate: jest.fn(),
   startedDropRelation: jest.fn(),
 }));
-jest.mock('../fileDrop', () => ({ fileDropItem: jest.fn() }));
+jest.mock('../fileDrop', () => ({ startDropFiling: jest.fn() }));
 jest.mock('../../appEvents', () => ({ logAppEvent: jest.fn() }));
 
 import {
@@ -65,7 +65,7 @@ import {
   shouldRelate,
   startedDropRelation,
 } from '../relationActions';
-import { fileDropItem } from '../fileDrop';
+import { startDropFiling } from '../fileDrop';
 import { logAppEvent } from '../../appEvents';
 
 type Call<T> = { promise: Promise<T | null>; done: boolean; value: T | null };
@@ -126,7 +126,7 @@ beforeEach(() => {
   (shouldRelate as jest.Mock).mockReturnValue(true);
   (dropRelationFor as jest.Mock).mockImplementation(() => answered(null));
   (heldRelationFor as jest.Mock).mockImplementation((_d, r) => ({ ...r, status: 'pending' }));
-  (fileDropItem as jest.Mock).mockResolvedValue(undefined);
+  (startDropFiling as jest.Mock).mockImplementation(() => answered(null));
   (logAppEvent as jest.Mock).mockResolvedValue(undefined);
 });
 
@@ -196,6 +196,30 @@ describe('each piece is filled on its own', () => {
       'split-d1-0',
       'split-d1-1',
     ]);
+  });
+
+  it('each piece is filed where it lives as it is filled, and the settle waits for it (stage 9)', async () => {
+    const late = later<null>();
+    (startDropFiling as jest.Mock).mockImplementation((d: { localId: string }) =>
+      d.localId === 'split-d1-1' ? late : answered(null),
+    );
+    let settledAt = 0;
+    const filled = fillPieces(parentDrop, [piece(0), piece(1)], {
+      deadline: Date.now() + 200,
+      related: false,
+    }).then(() => (settledAt = Date.now()));
+    await flush();
+    expect(
+      (startDropFiling as jest.Mock).mock.calls.map((c) => [c[0].localId, c[0].supabaseId]),
+    ).toEqual([
+      ['split-d1-0', 'p0'],
+      ['split-d1-1', 'p1'],
+    ]);
+    // the second piece waits for its place
+    expect(settledAt).toBe(0);
+    late.land(null);
+    await filled;
+    expect(settledAt).toBeGreaterThan(0);
   });
 
   it('a piece that asks keeps its question and gets no details call', async () => {
@@ -300,7 +324,7 @@ describe('Split, on an unsure split’s card', () => {
       'p1',
     ]);
     // then each piece finds its own place, as a drop's item does
-    expect((fileDropItem as jest.Mock).mock.calls.map((c) => c[0].supabaseId)).toEqual([
+    expect((startDropFiling as jest.Mock).mock.calls.map((c) => c[0].supabaseId)).toEqual([
       'p0',
       'p1',
     ]);

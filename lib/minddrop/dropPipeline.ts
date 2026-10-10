@@ -24,7 +24,7 @@ import {
 } from './dropQueue';
 import { forgetDropCalls, getPhaseHandler } from './dropPhases';
 import { kindWordOf } from './dropSync';
-import { fileDropItem } from './fileDrop';
+import { fileDropItem, startedDropFiling } from './fileDrop';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { runPhase1 } from './phase1';
 import { supabase } from '../supabase/client';
@@ -76,24 +76,10 @@ async function handleComplete(drop: QueuedDrop): Promise<void> {
   // The reminder a drop asked for is saved when its details land (dropPhases.ts,
   // dropReminder.ts), not here.
 
-  // Assign drop to worlds/chapters/life contexts (fire-and-forget); a clear
-  // split's pieces each find their own place
-  if (drop.pieceRows?.length) {
-    for (const piece of drop.pieceRows) {
-      void fileDropItem({
-        ...drop,
-        supabaseId: piece.id,
-        entityType: piece.entityType,
-        text: piece.text,
-        smartTitle: piece.title,
-        bucket: piece.bucket,
-        subtype: piece.subtype,
-        tags: undefined,
-        people: undefined,
-        extractedDate: undefined,
-      });
-    }
-  } else {
+  // Where it lives: filed straight after the save (stage 9; a clear split's
+  // pieces each as they are filled). A drop that came here another way (an
+  // older build's, saved at the end) is filed now.
+  if (!drop.pieceRows?.length && !startedDropFiling(drop.localId)) {
     void fileDropItem(drop);
   }
 
@@ -127,6 +113,7 @@ export function dropTimingMeta(drop: QueuedDrop): Record<string, unknown> {
     settled_ms: since(drop.settledAt),
     details: drop.detailsIn ?? null,
     relation: drop.relationIn ?? null,
+    filing: drop.filingIn ?? null,
     engine: drop.classifyEngine ?? null,
     kind: drop.needsClarification && !drop.isMulti ? 'question' : kind,
     split: drop.isMulti ? (drop.split ?? 'unsure') : null,

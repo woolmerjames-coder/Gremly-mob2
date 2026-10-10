@@ -39,6 +39,13 @@ interface WorldsChapterPickerProps {
   entityId: string | null;
   entityDropType: DropType;
   onClose: () => void;
+  /** the person's choice was saved: how many Worlds and Chapters went in and out */
+  onSaved?: (change: {
+    worldsIn: number;
+    worldsOut: number;
+    chaptersIn: number;
+    chaptersOut: number;
+  }) => void;
 }
 
 export function WorldsChapterPicker({
@@ -46,6 +53,7 @@ export function WorldsChapterPicker({
   entityId,
   entityDropType,
   onClose,
+  onSaved,
 }: WorldsChapterPickerProps) {
   const worlds = useGremlyStore((s) => s.worlds);
   const chapters = useGremlyStore((s) => s.chapters);
@@ -253,6 +261,12 @@ export function WorldsChapterPicker({
         return { dropWorldLinks: wLinks, dropChapterLinks: cLinks };
       });
 
+      onSaved?.({
+        worldsIn: worldsToAdd.length,
+        worldsOut: worldsToRemove.length,
+        chaptersIn: chaptersToAdd.length,
+        chaptersOut: chaptersToRemove.length,
+      });
       onClose();
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save. Try again.');

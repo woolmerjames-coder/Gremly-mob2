@@ -236,3 +236,59 @@ describe('DropCard, moving between states', () => {
     expect(r.getByText('Buy milk')).toBeTruthy();
   });
 });
+
+describe('DropCard, where it lives (stage 9)', () => {
+  const card = (stage: 'sorted' | 'settled', onPress = jest.fn()) => (
+    <DropCard
+      kind="todo"
+      stage={stage}
+      rawTitle="book flights"
+      title="Book flights for Lisbon"
+      meta={META}
+      place={{ text: 'Lisbon trip', onPress }}
+      testID="card"
+    />
+  );
+
+  it('is the meta line’s last part once the card has settled, and a tap opens the picker', () => {
+    const onPress = jest.fn();
+    const r = render(card('settled', onPress));
+    expect(r.getByText('Lisbon trip')).toBeTruthy();
+    fireEvent.press(r.getByTestId('drop-card-meta-place'));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the settle, as the rest of the line does', () => {
+    const r = render(card('sorted'));
+    expect(r.queryByText('Lisbon trip')).toBeNull();
+  });
+
+  it('is read with the card, and offers changing it to VoiceOver', () => {
+    const onPress = jest.fn();
+    const r = render(card('settled', onPress));
+    const el = r.getByTestId('card');
+    expect(el.props.accessibilityLabel).toBe(
+      'Todo. Book flights for Lisbon. Due Fri. About 10 min. Lisbon trip',
+    );
+    expect(el.props.accessibilityActions).toEqual([
+      { name: 'place', label: 'Change where it lives' },
+    ]);
+    fireEvent(el, 'accessibilityAction', { nativeEvent: { actionName: 'place' } });
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('a card filed nowhere shows no place and asks nothing', () => {
+    const r = render(
+      <DropCard
+        kind="todo"
+        stage="settled"
+        rawTitle="x"
+        title="Call mum"
+        meta={META}
+        testID="card"
+      />,
+    );
+    expect(r.queryByTestId('drop-card-meta-place')).toBeNull();
+    expect(r.getByTestId('card').props.accessibilityActions).toBeUndefined();
+  });
+});

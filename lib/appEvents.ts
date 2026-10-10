@@ -23,7 +23,11 @@ export type AppEventKind =
   | 'drop_timing'
   // One per split answered: what the classifier said (clear or unsure) and what
   // the person tapped (split, keep as one, not now), with no words (stage 7)
-  | 'split_answer';
+  | 'split_answer'
+  // A place changed from a drop card: how many Worlds and Chapters went in and
+  // out, and what filing had said, with no names (stage 9; the Worlds handoff
+  // counts the share of filings people change)
+  | 'place_change';
 
 // How long the same event for the same thing counts once (0: every one counts).
 const THROTTLE_MS: Record<AppEventKind, number> = {
@@ -33,6 +37,7 @@ const THROTTLE_MS: Record<AppEventKind, number> = {
   story_view: 10 * 60 * 1000,
   drop_timing: 0,
   split_answer: 0,
+  place_change: 0,
 };
 
 const lastLogged = new Map<string, number>();

@@ -74,6 +74,7 @@ import {
 import { within, type StartedCall } from './dropCalls';
 import { scheduleDropReminder } from './dropReminder';
 import { fillPieces } from './splitActions';
+import { startDropFiling } from './fileDrop';
 import { fallbackTitle, wordsAsTitle } from '../../workers/shared/titles';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -712,6 +713,16 @@ export async function handleSorted(drop: QueuedDrop): Promise<QueuedDrop> {
   }
   const saved: SavedDropRow = { entityType: result.entityType, id: result.supabaseId };
 
+  // Where it lives: filing starts as soon as it is saved, so the card can settle
+  // with its place (stage 9); it has the drop's words, title and kind
+  startDropFiling({
+    ...toSave,
+    supabaseId: saved.id,
+    entityType: saved.entityType,
+    bucket: kind.bucket,
+    subtype: kind.subtype,
+  });
+
   // An earlier try had saved it, before this one had the title or the answer:
   // they go on the row as late parts would
   if (result.duplicate) {
@@ -873,6 +884,14 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
     return (await relationWait) === undefined ? 'after_settle' : 'in_time';
   };
 
+  // Where it lives: started at the save (or now, after a restart); the card
+  // settles once the details and filing have both answered, within the same
+  // five seconds, and a place that comes later fades in alone (stage 9)
+  const filingCall = startDropFiling({ ...drop, bucket: kind.bucket, subtype: kind.subtype });
+  const filingWait = within(filingCall, timeLeft());
+  const filingIn = async (): Promise<QueuedDrop['filingIn']> =>
+    (await filingWait) === undefined ? 'after_settle' : 'in_time';
+
   // An unclear drop settles with the writer's words when they are in time;
   // otherwise the classifier's question stays (a question never arrives later)
   if (isUnclear(drop)) {
@@ -895,12 +914,14 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
     return settled(drop, {
       detailsIn: 'not_asked',
       relationIn: await relationIn(),
+      // an unclear drop is filed as well, but its card asks rather than waits for it
+      filingIn: 'not_asked',
       resumed: drop.resumed || resumed || undefined,
     });
   }
 
   const call = startDropDetails(drop, kind);
-  const [enrichment] = await Promise.all([within(call, timeLeft()), relationWait]);
+  const [enrichment] = await Promise.all([within(call, timeLeft()), relationWait, filingWait]);
   if (enrichment === undefined) {
     // settles without its details; they are written when they land
     await settleDropRow(saved);
@@ -908,6 +929,7 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
     return settled(drop, {
       detailsIn: 'after_settle',
       relationIn: await relationIn(),
+      filingIn: await filingIn(),
       resumed: drop.resumed || resumed || undefined,
     });
   }
@@ -921,6 +943,7 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
     ...detailsOntoDrop(enrichment, null),
     detailsIn: enrichment ? 'in_time' : 'none',
     relationIn: await relationIn(),
+    filingIn: await filingIn(),
     resumed: drop.resumed || resumed || undefined,
   });
 }

@@ -572,3 +572,25 @@ select
 
 Blocking questions: none.
 
+
+### Stage 9: where it lives (9 October)
+
+What changed:
+- Filing starts as soon as the drop is saved (`startDropFiling` in `lib/minddrop/fileDrop.ts`, started in `handleSorted` right after the save, kept by the drop's local id), not after it completes. It sends the drop's own words, title and kind; the details' tags, people and date are not in yet. Each piece of a split is filed as it is filled (`fillPieces`), a clear split's and a Split on a card's alike. External calendar events are never filed, as before. The end of the pipeline files only a drop whose filing never started (an older build's drop saved at the end).
+- The card settles once the details and filing have both answered, within the same five seconds (`handleSaved` waits for both); `drop_timing` gains `filing` (in_time or after_settle). An unclear drop is filed too, but its card asks rather than waits for it.
+- The place: the last part of the meta line, with `Compass`: the Chapter's title when it is in one, otherwise the World's name, otherwise nothing (`lib/minddrop/dropPlace.ts`, one pure formatter the Worlds build can reuse; a closed Chapter or an archived World is not shown, and the person's own choice comes first). It reads the store's links: Gremly's filing of a new drop is put on them as it replies (replacing Gremly's own earlier filing of that drop, never the person's), so the card and the picker read what the database has. A place that comes after the card settled rises in alone (.35s); one in time comes with the rest of the line.
+- One tap to fix: tapping the place opens `WorldsChapterPicker` (VoiceOver: the card's action Change where it lives). The picker saves the choice as the person's, and filing never moves it again. The picker gains `onSaved`, and `app_events` kind `place_change` records how many Worlds and Chapters went in and out and what was there (a Chapter, a World or nothing), with no names.
+- Never asked: nothing filed shows no place and no question. `starts_something` is not shown.
+- `docs/worlds/HANDOFF.md`: a line that the drop card's part of the filing chip is built here.
+
+Tests: new `dropPlace.test.ts` (the Chapter, else the World by its given name, else nothing; the person's first, then the newest; closed and archived left out), `fileDrop.test.ts` (says where it went and keeps it; Gremly's filing on the store's links, its own replaced and the person's kept; starts once per drop; nothing without a saved item or for a calendar event); `dropPhases.test.ts` (filing starts at the save with the words, title and kind, and is not asked twice; the settle waits for it within the five seconds, and one that comes later is after the settle); `splitActions.test.ts` (each piece filed as it is filled, and its settle waits for it); `dropPipeline.test.ts` (a split's pieces are not filed again at the end; a drop filed at the save is not filed again); `DropCard.test.tsx` (the place as the last part once settled, a tap opens the picker, read with the card with its VoiceOver action, none when filed nowhere). Every test related to the changed files: 49 suites, 780 tests, 656 passing and none failing (124 skipped in the 16 suites already wholly skipped). `tsc` clean; eslint has no errors.
+
+Deviations:
+- The gate (filing with and without the details' tags, people and date on about 100 recent drops) is not run: it needs real drops from the four people who have Worlds pulled out through the database tool and sent to the filing model again. Say yes and I run it (it reads only, and costs well under a dollar); until then filing is at the save, as the plan builds it.
+- The late fade is checked by eye: jest cannot see an entering animation.
+
+For James:
+- Nothing to deploy: the data fabric's filing is live in cortex already (`assign-worlds` runs it, on GPT-6 Luna in today's `ai_usage`, and its reply carries `filed`). Ship day item 3 still asks you to confirm it.
+- Simulator moments: a drop about something in a World you have (for example: book flights for lisbon, if you have a Lisbon trip) settles with the place at the end of its meta line; tap it and the picker opens; change it, and the card shows your choice.
+
+Blocking questions: none (the gate above waits for your yes).

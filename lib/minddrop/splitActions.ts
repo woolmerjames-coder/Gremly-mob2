@@ -3,8 +3,8 @@
  *
  * - fillPieces: each piece of a split, saved as its own item, gets its own
  *   details and title call with its kind (and, when the whole drop's already
- *   have it check found something, its own check), and settles on its own
- *   within the same five seconds as any drop.
+ *   have it check found something, its own check), is filed (stage 9), and
+ *   settles on its own within the same five seconds as any drop.
  * - splitDropNow: Split on an unsure split's card: its pieces are saved as
  *   their own items, filled as above, and the one item is archived ('split').
  * - keepSplitAsOne: Keep as one on an unsure split: the one item stays.
@@ -43,7 +43,7 @@ import {
   startedDropRelation,
 } from './relationActions';
 import { within } from './dropCalls';
-import { fileDropItem } from './fileDrop';
+import { startDropFiling } from './fileDrop';
 import type { MindDropBucket, LogSubtype } from './types';
 import type { HabitSubtype } from '../types';
 
@@ -170,6 +170,8 @@ export async function fillPieces(
         });
         return call;
       };
+      // where it lives, filed as soon as the piece is saved (stage 9); a piece that asks too
+      const filing = startDropFiling(drop);
       try {
         const details = piece.asks ? null : startDropDetails(drop, kind);
         const words = piece.asks ? null : dropWordsFor(drop);
@@ -192,6 +194,7 @@ export async function fillPieces(
           within(details, timeLeft()),
           within(words, timeLeft()),
           relation,
+          within(filing, timeLeft()),
         ]);
         if (enrichment === undefined) late += 1;
 
@@ -325,10 +328,11 @@ export async function splitDropNow(id: string): Promise<SavedPieceRow[]> {
     throw err;
   }
   logSplitAnswer('unsure', 'split', saved.length, { type: kind, id: item.id });
+  // each piece is filled and filed as it would be from a drop
   void fillPieces(parent, saved, {
     deadline: now() + SPLIT_SETTLE_MS,
     related: relatedOf(parent.localId, split?.related),
-  }).then(() => filePieces(parent, saved));
+  });
   return saved;
 }
 
@@ -353,23 +357,6 @@ async function removeItem(kind: Kind, id: string): Promise<void> {
   if (kind === 'todo') await s.deleteTodo(id);
   else if (kind === 'habit') await s.deleteHabit(id);
   else await s.deleteNote(id);
-}
-
-/** Each piece finds its own place, as a drop's item does at the end of its pipeline. */
-function filePieces(parent: QueuedDrop, pieces: SavedPieceRow[]): void {
-  for (const piece of pieces) {
-    void fileDropItem({
-      ...parent,
-      supabaseId: piece.id,
-      entityType: piece.entityType,
-      text: piece.text,
-      smartTitle: piece.title,
-      bucket: piece.bucket,
-      subtype: piece.subtype,
-      isMulti: false,
-      multiSegments: undefined,
-    });
-  }
 }
 
 /** Keep as one, on an unsure split's card: the one item stays as it is. */

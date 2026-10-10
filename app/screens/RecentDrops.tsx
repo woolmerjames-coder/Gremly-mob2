@@ -92,6 +92,9 @@ import { DropCard } from '../../components/minddrop/DropCard';
 import { SplitBar } from '../../components/minddrop/SplitBar';
 import { useReducedMotion } from '../../design/animations';
 import { keptGroupsNow } from '../../lib/minddrop/splitActions';
+import { dropPlaceOf } from '../../lib/minddrop/dropPlace';
+import { WorldsChapterPicker } from '../../components/overlay/WorldsChapterPicker';
+import { logAppEvent } from '../../lib/appEvents';
 import {
   orderDropList,
   splitBarFor,
@@ -1924,8 +1927,10 @@ const AnimatedMindDropCard = React.memo<{
   index?: number; // For stagger delay in calm arrival animation
   // Set only on the newest drop while it offers "Talk it through with Gremly"
   onTalk?: (item: UnifiedDrop) => void;
+  // A tap on where it lives (stage 9): the place picker opens
+  onPlace?: (item: UnifiedDrop) => void;
 }>(
-  ({ item, isPending, handleEdit, onTalk }) => {
+  ({ item, isPending, handleEdit, onTalk, onPlace }) => {
     // The drop card, look A (Mind Drop rethink stage 5): its state follows the
     // fields stage 4 writes (lib/minddrop/dropCardModel.ts); DropCard draws it.
     // Its questions are asked on the card (stage 6, lib/minddrop/asks.ts): no
@@ -1950,6 +1955,17 @@ const AnimatedMindDropCard = React.memo<{
     const title = item.title || item.text;
     const rawTitle = item.text || item.title;
     const meta = React.useMemo(() => metaParts(item, kind), [item, kind]);
+    // Where it lives (stage 9): a Chapter, else a World, else nothing
+    const placeName = useGremlyStore((s) =>
+      isPending
+        ? null
+        : (dropPlaceOf(item.id, {
+            worldLinks: s.dropWorldLinks,
+            chapterLinks: s.dropChapterLinks,
+            worlds: s.worlds,
+            chapters: s.chapters,
+          })?.name ?? null),
+    );
 
     // The card's questions (one strip at a time) and the quiet duplicate line
     const stripAsk = isPending ? null : cardStripAsk(item);
@@ -2007,6 +2023,9 @@ const AnimatedMindDropCard = React.memo<{
         askStrip={isPending ? null : <CardAsk item={item} ask={stripAsk} />}
         dupeLine={dupeAsk && !stripAsk ? <CardDupe item={item} ask={dupeAsk} /> : null}
         pulseKey={pulseKey}
+        place={
+          placeName ? { text: placeName, onPress: onPlace ? () => onPlace(item) : undefined } : null
+        }
       />
     );
   },
@@ -2017,6 +2036,7 @@ const AnimatedMindDropCard = React.memo<{
     if (prevProps.isPending !== nextProps.isPending) return false;
     if (prevProps.effectiveKind !== nextProps.effectiveKind) return false;
     if (prevProps.onTalk !== nextProps.onTalk) return false;
+    if (prevProps.onPlace !== nextProps.onPlace) return false;
     const fields: Array<keyof UnifiedDrop> = [
       'id',
       'kind',
@@ -2577,6 +2597,25 @@ const RecentDrops: React.FC<{
         : null,
     [combinedItems, filter, pendingIdSet, leavingIds],
   );
+
+  // Where a drop lives (stage 9): a tap on the place opens the picker; the
+  // person's choice is theirs, and filing never moves it again
+  const [placeFor, setPlaceFor] = React.useState<{
+    id: string;
+    kind: 'todo' | 'habit' | 'note';
+    was: 'chapter' | 'world' | null;
+  } | null>(null);
+  const handlePlace = React.useCallback((item: UnifiedDrop) => {
+    const s = useGremlyStore.getState();
+    const was =
+      dropPlaceOf(item.id, {
+        worldLinks: s.dropWorldLinks,
+        chapterLinks: s.dropChapterLinks,
+        worlds: s.worlds,
+        chapters: s.chapters,
+      })?.kind ?? null;
+    setPlaceFor({ id: item.id, kind: item.kind, was });
+  }, []);
 
   // "Talk it through with Gremly" on the newest drop (rules in talkItemIdFor)
   const inTraining = useNeedsMindDropTutorial();
@@ -3940,6 +3979,7 @@ const RecentDrops: React.FC<{
                         handleEdit={itemIsPending ? NOOP_EDIT : handleEdit}
                         handleDelete={itemIsPending ? NOOP_DELETE : handleDelete}
                         onTalk={item.id === talkItemId ? handleTalk : undefined}
+                        onPlace={itemIsPending ? undefined : handlePlace}
                       />
                     </UnifiedCardWrapper>
                     {splitBar && item.id === splitBar.lastId ? (
@@ -3958,6 +3998,30 @@ const RecentDrops: React.FC<{
           )}
         </View>
       ) : null}
+
+      {/* Where it lives: change it from the card (stage 9) */}
+      <WorldsChapterPicker
+        visible={!!placeFor}
+        entityId={placeFor?.id ?? null}
+        entityDropType={placeFor?.kind ?? 'note'}
+        onClose={() => setPlaceFor(null)}
+        onSaved={(change) => {
+          if (!placeFor) return;
+          // how many went in and out, and what was there, with no names
+          void logAppEvent(
+            'place_change',
+            { type: placeFor.kind, id: placeFor.id },
+            {
+              from: 'drop_card',
+              was: placeFor.was,
+              worlds_in: change.worldsIn,
+              worlds_out: change.worldsOut,
+              chapters_in: change.chaptersIn,
+              chapters_out: change.chaptersOut,
+            },
+          );
+        }}
+      />
     </View>
   );
 };

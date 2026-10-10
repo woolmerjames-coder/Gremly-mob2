@@ -494,6 +494,8 @@ export interface QueuedDrop {
   detailsIn?: 'in_time' | 'none' | 'after_settle' | 'not_asked';
   /** the already have it answer: in by the settle (on the card), after it (Sweep), or not asked */
   relationIn?: 'in_time' | 'after_settle' | 'not_asked';
+  /** where it lives (stage 9): in by the settle, after it (it fades in alone), or not asked */
+  filingIn?: 'in_time' | 'after_settle' | 'not_asked';
 
   /** The detail fields as saved, to tell a person's edit apart when the details land */
   savedBase?: import('./dropSync').DropDetailBase | null;
