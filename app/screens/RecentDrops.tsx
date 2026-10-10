@@ -65,7 +65,6 @@ import { useNavigation } from '@react-navigation/native';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
-import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import {
   Lock,
   Camera,
@@ -91,6 +90,13 @@ import {
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
 import { heldKindOf, relationLine, relationOf } from '../../lib/minddrop/dropRelation';
+import { DropCard } from '../../components/minddrop/DropCard';
+import {
+  dropCardKind,
+  dropCardStage,
+  hasOpenQuestion,
+  metaParts,
+} from '../../lib/minddrop/dropCardModel';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { makeStyles } from './CatchAllNotepad';
@@ -1850,97 +1856,30 @@ const AnimatedMindDropCard = React.memo<{
   ({
     item,
     isPending,
-    effectiveKind,
-    displayKind,
-    showLegacyUnsortedBadge,
-    badgeStyleKey,
-    c,
-    styles,
-    mode,
     handleEdit,
-    handleDelete,
-    index = 0,
-    onKeepAsNote,
-    onSplitSelected,
     onOpenModal,
     openClarificationPopup,
     openRelationPopup,
     onTalk,
   }) => {
-    console.log('[RENDER_CHECK] AnimatedMindDropCard COMPLETE rendered');
-    // Capture render time in a ref (initialized once on mount)
-    // This avoids calling Date.now() multiple times during render
-    // eslint-disable-next-line react-hooks/purity -- Date.now() in useRef initializer is safe (runs once per mount)
-    const mountTimeRef = React.useRef(getDateService().now().getTime());
+    // The drop card, look A (Mind Drop rethink stage 5): its state follows the
+    // fields stage 4 writes (lib/minddrop/dropCardModel.ts); DropCard draws it.
 
-    // Check for multi-entity drops
+    // An older note still holding multi_items (stage 7 retires these)
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
+    const needsClarification = hasOpenQuestion(item);
 
-    // Check if item needs clarification (for special styling)
-    // Use truthy check (not strict ===) to match confirmation behavior
-    const needsClarification =
-      (item.views?.needs_clarification || item.needs_clarification) &&
-      !item.clarification_resolved &&
-      !item.views?.clarification_resolved;
-
-    // A drop that may be one they already have waits for a tap, like a question
+    // A drop an older build held as a note while it asked "already have it" (stage 6 replaces this)
     const heldRelation = item.kind === 'note' ? relationOf(item.views) : null;
     const relationPending = heldRelation?.status === 'pending';
+    const isFailed = getMindDropVisualState(item) === 'failed';
 
-    // Tracking for badge animation (uses trackingId declared below)
-    const bucketConfirmed = item.views?.bucket_confirmed !== false; // true for real entities
-
-    // DEBUG: Track component mount/unmount (disabled to reduce Metro noise)
-    // React.useEffect(() => {
-    //   console.log('[DEBUG:AnimatedMindDropCard] MOUNTED:', {
-    //     itemId: item.id,
-    //     dropId: item.drop_id,
-    //     isMulti,
-    //   });
-    //   return () => {
-    //     console.log('[DEBUG:AnimatedMindDropCard] UNMOUNTED:', {
-    //       itemId: item.id,
-    //       dropId: item.drop_id,
-    //     });
-    //   };
-    // }, []);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // ─────────────────────────────────────────────────────────────────────────
-    // Card bounce animation
-    // Triggers when:
-    // 1. Multi-drop is detected (isMulti becomes true)
-    // 2. Phase 1 completes (streaming state reached - bucket is set)
-    // Uses drop_id (stable across pending→synced) to prevent duplicate animations
-    // ─────────────────────────────────────────────────────────────────────────
+    // A question or split card still gives its small bounce when it first shows
     const bounceScale = useSharedValue(1);
-
-    // Use drop_id for tracking (stable across pending→entity transition)
-    // Falls back to item.id for items without drop_id
     const bounceTrackingId = item.drop_id || item.id;
-
-    // Get visual state to detect Phase 1 completion
-    const currentVisualState = getMindDropVisualState(item);
-    const phase1Complete = currentVisualState === 'streaming' || currentVisualState === 'complete';
-
-    // Track when chip animation completes (for Row3Chips blur-to-focus callback)
-    const [chipAnimationComplete, setChipAnimationComplete] = React.useState(false);
-
-    const handleChipAnimationComplete = React.useCallback(() => {
-      setChipAnimationComplete(true);
-    }, []);
-
     React.useEffect(() => {
-      // Trigger bounce ONLY for:
-      // 1. Multi-drop detection
-      // 2. Clarification detection
-      // Regular cards should NOT bounce
-
-      // Multi-drop bounce: happens when isMulti becomes true
       if (isMulti && !multiBounceAnimatedIds.has(bounceTrackingId)) {
         multiBounceAnimatedIds.add(bounceTrackingId);
-
-        // Pronounced bounce: 1.0 → 1.10 → 0.96 → 1.0
         bounceScale.value = withSequence(
           withTiming(1.1, { duration: 180 }),
           withTiming(0.96, { duration: 140 }),
@@ -1948,9 +1887,6 @@ const AnimatedMindDropCard = React.memo<{
         );
         return;
       }
-
-      // Question bounce: when the finished question card first shows (not while
-      // the drop is still being worked on behind a skeleton), for a new drop only
       const askingShown =
         (needsClarification || relationPending) &&
         item.views?.clarification_processing !== true &&
@@ -1959,18 +1895,12 @@ const AnimatedMindDropCard = React.memo<{
         getDateService().now().getTime() - new Date(item.created_at).getTime() < 2 * 60 * 1000;
       if (askingShown && isFresh && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
         clarificationBounceAnimatedIds.add(bounceTrackingId);
-
-        // Same pronounced bounce as multi: 1.0 → 1.10 → 0.96 → 1.0
         bounceScale.value = withSequence(
           withTiming(1.1, { duration: 180 }),
           withTiming(0.96, { duration: 140 }),
           withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
         );
-        return;
       }
-
-      // NOTE: Phase 1 bounce removed - regular cards no longer bounce
-      // Only multi-drop cards get the attention-grabbing bounce
     }, [
       isMulti,
       needsClarification,
@@ -1981,262 +1911,35 @@ const AnimatedMindDropCard = React.memo<{
       bounceTrackingId,
       bounceScale,
     ]);
-
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
     }));
-
-    // Gremly pulse animation for multi-entity and clarification cards
     const gremlyPulseScale = useGremlyPulse();
 
-    // Get visual state from item
-    const itemVisualState = getMindDropVisualState(item);
+    const kind = dropCardKind(item);
+    const stage = dropCardStage(item, isPending);
+    const title = isMulti
+      ? item.multi_summary_title || item.views?.multi_summary_title || item.title || item.text
+      : item.title || item.text;
+    const rawTitle = item.text || item.title;
+    const meta = React.useMemo(() => metaParts(item, kind), [item, kind]);
 
-    // Track revealed items by drop_id (stable across pending→synced transition)
-    // Falls back to item.id for items without drop_id
-    const trackingId = item.drop_id || item.id;
-
-    // High-water mark: prevent visual state from going backwards
-    // Uses useState (not ref) because it drives render output — React Compiler safe
-    const [highWaterMark, setHighWaterMark] = React.useState<MindDropVisualState>('pending');
-
-    // Reset high-water mark when card identity changes
-    React.useEffect(() => {
-      setHighWaterMark('pending');
-    }, [item.id]);
-
-    // Local state to track revealing phase
-    const [isRevealing, setIsRevealing] = React.useState(false);
-    const [revealComplete, setRevealComplete] = React.useState(() => {
-      // Initialize as complete if this item was already revealed
-      return revealedItemIds.has(trackingId);
-    });
-    const prevStateRef = React.useRef<MindDropVisualState | null>(null);
-    const isFirstRender = React.useRef(true);
-
-    // Transition detection useEffect - simplified since main reveal logic is now synchronous
-    // This handles:
-    // 1. Old items (>30s) that shouldn't animate - mark them complete immediately
-    // 2. Keeping prevStateRef updated for debugging
-    // 3. Syncing revealComplete state when item is in revealedItemIds
-    React.useEffect(() => {
-      const isReadyForReveal = itemVisualState === 'streaming' || itemVisualState === 'complete';
-
-      // Sync local state if this item was already revealed (handles remounts)
-      if (revealedItemIds.has(trackingId) && !revealComplete && !isRevealing) {
-        setRevealComplete(true);
-      }
-
-      // First render: check if item is too old for animation
-      if (isFirstRender.current) {
-        isFirstRender.current = false;
-
-        if (isReadyForReveal) {
-          const createdAt = new Date(item.created_at).getTime();
-          const ageMs = getDateService().now().getTime() - createdAt;
-
-          if (ageMs >= 30000) {
-            // Item is old (>30s) - skip animation entirely
-            revealedItemIds.add(trackingId);
-            setRevealComplete(true);
-          }
-          // For new items, the synchronous logic in visualState computation
-          // already handled starting the reveal
-        }
-      }
-
-      prevStateRef.current = itemVisualState;
-    }, [itemVisualState, trackingId, item.created_at, revealComplete, isRevealing]);
-
-    // Handle reveal completion - mark as revealed to prevent re-animation
-    const handleRevealComplete = React.useCallback(() => {
-      revealedItemIds.add(trackingId);
-      setIsRevealing(false);
-      setRevealComplete(true);
-    }, [trackingId]);
-
-    // Determine actual visual state
-    // CRITICAL FIX: Detect reveal eligibility SYNCHRONOUSLY during render
-    // Don't wait for useEffect to set isRevealing - that causes the race condition
-    //
-    // The bug was: when itemVisualState === 'streaming' on first render,
-    // isRevealing was still false (useEffect hadn't run), so it fell through
-    // to 'complete' and skipped the reveal animation entirely.
-
-    const isReadyForReveal = itemVisualState === 'streaming' || itemVisualState === 'complete';
-
-    // Check if item is too old for animation (>30s old) - SYNCHRONOUS check
-    // Uses mountTimeRef captured on mount to avoid impure Date.now() calls during render
-    // eslint-disable-next-line react-hooks/refs -- intentional: stable ref set once on mount
-    const mountTimestamp = mountTimeRef.current;
-    const createdAtMs = item.created_at ? new Date(item.created_at).getTime() : mountTimestamp;
-    const ageMs = mountTimestamp - createdAtMs;
-    const isTooOldForAnimation = ageMs >= 30000;
-
-    // Check if this item needs reveal animation (not yet revealed)
-    // Do this check synchronously, not in useEffect
-    const needsRevealAnimation =
-      isReadyForReveal &&
-      !revealedItemIds.has(trackingId) &&
-      !revealComplete &&
-      !isTooOldForAnimation;
-
-    // If we need to reveal OR we're already revealing, show revealing state
-    const shouldReveal = needsRevealAnimation || isRevealing;
-
-    // Mark as revealed immediately if we're starting the animation
-    // This prevents duplicate animations when Phase 2 completes quickly
-    if (needsRevealAnimation && !isRevealing) {
-      revealedItemIds.add(trackingId);
-      // Trigger state update for next frame (keeps isRevealing in sync)
-      // Using queueMicrotask to batch with React's updates
-      queueMicrotask(() => {
-        setIsRevealing(true);
-      });
-    }
-
-    let visualState: MindDropVisualState =
-      itemVisualState === 'enriching' || itemVisualState === 'pending'
-        ? itemVisualState // Always show skeleton when processing
-        : shouldReveal
-          ? 'revealing' // Show revealing when ready (synchronous decision!)
-          : revealComplete
-            ? 'complete' // Only complete AFTER reveal animation finishes
-            : itemVisualState;
-
-    // Enforce forward-only visual state progression (high-water mark)
-    // Prevents e.g. 'revealing' → 'enriching' when Phase 2 data arrives
-    const STATE_ORDER: MindDropVisualState[] = ['pending', 'enriching', 'revealing', 'complete'];
-    const currentIndex = STATE_ORDER.indexOf(visualState);
-    const highIndex = STATE_ORDER.indexOf(highWaterMark);
-    if (currentIndex >= 0 && highIndex >= 0 && currentIndex < highIndex) {
-      visualState = highWaterMark;
-    }
-
-    // Advance high-water mark when visual state progresses forward
-    React.useEffect(() => {
-      const ci = STATE_ORDER.indexOf(visualState);
-      const hi = STATE_ORDER.indexOf(highWaterMark);
-      if (ci >= 0 && ci > hi) {
-        setHighWaterMark(visualState);
-      }
-    }, [visualState, highWaterMark]);
-
-    // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
-    // Multi-drops have enough info from Phase 0 to render the multi-card shape
-    // This bypasses skeleton states so the multi-card appears at ~2s (Phase 0) not ~5s (Phase 1+2)
-    // Check if clarification is being processed (user just selected an option)
-    const clarificationProcessing =
-      item.views?.clarification_processing === true || item.views?.ai_pending === true;
-
-    // CLARIFICATION ITEMS: Skip animation states UNLESS processing
-    // - needsClarification && !processing → show clarify card (skip skeleton)
-    // - needsClarification && processing → show skeleton (user just selected option)
-    if ((needsClarification || relationPending) && !clarificationProcessing) {
-      // Fall through to complete card render below
-    } else if ((needsClarification || relationPending) && visualState !== 'pending') {
-      // A drop that will ask a question stays a quiet skeleton until its
-      // question card is ready: no title and note typing in, then being replaced
-      return (
-        <EnrichingSkeleton
-          item={item}
-          effectiveKind={effectiveKind}
-          badgeStyleKey={badgeStyleKey}
-          styles={styles}
-          c={c}
-          index={index}
-        />
-      );
-    } else if (isMulti) {
-      // Fall through to complete card render below (skip skeleton states)
-    } else {
-      // Phase 1: Still creating entity - show raw text with skeleton for secondary fields
-      if (visualState === 'pending') {
-        return (
-          <PendingSkeleton
-            item={item}
-            effectiveKind={effectiveKind}
-            badgeStyleKey={badgeStyleKey}
-            styles={styles}
-            c={c}
-            index={index}
-          />
-        );
-      }
-
-      // Phase 2: Entity exists, enriching in progress - show shimmers + chip/timestamp
-      if (visualState === 'enriching') {
-        return (
-          <EnrichingSkeleton
-            item={item}
-            effectiveKind={effectiveKind}
-            badgeStyleKey={badgeStyleKey}
-            styles={styles}
-            c={c}
-            index={index}
-          />
-        );
-      }
-
-      // Phase 3: Transitioning - crossfade shimmer to typewriter reveal
-      if (visualState === 'revealing') {
-        return (
-          <RevealingCard
-            item={item}
-            effectiveKind={effectiveKind}
-            displayKind={displayKind}
-            badgeStyleKey={badgeStyleKey}
-            styles={styles}
-            c={c}
-            isPending={isPending}
-            onRevealComplete={handleRevealComplete}
-          />
-        );
-      }
-    }
-
-    // Complete or Failed: Show static content (also used for multi-drops)
-    const isFailed = visualState === 'failed';
-
-    // Multi-entity handler - opens modal at parent level
-    // Clarification handler - opens standalone popup instead of full overlay
     const handleCardPress = () => {
       if (isMulti) {
-        // Modal lives in RecentDrops - just tell parent to open it
-        if (onOpenModal) {
-          onOpenModal(item);
-        }
+        if (onOpenModal) onOpenModal(item);
         return;
       }
-
       if (relationPending && openRelationPopup) {
         openRelationPopup({ entityId: item.id });
         return;
       }
-
-      // Check if this item needs clarification
-      const needsClarification =
-        (item as any)?.needs_clarification || (item.views as any)?.needs_clarification;
-      const clarificationResolved =
-        (item as any)?.clarification_resolved || (item.views as any)?.clarification_resolved;
-
-      if (needsClarification && !clarificationResolved && openClarificationPopup) {
-        // Get clarification data from entity (may be null if Phase 1.5 still loading)
+      if (needsClarification && openClarificationPopup) {
         const question =
           (item as any)?.clarification_question || (item.views as any)?.clarification_question;
         const options =
           (item as any)?.clarification_options || (item.views as any)?.clarification_options;
-        // Get original text for context display
         const originalText =
           (item as any)?.text || (item.views as any)?.text || item.title || item.text;
-
-        // console.log('[AnimatedMindDropCard] Opening clarification popup', {
-        //   itemId: item.id,
-        //   question: question ?? '(loading)',
-        //   optionsCount: options?.length ?? 0,
-        // });
-
-        // Open standalone popup - show loading state if Phase 1.5 not complete
         openClarificationPopup({
           entityId: item.id,
           entityType: item.kind,
@@ -2244,254 +1947,132 @@ const AnimatedMindDropCard = React.memo<{
           options: options || null,
           originalText: originalText || null,
         });
-        return; // Don't open the full overlay
+        return;
       }
-
       handleEdit(item.id, item.kind, item.unsorted);
     };
 
+    // Until stage 6 puts every question on the card, a card that asks keeps
+    // its one line, and a tap opens the popup as before
+    const footer = isFailed ? (
+      <Pressable
+        onPress={() => {
+          eventBus.emit('drop:retry_enrichment', {
+            localId: item.drop_id || item.id,
+            text: item.text || item.title || '',
+            bucket: item.kind === 'note' ? 'log' : item.kind,
+            subtype: item.noteSubtype || null,
+          });
+        }}
+        style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, minHeight: 32 }}
+        accessibilityRole="button"
+        accessibilityLabel="Couldn't finish loading. Tap to retry."
+      >
+        <Animated.Image
+          source={require('../../assets/buttonforHP.png')}
+          style={{ width: 26, height: 26, marginRight: 8, borderRadius: 13 }}
+        />
+        <Text style={{ fontSize: 13, color: '#916908', fontWeight: '600' }}>
+          Couldn't finish loading. Tap to retry.
+        </Text>
+      </Pressable>
+    ) : isMulti || (relationPending && heldRelation) || needsClarification ? (
+      <View style={[ASK_ROW, { marginTop: 8 }]}>
+        <Animated.Image
+          source={require('../../assets/buttonforHP.png')}
+          style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
+        />
+        <Text
+          style={ASK_TEXT}
+          numberOfLines={2}
+          testID={relationPending ? `minddrop-relation-line-${item.id}` : undefined}
+        >
+          {isMulti
+            ? 'Should I split these? Tap to decide.'
+            : relationPending && heldRelation
+              ? relationLine(heldRelation)
+              : 'Gremly has a question, tap to clarify'}
+        </Text>
+      </View>
+    ) : null;
+
+    const canTalk =
+      !!onTalk &&
+      !isFailed &&
+      !isMulti &&
+      !needsClarification &&
+      !relationPending &&
+      item.views?.ai_pending !== true &&
+      item.views?.clarification_processing !== true;
+
     return (
       <Reanimated.View style={bounceStyle}>
-        <Pressable
-          key={`${item.kind}:${item.id}`}
-          testID={`minddrop-recent-${item.kind}-${item.id}`}
-          style={[
-            styles.recentCard,
-            // Both multi and clarification cards get the same green background
-            (isMulti || needsClarification || relationPending) && { backgroundColor: '#F4F9F4' },
-          ]}
+        <DropCard
+          kind={kind}
+          stage={stage}
+          rawTitle={rawTitle || ''}
+          title={title || ''}
+          meta={meta}
           onPress={handleCardPress}
-          accessibilityRole="button"
-          accessibilityLabel={
-            isMulti
-              ? 'Tap to decide what to do with multiple items'
-              : needsClarification
-                ? 'Tap to answer a quick question'
-                : relationPending
-                  ? 'Tap to check whether this is one you already have'
-                  : `Edit ${item.title || item.text || 'item'}`
-          }
-        >
-          {/* Row 1: Title (left) + Chip (right) */}
-          <View style={styles.recentTopRow}>
-            <Text numberOfLines={1} style={styles.recentTitle}>
-              {isMulti
-                ? item.multi_summary_title ||
-                  item.views?.multi_summary_title ||
-                  item.title ||
-                  'Multiple Items'
-                : item.title || item.text || '—'}
-            </Text>
-            <View style={styles.recentTopRight}>
-              {effectiveKind === 'note' && (item as any)?.private === true && (
-                <Lock size={12} color="#777" />
-              )}
-              {/* Badge priority: Clarify > Multi > Bucket */}
-              {needsClarification ? (
-                <ClarifyBadge />
-              ) : (
-                <AnimatedBadgeTransition trackingId={trackingId} bucketConfirmed={bucketConfirmed}>
-                  <Text
-                    style={[
-                      styles.recentCategoryPill,
-                      styles[badgeStyleKey],
-                      isMulti && { backgroundColor: 'rgba(156, 166, 224, 0.15)', color: '#7B86C9' },
-                    ]}
-                  >
-                    {isMulti ? 'Multi' : getDisplayKindForChip(effectiveKind, item)}
-                  </Text>
-                </AnimatedBadgeTransition>
-              )}
-            </View>
-          </View>
-
-          {/* Row 2: Card note (session only), or status indicators */}
-          {!isFailed &&
-          !isMulti &&
-          !needsClarification &&
-          !relationPending &&
-          sessionCardNotes.get(item.drop_id || item.id) ? (
-            <Text style={styles.recentConfirmation} numberOfLines={1}>
-              {sessionCardNotes.get(item.drop_id || item.id)}
-            </Text>
-          ) : isFailed ? (
-            <Pressable
-              onPress={() => {
-                // Emit retry event — RecentDrops will handle it
-                eventBus.emit('drop:retry_enrichment', {
-                  localId: item.drop_id || item.id,
-                  text: item.text || item.title || '',
-                  bucket: item.kind === 'note' ? 'log' : item.kind,
-                  subtype: item.noteSubtype || null,
-                });
-              }}
-              style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}
-            >
-              <Animated.Image
-                source={require('../../assets/buttonforHP.png')}
-                style={{
-                  width: 26,
-                  height: 26,
-                  marginRight: 8,
-                  borderRadius: 13,
-                }}
-              />
-              <Text style={{ fontSize: 13, color: '#916908', fontWeight: '600' }}>
-                Couldn't finish loading. Tap to retry.
-              </Text>
-            </Pressable>
-          ) : isMulti ? (
-            <View style={ASK_ROW}>
-              <Animated.Image
-                source={require('../../assets/buttonforHP.png')}
-                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
-              />
-              <Text style={ASK_TEXT}>Should I split these? Tap to decide.</Text>
-            </View>
-          ) : relationPending && heldRelation ? (
-            <View style={ASK_ROW}>
-              <Animated.Image
-                source={require('../../assets/buttonforHP.png')}
-                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
-              />
-              <Text style={ASK_TEXT} numberOfLines={2} testID={`minddrop-relation-line-${item.id}`}>
-                {relationLine(heldRelation)}
-              </Text>
-            </View>
-          ) : needsClarification ? (
-            <View style={ASK_ROW}>
-              <Animated.Image
-                source={require('../../assets/buttonforHP.png')}
-                style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
-              />
-              <Text style={ASK_TEXT}>Gremly has a question, tap to clarify</Text>
-            </View>
-          ) : null}
-
-          {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
-          {/* Hide chips when card needs clarification - show only timestamp */}
-          <View style={styles.recentMetaRow}>
-            {/* Left side: Chips (hidden during clarification/multi) */}
-            {!needsClarification && !isMulti && !relationPending && (
-              <Row3Chips
-                item={item}
-                effectiveKind={effectiveKind}
-                styles={styles}
-                isMulti={isMulti}
-                onChipAnimationComplete={handleChipAnimationComplete}
-              />
-            )}
-            {/* Left side helper text when clarification or multi */}
-            {(needsClarification || isMulti || relationPending) && (
-              <Text style={ASK_HELPER}>no pressure, can sweep it later</Text>
-            )}
-            {/* Right side: photo icon + timestamp */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
-              <Text
-                style={[
-                  styles.recentMetaTime,
-                  (needsClarification || isMulti || relationPending) && ASK_TIME,
-                ]}
-              >
-                {relativeTime(item.created_at)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Row 4: "Talk it through with Gremly", newest drop only, once sorted
-              and when Gremly is not already asking something here */}
-          {onTalk &&
-          !isFailed &&
-          !isMulti &&
-          !needsClarification &&
-          !relationPending &&
-          item.views?.ai_pending !== true &&
-          item.views?.clarification_processing !== true ? (
-            <Pressable
-              onPress={() => onTalk(item)}
-              style={TALK_ROW}
-              hitSlop={6}
-              accessibilityRole="button"
-              accessibilityLabel="Talk it through with Gremly"
-              testID={`minddrop-talk-${item.id}`}
-            >
-              <Animated.Image source={require('../../assets/buttonforHP.png')} style={ASK_AVATAR} />
-              <Text style={ASK_TEXT}>Talk it through with Gremly</Text>
-              <ChevronRight size={16} color="#4A7C59" strokeWidth={2} />
-            </Pressable>
-          ) : null}
-        </Pressable>
+          testID={`minddrop-recent-${item.kind}-${item.id}`}
+          onTalk={canTalk ? () => onTalk!(item) : undefined}
+          talkTestID={`minddrop-talk-${item.id}`}
+          footer={footer}
+        />
       </Reanimated.View>
     );
   },
   (prevProps, nextProps) => {
-    // Custom comparison for React.memo - only re-render if THIS card's data changed
-    // Compare by item id and key fields that affect rendering
-    if (prevProps.item.id !== nextProps.item.id) return false;
-    if (prevProps.item.title !== nextProps.item.title) return false;
-    if (prevProps.item.views?.minddrop_stage !== nextProps.item.views?.minddrop_stage) return false;
-    if (prevProps.item.views?.confirmation_message !== nextProps.item.views?.confirmation_message)
-      return false;
-    if (prevProps.item.views?.chip_data_ready !== nextProps.item.views?.chip_data_ready)
-      return false;
-    // CRITICAL: Re-render when ai_pending or clarification_processing changes
-    // This triggers the shimmer animation when user clicks a clarification option
-    if (prevProps.item.views?.ai_pending !== nextProps.item.views?.ai_pending) return false;
-    if (
-      prevProps.item.views?.clarification_processing !==
-      nextProps.item.views?.clarification_processing
-    )
-      return false;
-    // Clarification fields - MUST re-render when these change for chip to appear
-    if (prevProps.item.views?.needs_clarification !== nextProps.item.views?.needs_clarification)
-      return false;
-    if (prevProps.item.needs_clarification !== nextProps.item.needs_clarification) return false;
-    if (prevProps.item.clarification_resolved !== nextProps.item.clarification_resolved)
-      return false;
-    if (
-      prevProps.item.views?.clarification_resolved !== nextProps.item.views?.clarification_resolved
-    )
-      return false;
-    if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
-    // A held drop's question appears and goes with its status
-    if (
-      (prevProps.item.views as any)?.relation?.status !==
-      (nextProps.item.views as any)?.relation?.status
-    )
-      return false;
-    // Reminders - re-render when reminders array changes (for bell chip)
-    const prevReminders = prevProps.item.reminders;
-    const nextReminders = nextProps.item.reminders;
-    if ((prevReminders?.length ?? 0) !== (nextReminders?.length ?? 0)) return false;
-    if (prevReminders?.[0]?.id !== nextReminders?.[0]?.id) return false;
-    if (prevProps.item.frequency !== nextProps.item.frequency) return false; // Habit frequency
-    if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
+    // Re-render only when something this card draws has changed
+    const a = prevProps.item;
+    const b = nextProps.item;
     if (prevProps.isPending !== nextProps.isPending) return false;
     if (prevProps.effectiveKind !== nextProps.effectiveKind) return false;
     if (prevProps.onTalk !== nextProps.onTalk) return false;
-    // Tags comparison (shallow array check)
-    const prevTags = prevProps.item.tags || [];
-    const nextTags = nextProps.item.tags || [];
-    if (prevTags.length !== nextTags.length) return false;
-    for (let i = 0; i < prevTags.length; i++) {
-      if (prevTags[i] !== nextTags[i]) return false;
-    }
-    // Multi-drop comparison - re-render when isMulti or segments change
-    if (prevProps.item.is_multi !== nextProps.item.is_multi) return false;
-    const prevSegments = prevProps.item.multi_items || [];
-    const nextSegments = nextProps.item.multi_items || [];
-    if (prevSegments.length !== nextSegments.length) return false;
-    for (let i = 0; i < prevSegments.length; i++) {
-      if (prevSegments[i]?.bucket !== nextSegments[i]?.bucket) return false;
-      // Check preview_title to detect when Phase 1 updates segment titles
-      if (prevSegments[i]?.preview_title !== nextSegments[i]?.preview_title) return false;
-    }
-    return true; // Props are equal, skip re-render
+    const fields: Array<keyof UnifiedDrop> = [
+      'id',
+      'kind',
+      'title',
+      'text',
+      'noteSubtype',
+      'due_day',
+      'due_time',
+      'target_date',
+      'scheduled_date',
+      'event_time',
+      'time_estimate_minutes',
+      'frequency',
+      'cadence',
+      'target_per_period',
+      'start_date',
+      'time_window',
+      'needs_clarification',
+      'clarification_resolved',
+      'is_multi',
+      'multi_summary_title',
+    ];
+    for (const f of fields) if (a[f] !== b[f]) return false;
+    if ((a.days_active || []).join(',') !== (b.days_active || []).join(',')) return false;
+    if ((a.mood || []).join(',') !== (b.mood || []).join(',')) return false;
+    const va = (a.views || {}) as Record<string, any>;
+    const vb = (b.views || {}) as Record<string, any>;
+    const viewFields = [
+      'minddrop_stage',
+      'bucket_confirmed',
+      'needs_clarification',
+      'clarification_resolved',
+      'clarification_processing',
+      'ai_pending',
+      'ai_failed',
+      'is_multi',
+      'multi_summary_title',
+    ];
+    for (const f of viewFields) if (va[f] !== vb[f]) return false;
+    if (va.relation?.status !== vb.relation?.status) return false;
+    return true;
   },
 );
 
-// Display name for debugging
 AnimatedMindDropCard.displayName = 'AnimatedMindDropCard';
 
 type OverlayContextValue = ReturnType<typeof useGlobalOverlay>;
@@ -2804,16 +2385,21 @@ const RecentDrops: React.FC<{
         console.log('[CACHE] Miss for:', drop.localId);
 
         // QueuedDrop changed — create new UnifiedDrop
+        // An unsure split sorts as the kind it is saved as (stage 4)
+        const sortedAs =
+          drop.isMulti && drop.split !== 'clear'
+            ? (drop.asOne ?? { bucket: 'log' as const, subtype: 'general' as const })
+            : { bucket: drop.bucket, subtype: drop.subtype };
         const kind: 'todo' | 'habit' | 'note' =
-          drop.bucket === 'todo' ? 'todo' : drop.bucket === 'habit' ? 'habit' : 'note';
+          sortedAs.bucket === 'todo' ? 'todo' : sortedAs.bucket === 'habit' ? 'habit' : 'note';
 
         const noteSubtype =
           kind === 'note'
-            ? drop.subtype === 'journal'
+            ? sortedAs.subtype === 'journal'
               ? 'journal'
-              : drop.subtype === 'idea'
+              : sortedAs.subtype === 'idea'
                 ? 'idea'
-                : drop.subtype === 'event'
+                : sortedAs.subtype === 'event'
                   ? 'event'
                   : 'catchall'
             : undefined;
@@ -2847,11 +2433,9 @@ const RecentDrops: React.FC<{
 
         const bucketConfirmed = !!drop.bucket && drop.phase !== 'queued';
 
-        const displayTitle =
-          drop.isMulti && drop.multiSummary
-            ? drop.multiSummary
-            : drop.smartTitle ||
-              drop.text.substring(0, 60) + (drop.text.length > 60 ? '\u2026' : '');
+        // The title once the title call has answered, else the words as typed;
+        // the card wraps rather than cutting either
+        const displayTitle = drop.smartTitle || drop.text;
 
         const unified: UnifiedDrop = {
           id: drop.localId,
@@ -2873,7 +2457,9 @@ const RecentDrops: React.FC<{
             people: drop.people,
             chip_data_ready: drop.phase === 'enriched',
             bucket_confirmed: bucketConfirmed,
-            is_multi: drop.isMulti,
+            // A drop with several things in it is sorted into one item that asks,
+            // or its pieces (stage 4); the old split modal is for older notes only
+            is_multi: false,
             multi_segments: drop.multiSegments,
             multi_summary: drop.multiSummary,
             needs_clarification: drop.needsClarification,
@@ -2888,7 +2474,7 @@ const RecentDrops: React.FC<{
           frequency: drop.extractedFrequency ?? null,
           days_active: drop.extractedDays ?? null,
           mood: drop.mood ? (drop.mood as any) : null,
-          is_multi: drop.isMulti,
+          is_multi: false,
           multi_items: drop.multiSegments?.map((seg) => ({
             text: seg.text,
             bucket: seg.bucket,
@@ -2902,14 +2488,6 @@ const RecentDrops: React.FC<{
         };
 
         newMapping.set(drop, unified);
-        if (drop.cardNote) {
-          sessionCardNotes.set(drop.localId, drop.cardNote);
-        }
-        console.log('[card_note:3] Unified views:', {
-          card_note: drop.cardNote,
-          localId: drop.localId,
-          inSession: sessionCardNotes.has(drop.localId),
-        });
         return unified;
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -3039,6 +2617,12 @@ const RecentDrops: React.FC<{
           due_date: record.due_date ?? null,
           due_day: record.due_day ?? null,
           due_time: record.due_time ?? null,
+          target_date: record.target_date ?? null,
+          scheduled_date: record.scheduled_date ?? null,
+          event_time: record.event_time ?? record.views?.event_time ?? null,
+          start_date: record.start_date ?? null,
+          time_window: record.time_window ?? null,
+          mood: record.mood ?? null,
           noteSubtype: kind === 'note' ? (record.subtype ?? 'catchall') : undefined,
           canonical_type: record.canonical_type ?? null,
           days_active: Array.isArray(record.days_active) ? record.days_active : null,
@@ -3086,6 +2670,14 @@ const RecentDrops: React.FC<{
           views,
           due_date: dueDate,
           due_day: dueDay,
+          // the card's meta line follows the row (Mind Drop rethink stage 5)
+          due_time: 'due_time' in record ? record.due_time : item.due_time,
+          target_date: 'target_date' in record ? record.target_date : item.target_date,
+          scheduled_date: 'scheduled_date' in record ? record.scheduled_date : item.scheduled_date,
+          event_time: 'event_time' in record ? record.event_time : item.event_time,
+          start_date: 'start_date' in record ? record.start_date : item.start_date,
+          time_window: 'time_window' in record ? record.time_window : item.time_window,
+          mood: 'mood' in record ? record.mood : item.mood,
           drop_id: (record as any).drop_id ?? item.drop_id ?? null,
           archived: (record as any).archived ?? item.archived ?? false,
           labels: Array.isArray((record as any).labels)
@@ -3221,15 +2813,13 @@ const RecentDrops: React.FC<{
           const noteSubtype = rawSubtype ?? 'catchall';
           const noteAny = n as any;
           const rawText = n.body || n.title || noteAny.text || noteAny.content || '';
-          const { compact: derivedTitle } = deriveCompactTitle(
-            [n.title, n.body, noteAny.text, noteAny.content, rawText],
-            { fallback: rawText },
-          );
+          // The card shows the saved title as it is (Mind Drop rethink stage 5):
+          // no words cut or dropped on the way to the screen
 
           return {
             id: n.id,
             kind: 'note' as const,
-            title: derivedTitle || rawText || 'Untitled note',
+            title: (n.title || '').trim() || rawText || 'Untitled note',
             text: n.body || n.title || noteAny.text || noteAny.content || '',
             created_at: n.created_at,
             unsorted,
@@ -3266,14 +2856,11 @@ const RecentDrops: React.FC<{
         })
         .map((t) => {
           const rawText = t.name || t.title || '';
-          const { compact: derivedTitle } = deriveCompactTitle([t.title, t.name, rawText], {
-            fallback: rawText,
-          });
           return {
             id: t.id,
             kind: 'todo' as const,
-            title: derivedTitle || rawText || 'Untitled',
-            text: rawText,
+            title: rawText.trim() || 'Untitled',
+            text: (t as any).body || rawText,
             created_at: t.created_at,
             due_date: t.due_date ?? null,
             due_day: (t as any).due_day ?? null,
@@ -3305,14 +2892,11 @@ const RecentDrops: React.FC<{
         })
         .map((h) => {
           const rawText = h.name || '';
-          const { compact: derivedTitle } = deriveCompactTitle([h.name, rawText], {
-            fallback: rawText,
-          });
           return {
             id: h.id,
             kind: 'habit' as const,
-            title: derivedTitle || rawText || 'Untitled',
-            text: rawText,
+            title: rawText.trim() || 'Untitled',
+            text: (h as any).notes || rawText,
             created_at: h.created_at,
             frequency: h.frequency ?? null,
             cadence: (h as any)?.cadence ?? null,
@@ -3324,6 +2908,7 @@ const RecentDrops: React.FC<{
             views: (h as any)?.views ?? {},
             start_date: (h as any)?.start_date ?? null,
             days_active: (h as any)?.days_active ?? null,
+            time_window: (h as any)?.time_window ?? null,
             time_estimate_minutes: (h as any)?.time_estimate_minutes ?? null,
             reminders: (h as any)?.reminders ?? null,
           };
@@ -3679,6 +3264,9 @@ const RecentDrops: React.FC<{
             due_date: entity.due_date ?? entity.due_at ?? null,
             due_day: entity.due_day ?? null,
             due_time: entity.due_time ?? null,
+            target_date: entity.target_date ?? null,
+            scheduled_date: entity.scheduled_date ?? null,
+            time_window: entity.time_window ?? null,
             event_time: entity.event_time ?? entity.views?.event_time ?? null,
             noteSubtype: entityType === 'note' ? (entity.subtype ?? 'catchall') : undefined,
             mood: entityType === 'note' ? (entity.mood ?? null) : undefined,
@@ -3921,6 +3509,18 @@ const RecentDrops: React.FC<{
                 'target_date' in (entity as any) ? (entity as any).target_date : item.target_date,
               event_time:
                 'event_time' in (entity as any) ? (entity as any).event_time : item.event_time,
+              // the rest of the card's meta line (Mind Drop rethink stage 5)
+              scheduled_date:
+                'scheduled_date' in (entity as any)
+                  ? (entity as any).scheduled_date
+                  : item.scheduled_date,
+              mood: 'mood' in (entity as any) ? (entity as any).mood : item.mood,
+              start_date:
+                'start_date' in (entity as any) ? (entity as any).start_date : item.start_date,
+              days_active:
+                'days_active' in (entity as any) ? (entity as any).days_active : item.days_active,
+              time_window:
+                'time_window' in (entity as any) ? (entity as any).time_window : item.time_window,
               // Note subtype - CRITICAL for correct chip after clarification resolution
               noteSubtype:
                 entityType === 'note'
