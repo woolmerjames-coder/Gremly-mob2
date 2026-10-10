@@ -154,7 +154,7 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
 3. Confirm the data fabric's Worker changes are live (stage 9 needs them): an `assign-worlds` reply carries `filed`. Stage 9 gives the check.
 4. Run the old questions SQL (in the stage 8 note below), before the build reaches people: from stage 6 the app lets old questions go itself as it loads, one write each, and one account has 139 of them.
 5. Cortex for stage 11 (it can go any time before ship day; builds already out are not affected beyond the tags and habit days the stage 11 note measured): `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. `CLASSIFY_V3_ENABLED` must stay "true": the new build has no other classifier.
-6. The delete links SQL (the note of 10 October, planning chat answers, below): it can run any time before ship day, and the sooner the better, as it also clears the links deleted items left behind.
+6. The delete links SQL (the note of 10 October, planning chat answers, below): done. Checked on 10 October: the function and its three triggers are live, and no links to deleted items are left.
 7. **After the TestFlight build ships, a check and not a blocker:** a few days of real drops, then read (the builder can run these reads with read only queries):
    - speed and cost: `ai_usage` and `app_events` kind `drop_timing` against the baseline before stage 1 (sorted about 2.0s, settled about 4.0s, about 0.37¢ a drop);
    - the split choice data: `app_events` kind `split_answer`, what the classifier said (clear or unsure) against what was tapped (split, keep_as_one, not_now), for the automatic splits call;
@@ -840,7 +840,7 @@ For James:
 - Deploy cortex (ship day item 5; it carries split_said, the normSegment log, the "Got it." line and item 6's Worker part, which waits for the flag): `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`.
 - Push the branch: `cd ~/Documents/gremly-mob2 && git push`.
 - Open the simulator for the stage 12 run: `cd ~/Documents/gremly-mob2 && npx expo run:ios`.
-- Still open from before: the delete links SQL, and the memory question in the planning chat answers.
+- Still open from before: the memory question in the planning chat answers. (The delete links SQL is done: checked on 10 October.)
 Blocking questions: none.
 
 ### Final check item 6: the already have it check sees deadlines (10 October)
