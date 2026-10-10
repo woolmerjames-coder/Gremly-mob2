@@ -33,9 +33,7 @@
 
 import type { QueuedDrop, DropPhase, MultiSegment } from './dropQueue';
 import { LEGACY_PHASES } from './dropQueue';
-import { detectMulti } from './detectMulti';
-import { runPhase1, runClassifyV3 } from './phase1';
-import { FEATURE_FLAGS } from '../config/featureFlags';
+import { runClassifyV3 } from './phase1';
 import type { HeldRelation } from './dropRelation';
 import type { DropKind, Phase2MetadataResult, SavedDropRow } from './dropSync';
 import {
@@ -90,44 +88,6 @@ import { fallbackTitle, wordsAsTitle } from '../../workers/shared/titles';
 export async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   const timer = new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms));
   return Promise.race([promise, timer]);
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// mightBeMulti heuristic (the v2 fallback only; retired with v2 in stage 11)
-// ──────────────────────────────────────────────────────────────────────────────
-
-export function mightBeMulti(text: string): boolean {
-  const lower = text.toLowerCase();
-  return (
-    lower.includes(',') ||
-    lower.includes('.') ||
-    lower.includes(';') ||
-    lower.includes(' and ') ||
-    lower.includes(' also ') ||
-    lower.includes(' then ') ||
-    lower.includes(' plus ') ||
-    lower.includes(' as well') ||
-    lower.includes(' but ') ||
-    lower.includes('+') ||
-    lower.includes(' & ') ||
-    lower.includes('\n') ||
-    lower.includes(' / ') ||
-    lower.includes(' — ') ||
-    lower.includes(' – ') ||
-    lower.includes(' - ')
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Temporal extraction (unused since the details call; kept for stage 11's audit)
-// ──────────────────────────────────────────────────────────────────────────────
-
-const TEMPORAL_PATTERN =
-  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
-
-export function extractTemporal(text: string): string | null {
-  const match = text.match(TEMPORAL_PATTERN);
-  return match ? match[0] : null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -491,20 +451,6 @@ function whenReminderLands(drop: QueuedDrop, saved: SavedDropRow, kind: DropKind
 // queued: the tap
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function classifyV2(drop: QueuedDrop) {
-  const shouldCheckMulti = mightBeMulti(drop.text);
-  return Promise.all([
-    shouldCheckMulti
-      ? withTimeout(detectMulti(drop.text), 6000, { is_multi: false })
-      : Promise.resolve({ is_multi: false }),
-    withTimeout(
-      runPhase1(drop.text, { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate }),
-      15000,
-      null,
-    ),
-  ]);
-}
-
 export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
   remember(queuedThisRun, drop.localId);
   // When this run first took it up (an offline drop waits in the queue first)
@@ -513,38 +459,27 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
   // The title and reaction call, and the already have it check, only need the
   // words: both start now, beside the classifier
   const words = startDropWords(drop);
-  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) startDropRelation(drop);
+  startDropRelation(drop);
 
-  let multiResult: any = { is_multi: false };
-  let phase1Result: any = null;
-  let engine: 'v2' | 'v3' = 'v2';
-
-  // v3: one call for the kind, the split and any question. Any failure (null)
-  // drops through to the v2 path below for this drop.
-  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) {
-    const v3 = await withTimeout(
-      runClassifyV3(
-        drop.text,
-        { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate },
-        CLASSIFY_V3_TIMEOUT_MS,
-      ),
-      CLASSIFY_V3_TIMEOUT_MS + 250,
-      null,
-    );
-    if (v3) {
-      multiResult = v3.multi;
-      phase1Result = v3.phase1;
-      engine = 'v3';
-    }
+  // One call for the kind, the split and any question (classify-v3, which falls
+  // back to its backup model inside the Worker). A failure throws, so the
+  // runner tries the drop again and, after its tries, shows it as failed:
+  // there is no weaker path to run instead (stage 11 removed the v2 one).
+  const v3 = await withTimeout(
+    runClassifyV3(
+      drop.text,
+      { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate },
+      CLASSIFY_V3_TIMEOUT_MS,
+    ),
+    CLASSIFY_V3_TIMEOUT_MS + 250,
+    null,
+  );
+  if (!v3?.phase1) {
+    throw new Error('Classification failed');
   }
-
-  if (!phase1Result) {
-    [multiResult, phase1Result] = await classifyV2(drop);
-  }
-
-  if (phase1Result === null) {
-    throw new Error('Classification timeout');
-  }
+  const multiResult: any = v3.multi ?? { is_multi: false };
+  const phase1Result: any = v3.phase1;
+  const engine = 'v3' as const;
 
   console.log('[DropPhases] sorted', {
     localId: drop.localId,

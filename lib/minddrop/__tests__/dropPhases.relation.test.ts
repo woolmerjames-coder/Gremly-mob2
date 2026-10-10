@@ -7,10 +7,9 @@
  */
 import type { QueuedDrop } from '../dropQueue';
 
-jest.mock('../detectMulti', () => ({ detectMulti: jest.fn() }));
-jest.mock('../phase1', () => ({ runPhase1: jest.fn(), runClassifyV3: jest.fn() }));
+jest.mock('../phase1', () => ({ runClassifyV3: jest.fn() }));
 jest.mock('../../config/featureFlags', () => ({
-  FEATURE_FLAGS: { CLASSIFY_V3_ENABLED: true, HEURISTIC_LOGGING_ENABLED: false },
+  FEATURE_FLAGS: { HEURISTIC_LOGGING_ENABLED: false },
 }));
 jest.mock('../dropSync', () => {
   const actual = jest.requireActual('../dropSync');

@@ -18,15 +18,8 @@
 
 import type { QueuedDrop } from '../dropQueue';
 
-jest.mock('../detectMulti', () => ({
-  detectMulti: jest.fn().mockResolvedValue({ is_multi: false }),
-}));
 jest.mock('../phase1', () => ({
-  runPhase1: jest.fn(),
   runClassifyV3: jest.fn(),
-}));
-jest.mock('../../config/featureFlags', () => ({
-  FEATURE_FLAGS: { CLASSIFY_V3_ENABLED: true, HEURISTIC_LOGGING_ENABLED: false },
 }));
 jest.mock('../dropSync', () => {
   const actual = jest.requireActual('../dropSync');
@@ -97,7 +90,7 @@ import {
   handleSorted,
   forgetDropCalls,
 } from '../dropPhases';
-import { runClassifyV3, runPhase1 } from '../phase1';
+import { runClassifyV3 } from '../phase1';
 import {
   attachDropRelation,
   insertSplitPieces,
@@ -382,23 +375,12 @@ describe('handleQueued', () => {
     expect((piece.clarificationOptions || []).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('falls back to the v2 classifier when classify-v3 fails', async () => {
+  it('throws when classify-v3 fails, so the runner tries again, with no weaker path (stage 11)', async () => {
     (runClassifyV3 as jest.Mock).mockResolvedValue(null);
-    (runPhase1 as jest.Mock).mockResolvedValue({
-      bucket: 'habit',
-      subtype: null,
-      habitSubtype: 'start_habit',
-      confidence: 0.8,
-      source: 'api',
-    });
-    const out = await handleQueued(drop({ text: 'walk every day' }));
-    expect(out).toMatchObject({ phase: 'sorted', bucket: 'habit', classifyEngine: 'v2' });
-  });
-
-  it('throws when nothing could sort it, so the runner tries again', async () => {
-    (runClassifyV3 as jest.Mock).mockResolvedValue(null);
-    (runPhase1 as jest.Mock).mockResolvedValue(null);
     await expect(handleQueued(drop({ text: 'buy milk' }))).rejects.toThrow('Classification');
+    // only the title call and the already have it check were asked, beside the classifier
+    expect(sentTypes()).not.toContain('detect-multi');
+    expect(sentTypes()).not.toContain('classify-phase1-v2');
   });
 });
 

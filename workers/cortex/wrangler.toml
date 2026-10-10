@@ -21,7 +21,9 @@ PERSON_WORDS = "on"
 # Mind Drop one call classifier (classify-v3). Chosen by the model audit in
 # docs/2026-09-29-minddrop-model-audit.md: Gemini 3.8 Flash, GPT-6 Luna backup.
 # Questions are worded by Claude Sonnet when ANTHROPIC_API_KEY is set.
-# CLASSIFY_V3_ENABLED = "false" sends every app build back to the v2 chain.
+# CLASSIFY_V3_ENABLED must stay "true". Builds from the Mind Drop rethink have no other
+# classifier (stage 11 removed the app's v2 fallback), so "false" would fail every drop on
+# them; builds already out would go back to the v2 chain.
 CLASSIFY_V3_ENABLED = "true"
 CLASSIFY_PROVIDER = "gemini"
 CLASSIFY_MODEL = "gemini-3.8-flash"
