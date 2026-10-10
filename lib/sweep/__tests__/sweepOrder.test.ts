@@ -68,6 +68,25 @@ describe('the order Sweep asks in', () => {
     const answered = { ...heldViews, relation: { ...heldViews.relation, status: 'applied' } };
     expect(sweepCardAsks(card('d', 'note', { views: answered }).candidate)).toBeNull();
   });
+
+  it('follows the ask rules: a drop of any kind, live asks only (stage 6)', () => {
+    // from the Mind Drop rethink a drop is saved as its own kind
+    const onTodo = { ...heldViews, relation: { ...heldViews.relation, surface: 'card' } };
+    expect(sweepCardAsks(card('e', 'todo', { views: onTodo }).candidate)).toBe('relation');
+    // sent off the card with Not now: Sweep still asks
+    expect(
+      sweepCardAsks(card('f', 'todo', { views: { ...onTodo, ask_on_card: false } }).candidate),
+    ).toBe('relation');
+    // an old question, past the day after it was made, is let go
+    expect(
+      sweepCardAsks(
+        card('g', 'note', {
+          created_at: '2020-01-01T09:00:00Z',
+          views: { needs_clarification: true },
+        }).candidate,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe('a card further on', () => {

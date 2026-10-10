@@ -72,6 +72,7 @@ import { selectWrapUp } from '../../lib/store/selectors';
 import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
 import { RelationPopup, type RelationResolution } from '../../components/minddrop/RelationPopup';
 import { relationOf } from '../../lib/minddrop/dropRelation';
+import { liveAsksOf, type AskItem } from '../../lib/minddrop/asks';
 import { sweepLog } from '../../lib/debug/sweepLogger';
 import { quickSweepCards } from '../../lib/sweep/quickSweep';
 import { useCardDays } from '../../lib/sweep/cardDays';
@@ -1026,11 +1027,18 @@ function CardDeck({
   // like a question or a split. The candidates are a snapshot, so what was
   // asked is tracked here rather than read back from the card.
   const relationCandidate = candidatesWithMeta[currentIndex]?.candidate;
-  const relationHeld =
-    relationCandidate?.kind === 'note' ? relationOf(relationCandidate.raw?.views) : null;
+  // any kind of drop: from the Mind Drop rethink a drop is saved as its own kind,
+  // and only while its ask is live (lib/minddrop/asks.ts)
+  const relationHeld = relationCandidate ? relationOf(relationCandidate.raw?.views) : null;
+  const relationLive =
+    !!relationCandidate &&
+    liveAsksOf(relationCandidate.raw as AskItem).some(
+      (a) => a.kind === 'relation' || a.kind === 'same',
+    );
   const relationNoteId =
     relationCandidate &&
     relationHeld?.status === 'pending' &&
+    relationLive &&
     !relationHandledIds.has(relationCandidate.id)
       ? relationCandidate.id
       : null;

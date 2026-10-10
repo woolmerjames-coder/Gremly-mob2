@@ -1489,6 +1489,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return unsubscribe;
   }, [showGremlySpeech]);
 
+  // A line for the bubble from elsewhere: what a Mind Drop answer did (stage 6)
+  useEffect(
+    () =>
+      eventBus.on('gremly:speak', ({ message, duration }) => {
+        if (message?.trim()) showGremlySpeech(message, duration);
+      }),
+    [showGremlySpeech],
+  );
+
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
     if (hasShownGreetingRef.current) return;

@@ -105,6 +105,8 @@ export type EventMap = {
   /** The held cards slide away now. */
   'minddrop:cards_go': { ids: string[] };
   'minddrop:cards_stay': { ids: string[] };
+  /** Keep just one: the card of the one they had pulses once as the drop leaves */
+  'minddrop:card_pulse': { id: string };
   'minddrop:relation_done': {
     icon: 'moved' | 'renamed' | 'repeat' | 'added' | 'done' | 'logged' | 'kept' | 'removed';
     title: string;
@@ -115,7 +117,7 @@ export type EventMap = {
   };
   // Open Gremly modal to gauge page (from fed toast tap)
   openGremlyModal: Record<string, never>;
-  // Training speech bubble (emitted by store, consumed by CatchAllNotepad)
+  // A line in Gremly's speech bubble (the outcome of a Mind Drop answer), shown by CatchAllNotepad
   'gremly:speak': { message: string; duration: number };
 
   // Day rollover event

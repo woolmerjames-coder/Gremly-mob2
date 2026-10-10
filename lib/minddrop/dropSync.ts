@@ -127,6 +127,22 @@ function noteSubtypeOf(subtype: string | null | undefined): string {
 }
 
 /**
+ * A drop saved with a question (unclear, an unsure split, or an already have
+ * it answer that came before the save) records the day it asked and that the
+ * card asks it (Mind Drop rethink stage 6, lib/minddrop/asks.ts).
+ */
+function withAskDay(views: Record<string, unknown>): Record<string, unknown> {
+  const relation = views.relation as { status?: string } | null | undefined;
+  const split = views.split as { status?: string } | null | undefined;
+  const asks =
+    views.needs_clarification === true ||
+    split?.status === 'pending' ||
+    relation?.status === 'pending';
+  if (!asks || views.ask_since) return views;
+  return { ...views, ask_since: dateService.today(), ask_on_card: true };
+}
+
+/**
  * The row for a drop, as the insert writes it. With `enrichment` null the
  * detail columns hold what they hold before the details come; the same
  * function with the details gives the values `updateDropDetails` writes.
@@ -241,7 +257,7 @@ export function buildDropRow(
         scheduled_date: enrichment?.scheduled_date || null,
         ...dateCheck,
         ...questionColumns,
-        views: { ...commonViews, ...dateViews, ...(opts.extraViews || {}) },
+        views: withAskDay({ ...commonViews, ...dateViews, ...(opts.extraViews || {}) }),
         updated_at: now,
       },
     };
@@ -282,7 +298,7 @@ export function buildDropRow(
         tags: enrichment?.tags || [],
         ...dateCheck,
         ...questionColumns,
-        views: { ...commonViews, ...(opts.extraViews || {}) },
+        views: withAskDay({ ...commonViews, ...(opts.extraViews || {}) }),
         updated_at: now,
       },
     };
@@ -308,7 +324,7 @@ export function buildDropRow(
       is_goal: false,
       ...dateCheck,
       ...questionColumns,
-      views: { ...commonViews, ...dateViews, ...(opts.extraViews || {}) },
+      views: withAskDay({ ...commonViews, ...dateViews, ...(opts.extraViews || {}) }),
       updated_at: now,
     },
   };
@@ -577,6 +593,23 @@ function updateRow(
   });
 }
 
+/**
+ * Change a drop's item by a rule, on the row as the database holds it now and
+ * in turn with every other update to that row (the settle, late details, late
+ * words, the already have it answer), so an answer on the card is never put
+ * back by a pipeline write that read the row a moment before (Mind Drop
+ * rethink stage 6: Not now, a relation answer, a lapse). Resolves to whether
+ * anything was written.
+ */
+export function updateDropRow(
+  entityType: DropEntityType,
+  id: string,
+  what: string,
+  build: (item: Record<string, any>) => Record<string, unknown> | null,
+): Promise<boolean> {
+  return updateRow({ entityType, id }, what, build);
+}
+
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /** The columns the details fill, by kind (as the insert writes them). */
@@ -763,7 +796,9 @@ export function updateDropQuestion(
 /**
  * The already have it answer, attached to the saved item of any kind. Before
  * the card settles it is for the card (surface 'card'); after, Sweep asks
- * (surface 'sweep'). Resolves to the surface, or null when nothing was written.
+ * (surface 'sweep'). The day it asked is recorded, and that the card asks it
+ * unless the person already sent the card's question off with Not now.
+ * Resolves to the surface, or null when nothing was written.
  */
 export async function attachDropRelation(
   saved: SavedDropRow,
@@ -773,8 +808,12 @@ export async function attachDropRelation(
   await updateRow(saved, 'relation', (item) => {
     const views = (item.views as Record<string, unknown>) || {};
     if (views.relation) return null;
-    surface = views.minddrop_stage === 'settled' ? 'sweep' : 'card';
-    return { views: { ...views, relation: { ...relation, surface } } };
+    const on: 'card' | 'sweep' = views.minddrop_stage === 'settled' ? 'sweep' : 'card';
+    surface = on;
+    const next: Record<string, unknown> = { ...views, relation: { ...relation, surface: on } };
+    if (!next.ask_since) next.ask_since = dateService.today();
+    if (on === 'card' && next.ask_on_card !== false) next.ask_on_card = true;
+    return { views: next };
   });
   return surface;
 }

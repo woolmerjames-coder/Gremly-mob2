@@ -172,6 +172,18 @@ function tellGremlyChanged(table: 'worlds' | 'chapters', id: string) {
 }
 
 /**
+ * Questions about a drop that were never answered by the day after they were
+ * asked are let go, with their plain outcome written (Mind Drop rethink stage
+ * 6, lib/minddrop/asks.ts). Runs as the store loads; never waits, and a
+ * failure is only logged.
+ */
+function letOldAsksGo() {
+  import('../minddrop/askActions')
+    .then(({ lapseStaleAsks }) => lapseStaleAsks())
+    .catch((err) => console.warn('[GremlyStore] could not let old questions go:', err));
+}
+
+/**
  * The habit days as read, with any still being saved kept beside them: a
  * day set a moment ago is in the store under a temporary id until its write
  * comes back, and a read that began before it would otherwise drop it.
@@ -1395,9 +1407,11 @@ export const useGremlyStore = create<GremlyState>()(
               console.log('[GremlyStore] ✅ Rendering from cached data, syncing in background');
               set({ isInitialized: true, userId });
 
-              // Background sync — non-blocking, don't throw
+              // Background sync: non-blocking, don't throw. Old questions are let
+              // go once the items are as the server has them, never from the cache.
               get()
                 .refreshFromServer()
+                .then(() => letOldAsksGo())
                 .catch((err) => {
                   console.warn(
                     '[GremlyStore] Background sync failed (cached data still usable):',
@@ -1938,6 +1952,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Recover any stuck MindDrop items from previous crashes
             get().recoverStuckMindDrops();
+            letOldAsksGo();
 
             // Fetch today's DCO (fire-and-forget, non-blocking)
             get().fetchTodayDco();
@@ -9085,10 +9100,18 @@ export const useGremlyStore = create<GremlyState>()(
                 console.log('[GremlyStore] Skipped clarification Phase 2 complete:', { entityId });
               } else {
                 console.warn('[GremlyStore] Phase 2 response not ok:', phase2Response.status);
-                // Still mark as enriched to clear loading state
-                await get().updateNote(entityId, {
-                  views: { ...skippedViews, ai_pending: false, minddrop_stage: 'enriched' },
-                });
+                // Still mark as enriched to clear loading state, on the item's own kind
+                // (this wrote to a note even for a todo or habit until stage 6)
+                const settledViews = {
+                  views: {
+                    ...skippedViews,
+                    ai_pending: false,
+                    minddrop_stage: 'enriched' as const,
+                  },
+                };
+                if (entityType === 'todo') await get().updateTodo(entityId, settledViews);
+                else if (entityType === 'habit') await get().updateHabit(entityId, settledViews);
+                else await get().updateNote(entityId, settledViews);
               }
             }
           } catch (error) {

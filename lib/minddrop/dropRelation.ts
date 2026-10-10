@@ -4,11 +4,12 @@
  * After a drop is classified, the Worker (route minddrop-relate, in
  * workers/cortex/minddropRelate.js) may say the drop is the same as one of
  * their items, a change to one, a detail for one, a todo now done, a habit
- * they did, or an item no longer needed. The drop is then held as a note with
- * that proposal in views.relation, like a split waiting to be decided. Its card
- * shows one quiet line, and a tap opens the question popup. Nothing changes
- * until the user taps (Mind Drop "drops about things you already have"
- * canvas, September 2026).
+ * they did, or an item no longer needed. From the Mind Drop rethink (stages 4
+ * and 6) the drop is saved as its own kind and the proposal attaches to it in
+ * views.relation; the card asks with its strip, or shows the quiet duplicate
+ * line for a same, and Sweep asks the rest (lib/minddrop/asks.ts). An older
+ * build held the drop as a note until answered; those still work. Nothing
+ * changes until the user taps.
  *
  * This file is pure (types, words and checks), so the store selectors, the
  * card and the tests can use it without the store. What changes things is in
@@ -77,8 +78,12 @@ export interface RelationClassified {
   clarificationOptions: unknown[] | null;
 }
 
-/** pending: waiting for a tap. applied: the user said yes. kept: filed as its own item. */
-export type RelationStatus = 'pending' | 'applied' | 'kept';
+/**
+ * pending: waiting for a tap. applied: the user said yes. kept: filed as its
+ * own item. lapsed: never answered, so let go with both items as they were
+ * (Mind Drop rethink stage 6, lib/minddrop/asks.ts).
+ */
+export type RelationStatus = 'pending' | 'applied' | 'kept' | 'lapsed';
 
 export type HeldRelation = DropRelation & {
   status: RelationStatus;
@@ -161,9 +166,18 @@ export function relationOf(views: unknown): HeldRelation | null {
   return rel && typeof rel === 'object' && rel.classified ? rel : null;
 }
 
-/** Waiting for the user: the card shows the line, Sweep asks. */
+/** Waiting for the user: the card asks, or Sweep does. */
 export function isRelationPending(views: unknown): boolean {
   return relationOf(views)?.status === 'pending';
+}
+
+/**
+ * An older build held the drop as a note until it was answered (no surface on
+ * its relation): keeping it files it as it was classified. A drop saved by
+ * the rethink is already its own kind, so keeping it only marks the answer.
+ */
+export function keepsHeldNote(rel: HeldRelation): boolean {
+  return !rel.surface;
 }
 
 /** What the drop would have been, for the chip on its card while it waits. */

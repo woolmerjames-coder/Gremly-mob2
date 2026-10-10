@@ -13,21 +13,24 @@
  * item is now, and goneSinceStart says when an answer cleared the item, so
  * its card is passed over.
  */
-import { isRelationPending } from '../minddrop/dropRelation';
+import { liveAsksOf } from '../minddrop/asks';
 import { computeSweepCardMeta } from './computeSweepCardMeta';
 import type { SweepCandidate, SweepCardMeta } from './types';
 
 type Card = { candidate: SweepCandidate; meta: SweepCardMeta };
 type Fields = Record<string, unknown> & { views?: Record<string, unknown> | null };
 
-/** The question a card asks before it can be swept, if any. */
+/**
+ * The question a card asks before it can be swept, if any, by the one set of
+ * ask rules (lib/minddrop/asks.ts): a live relation on a drop of any kind (a
+ * same included), then a live question. The day windows for the wrap up and
+ * the quick sweep, and the split, come with stage 8.
+ */
 export function sweepCardAsks(c: SweepCandidate): 'relation' | 'clarify' | null {
   const raw = (c.raw ?? {}) as Fields;
-  const views = (raw.views ?? {}) as Record<string, unknown>;
-  if (c.kind === 'note' && isRelationPending(views)) return 'relation';
-  const needs = views.needs_clarification === true || raw.needs_clarification === true;
-  const resolved = views.clarification_resolved === true || raw.clarification_resolved === true;
-  return needs && !resolved ? 'clarify' : null;
+  const asks = liveAsksOf(raw as Parameters<typeof liveAsksOf>[0]);
+  if (asks.some((a) => a.kind === 'relation' || a.kind === 'same')) return 'relation';
+  return asks.some((a) => a.kind === 'clarify') ? 'clarify' : null;
 }
 
 /**

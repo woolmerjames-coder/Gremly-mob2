@@ -652,6 +652,45 @@ describe('saving at the sort and updating the saved row', () => {
     expect(state.updateTodo).not.toHaveBeenCalled();
   });
 
+  it('records the day a drop asked, and that the card asks it (stage 6)', async () => {
+    await saveTodo({ localId: 'plain' });
+    expect(inserts()[0].views.ask_since).toBeUndefined();
+    expect(inserts()[0].views.ask_on_card).toBeUndefined();
+    await saveTodo({
+      localId: 'unclear',
+      needsClarification: true,
+      ambiguityType: 'bucket',
+      clarificationQuestion: 'Is this a job?',
+      clarificationOptions: [] as any,
+    });
+    expect(inserts()[1].views).toMatchObject({ ask_since: '2026-03-30', ask_on_card: true });
+  });
+
+  it("an answer records the day it asked; one for the card asks there unless Not now sent the card's question off", async () => {
+    const first = await saveTodo({ localId: 'drop-a' });
+    await attachDropRelation(first.saved, relation);
+    expect(db.get(first.saved.id)!.views).toMatchObject({
+      ask_since: '2026-03-30',
+      ask_on_card: true,
+    });
+
+    const late = await saveTodo({ localId: 'drop-b' });
+    await settleDropRow(late.saved);
+    await attachDropRelation(late.saved, relation);
+    expect(db.get(late.saved.id)!.views.ask_since).toBe('2026-03-30');
+    expect(db.get(late.saved.id)!.views.ask_on_card).toBeUndefined();
+
+    const sentOff = await saveTodo({ localId: 'drop-c' });
+    edit(sentOff.saved.id, {
+      views: { ...db.get(sentOff.saved.id)!.views, ask_since: '2026-03-29', ask_on_card: false },
+    });
+    await attachDropRelation(sentOff.saved, relation);
+    expect(db.get(sentOff.saved.id)!.views).toMatchObject({
+      ask_since: '2026-03-29',
+      ask_on_card: false,
+    });
+  });
+
   it("puts a late title in place of the drop's own words, and the reaction in views", async () => {
     const { saved } = await saveTodo({ confirmationMessage: null });
     await updateDropWords(

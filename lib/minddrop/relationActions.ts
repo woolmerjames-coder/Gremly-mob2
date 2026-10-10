@@ -9,11 +9,15 @@
  *   question, is an older build's way, kept until stage 11.
  * - applyDropRelation: the user said yes. The change goes through the chat
  *   card's own applyEntityChange (lib/chat/entityCards.ts), so sync, rollback
- *   and Undo behave the same in both places.
- * - keepDropAsNew: the user said no, or skipped. The drop is filed exactly as
- *   it was classified, through the same step a clarification answer uses.
+ *   and Undo behave the same in both places. The drop is found among todos,
+ *   habits and notes (Mind Drop rethink stage 6), and archived as its kind.
+ * - keepDropAsNew: the user said no. A drop saved by the rethink is already
+ *   its own kind, so only the answer is marked. A drop an older build held as
+ *   a note is filed exactly as it was classified, through the same step a
+ *   clarification answer uses.
  *
- * Nothing here runs without a tap except the fetch and the hold.
+ * Nothing here runs without a tap except the fetch, and a lapse
+ * (lib/minddrop/askActions.ts).
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import {
@@ -28,9 +32,11 @@ import { env, getEnv } from '../env';
 import type { QueuedDrop } from './dropQueue';
 import { hasUsableClarification } from './clarification';
 import { keyedCalls, type StartedCall } from './dropCalls';
+import { updateDropRow } from './dropSync';
 import {
   changeForEntity,
   keepsDropAfterYes,
+  keepsHeldNote,
   parseRelation,
   rawChangeOf,
   relationOf,
@@ -39,6 +45,7 @@ import {
   type RelationChange,
   type RelationClassified,
   type RelationEntity,
+  type RelationStatus,
 } from './dropRelation';
 
 /** The Worker gives the model 6s; this covers that plus reading the list. */
@@ -217,23 +224,62 @@ export function holdDropForRelation(drop: QueuedDrop, relation: DropRelation): Q
   };
 }
 
-function heldNote(noteId: string) {
-  const note = useGremlyStore
-    .getState()
-    .notes.find((n) => n.id === noteId || (n as { drop_id?: string }).drop_id === noteId);
-  const rel = note ? relationOf(note.views) : null;
-  return note && rel ? { note, rel } : null;
+/** The kind of item a drop was saved as. */
+export type DropItemKind = 'todo' | 'habit' | 'note';
+
+type HeldItem = {
+  kind: DropItemKind;
+  item: { id: string; views?: unknown; archived?: boolean | null } & Record<string, unknown>;
+  rel: HeldRelation;
+};
+
+/** The drop carrying the relation, among todos, habits and notes (by id or drop id). */
+export function heldItem(id: string): HeldItem | null {
+  const s = useGremlyStore.getState();
+  const match = (x: { id: string; drop_id?: string | null }) => x.id === id || x.drop_id === id;
+  const lists: Array<[DropItemKind, ReadonlyArray<any>]> = [
+    ['todo', s.todos || []],
+    ['habit', s.habits || []],
+    ['note', s.notes || []],
+  ];
+  for (const [kind, list] of lists) {
+    const item = list.find(match);
+    if (!item) continue;
+    const rel = relationOf(item.views);
+    return rel ? { kind, item, rel } : null;
+  }
+  return null;
 }
 
-async function setRelation(noteId: string, patch: Partial<HeldRelation>): Promise<void> {
-  const store = useGremlyStore.getState();
-  const note = store.notes.find((n) => n.id === noteId);
-  const rel = note ? relationOf(note.views) : null;
-  if (!note || !rel) return;
-  const views = { ...((note.views as Record<string, unknown>) || {}) };
-  await store.updateNote(note.id, {
-    views: { ...views, relation: { ...rel, ...patch } },
-  } as Parameters<typeof store.updateNote>[1]);
+/**
+ * Change the drop's answer, on its row as the database holds it and in turn
+ * with the pipeline's own updates to it (dropSync.updateDropRow), so a settle
+ * that read the row a moment before cannot put the question back. Resolves to
+ * whether it was written.
+ */
+async function setRelation(id: string, patch: Partial<HeldRelation>): Promise<boolean> {
+  const held = heldItem(id);
+  if (!held) return false;
+  return updateDropRow(held.kind, held.item.id, 'relation_answer', (row) => {
+    const views = (row.views as Record<string, unknown>) || {};
+    const rel = relationOf(views);
+    if (!rel) return null;
+    return { views: { ...views, relation: { ...rel, ...patch } } };
+  });
+}
+
+async function archiveDrop(kind: DropItemKind, id: string): Promise<void> {
+  const s = useGremlyStore.getState();
+  if (kind === 'todo') await s.archiveTodo(id, 'minddrop_relation');
+  else if (kind === 'habit') await s.archiveHabit(id, 'minddrop_relation');
+  else await s.archiveNote(id, 'minddrop_relation');
+}
+
+async function restoreDrop(kind: DropItemKind, id: string): Promise<void> {
+  const s = useGremlyStore.getState();
+  if (kind === 'todo') await s.restoreTodo(id);
+  else if (kind === 'habit') await s.restoreHabit(id);
+  else await s.restoreNote(id);
 }
 
 /**
@@ -348,19 +394,21 @@ export function outcomeWords(
   change: RelationChange | null,
   extraAdded: boolean,
   keptDrop: boolean,
+  dropKind: DropItemKind = 'note',
 ): { confirm: string; toast: RelationToastWords } {
   const t = named(entity.title);
   const detail = !keptDrop
     ? 'Drop archived'
-    : rel.classified.subtype === 'journal'
+    : dropKind === 'note' && rel.classified.subtype === 'journal'
       ? 'Your journal entry stays'
-      : 'Your drop stays as a note';
+      : `Your drop stays as a ${dropKind}`;
   if (rel.intent === 'same') {
+    // the prototype's toast: Kept one · Drop archived
     return {
       confirm: 'Kept one',
       toast: {
         icon: 'kept',
-        title: extraAdded ? `Kept ${t}, with the new detail` : `Kept ${t}`,
+        title: extraAdded ? 'Kept one, with the new detail' : 'Kept one',
         detail,
       },
     };
@@ -408,11 +456,11 @@ export function outcomeWords(
  * the list can let them slide away rather than vanish: the drop (unless it is
  * a journal entry that stays), and the item when it was ticked off or removed.
  */
-export function leavingCardIds(noteId: string, picked?: RelationEntity): string[] {
-  const held = heldNote(noteId);
+export function leavingCardIds(dropId: string, picked?: RelationEntity): string[] {
+  const held = heldItem(dropId);
   if (!held) return [];
-  const { note, rel } = held;
-  const ids = keepsDropAfterYes(rel) ? [] : [note.id];
+  const { item, rel } = held;
+  const ids = keepsDropAfterYes(rel) ? [] : [item.id];
   const target = picked ?? (rel.kind === 'choose' ? null : rel.entity);
   if (target && (rel.intent === 'remove' || rel.intent === 'complete')) ids.push(target.id);
   return ids;
@@ -451,22 +499,22 @@ export function changeNow(rel: HeldRelation, entity: RelationEntity): RelationCh
  * left half done.
  */
 export async function applyDropRelation(
-  noteId: string,
+  dropId: string,
   picked?: RelationEntity,
 ): Promise<RelationOutcome> {
-  if (inFlight.has(noteId)) throw new Error('Already on it.');
-  inFlight.add(noteId);
+  if (inFlight.has(dropId)) throw new Error('Already on it.');
+  inFlight.add(dropId);
   try {
-    return await applyOnce(noteId, picked);
+    return await applyOnce(dropId, picked);
   } finally {
-    inFlight.delete(noteId);
+    inFlight.delete(dropId);
   }
 }
 
-async function applyOnce(noteId: string, picked?: RelationEntity): Promise<RelationOutcome> {
-  const held = heldNote(noteId);
+async function applyOnce(dropId: string, picked?: RelationEntity): Promise<RelationOutcome> {
+  const held = heldItem(dropId);
   if (!held || held.rel.status !== 'pending') throw new Error('This one has already been sorted.');
-  const { note, rel } = held;
+  const { item: drop, rel, kind: dropKind } = held;
   const target = picked ?? (rel.kind === 'choose' ? null : rel.entity);
   if (!target) throw new Error('Pick the one you meant.');
   const now = currentEntity(target);
@@ -535,26 +583,28 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
   // so a second yes cannot apply it twice.
   const keepDrop = keepsDropAfterYes(rel);
   try {
-    await setRelation(note.id, { status: 'applied', summary });
-    if (!keepDrop) await useGremlyStore.getState().archiveNote(note.id, 'minddrop_relation');
+    if (!(await setRelation(drop.id, { status: 'applied', summary }))) {
+      throw new Error('the drop is no longer there');
+    }
+    if (!keepDrop) await archiveDrop(dropKind, drop.id);
   } catch (err) {
     console.warn('[DropRelation] could not clear the drop, putting the change back', {
       error: String(err),
     });
     await revert().catch(() => {});
-    await setRelation(note.id, { status: 'pending', summary: null }).catch(() => {});
+    await setRelation(drop.id, { status: 'pending', summary: null }).catch(() => {});
     throw new Error('That did not go through. Try again in a moment.');
   }
 
   return {
     summary,
-    ...outcomeWords(rel, entity, madeChange, extraAdded, keepDrop),
+    ...outcomeWords(rel, entity, madeChange, extraAdded, keepDrop, dropKind),
     targetId: entity.id,
     targetType: entity.type,
     undo: async () => {
       await revert();
-      if (!keepDrop) await useGremlyStore.getState().restoreNote(note.id);
-      await setRelation(note.id, { status: 'pending', summary: null });
+      if (!keepDrop) await restoreDrop(dropKind, drop.id);
+      await setRelation(drop.id, { status: 'pending', summary: null });
     },
   };
 }
@@ -569,19 +619,40 @@ function keepLabel(c: RelationClassified): string {
 }
 
 /**
- * Not the same, not that one, or skipped: file the drop exactly as it was
- * classified and leave their items alone. A drop that was unclear gets its
- * question back instead. Returns what happened, for Sweep.
+ * Not the same, not that one, or let go: leave their items alone. A drop saved
+ * by the rethink is already its own kind, so only the answer is marked
+ * (`status`: kept, or lapsed when it was never answered). A drop an older
+ * build held as a note is filed exactly as it was classified, and one that was
+ * unclear gets its question back instead. Returns what happened, for Sweep:
+ * 'clarify' when the drop now has a question of its own to ask.
  */
-export async function keepDropAsNew(noteId: string): Promise<'kept' | 'clarify'> {
-  const held = heldNote(noteId);
+export async function keepDropAsNew(
+  dropId: string,
+  status: Extract<RelationStatus, 'kept' | 'lapsed'> = 'kept',
+): Promise<'kept' | 'clarify'> {
+  const held = heldItem(dropId);
   if (!held || held.rel.status !== 'pending') return 'kept';
-  const { note, rel } = held;
+  if (!keepsHeldNote(held.rel) || held.kind !== 'note') {
+    // already its own kind: only the answer is marked, on the row as it is now
+    let asks = false;
+    await updateDropRow(held.kind, held.item.id, `relation_${status}`, (row) => {
+      const views = (row.views as Record<string, unknown>) || {};
+      const rel = relationOf(views);
+      asks =
+        (row.needs_clarification === true || views.needs_clarification === true) &&
+        row.clarification_resolved !== true &&
+        views.clarification_resolved !== true;
+      if (!rel || rel.status !== 'pending') return null;
+      return { views: { ...views, relation: { ...rel, status } } };
+    });
+    return asks ? 'clarify' : 'kept';
+  }
+  const { item: note, rel } = held;
   const c = rel.classified;
   const store = useGremlyStore.getState();
   const views = {
     ...((note.views as Record<string, unknown>) || {}),
-    relation: { ...rel, status: 'kept' },
+    relation: { ...rel, status },
   };
   type NoteUpdate = Parameters<typeof store.updateNote>[1];
 

@@ -15,8 +15,9 @@
  *   one small breath, and on the newest card the talk row fades in. Then
  *   nothing moves.
  *
- * Slots for the ask strip and the duplicate line (stage 6) and the split bar
- * (stage 7). With reduced motion on, every change is instant.
+ * Slots for the ask strip and the duplicate line (stage 6, AskStrip and
+ * DupeLine) and the split bar (stage 7). With reduced motion on, every change
+ * is instant.
  *
  * Known gap: the prototype also blurs the outgoing words by 4px; React Native
  * cannot blur text on iOS, so the cross fade uses opacity alone.
@@ -35,6 +36,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import {
   Calendar,
+  Check,
   ChevronRight,
   CircleCheck,
   Clock,
@@ -42,6 +44,7 @@ import {
   Heart,
   Lightbulb,
   MessageCircleQuestionMark,
+  Moon,
   NotebookPen,
   Repeat,
   StickyNote,
@@ -61,7 +64,7 @@ import {
   type MetaPart,
 } from '../../lib/minddrop/dropCardModel';
 
-const KIND_ICONS: Record<DropCardKind, LucideIcon> = {
+export const KIND_ICONS: Record<DropCardKind, LucideIcon> = {
   todo: CircleCheck,
   habit: Repeat,
   event: Calendar,
@@ -79,6 +82,10 @@ const META_ICONS: Record<MetaIcon, LucideIcon> = {
   sunset: Sunset,
   heart: Heart,
   compass: Compass,
+  'sticky-note': StickyNote,
+  moon: Moon,
+  check: Check,
+  'notebook-pen': NotebookPen,
 };
 
 // Tokens, from the prototype's look A
@@ -117,6 +124,8 @@ export interface DropCardProps {
   splitBar?: React.ReactNode;
   /** anything else under the meta line (a retry line, an older card's own line) */
   footer?: React.ReactNode;
+  /** stage 6: changes when Keep just one folds a drop into this card, which pulses once */
+  pulseKey?: number;
   style?: ViewStyle;
 }
 
@@ -212,6 +221,7 @@ export function DropCard({
   dupeLine,
   splitBar,
   footer,
+  pulseKey,
   style,
 }: DropCardProps) {
   const reduced = useReducedMotion();
@@ -259,6 +269,17 @@ export function DropCard({
     );
   }, [settled, reduced, firstStage, settledV, breath]);
 
+  // Keep just one: a 4px ring, once, as the drop folds into this card
+  const ring = useSharedValue(0);
+  React.useEffect(() => {
+    if (!pulseKey || reduced) return;
+    ring.value = withSequence(
+      withTiming(1, { duration: 175, easing: EASE_OUT }),
+      withTiming(0, { duration: 325, easing: EASE_OUT }),
+    );
+  }, [pulseKey, reduced, ring]);
+  const ringStyle = useAnimatedStyle(() => ({ opacity: ring.value }));
+
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: breath.value }] }));
   const tileStyle = useAnimatedStyle(() => ({ transform: [{ scale: tileScale.value }] }));
   const washStyle = useAnimatedStyle(() => ({ opacity: sortedV.value }));
@@ -275,15 +296,18 @@ export function DropCard({
   }));
 
   const label = cardAccessibilityLabel(kind, sorted ? title : rawTitle, meta, stage);
+  const talk = settled && !!onTalk;
+  const hasBelow = !!(dupeLine || footer || askStrip || talk);
 
   const card = (
     <Reanimated.View style={[styles.card, cardStyle, style]}>
+      <Reanimated.View pointerEvents="none" style={[styles.ring, ringStyle]} />
       <Pressable
         onPress={onPress}
         testID={testID}
         accessibilityRole="button"
         accessibilityLabel={label}
-        style={styles.row}
+        style={[styles.row, hasBelow && styles.rowAbove]}
       >
         <Reanimated.View style={[styles.tile, tileStyle]} testID="drop-card-tile">
           <Reanimated.View
@@ -362,11 +386,17 @@ export function DropCard({
               </>
             )}
           </View>
-
+        </View>
+      </Pressable>
+      {/* Under the body, beside the card's own tap rather than inside it, so each
+          answer is a button of its own (and for VoiceOver), and a tap on the
+          strip never opens the item */}
+      {hasBelow ? (
+        <View style={styles.below}>
           {dupeLine}
           {footer}
           {askStrip}
-          {settled && onTalk ? (
+          {talk ? (
             <Reanimated.View style={laterStyle}>
               <Pressable
                 onPress={onTalk}
@@ -382,7 +412,7 @@ export function DropCard({
             </Reanimated.View>
           ) : null}
         </View>
-      </Pressable>
+      ) : null}
     </Reanimated.View>
   );
   if (!splitBar) return card;
@@ -415,6 +445,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingLeft: 12,
   },
+  // the row's own bottom padding moves under whatever sits below it
+  rowAbove: { paddingBottom: 0 },
+  // under the body column: the card's left padding, the tile and the gap
+  below: { paddingLeft: 12 + 38 + 12, paddingRight: 14, paddingBottom: 12 },
   tile: {
     width: 38,
     height: 38,
@@ -470,6 +504,16 @@ const styles = StyleSheet.create({
     color: C.moss,
   },
   waitDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: C.sage },
+  ring: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 20,
+    borderWidth: 4,
+    borderColor: 'rgba(46,85,64,0.14)',
+  },
 });
 
 export default DropCard;

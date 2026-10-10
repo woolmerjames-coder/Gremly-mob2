@@ -64,7 +64,7 @@ export type RelationResolution = 'applied' | 'kept' | 'clarify';
 
 interface RelationPopupProps {
   visible: boolean;
-  /** the held drop (a note carrying views.relation) */
+  /** the drop carrying views.relation (any kind; an older build held it as a note) */
   noteId: string | null;
   /** closed without deciding: the question stays on the card */
   onClose: () => void;
@@ -224,9 +224,17 @@ export function RelationPopup({
   onOpenItem,
   onNextQuestion,
 }: RelationPopupProps) {
-  const note = useGremlyStore((s) => (noteId ? s.notes.find((n) => n.id === noteId) : undefined));
+  // the drop as it was saved: a note an older build held, or (from the Mind
+  // Drop rethink) the todo, habit or note it was saved as
+  const note = useGremlyStore((s) => {
+    if (!noteId) return undefined;
+    const match = (x: { id: string }) => x.id === noteId;
+    return (s.notes.find(match) ?? s.todos.find(match) ?? s.habits.find(match)) as
+      | { views?: unknown; body?: string | null; title?: string | null; name?: string | null }
+      | undefined;
+  });
   const live = relationOf(note?.views);
-  const originalText = String((note as { body?: string } | undefined)?.body || note?.title || '');
+  const originalText = String(note?.body || note?.title || note?.name || '');
 
   // The question as it was when the popup opened, so the done state can
   // still show it after the drop has been cleared away.

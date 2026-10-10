@@ -1,0 +1,429 @@
+/**
+ * CardAsk and CardDupe: a drop card's questions, asked on the card (Mind Drop
+ * rethink stage 6). The answers go through askActions (mocked here, tested in
+ * askActions.test.ts) and the relation actions (tested in
+ * relationActions.test.ts).
+ */
+import React from 'react';
+import { act, fireEvent, render } from '@testing-library/react-native';
+
+jest.mock('lucide-react-native', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return new Proxy(
+    {},
+    { get: (_t, name) => () => React.createElement(View, { testID: `icon-${String(name)}` }) },
+  );
+});
+jest.mock('../../../design/animations', () => ({ useReducedMotion: () => true }));
+jest.mock('expo-haptics', () => ({
+  impactAsync: jest.fn(),
+  ImpactFeedbackStyle: { Light: 'light' },
+}));
+const mockState: any = { todos: [], habits: [], notes: [], habitProgress: [], weeklyDay: 0 };
+jest.mock('../../../lib/store/useGremlyStore', () => ({
+  useGremlyStore: { getState: () => mockState },
+}));
+jest.mock('../../../lib/minddrop/askActions', () => ({
+  answerAsk: jest.fn(),
+  notNow: jest.fn(),
+}));
+const mockGone: { value: string | null } = { value: null };
+jest.mock('../../../lib/minddrop/relationActions', () => ({
+  applyDropRelation: jest.fn(),
+  leavingCardIds: jest.fn(),
+  currentEntity: (e: any) =>
+    mockGone.value ? { entity: null, gone: mockGone.value } : { entity: e, gone: null },
+  changeNow: () => null,
+}));
+
+import { ASK_SWAP_MS, CardAsk, CardDupe } from '../CardAsk';
+import { ASK_CHOSEN_MS, ASK_CLOSE_MS } from '../AskStrip';
+import { answerAsk, notNow } from '../../../lib/minddrop/askActions';
+import { applyDropRelation, leavingCardIds } from '../../../lib/minddrop/relationActions';
+import { cardDupeAsk, cardStripAsk } from '../../../lib/minddrop/asks';
+import { eventBus } from '../../../lib/events/EventBus';
+import { getDateService } from '../../../lib/date/DateService';
+import { TOAST_AFTER_CARDS_MS } from '../../../lib/minddrop/popupTiming';
+import type { UnifiedDrop } from '../../../types/UnifiedDrop';
+
+const ds = getDateService();
+let today = '';
+
+const options = [
+  {
+    id: 'opt_1',
+    label: 'It’s booked',
+    action: {
+      bucket: 'log',
+      subtype: 'event',
+      target_date: true,
+      scheduled_date: false,
+      followUp: 'when',
+    },
+  },
+  {
+    id: 'opt_2',
+    label: 'I need to book it',
+    action: { bucket: 'todo', subtype: null, target_date: false, scheduled_date: false },
+  },
+];
+
+const unclear = (): UnifiedDrop =>
+  ({
+    id: 'n1',
+    kind: 'note',
+    title: 'Dentist',
+    text: 'dentist',
+    created_at: `${today}T09:00:00`,
+    needs_clarification: true,
+    clarification_question: 'Is the dentist already booked?',
+    clarification_options: options,
+    views: {
+      minddrop_stage: 'settled',
+      needs_clarification: true,
+      ask_since: today,
+      ask_on_card: true,
+    },
+  }) as unknown as UnifiedDrop;
+
+const vet = {
+  id: 't1',
+  type: 'todo' as const,
+  title: 'Call the vet about the booster',
+  due_day: null,
+  due_time: null,
+};
+const other = {
+  id: 't2',
+  type: 'todo' as const,
+  title: 'Call the vet about Pepper',
+  due_day: null,
+  due_time: null,
+};
+const classified = {
+  bucket: 'todo',
+  subtype: null,
+  habitSubtype: null,
+  needsClarification: false,
+  ambiguityType: null,
+  clarificationQuestion: null,
+  clarificationOptions: null,
+};
+const related = (relation: Record<string, unknown>): UnifiedDrop =>
+  ({
+    id: 'd1',
+    kind: 'todo',
+    title: 'Vet on Friday',
+    text: 'move the vet to friday',
+    created_at: `${today}T09:00:00`,
+    views: {
+      minddrop_stage: 'saved',
+      ask_since: today,
+      ask_on_card: true,
+      relation: { status: 'pending', classified, surface: 'card', confidence: 90, ...relation },
+    },
+  }) as unknown as UnifiedDrop;
+const moveTo = () =>
+  related({
+    kind: 'edit',
+    intent: 'edit',
+    entity: vet,
+    others: [other],
+    change: { field: 'due_day', from: null, to: ds.addDays(today, 2) },
+  });
+
+const tick = (ms: number) =>
+  act(async () => {
+    jest.advanceTimersByTime(ms);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  today = ds.today();
+  mockGone.value = null;
+  mockState.todos = [
+    { id: 't1', name: 'Call the vet about the booster', due_day: today },
+    { id: 't2', name: 'Call the vet about Pepper', due_day: null },
+  ];
+  (answerAsk as jest.Mock).mockResolvedValue(null);
+  (notNow as jest.Mock).mockResolvedValue(undefined);
+  (leavingCardIds as jest.Mock).mockReturnValue(['d1']);
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+describe('an unclear drop asks on its card', () => {
+  it('shows the question, its answers and Something else, and answers through answerAsk', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText('Is the dentist already booked?')).toBeTruthy();
+    expect(r.getByText('I need to book it')).toBeTruthy();
+    expect(r.getByText('Something else')).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_2'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('n1', {
+      kind: 'clarify',
+      optionId: 'opt_2',
+      isFreeText: undefined,
+      when: null,
+    });
+  });
+
+  it('sends what they type as their own answer', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-something-else'));
+    fireEvent.changeText(r.getByTestId('minddrop-ask-n1-field'), 'a check up on the 20th');
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-go'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('n1', {
+      kind: 'clarify',
+      optionId: 'a check up on the 20th',
+      isFreeText: true,
+      when: null,
+    });
+  });
+
+  it('a booked answer asks When is it? next, with three days and Not now', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(answerAsk).not.toHaveBeenCalled();
+    expect(r.getByText('When is it?')).toBeTruthy();
+    expect(r.getByText('Tomorrow')).toBeTruthy();
+    expect(r.getByText('Next week')).toBeTruthy();
+    expect(r.getByText('You can add a time later')).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-when-tomorrow'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('n1', {
+      kind: 'clarify',
+      optionId: 'opt_1',
+      isFreeText: undefined,
+      when: { date: ds.addDays(today, 1), time: null },
+    });
+  });
+
+  it('Not now on When is it? files it without a day', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-not-now'));
+    expect(answerAsk).toHaveBeenCalledWith('n1', {
+      kind: 'clarify',
+      optionId: 'opt_1',
+      isFreeText: undefined,
+      when: null,
+    });
+  });
+
+  it('Not now keeps it as it is', () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-not-now'));
+    expect(notNow).toHaveBeenCalledWith('n1');
+    expect(answerAsk).not.toHaveBeenCalled();
+  });
+
+  it('says so when the answer changed nothing, rather than sitting there', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_2'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(r.getByText('That did not go through. Try again in a moment.')).toBeTruthy();
+  });
+
+  it('closes once the question has gone from the item', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    r.rerender(<CardAsk item={item} ask={null} />);
+    await tick(ASK_SWAP_MS);
+    expect(r.queryByTestId('minddrop-ask-n1')).toBeNull();
+  });
+});
+
+describe('a drop about something they already have', () => {
+  it('asks with the item it means, and a yes holds the cards, then slides them away with the toast', async () => {
+    const said: unknown[] = [];
+    const offs = [
+      eventBus.on('minddrop:cards_leaving', (p) => said.push(['leaving', p])),
+      eventBus.on('minddrop:cards_go', (p) => said.push(['go', p])),
+      eventBus.on('minddrop:relation_done', (p) => said.push(['toast', p.title])),
+      eventBus.on('gremly:speak', (p) => said.push(['bubble', p.message])),
+    ];
+    const undo = jest.fn();
+    (answerAsk as jest.Mock).mockResolvedValue({
+      summary: 'Moved the vet to Sunday.',
+      confirm: 'Moved',
+      toast: { icon: 'moved', title: 'Moved “Call the vet”', detail: 'Drop archived' },
+      targetId: 't1',
+      targetType: 'todo',
+      undo,
+    });
+    const item = moveTo();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText('Is this the one?')).toBeTruthy();
+    expect(r.getByText('Call the vet about the booster')).toBeTruthy();
+    expect(r.getByText('Yes, move it')).toBeTruthy();
+    expect(r.getByText('Not that one')).toBeTruthy();
+
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-yes'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('d1', {
+      kind: 'relation',
+      yes: true,
+      picked: undefined,
+    });
+    expect(said[0]).toEqual(['leaving', { ids: ['d1'], hold: true }]);
+    // the bubble speaks once the strip has closed, as the cards go
+    expect(said).not.toContainEqual(['bubble', 'Moved the vet to Sunday.']);
+    await tick(ASK_CLOSE_MS);
+    expect(said).toContainEqual(['bubble', 'Moved the vet to Sunday.']);
+    await tick(TOAST_AFTER_CARDS_MS);
+    expect(said).toContainEqual(['go', { ids: ['d1'] }]);
+    expect(said).toContainEqual(['toast', 'Moved “Call the vet”']);
+    offs.forEach((off) => off());
+  });
+
+  it('says why when the yes could not be made, and lets the cards stay', async () => {
+    const stays: unknown[] = [];
+    const off = eventBus.on('minddrop:cards_stay', (p) => stays.push(p));
+    (answerAsk as jest.Mock).mockRejectedValue(new Error('That one is already done.'));
+    const item = moveTo();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-yes'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(r.getByText('That one is already done.')).toBeTruthy();
+    expect(stays).toEqual([{ ids: ['d1'] }]);
+    off();
+  });
+
+  it('Not that one offers the others that fit, then None of these keeps it as new', async () => {
+    const item = moveTo();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-no'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(r.getByText('Which one did you mean?')).toBeTruthy();
+    expect(r.getByText('Call the vet about Pepper')).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-none'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('d1', { kind: 'relation', yes: false });
+  });
+
+  it('a which one answer shows its candidates as buttons', async () => {
+    const item = related({
+      kind: 'choose',
+      intent: 'edit',
+      candidates: [vet, other],
+      change: null,
+      value: null,
+    });
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText('Which one did you mean?')).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-pick-t2'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('d1', {
+      kind: 'relation',
+      yes: true,
+      picked: expect.objectContaining({ id: 't2' }),
+    });
+  });
+
+  it('says so when the item has gone since, and offers to keep it as new', async () => {
+    mockGone.value = 'That one is already done.';
+    const item = moveTo();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText('That one is already done.')).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-keep-new'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('d1', { kind: 'relation', yes: false });
+  });
+
+  it('never asks one that came after the settle', () => {
+    const item = moveTo();
+    (item.views as any).relation.surface = 'sweep';
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.queryByTestId('minddrop-ask-d1')).toBeNull();
+  });
+});
+
+describe('the quiet duplicate line', () => {
+  const dupe = () => {
+    const item = related({ kind: 'same', intent: 'same', entity: vet, others: [], extra: null });
+    (item.views as any).minddrop_stage = 'settled';
+    return item;
+  };
+
+  it('says the one they have is due today, and asks nothing', () => {
+    const item = dupe();
+    expect(cardStripAsk(item)).toBeNull();
+    const r = render(<CardDupe item={item} ask={cardDupeAsk(item)!} />);
+    expect(r.getByText(/^You already have this/)).toBeTruthy();
+    expect(r.getByText('due today')).toBeTruthy();
+  });
+
+  it('Keep just one folds the drop into the one they had, which pulses, then the toast', async () => {
+    const said: unknown[] = [];
+    const offs = [
+      eventBus.on('minddrop:cards_leaving', (p) => said.push(['leaving', p])),
+      eventBus.on('minddrop:card_pulse', (p) => said.push(['pulse', p])),
+      eventBus.on('minddrop:relation_done', (p) => said.push(['toast', p.title])),
+    ];
+    (applyDropRelation as jest.Mock).mockResolvedValue({
+      summary: 'Kept Call the vet about the booster.',
+      confirm: 'Kept one',
+      toast: {
+        icon: 'kept',
+        title: 'Kept “Call the vet about the booster”',
+        detail: 'Drop archived',
+      },
+      targetId: 't1',
+      targetType: 'todo',
+      undo: jest.fn(),
+    });
+    const item = dupe();
+    const r = render(<CardDupe item={item} ask={cardDupeAsk(item)!} />);
+    fireEvent.press(r.getByTestId('minddrop-dupe-d1-keep-one'));
+    await tick(ASK_SWAP_MS);
+    expect(applyDropRelation).toHaveBeenCalledWith('d1');
+    expect(said[0]).toEqual(['leaving', { ids: ['d1'], hold: true }]);
+    await tick(ASK_CLOSE_MS);
+    await tick(TOAST_AFTER_CARDS_MS);
+    expect(said).toContainEqual(['pulse', { id: 't1' }]);
+    expect(said).toContainEqual(['toast', 'Kept “Call the vet about the booster”']);
+    offs.forEach((off) => off());
+  });
+
+  it('two quick taps on Keep just one keep one, once', async () => {
+    (applyDropRelation as jest.Mock).mockReturnValue(new Promise(() => {}));
+    const item = dupe();
+    const r = render(<CardDupe item={item} ask={cardDupeAsk(item)!} />);
+    const keep = r.getByTestId('minddrop-dupe-d1-keep-one');
+    fireEvent.press(keep);
+    fireEvent.press(keep);
+    expect(applyDropRelation).toHaveBeenCalledTimes(1);
+  });
+
+  it('a which one about a duplicate is not shown on the card; Sweep asks it', () => {
+    const item = related({
+      kind: 'choose',
+      intent: 'same',
+      candidates: [vet, other],
+      change: null,
+      value: null,
+    });
+    (item.views as any).minddrop_stage = 'settled';
+    expect(cardStripAsk(item)).toBeNull();
+    expect(cardDupeAsk(item)).toBeNull();
+  });
+});

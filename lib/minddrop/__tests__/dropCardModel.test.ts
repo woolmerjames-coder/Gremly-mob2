@@ -10,6 +10,7 @@ import {
   estimateWords,
   hasOpenQuestion,
   howOftenWords,
+  itemStateWords,
   metaParts,
   moodWords,
   onlyCapitalDiffers,
@@ -212,6 +213,46 @@ describe('the meta line', () => {
     expect(metaParts({ due_day: today }, 'ask')).toEqual([]);
   });
 
+  it('after Not now: Kept as it is and Sweep will ask again, in place of the rest (stage 6)', () => {
+    const later = {
+      due_day: today,
+      time_estimate_minutes: 10,
+      views: { relation: undefined, needs_clarification: true, ask_on_card: false },
+    };
+    expect(metaParts(later as any, 'note')).toEqual([
+      { key: 'kept', icon: 'sticky-note', text: 'Kept as it is' },
+      { key: 'sweep', icon: 'moon', text: 'Sweep will ask again' },
+    ]);
+  });
+
+  it('a journal entry that stays after an answer says what happened to it', () => {
+    const rel = (status: string, intent: string) => ({
+      relation: {
+        kind: 'edit',
+        intent,
+        status,
+        entity: { id: 'h1', type: 'habit', title: 'Run' },
+        others: [],
+        confidence: 90,
+        change: { field: 'logged', from: null, to: today },
+        classified: { bucket: 'log', subtype: 'journal' },
+      },
+    });
+    expect(
+      metaParts({ mood: ['tired'] as any, views: rel('applied', 'logged') }, 'journal'),
+    ).toEqual([
+      { key: 'outcome', icon: 'check', text: 'Logged to Run' },
+      { key: 'mood', icon: 'heart', text: 'Tired' },
+    ]);
+    expect(metaParts({ views: rel('kept', 'logged') }, 'journal')[0]).toEqual({
+      key: 'outcome',
+      icon: 'notebook-pen',
+      text: 'Kept as a journal entry',
+    });
+    expect(metaParts({ views: rel('pending', 'logged') }, 'journal')).toEqual([]);
+    expect(metaParts({ views: rel('applied', 'logged') }, 'note')).toEqual([]);
+  });
+
   it('never shows people or tags', () => {
     const parts = metaParts({ tags: ['x'], views: { people: ['Sam'] } } as any, 'note');
     expect(parts).toEqual([]);
@@ -228,5 +269,37 @@ describe('accessibility', () => {
     expect(cardAccessibilityLabel('todo', 'call mum', parts, 'landed')).toBe(
       'call mum. Gremly is sorting it.',
     );
+  });
+});
+
+describe('an item they already have, in a few words', () => {
+  it('a todo: due today, due Fri, overdue, or no date yet', () => {
+    expect(itemStateWords({ due_day: today }, 'todo')).toBe('due today');
+    expect(itemStateWords({ due_day: day(1) }, 'todo')).toBe('due tomorrow');
+    expect(itemStateWords({ due_day: day(3) }, 'todo')).toMatch(
+      /^due (Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/,
+    );
+    expect(itemStateWords({ due_day: day(-1) }, 'todo')).toBe('overdue');
+    expect(itemStateWords({ target_date: day(1) }, 'todo')).toBe('due tomorrow');
+    expect(itemStateWords({}, 'todo')).toBe('no date yet');
+  });
+
+  it('a habit: how often', () => {
+    expect(itemStateWords({ cadence: 'daily', time_window: 'morning' }, 'habit')).toBe(
+      'every morning',
+    );
+    expect(itemStateWords({ cadence: 'weekly', target_per_period: 3 }, 'habit')).toBe(
+      '3 times a week',
+    );
+    expect(itemStateWords({ cadence: 'weekly', days_active: [1, 3] }, 'habit')).toBe('Mon, Wed');
+    expect(itemStateWords({}, 'habit')).toBeNull();
+  });
+
+  it('an event: its day; any other note: when it was added', () => {
+    expect(
+      itemStateWords({ subtype: 'event', target_date: day(1), event_time: '19:30' } as any, 'note'),
+    ).toBe('tomorrow, 7:30pm');
+    expect(itemStateWords({ created_at: `${today}T09:00:00` }, 'note')).toBe('added today');
+    expect(itemStateWords({ created_at: `${day(-1)}T09:00:00` }, 'note')).toBe('added yesterday');
   });
 });

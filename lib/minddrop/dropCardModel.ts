@@ -22,13 +22,26 @@ import { getDateService } from '../date/DateService';
 import { formatDay } from '../chat/dayWords';
 import { MOOD_CONFIG, type Mood } from '../shared/moods';
 import { plannedDayOf } from '../../workers/shared/todoDay';
+import { asksOf, isAskLive, keptForSweep } from './asks';
+import { relationOf } from './dropRelation';
 
 export type DropCardKind = 'todo' | 'habit' | 'event' | 'journal' | 'idea' | 'note' | 'ask';
 export type DropCardStage = 'landed' | 'sorted' | 'settled';
-export type MetaIcon = 'calendar' | 'clock' | 'repeat' | 'sunrise' | 'sunset' | 'heart' | 'compass';
+export type MetaIcon =
+  | 'calendar'
+  | 'clock'
+  | 'repeat'
+  | 'sunrise'
+  | 'sunset'
+  | 'heart'
+  | 'compass'
+  | 'sticky-note'
+  | 'moon'
+  | 'check'
+  | 'notebook-pen';
 
 export interface MetaPart {
-  key: 'when' | 'long' | 'often' | 'starts' | 'mood' | 'where';
+  key: 'when' | 'long' | 'often' | 'starts' | 'mood' | 'where' | 'kept' | 'sweep' | 'outcome';
   icon: MetaIcon | null;
   text: string;
 }
@@ -64,9 +77,15 @@ export function hasOpenQuestion(item: CardItem): boolean {
   return asks && !resolved;
 }
 
-/** What the card calls the item. Notes map by subtype; general and catchall are a Note. */
+/**
+ * What the card calls the item. Notes map by subtype; general and catchall
+ * are a Note. One quick question while its question is live on the card
+ * (lib/minddrop/asks.ts); after Not now, or once it has lapsed, the card is
+ * the kind it was saved as.
+ */
 export function dropCardKind(item: CardItem): DropCardKind {
-  if (hasOpenQuestion(item)) return 'ask';
+  const clarify = asksOf(item).find((a) => a.kind === 'clarify');
+  if (clarify && clarify.onCard && isAskLive(clarify)) return 'ask';
   if (item.kind === 'todo') return 'todo';
   if (item.kind === 'habit') return 'habit';
   const sub = item.noteSubtype;
@@ -218,10 +237,36 @@ export function moodWords(item: CardItem): string | null {
   return words.length ? words.join(', ') : null;
 }
 
-/** The parts of the meta line after the kind word, in order. */
+/** What a relation answer left on a journal entry that stays: Logged to Run, or Kept as a journal entry. */
+function outcomePart(item: CardItem, kind: DropCardKind): MetaPart | null {
+  if (kind !== 'journal') return null;
+  const rel = relationOf(item.views);
+  if (!rel) return null;
+  if (rel.status === 'applied' && rel.intent === 'logged' && rel.kind !== 'choose') {
+    return { key: 'outcome', icon: 'check', text: `Logged to ${rel.entity.title}` };
+  }
+  if (rel.status === 'kept') {
+    return { key: 'outcome', icon: 'notebook-pen', text: 'Kept as a journal entry' };
+  }
+  return null;
+}
+
+/**
+ * The parts of the meta line after the kind word, in order. A question sent
+ * off the card with Not now reads Kept as it is and Sweep will ask again
+ * until it is answered or lets go (Mind Drop rethink stage 6).
+ */
 export function metaParts(item: CardItem, kind: DropCardKind): MetaPart[] {
   const parts: MetaPart[] = [];
+  if (keptForSweep(item)) {
+    return [
+      { key: 'kept', icon: 'sticky-note', text: 'Kept as it is' },
+      { key: 'sweep', icon: 'moon', text: 'Sweep will ask again' },
+    ];
+  }
   if (kind === 'ask') return parts;
+  const outcome = outcomePart(item, kind);
+  if (outcome) parts.push(outcome);
   const when = whenWords(item, kind);
   if (when) parts.push({ key: 'when', icon: 'calendar', text: when });
   if (kind === 'todo' || kind === 'habit') {
@@ -251,4 +296,61 @@ export function cardAccessibilityLabel(
   if (stage === 'landed') return `${title}. Gremly is sorting it.`;
   const meta = stage === 'settled' ? parts.map((p) => p.text) : [];
   return [KIND_WORDS[kind], title, ...meta].filter(Boolean).join('. ');
+}
+
+/** "Every morning" reads "every morning" mid sentence; "Mon, Wed, Fri" keeps its capitals. */
+function inSentence(text: string): string {
+  return /^(Every|Once|Starts|Due|Overdue|No date)\b/.test(text) ? lowerFirst(text) : text;
+}
+
+/**
+ * An item they already have, in a few words for the middle of a sentence
+ * (the quiet duplicate line, and the item row in a relation strip): due
+ * today, due Fri, overdue, no date yet, every morning, 3 times a week, Fri,
+ * 7:30pm, added today.
+ */
+export function itemStateWords(item: CardItem, type: 'todo' | 'habit' | 'note'): string | null {
+  if (type === 'habit') {
+    const often = howOftenWords(item);
+    return often ? inSentence(often.text) : null;
+  }
+  if (type === 'todo') {
+    const planned = plannedDayOf(item);
+    if (planned) {
+      const ds = getDateService();
+      if (ds.daysBetween(ds.today(), planned) < 0) return 'overdue';
+      const day = dayWords(planned);
+      return `due ${day === 'Today' || day === 'Tomorrow' ? lowerFirst(day) : day}`;
+    }
+    const when = whenWords(item, 'todo');
+    return when ? inSentence(when) : null;
+  }
+  // a store note carries its subtype as subtype, a drop card's as noteSubtype
+  const sub = item.noteSubtype ?? (item as { subtype?: string | null }).subtype;
+  if (sub === 'event') {
+    const views = item.views || {};
+    const when = whenWords(
+      {
+        target_date: item.target_date ?? views.target_date ?? null,
+        event_time: item.event_time ?? views.event_time ?? null,
+      },
+      'event',
+    );
+    if (when) {
+      return when.startsWith('Today') || when.startsWith('Tomorrow')
+        ? lowerFirst(when)
+        : `on ${when}`;
+    }
+  }
+  const ds = getDateService();
+  const added = ds.dayOf(item.created_at ?? null);
+  if (!added) return null;
+  const ago = ds.daysBetween(added, ds.today());
+  if (ago <= 0) return 'added today';
+  if (ago === 1) return 'added yesterday';
+  if (ago < 7) {
+    const date = ds.fromLocalDate(added);
+    if (date) return `added ${WEEKDAYS[date.getDay()]}`;
+  }
+  return `added ${formatDay(added)}`;
 }

@@ -89,14 +89,11 @@ import {
   getDisplayKindForDrop,
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
-import { heldKindOf, relationLine, relationOf } from '../../lib/minddrop/dropRelation';
+import { heldKindOf, keepsHeldNote, relationOf } from '../../lib/minddrop/dropRelation';
 import { DropCard } from '../../components/minddrop/DropCard';
-import {
-  dropCardKind,
-  dropCardStage,
-  hasOpenQuestion,
-  metaParts,
-} from '../../lib/minddrop/dropCardModel';
+import { CardAsk, CardDupe } from '../../components/minddrop/CardAsk';
+import { cardDupeAsk, cardStripAsk, keptForSweep } from '../../lib/minddrop/asks';
+import { dropCardKind, dropCardStage, metaParts } from '../../lib/minddrop/dropCardModel';
 import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { makeStyles } from './CatchAllNotepad';
@@ -1840,41 +1837,20 @@ const AnimatedMindDropCard = React.memo<{
   onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
   // Callback to open modal at parent level (modal lives in RecentDrops, not here)
   onOpenModal?: (item: UnifiedDrop) => void;
-  // Callback to open standalone clarification popup
-  openClarificationPopup?: (options: {
-    entityId: string;
-    entityType: 'note' | 'todo' | 'habit';
-    question: string | null; // null = Phase 1.5 still loading
-    options: Array<{ id: string; label: string; action: any }> | null; // null = loading
-    originalText?: string | null; // The original drop text to show context
-  }) => void;
-  // "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts)
-  openRelationPopup?: (options: { entityId: string }) => void;
   // Set only on the newest drop while it offers "Talk it through with Gremly"
   onTalk?: (item: UnifiedDrop) => void;
 }>(
-  ({
-    item,
-    isPending,
-    handleEdit,
-    onOpenModal,
-    openClarificationPopup,
-    openRelationPopup,
-    onTalk,
-  }) => {
+  ({ item, isPending, handleEdit, onOpenModal, onTalk }) => {
     // The drop card, look A (Mind Drop rethink stage 5): its state follows the
     // fields stage 4 writes (lib/minddrop/dropCardModel.ts); DropCard draws it.
+    // Its questions are asked on the card (stage 6, lib/minddrop/asks.ts): no
+    // popup opens from here, and a tap on the card opens the item.
 
     // An older note still holding multi_items (stage 7 retires these)
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
-    const needsClarification = hasOpenQuestion(item);
-
-    // A drop an older build held as a note while it asked "already have it" (stage 6 replaces this)
-    const heldRelation = item.kind === 'note' ? relationOf(item.views) : null;
-    const relationPending = heldRelation?.status === 'pending';
     const isFailed = getMindDropVisualState(item) === 'failed';
 
-    // A question or split card still gives its small bounce when it first shows
+    // An older multi card still gives its small bounce when it first shows
     const bounceScale = useSharedValue(1);
     const bounceTrackingId = item.drop_id || item.id;
     React.useEffect(() => {
@@ -1885,36 +1861,22 @@ const AnimatedMindDropCard = React.memo<{
           withTiming(0.96, { duration: 140 }),
           withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
         );
-        return;
       }
-      const askingShown =
-        (needsClarification || relationPending) &&
-        item.views?.clarification_processing !== true &&
-        item.views?.ai_pending !== true;
-      const isFresh =
-        getDateService().now().getTime() - new Date(item.created_at).getTime() < 2 * 60 * 1000;
-      if (askingShown && isFresh && !clarificationBounceAnimatedIds.has(bounceTrackingId)) {
-        clarificationBounceAnimatedIds.add(bounceTrackingId);
-        bounceScale.value = withSequence(
-          withTiming(1.1, { duration: 180 }),
-          withTiming(0.96, { duration: 140 }),
-          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
-        );
-      }
-    }, [
-      isMulti,
-      needsClarification,
-      relationPending,
-      item.views?.clarification_processing,
-      item.views?.ai_pending,
-      item.created_at,
-      bounceTrackingId,
-      bounceScale,
-    ]);
+    }, [isMulti, bounceTrackingId, bounceScale]);
     const bounceStyle = useAnimatedStyle(() => ({
       transform: [{ scale: bounceScale.value }],
     }));
     const gremlyPulseScale = useGremlyPulse();
+
+    // Keep just one on another card folded a drop into this one: it pulses once
+    const [pulseKey, setPulseKey] = React.useState(0);
+    React.useEffect(
+      () =>
+        eventBus.on('minddrop:card_pulse', ({ id }) => {
+          if (id === item.id) setPulseKey((k) => k + 1);
+        }),
+      [item.id],
+    );
 
     const kind = dropCardKind(item);
     const stage = dropCardStage(item, isPending);
@@ -1924,36 +1886,18 @@ const AnimatedMindDropCard = React.memo<{
     const rawTitle = item.text || item.title;
     const meta = React.useMemo(() => metaParts(item, kind), [item, kind]);
 
+    // The card's questions (one strip at a time) and the quiet duplicate line
+    const stripAsk = isPending || isMulti ? null : cardStripAsk(item);
+    const dupeAsk = isPending || isMulti || stage !== 'settled' ? null : cardDupeAsk(item);
+
     const handleCardPress = () => {
       if (isMulti) {
         if (onOpenModal) onOpenModal(item);
         return;
       }
-      if (relationPending && openRelationPopup) {
-        openRelationPopup({ entityId: item.id });
-        return;
-      }
-      if (needsClarification && openClarificationPopup) {
-        const question =
-          (item as any)?.clarification_question || (item.views as any)?.clarification_question;
-        const options =
-          (item as any)?.clarification_options || (item.views as any)?.clarification_options;
-        const originalText =
-          (item as any)?.text || (item.views as any)?.text || item.title || item.text;
-        openClarificationPopup({
-          entityId: item.id,
-          entityType: item.kind,
-          question: question || null,
-          options: options || null,
-          originalText: originalText || null,
-        });
-        return;
-      }
       handleEdit(item.id, item.kind, item.unsorted);
     };
 
-    // Until stage 6 puts every question on the card, a card that asks keeps
-    // its one line, and a tap opens the popup as before
     const footer = isFailed ? (
       <Pressable
         onPress={() => {
@@ -1976,22 +1920,15 @@ const AnimatedMindDropCard = React.memo<{
           Couldn't finish loading. Tap to retry.
         </Text>
       </Pressable>
-    ) : isMulti || (relationPending && heldRelation) || needsClarification ? (
+    ) : isMulti ? (
+      // an older note still holding multi_items keeps its line until stage 7
       <View style={[ASK_ROW, { marginTop: 8 }]}>
         <Animated.Image
           source={require('../../assets/buttonforHP.png')}
           style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
         />
-        <Text
-          style={ASK_TEXT}
-          numberOfLines={2}
-          testID={relationPending ? `minddrop-relation-line-${item.id}` : undefined}
-        >
-          {isMulti
-            ? 'Should I split these? Tap to decide.'
-            : relationPending && heldRelation
-              ? relationLine(heldRelation)
-              : 'Gremly has a question, tap to clarify'}
+        <Text style={ASK_TEXT} numberOfLines={2}>
+          Should I split these? Tap to decide.
         </Text>
       </View>
     ) : null;
@@ -2000,8 +1937,9 @@ const AnimatedMindDropCard = React.memo<{
       !!onTalk &&
       !isFailed &&
       !isMulti &&
-      !needsClarification &&
-      !relationPending &&
+      !stripAsk &&
+      !dupeAsk &&
+      !keptForSweep(item) &&
       item.views?.ai_pending !== true &&
       item.views?.clarification_processing !== true;
 
@@ -2018,6 +1956,9 @@ const AnimatedMindDropCard = React.memo<{
           onTalk={canTalk ? () => onTalk!(item) : undefined}
           talkTestID={`minddrop-talk-${item.id}`}
           footer={footer}
+          askStrip={isPending || isMulti ? null : <CardAsk item={item} ask={stripAsk} />}
+          dupeLine={dupeAsk && !stripAsk ? <CardDupe item={item} ask={dupeAsk} /> : null}
+          pulseKey={pulseKey}
         />
       </Reanimated.View>
     );
@@ -2048,6 +1989,8 @@ const AnimatedMindDropCard = React.memo<{
       'time_window',
       'needs_clarification',
       'clarification_resolved',
+      'clarification_question',
+      'clarification_options',
       'is_multi',
       'multi_summary_title',
     ];
@@ -2062,13 +2005,19 @@ const AnimatedMindDropCard = React.memo<{
       'needs_clarification',
       'clarification_resolved',
       'clarification_processing',
+      'clarification_question',
+      'clarification_options',
       'ai_pending',
       'ai_failed',
       'is_multi',
       'multi_summary_title',
+      // the ask rules (stage 6)
+      'ask_since',
+      'ask_on_card',
+      'relation',
+      'split',
     ];
     for (const f of viewFields) if (va[f] !== vb[f]) return false;
-    if (va.relation?.status !== vb.relation?.status) return false;
     return true;
   },
 );
@@ -4432,9 +4381,10 @@ const RecentDrops: React.FC<{
               {/* a pending item is promoted to a real item (prevents modal from closing) */}
               {combinedItems.map((item) => {
                 const itemIsPending = pendingIdSet.has(item.drop_id || item.id);
-                // A held drop shows the kind it will become, not the note it waits as
+                // A drop an older build held as a note shows the kind it will become
                 const held = item.kind === 'note' ? relationOf(item.views) : null;
-                const heldKind = held?.status === 'pending' ? heldKindOf(held).kind : null;
+                const heldKind =
+                  held?.status === 'pending' && keepsHeldNote(held) ? heldKindOf(held).kind : null;
                 const effectiveKind = heldKind ?? item.optimisticKind ?? item.kind;
                 const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
                 const showLegacyUnsortedBadge =
@@ -4487,8 +4437,6 @@ const RecentDrops: React.FC<{
                       onKeepAsNote={handleKeepAsNote}
                       onSplitSelected={handleSplitSelected}
                       onOpenModal={handleOpenModal}
-                      openClarificationPopup={overlay.openClarificationPopup}
-                      openRelationPopup={overlay.openRelationPopup}
                       onTalk={item.id === talkItemId ? handleTalk : undefined}
                     />
                   </UnifiedCardWrapper>
