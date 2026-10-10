@@ -29,6 +29,22 @@ jest.mock('../../../lib/minddrop/askActions', () => ({
   answerAsk: jest.fn(),
   notNow: jest.fn(),
 }));
+const mockPickers: Record<string, (event: { type: string }, at?: Date) => void> = {};
+jest.mock('@react-native-community/datetimepicker', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: (p: { testID: string; onChange: (event: { type: string }, at?: Date) => void }) => {
+      mockPickers[p.testID] = p.onChange;
+      return React.createElement(View, { testID: p.testID });
+    },
+  };
+});
+jest.mock('../../../lib/minddrop/bookedReminder', () => ({
+  remindersAheadNow: jest.fn(),
+  remindBefore: jest.fn(),
+}));
 jest.mock('../../../lib/minddrop/splitActions', () => ({
   splitDropNow: jest.fn(),
   keepSplitAsOne: jest.fn(),
@@ -50,6 +66,8 @@ import { answerAsk, notNow } from '../../../lib/minddrop/askActions';
 import { applyDropRelation, leavingCardIds } from '../../../lib/minddrop/relationActions';
 import { cardDupeAsk, cardStripAsk } from '../../../lib/minddrop/asks';
 import { keepSplitAsOne, logSplitAnswer, splitDropNow } from '../../../lib/minddrop/splitActions';
+import { remindBefore, remindersAheadNow } from '../../../lib/minddrop/bookedReminder';
+import { parseISO } from 'date-fns';
 import { eventBus } from '../../../lib/events/EventBus';
 import { getDateService } from '../../../lib/date/DateService';
 import { TOAST_AFTER_CARDS_MS } from '../../../lib/minddrop/popupTiming';
@@ -160,6 +178,9 @@ beforeEach(() => {
   (answerAsk as jest.Mock).mockResolvedValue(null);
   (notNow as jest.Mock).mockResolvedValue(undefined);
   (leavingCardIds as jest.Mock).mockReturnValue(['d1']);
+  // no reminder still ahead unless a test says so
+  (remindersAheadNow as jest.Mock).mockReturnValue([]);
+  (remindBefore as jest.Mock).mockResolvedValue(undefined);
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -216,6 +237,97 @@ describe('an unclear drop asks on its card', () => {
       isFreeText: undefined,
       when: { date: ds.addDays(today, 1), time: null },
     });
+  });
+
+  it('Pick a date opens a calendar, and Save files it on the day picked, with a time when one is set', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-when-pick'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    const day = ds.addDays(today, 10);
+    act(() => mockPickers['minddrop-ask-n1-picker-calendar']({ type: 'set' }, parseISO(day)));
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-picker-time'));
+    act(() =>
+      mockPickers['minddrop-ask-n1-picker-time-wheel']({ type: 'set' }, parseISO(`${day}T09:30`)),
+    );
+    expect(r.getByText(/^Save for .*, 9:30 AM$/)).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-pick-save'));
+    await tick(ASK_CHOSEN_MS);
+    expect(remindersAheadNow).toHaveBeenCalledWith(day, '09:30');
+    expect(answerAsk).toHaveBeenCalledWith('n1', {
+      kind: 'clarify',
+      optionId: 'opt_1',
+      isFreeText: undefined,
+      when: { date: day, time: '09:30' },
+    });
+  });
+
+  it('asks Want a reminder? once the day is set, and saves the one picked after the answer', async () => {
+    (remindersAheadNow as jest.Mock).mockReturnValue(['evening', 'hour']);
+    let answered = (_v: unknown) => {};
+    (answerAsk as jest.Mock).mockReturnValue(
+      new Promise((r) => {
+        answered = r;
+      }),
+    );
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-when-next-week'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(r.getByText('Want a reminder?')).toBeTruthy();
+    expect(r.getByText('The evening before')).toBeTruthy();
+    expect(r.getByText('An hour before')).toBeTruthy();
+    expect(r.getByText('No thanks')).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-remind-evening'));
+    await tick(ASK_CHOSEN_MS);
+    // it waits for the answer to go through
+    expect(remindBefore).not.toHaveBeenCalled();
+    await act(async () => answered(null));
+    await tick(0);
+    expect(remindBefore).toHaveBeenCalledWith('n1', 'evening');
+  });
+
+  it('offers An hour before only when it is still ahead, and No thanks closes it', async () => {
+    (remindersAheadNow as jest.Mock).mockReturnValue(['evening']);
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-when-next-week'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(r.queryByText('An hour before')).toBeNull();
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-remind-no'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(remindBefore).not.toHaveBeenCalled();
+  });
+
+  it('says so when the reminder did not save, and lets them try again', async () => {
+    (remindersAheadNow as jest.Mock).mockReturnValue(['evening']);
+    (remindBefore as jest.Mock).mockRejectedValue(new Error('offline'));
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-when-next-week'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-remind-evening'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(0);
+    expect(r.getByText('That did not go through. Try again in a moment.')).toBeTruthy();
+    expect(r.getByText('Want a reminder?')).toBeTruthy();
   });
 
   it('Not now on When is it? files it without a day', async () => {

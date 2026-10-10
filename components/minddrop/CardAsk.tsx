@@ -8,6 +8,10 @@
  *   time: a new ask, or the next step of this one (When is it?, Which one did
  *   you mean?), comes in once the last has closed. Answers go through
  *   askActions.answerAsk, so the card and Sweep share one path.
+ * - When is it? (after a booked answer) offers three days and Pick a date (a
+ *   calendar, and a time if they know it); once the day is set, Want a
+ *   reminder? asks once: The evening before, An hour before (only with a
+ *   time) and No thanks, offering only reminders still ahead.
  * - An unsure split asks One job or two? with its pieces shown, from the
  *   sort (stage 7): Split saves the pieces as their own items and the card
  *   gives way to them; Keep as one keeps the one item; Not now keeps it as
@@ -28,7 +32,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import { format, parseISO } from 'date-fns';
-import { Check, Split } from 'lucide-react-native';
+import { Calendar, Check, Split } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date/DateService';
 import { eventBus, type EventMap } from '../../lib/events/EventBus';
@@ -78,6 +82,12 @@ import {
   splitDropNow,
 } from '../../lib/minddrop/splitActions';
 import { wordsAsTitle } from '../../workers/shared/titles';
+import { WhenPicker } from './WhenPicker';
+import {
+  remindBefore,
+  remindersAheadNow,
+  type BookedReminder,
+} from '../../lib/minddrop/bookedReminder';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 
 /** The gap between one strip closing and the next opening (the prototype's .38s). */
@@ -92,6 +102,10 @@ const DIDNT_GO = 'That did not go through. Try again in a moment.';
 type Step =
   | { name: 'main' }
   | { name: 'when'; optionId: string }
+  /** Pick a date on When is it?: a calendar and a time if they know it */
+  | { name: 'pick'; optionId: string }
+  /** Want a reminder? once a booked appointment has its day */
+  | { name: 'remind'; options: BookedReminder[] }
   | { name: 'choose'; options: RelationEntity[] };
 const MAIN: Step = { name: 'main' };
 
@@ -354,6 +368,13 @@ export function CardAsk({
   const [logged, setLogged] = React.useState(false);
   // a which one answered Log it: the habit picked, shown with its dot filling
   const [loggedTo, setLoggedTo] = React.useState<RelationEntity | null>(null);
+  // Pick a date: the day and time chosen so far
+  const [pickDay, setPickDay] = React.useState<string>(() =>
+    getDateService().addDays(getDateService().calendarDay(), 1),
+  );
+  const [pickTime, setPickTime] = React.useState<string | null>(null);
+  // a booked answer on its way, for Want a reminder? to save after it
+  const booked = React.useRef<Promise<unknown> | null>(null);
   // an answer is being made: the strip stays as it is until it finishes
   const busy = React.useRef(false);
   const swapping = React.useRef(false);
@@ -389,9 +410,11 @@ export function CardAsk({
     [swapMs],
   );
 
-  // A new ask, or none: the one showing closes and the next comes in
+  // A new ask, or none: the one showing closes and the next comes in. Want a
+  // reminder? stays until it is answered: the question it follows has gone by then.
   React.useEffect(() => {
     if (busy.current || swapping.current) return;
+    if (shown?.step.name === 'remind') return;
     if (shown && ask && askKey(shown.ask) === askKey(ask)) return;
     if (!shown && !ask) return;
     if (!shown && ask) {
@@ -435,6 +458,26 @@ export function CardAsk({
         console.warn('[CardAsk] the answer did not save', { id, error: String(err) });
         setError(DIDNT_GO);
       });
+  };
+
+  /**
+   * A booked appointment's day (and time): filed with it, and Want a reminder?
+   * next when a reminder is still ahead (it saves once the answer has gone through).
+   */
+  const bookOn = (optionId: string, when: { date: string; time: string | null }) => {
+    const ahead = remindersAheadNow(when.date, when.time);
+    if (!ahead.length) {
+      answerClarify(optionId, { when });
+      return;
+    }
+    setError(null);
+    const answer = answerAsk(id, { kind: 'clarify', optionId, isFreeText: undefined, when });
+    // the reminder step says so if this does not go through
+    answer.catch((err) =>
+      console.warn('[CardAsk] the answer did not save', { id, error: String(err) }),
+    );
+    booked.current = answer;
+    closeThen({ ask: shown.ask, step: { name: 'remind', options: ahead } });
   };
 
   function relationStrip(rel: HeldRelation): StripWords {
@@ -616,6 +659,85 @@ export function CardAsk({
   let strip: StripWords;
   if (shown.ask.kind === 'split') {
     strip = splitStrip();
+  } else if (shown.step.name === 'remind') {
+    const remind = async (which: BookedReminder) => {
+      busy.current = true;
+      setError(null);
+      try {
+        await booked.current;
+        await remindBefore(item.drop_id || id, which);
+        busy.current = false;
+        closeThen();
+      } catch (err) {
+        busy.current = false;
+        console.warn('[CardAsk] the reminder did not save', { id, error: String(err) });
+        setError(DIDNT_GO);
+      }
+    };
+    const options = shown.step.options;
+    strip = {
+      question: 'Want a reminder?',
+      buttons: [
+        ...(options.includes('evening')
+          ? [
+              {
+                key: 'evening',
+                label: 'The evening before',
+                testID: `${tid}-remind-evening`,
+                onPress: () => void remind('evening'),
+              },
+            ]
+          : []),
+        ...(options.includes('hour')
+          ? [
+              {
+                key: 'hour',
+                label: 'An hour before',
+                testID: `${tid}-remind-hour`,
+                onPress: () => void remind('hour'),
+              },
+            ]
+          : []),
+        {
+          key: 'no',
+          label: 'No thanks',
+          testID: `${tid}-remind-no`,
+          onPress: () => {
+            // a booked answer that did not go through: its question comes back
+            booked.current?.then(
+              () => closeThen(),
+              () => closeThen(),
+            );
+          },
+        },
+      ],
+    };
+  } else if (shown.ask.kind === 'clarify' && shown.step.name === 'pick') {
+    const optionId = shown.step.optionId;
+    const day = format(parseISO(pickDay), 'EEE d MMM');
+    const at = pickTime ? format(parseISO(`${pickDay}T${pickTime}`), 'h:mm a') : null;
+    strip = {
+      question: 'When is it?',
+      extra: (
+        <WhenPicker
+          date={pickDay}
+          time={pickTime}
+          onDate={setPickDay}
+          onTime={setPickTime}
+          testID={`${tid}-picker`}
+        />
+      ),
+      buttons: [
+        {
+          key: 'save',
+          label: at ? `Save for ${day}, ${at}` : `Save for ${day}`,
+          testID: `${tid}-pick-save`,
+          onPress: () => bookOn(optionId, { date: pickDay, time: pickTime }),
+        },
+      ],
+      // as on When is it?: Not now files it without a day
+      onNotNow: () => answerClarify(optionId),
+    };
   } else if (shown.ask.kind === 'clarify' && shown.step.name === 'when') {
     const optionId = shown.step.optionId;
     const ds = getDateService();
@@ -631,12 +753,25 @@ export function CardAsk({
     ];
     strip = {
       question: 'When is it?',
-      buttons: days.map((d) => ({
-        key: d.key,
-        label: d.label,
-        testID: `${tid}-when-${d.key}`,
-        onPress: () => answerClarify(optionId, { when: { date: d.date, time: null } }),
-      })),
+      buttons: [
+        ...days.map((d) => ({
+          key: d.key,
+          label: d.label,
+          testID: `${tid}-when-${d.key}`,
+          onPress: () => bookOn(optionId, { date: d.date, time: null }),
+        })),
+        {
+          key: 'pick',
+          label: 'Pick a date',
+          icon: Calendar,
+          testID: `${tid}-when-pick`,
+          onPress: () => {
+            setPickDay(ds.addDays(ds.calendarDay(), 1));
+            setPickTime(null);
+            closeThen({ ask: shown.ask, step: { name: 'pick', optionId } });
+          },
+        },
+      ],
       hint: 'You can add a time later',
       // the prototype's When is it?: Not now files it without a day
       onNotNow: () => answerClarify(optionId),

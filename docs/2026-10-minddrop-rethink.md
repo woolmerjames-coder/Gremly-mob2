@@ -483,3 +483,16 @@ For James:
 - Nothing to deploy and no SQL for this stage. Older multi notes let go at each owner's next load; the SQL for every account comes with stage 8.
 
 Blocking questions: none.
+
+### Pick a date and Want a reminder? on When is it? (9 October, your ask after stage 6)
+
+What changed:
+- When is it? (after a booked answer such as It's booked) now offers Pick a date beside Tomorrow, the day after and Next week. Pick a date opens the strip's calendar (iOS: the system calendar in the strip, from today on; Android: the system dialog) and an Add a time pill (a wheel on iOS, with Done, and No time to take it off); the button reads Save for Fri 16 Oct, or Save for Fri 16 Oct, 9:30 AM. Not now still files it without a day. New `components/minddrop/WhenPicker.tsx`.
+- Once the day is set (a preset or a picked one), Want a reminder? asks once on the same card: The evening before, An hour before (only when a time is set) and No thanks. Only reminders still ahead are offered (the evening before is 6pm the day before, as the server sends it; an hour before counts back across midnight), and when none is, the question is not asked. The one picked is saved on the item the drop became as a 'before' reminder (`reminders_json`, `{kind: 'before', evening: true}` or `{kind: 'before', minutes: 60}`), after the booked answer has gone through; the server counts it back from the event's `target_date` and `event_time` and sends it, as for reminders set in the item's own screen. New `lib/minddrop/bookedReminder.ts` (`remindersAhead`, pure; `remindBefore`).
+- The question strip keeps Want a reminder? open until it is answered, though the question it follows has gone by then; if the booked answer did not go through, No thanks brings the question back, and a reminder that did not save says so and can be tried again.
+
+Tests: `bookedReminder.test.ts` (what is still ahead: days away, tomorrow after six, today, just after midnight; the save on the event the drop became; an item that has gone), `CardAsk.test.tsx` (Pick a date with a day and a time; Want a reminder? saves after the answer; An hour before only when ahead; No thanks; a reminder that did not save). Related tests: 16 suites, 209 tests, all passing. `tsc` clean.
+
+Deviations: the prototype has neither; both are as you asked on 9 October. A go to doctors drop with no booking yet still asks as before (I need to book it files a todo); only a booked one gets the day and the reminder.
+
+For James: in the simulator, a booked appointment (for example: dentist on the 20th, already booked, or anything the classifier is unsure is booked) shows When is it? with Pick a date; pick a day and a time, then Want a reminder?. Nothing to deploy.
