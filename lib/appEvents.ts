@@ -4,8 +4,9 @@
  * month, year), which chat and their story read, and tells the pipeline when
  * someone is back after time away. Nothing here leaves Gremly's own database.
  *
- * Logging never blocks or fails the UI: errors are swallowed, and repeat
- * events for the same thing are throttled so a quick back-and-forth counts once.
+ * Logging never blocks or fails the UI: an error is logged to the console and
+ * goes no further (final check item 16), and repeat events for the same thing
+ * are throttled so a quick back-and-forth counts once.
  */
 
 import { useCallback } from 'react';
@@ -57,15 +58,22 @@ export async function logAppEvent(
     const { data } = await supabase.auth.getSession();
     const userId = data.session?.user?.id;
     if (!userId) return;
-    await supabase.from('app_events').insert({
+    const { error } = await supabase.from('app_events').insert({
       user_id: userId,
       kind,
       target_type: target?.type ?? null,
       target_id: target?.id ?? null,
       meta: meta ?? null,
     });
-  } catch {
-    // Usage logging is best effort.
+    if (error) {
+      console.warn('[AppEvents] an event was not saved', {
+        kind,
+        error: error.message || error.code,
+      });
+    }
+  } catch (err) {
+    // Usage logging is best effort: logged, never passed to the screen
+    console.warn('[AppEvents] an event was not saved', { kind, error: String(err) });
   }
 }
 

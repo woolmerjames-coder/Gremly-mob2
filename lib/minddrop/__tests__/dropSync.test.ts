@@ -783,6 +783,36 @@ describe('saving at the sort and updating the saved row', () => {
     expect(mockFrom).toHaveBeenCalledWith('notes');
   });
 
+  it('fails loudly when the row an earlier try saved has been archived since (final check item 15)', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFrom.mockImplementation((table: string) => ({
+      ...dbChain(table),
+      insert: jest.fn(() => ({
+        select: () => ({
+          single: () => Promise.resolve({ data: null, error: { code: '23505', message: 'dup' } }),
+        }),
+      })),
+    }));
+    mockSelectResult = {
+      data: {
+        id: 'existing-1',
+        owner_id: 'user-1',
+        drop_id: 'drop-1',
+        archived: true,
+        archived_reason: 'minddrop_relation',
+      },
+      error: null,
+    };
+    const r = await syncDropToSupabase(makeDrop(), null, { stage: 'saved' });
+    expect(r.success).toBe(false);
+    expect(state.todos.map((t: any) => t.id)).toEqual([]);
+    expect(err).toHaveBeenCalledWith(
+      '[DropSync] the drop id belongs to an archived row; not saved again',
+      expect.objectContaining({ dropId: 'drop-1', id: 'existing-1' }),
+    );
+    err.mockRestore();
+  });
+
   it('finds a row an earlier try saved, says so, and puts it in the store when it is missing', async () => {
     mockFrom.mockImplementation((table: string) => ({
       ...dbChain(table),

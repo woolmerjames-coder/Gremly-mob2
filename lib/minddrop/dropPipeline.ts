@@ -50,6 +50,13 @@ const RETRY_DELAYS = [0, 3000, 8000]; // delays: instant, 3s, 8s
 let isRunning = false;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 const processing = new Set<string>();
+/**
+ * The drops holding one of the MAX_CONCURRENT slots: those not yet saved. A
+ * saved drop only waits for its details (up to five seconds), so it gives its
+ * slot back, and a quick burst of drops still starts each at the tap (final
+ * check item 13). It stays in `processing` until its run ends.
+ */
+const slotted = new Set<string>();
 let lastQueueEmpty = false;
 let lastEnqueueTime = 0;
 
@@ -140,6 +147,8 @@ async function logDropTiming(drop: QueuedDrop): Promise<void> {
 async function processOne(drop: QueuedDrop): Promise<void> {
   const phase = drop.phase || 'queued';
   processing.add(drop.localId);
+  if (holdsSlot(phase)) slotted.add(drop.localId);
+  else freeSlot(drop.localId);
 
   try {
     const handler = getPhaseHandler(phase);
@@ -223,7 +232,19 @@ async function processOne(drop: QueuedDrop): Promise<void> {
     }
   } finally {
     processing.delete(drop.localId);
+    slotted.delete(drop.localId);
   }
+}
+
+/** A drop holds a slot until it is saved (or for an older build's phases, which save at the end). */
+function holdsSlot(phase: DropPhase): boolean {
+  return phase !== 'saved' && phase !== 'complete' && phase !== 'failed';
+}
+
+/** A saved drop gives its slot back, and the next drop waiting starts now. */
+function freeSlot(localId: string): void {
+  if (!slotted.delete(localId)) return;
+  if (isRunning) void tick();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -277,8 +298,9 @@ async function tick(): Promise<void> {
 
     if (actionable.length === 0) return;
 
-    // Process up to MAX_CONCURRENT
-    const slotsAvailable = MAX_CONCURRENT - processing.size;
+    // Process up to MAX_CONCURRENT drops that are not yet saved; a saved drop
+    // waiting for its details does not hold one (`slotted`)
+    const slotsAvailable = MAX_CONCURRENT - slotted.size;
     if (slotsAvailable <= 0) return;
 
     const batch = actionable.slice(0, slotsAvailable);

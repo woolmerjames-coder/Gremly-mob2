@@ -13,10 +13,17 @@
 
 export const FALLBACK_TITLE_MAX = 60;
 
-/** A capital for the first character; every other character stays as written. */
+/**
+ * A capital for the first character; every other character stays as written.
+ * A first word that already has a capital after its first letter (iPhone,
+ * eBay) is a name written its own way, and is left as it is (final check
+ * item 18). Letter case only: nothing here reads what the words say.
+ */
 export function sentenceCase(s) {
   const t = String(s ?? '').trim();
   if (!t) return '';
+  const first = t.split(/\s/)[0];
+  if (/\p{Lu}/u.test(first.slice(1))) return t;
   return t[0].toUpperCase() + t.slice(1);
 }
 
@@ -58,14 +65,28 @@ export function dashBackstop(reaction, route) {
   return s.replace(/\s*[–—]\s*/g, ', ').trim();
 }
 
-/** The reaction's length cut James agreed: over max, cut with an ellipsis, logged. */
+/**
+ * The reaction's length cut James agreed: over max characters, cut with an
+ * ellipsis, logged. It counts and cuts by code point, so it never splits an
+ * emoji in two, and it steps back over a joiner, a variation selector or a
+ * skin tone at the cut, so a joined emoji is kept whole or left out whole
+ * (final check item 18).
+ */
 export function lengthBackstop(reaction, max, route) {
   const s = String(reaction ?? '');
-  if (s.length <= max) return s;
+  const points = Array.from(s);
+  if (points.length <= max) return s;
   console.warn('[MindDropReaction] reaction over its length, cut', {
     route,
-    length: s.length,
+    length: points.length,
     max,
   });
-  return s.substring(0, max - 3) + '...';
+  let end = Math.max(0, max - 3);
+  const joins = (p) => {
+    const c = p ? p.codePointAt(0) : 0;
+    return c === 0x200d || c === 0xfe0f || (c >= 0x1f3fb && c <= 0x1f3ff);
+  };
+  // the cut never leaves part of a joined emoji: step back to its start
+  while (end > 0 && (joins(points[end]) || points[end - 1] === '\u200d')) end -= 1;
+  return points.slice(0, end).join('') + '...';
 }

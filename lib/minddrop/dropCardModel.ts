@@ -21,7 +21,7 @@ import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import { getDateService } from '../date/DateService';
 import { formatDay } from '../chat/dayWords';
 import { MOOD_CONFIG, type Mood } from '../shared/moods';
-import { plannedDayOf } from '../../workers/shared/todoDay';
+import { dayOnly, deadlineOf, plannedDayOf } from '../../workers/shared/todoDay';
 import { asksOf, isAskLive, keptForSweep } from './asks';
 import { relationOf } from './dropRelation';
 
@@ -176,7 +176,8 @@ export function whenWords(item: CardItem, kind: DropCardKind): string | null {
       const time = timeWords(item.due_time);
       return time ? `${dayWords(planned)}, ${time}` : dayWords(planned);
     }
-    const deadline = (item.target_date || '').slice(0, 10);
+    // the shared deadline rule (workers/shared/todoDay.js), as Today and Sweep read it
+    const deadline = deadlineOf(item);
     if (deadline) {
       const ds = getDateService();
       if (ds.daysBetween(ds.today(), deadline) < 0) return 'Overdue';
@@ -186,7 +187,7 @@ export function whenWords(item: CardItem, kind: DropCardKind): string | null {
     return 'No date yet';
   }
   if (kind === 'event') {
-    const day = (item.target_date || '').slice(0, 10);
+    const day = dayOnly(item.target_date);
     if (!day) return null;
     const time = timeWords(item.event_time);
     return time ? `${dayWords(day)}, ${time}` : dayWords(day);

@@ -243,6 +243,14 @@ function wordsOf(
 function sendReaction(drop: QueuedDrop, reaction: string | null): void {
   if (reactionSent.has(drop.localId)) return;
   remember(reactionSent, drop.localId);
+  // One reaction per drop, and only for a drop tapped in this run: one picked
+  // up after a restart has had its moment (final check item 12)
+  if (!queuedThisRun.has(drop.localId)) {
+    console.log('[DropPhases] a drop from before a restart; Gremly says nothing', {
+      localId: drop.localId,
+    });
+    return;
+  }
   eventBus.emit('drop:reaction_ready', {
     localId: drop.localId,
     message: reaction,
@@ -336,6 +344,15 @@ function whenWordsLand(drop: QueuedDrop, saved: SavedDropRow, wordsTitle: string
     try {
       if (!words?.smartTitle) fallbackTitle(drop.text, 'enrich-phase1-5a');
       sendLateReaction(drop, words?.reaction ?? null);
+      // A title that lands after the settle is let go, as the reaction is: the
+      // card stays still once it has settled (final check item 11)
+      if (settledIds.has(drop.localId) && words?.smartTitle) {
+        console.log('[DropPhases] title came after the settle; the card keeps its words', {
+          localId: drop.localId,
+        });
+        await updateDropWords(saved, { smartTitle: null, reaction: words.reaction }, wordsTitle);
+        return;
+      }
       await updateDropWords(saved, words, wordsTitle);
     } catch (err) {
       console.warn('[DropPhases] the late title could not be saved', {

@@ -167,8 +167,8 @@ export async function callPhase2b(
   }
 }
 
-const details = keyedCalls<Phase2MetadataResult>();
-const reminders = keyedCalls<ReminderDetails>();
+const details = keyedCalls<Phase2MetadataResult>('details');
+const reminders = keyedCalls<ReminderDetails>('reminder');
 
 /**
  * Start the details the moment the drop is sorted, with the kind it is saved

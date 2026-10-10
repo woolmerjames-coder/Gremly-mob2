@@ -10,7 +10,7 @@
  *
  * Memory only: after an app restart a drop starts its calls again, and every
  * call here is safe to repeat. A call must never reject; any failure resolves
- * to null.
+ * to null, logged with the call's name and the drop (final check item 16).
  */
 
 export interface StartedCall<T> {
@@ -32,7 +32,7 @@ export interface KeyedCalls<T> {
   forget(id: string): void;
 }
 
-export function keyedCalls<T>(): KeyedCalls<T> {
+export function keyedCalls<T>(name = 'call'): KeyedCalls<T> {
   const calls = new Map<string, StartedCall<T>>();
   return {
     start(id, run) {
@@ -46,7 +46,14 @@ export function keyedCalls<T>(): KeyedCalls<T> {
       const call: StartedCall<T> = { promise: Promise.resolve(null), done: false, value: null };
       call.promise = Promise.resolve()
         .then(run)
-        .catch(() => null)
+        .catch((err) => {
+          console.warn('[DropCalls] a call failed; it reads as no answer', {
+            call: name,
+            drop: id,
+            error: String(err),
+          });
+          return null;
+        })
         .then((value) => {
           call.done = true;
           call.value = value ?? null;

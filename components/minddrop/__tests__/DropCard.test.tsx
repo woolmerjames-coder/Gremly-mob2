@@ -262,6 +262,49 @@ describe('DropCard, moving between states', () => {
   });
 });
 
+describe('DropCard, a title that changes (final check item 11)', () => {
+  it('crossfades a title that changes on a card already sorted, holding the taller height', () => {
+    mockReduced.value = false;
+    const r = render(
+      <DropCard kind="todo" stage="sorted" rawTitle="x" title="Book flights" meta={META} />,
+    );
+    fireEvent(r.getByTestId('drop-card-title-box'), 'layout', {
+      nativeEvent: { layout: { height: 42 } },
+    });
+    r.rerender(
+      <DropCard
+        kind="todo"
+        stage="sorted"
+        rawTitle="x"
+        title="Book flights to Lisbon"
+        meta={META}
+      />,
+    );
+    expect(r.getByTestId('drop-card-title').props.children).toBe('Book flights to Lisbon');
+    // the old title fades out over it, hidden from screen readers
+    expect(r.getByText('Book flights', { includeHiddenElements: true })).toBeTruthy();
+    expect(r.getByTestId('drop-card-title-box').props.style).toEqual({ minHeight: 42 });
+  });
+
+  it('changes at once with reduced motion on', () => {
+    const r = render(
+      <DropCard kind="todo" stage="settled" rawTitle="x" title="Book flights" meta={META} />,
+    );
+    r.rerender(
+      <DropCard
+        kind="todo"
+        stage="settled"
+        rawTitle="x"
+        title="Book flights to Lisbon"
+        meta={META}
+      />,
+    );
+    expect(r.getByTestId('drop-card-title').props.children).toBe('Book flights to Lisbon');
+    expect(r.queryByText('Book flights', { includeHiddenElements: true })).toBeNull();
+    expect(r.getByTestId('drop-card-title-box').props.style).toBeUndefined();
+  });
+});
+
 describe('DropCard, where it lives (stage 9)', () => {
   const card = (stage: 'sorted' | 'settled', onPress = jest.fn()) => (
     <DropCard

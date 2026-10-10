@@ -97,7 +97,7 @@ export async function callDropWords(
   return result;
 }
 
-const words = keyedCalls<DropWords>();
+const words = keyedCalls<DropWords>('title and reaction');
 
 /** Start the title and reaction call at the tap, without the kind. */
 export function startDropWords(drop: QueuedDrop): StartedCall<DropWords> {

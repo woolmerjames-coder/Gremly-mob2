@@ -229,8 +229,13 @@ export async function fillPieces(
                 wordsAsTitle(piece.text),
               )
             : Promise.resolve(false);
-        if (title === undefined) void words.promise.then(putTitle);
-        else await putTitle(title);
+        // a title later than this is after the piece's settle: it is let go,
+        // and the piece keeps its own words (final check item 11)
+        if (title === undefined) {
+          console.log('[Split] a piece’s title came after its settle; it keeps its words', {
+            piece: piece.dropId,
+          });
+        } else await putTitle(title);
 
         if (enrichment === undefined) {
           await settleDropRow(saved);

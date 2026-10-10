@@ -28,6 +28,13 @@ describe('sentenceCase', () => {
     expect(sentenceCase('book flights for lisbon')).toBe('Book flights for lisbon');
   });
 
+  it('leaves a first word alone when it already has a capital inside it (final check item 18)', () => {
+    expect(sentenceCase('iPhone charger to return')).toBe('iPhone charger to return');
+    expect(sentenceCase('eBay listing for the bike')).toBe('eBay listing for the bike');
+    // a capital later in the drop does not count
+    expect(sentenceCase('return the iPhone charger')).toBe('Return the iPhone charger');
+  });
+
   it('trims, and gives an empty string for nothing', () => {
     expect(sentenceCase('  dentist ')).toBe('Dentist');
     expect(sentenceCase('')).toBe('');
@@ -89,6 +96,15 @@ describe('the reaction backstops', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(lengthBackstop('short', 70, 'r')).toBe('short');
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts and cuts by code point, so it never splits an emoji (final check item 18)', () => {
+    // six code points, twelve UTF-16 units: over five, cut after two
+    expect(lengthBackstop('ab😀😀😀😀', 5, 'r')).toBe('ab...');
+    // a joined emoji at the cut is left out whole
+    expect(lengthBackstop('abcd👨‍👩‍👧 and more', 8, 'r')).toBe('abcd...');
+    // within its length by code point, though longer in UTF-16 units: not cut
+    expect(lengthBackstop('Nice 😀😀', 7, 'r')).toBe('Nice 😀😀');
   });
 });
 

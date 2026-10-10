@@ -425,7 +425,7 @@ export async function fetchClarification(
  * they reach the card by the settle or not at all. Kept in memory by the
  * drop's local id (dropCalls.ts).
  */
-const dropQuestions = keyedCalls<ClarificationPayload>();
+const dropQuestions = keyedCalls<ClarificationPayload>('question words');
 
 export function startDropClarification(drop: {
   localId: string;

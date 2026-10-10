@@ -87,7 +87,7 @@ export function shouldRelate(drop: QueuedDrop): boolean {
  * lands (Mind Drop rethink stage 4). Kept in memory by the drop's local id
  * (dropCalls.ts); after an app restart the drop simply asks again.
  */
-const early = keyedCalls<DropRelation>();
+const early = keyedCalls<DropRelation>('already have it');
 
 /** Start the check as soon as a Mind Drop box drop is queued. */
 export function startDropRelation(drop: QueuedDrop): void {

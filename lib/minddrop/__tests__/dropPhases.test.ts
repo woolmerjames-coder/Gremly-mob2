@@ -413,7 +413,9 @@ describe('handleSorted', () => {
 
   it('gives the title call a little longer, then saves the drop in its own words and updates it when the title lands', async () => {
     gates['enrich-phase1-5a'] = gate();
-    const d = sorted();
+    (runClassifyV3 as jest.Mock).mockResolvedValue(v3({ bucket: 'todo' }));
+    // tapped in this run, so Gremly reacts when the words land
+    const d = await handleQueued(drop());
     const out = await handleSorted(d);
     expect(out.wordsPending).toBe(true);
     expect((syncDropToSupabase as jest.Mock).mock.calls[0][2].title).toBe('Call mum about sunday');
@@ -426,6 +428,21 @@ describe('handleSorted', () => {
       'Call mum about sunday',
     );
     expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+  });
+
+  it('lets a title go that lands after the settle, as the reaction is (final check item 11)', async () => {
+    gates['enrich-phase1-5a'] = gate();
+    const out = await handleSorted(sorted());
+    expect(out.wordsPending).toBe(true);
+    await handleSaved(out);
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(updateDropWords).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      { smartTitle: null, reaction: 'She will love that.' },
+      'Call mum about sunday',
+    );
+    expect(reactions).toHaveLength(0);
   });
 
   it('saves the already have it answer on the item, of any kind, when it is in by the save', async () => {
@@ -486,9 +503,14 @@ describe('handleSorted', () => {
     expect(saved.clarificationQuestion).toBe('Booked yet?');
     expect(sentTypes()).toContain('clarify-ambiguity');
     expect(sentTypes()).not.toContain('enrich-phase2');
-    // the question is on the card: no follow up line in the bubble
-    expect(reactions).toHaveLength(1);
-    expect(reactions[0]).not.toHaveProperty('followUp');
+    // (its reaction, with no follow up line, is the next test's: this drop was not tapped in this run)
+  });
+
+  it('a drop picked up after a restart gets no reaction: only one tapped in this run speaks (final check item 12)', async () => {
+    const out = await handleSorted(sorted());
+    await flush();
+    expect(out.phase).toBe('saved');
+    expect(reactions).toEqual([]);
   });
 
   it('gives an unclear drop its reaction at the save, with no follow up line', async () => {

@@ -15,11 +15,18 @@ describe('keyedCalls', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it('turns a call that throws into null, never a rejection', async () => {
-    const calls = keyedCalls<string>();
+  it('turns a call that throws into null, never a rejection, and logs it (final check item 16)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const calls = keyedCalls<string>('details');
     const c = calls.start('d1', () => Promise.reject(new Error('offline')));
     expect(await c.promise).toBeNull();
     expect(c.done).toBe(true);
+    expect(warn).toHaveBeenCalledWith('[DropCalls] a call failed; it reads as no answer', {
+      call: 'details',
+      drop: 'd1',
+      error: 'Error: offline',
+    });
+    warn.mockRestore();
   });
 
   it('forgets a drop, so the next start asks again', async () => {

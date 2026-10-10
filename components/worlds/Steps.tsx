@@ -9,6 +9,7 @@ import type { Todo } from '../../lib/types';
 import { F, W } from '../../lib/worlds/look';
 import { dayOf, daysFrom, dayShort, dayPlain, isDone } from '../../lib/worlds/model';
 import { stepTitle } from './UpNextCard';
+import { todoDayOf } from '../../workers/shared/todoDay';
 
 const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 /** Small numbers as words: three, not 3. */
@@ -16,7 +17,8 @@ export const numWord = (n: number) => WORDS[n] || String(n);
 
 /** When a step is due, short: today, tomorrow, by Sat 12 Dec, was 3 Oct. */
 function dueShort(t: Todo, today: string): { text: string; late: boolean } | null {
-  const d = dayOf(t.due_day);
+  // its day by the shared rule: the day planned, else its deadline (final check item 17)
+  const d = dayOf(todoDayOf(t));
   if (!d) return null;
   const n = daysFrom(today, d);
   if (n < 0) return { text: `was ${dayPlain(d)}`, late: true };

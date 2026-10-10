@@ -34,6 +34,7 @@ import Reanimated, {
   Easing,
   FadeInUp,
   cancelAnimation,
+  runOnJS,
 } from 'react-native-reanimated';
 import {
   Calendar,
@@ -255,6 +256,75 @@ function WaitDot({ delay, reduced }: { delay: number; reduced: boolean }) {
   return <Reanimated.View style={[styles.waitDot, style]} />;
 }
 
+const TITLE_FADE_MS = 450;
+
+/**
+ * The card's words: the drop as typed until it is sorted, then its title.
+ * Every change crossfades (the prototype's .45s), and the card holds the
+ * taller of the two heights while it fades, so nothing under it jumps. With
+ * reduced motion, or when only the first capital differs, it changes at once
+ * (final check item 11). A card that mounts shows its words as they are.
+ */
+function CardTitle({ text, raw, reduced }: { text: string; raw: boolean; reduced: boolean }) {
+  const shown = React.useRef({ text, raw });
+  const height = React.useRef(0);
+  const [prev, setPrev] = React.useState<{ text: string; raw: boolean } | null>(null);
+  const [hold, setHold] = React.useState<number | null>(null);
+  const fade = useSharedValue(1);
+  const finish = React.useCallback(() => {
+    setPrev(null);
+    setHold(null);
+  }, []);
+
+  React.useEffect(() => {
+    const before = shown.current;
+    if (before.text === text && before.raw === raw) return;
+    shown.current = { text, raw };
+    if (reduced || onlyCapitalDiffers(before.text, text)) {
+      cancelAnimation(fade);
+      fade.value = 1;
+      finish();
+      return;
+    }
+    setPrev(before);
+    setHold(height.current || null);
+    fade.value = 0;
+    fade.value = withTiming(1, { duration: TITLE_FADE_MS, easing: EASE_OUT }, (done) => {
+      if (done) runOnJS(finish)();
+    });
+  }, [text, raw, reduced, fade, finish]);
+
+  const inStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+  const outStyle = useAnimatedStyle(() => ({ opacity: 1 - fade.value }));
+
+  return (
+    <View
+      style={hold ? { minHeight: hold } : undefined}
+      testID="drop-card-title-box"
+      onLayout={(e) => {
+        if (!prev) height.current = e.nativeEvent.layout.height;
+      }}
+    >
+      <Reanimated.Text
+        style={[styles.title, raw && styles.rawTitle, prev ? inStyle : null]}
+        testID="drop-card-title"
+      >
+        {text}
+      </Reanimated.Text>
+      {prev ? (
+        <Reanimated.Text
+          style={[styles.title, prev.raw && styles.rawTitle, styles.overlay, outStyle]}
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {prev.text}
+        </Reanimated.Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function DropCard({
   kind,
   stage,
@@ -278,7 +348,6 @@ export function DropCard({
   const sorted = stage !== 'landed';
   const settled = stage === 'settled';
   const colors = KIND_COLORS[kind];
-  const sameTitle = onlyCapitalDiffers(rawTitle, title);
 
   // A card that mounts already sorted or settled shows its final state at once;
   // only a change while it is on screen animates.
@@ -337,8 +406,6 @@ export function DropCard({
     opacity: Math.min(1, sortedV.value * 1.8),
     transform: [{ scale: 0.6 + 0.4 * sortedV.value }],
   }));
-  const rawStyle = useAnimatedStyle(() => ({ opacity: 1 - sortedV.value }));
-  const newStyle = useAnimatedStyle(() => ({ opacity: sortedV.value }));
   const kindWordStyle = useAnimatedStyle(() => ({ opacity: sortedV.value }));
   const laterStyle = useAnimatedStyle(() => ({
     opacity: settledV.value,
@@ -401,29 +468,7 @@ export function DropCard({
         </Reanimated.View>
 
         <View style={styles.body}>
-          {!sorted ? (
-            <Text style={[styles.title, styles.rawTitle]} testID="drop-card-title">
-              {rawTitle}
-            </Text>
-          ) : sameTitle || firstStage !== 'landed' || reduced ? (
-            <Text style={styles.title} testID="drop-card-title">
-              {title}
-            </Text>
-          ) : (
-            <View>
-              <Reanimated.Text style={[styles.title, newStyle]} testID="drop-card-title">
-                {title}
-              </Reanimated.Text>
-              <Reanimated.Text
-                style={[styles.title, styles.rawTitle, styles.overlay, rawStyle]}
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              >
-                {rawTitle}
-              </Reanimated.Text>
-            </View>
-          )}
+          <CardTitle text={sorted ? title : rawTitle} raw={!sorted} reduced={reduced} />
 
           <View style={styles.meta} testID="drop-card-meta">
             {!sorted && stopped ? null : !sorted ? (

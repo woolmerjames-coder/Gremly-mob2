@@ -7401,190 +7401,115 @@ export const useGremlyStore = create<GremlyState>()(
           const STUCK_THRESHOLD_MS = 30000; // 30 seconds
           const now = getDateService().now().getTime();
           const cutoffTime = new Date(now - STUCK_THRESHOLD_MS).toISOString();
+          // Each change goes through updateDropRow (final check item 14): on the
+          // row as the database holds it now, in turn with the pipeline's own
+          // writes, and through the store. Loaded when it runs, as dropSync
+          // reads this store.
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { updateDropRow } = require('../minddrop/dropSync') as {
+            updateDropRow: (
+              entityType: 'todo' | 'habit' | 'note',
+              id: string,
+              what: string,
+              build: (item: Record<string, any>) => Record<string, unknown> | null,
+            ) => Promise<boolean>;
+          };
+          const kinds = [
+            ['todos', 'todo'],
+            ['habits', 'habit'],
+            ['notes', 'note'],
+          ] as const;
 
           try {
             // A drop saved at the sort settles within seconds (Mind Drop rethink
             // stage 4). One still at 'saved' after 30s lost its settle (the app
             // stopped and the drop did not come back, or the write failed): it
             // settles as it is, with whatever details it has, logged.
-            for (const table of ['todos', 'habits', 'notes'] as const) {
-              const { data: unsettled } = await supabase
+            for (const [table, kind] of kinds) {
+              const { data: unsettled, error: readError } = await supabase
                 .from(table)
-                .select('id, views')
+                .select('id')
                 .eq('owner_id', userId)
                 .eq('views->>minddrop_stage', 'saved')
                 .lt('updated_at', cutoffTime);
+              if (readError) {
+                console.warn('[GremlyStore] could not look for Mind Drop items left at saved', {
+                  table,
+                  error: readError.message,
+                });
+                continue;
+              }
               if (!unsettled?.length) continue;
               console.warn('[GremlyStore] settling Mind Drop items left at saved', {
                 table,
                 count: unsettled.length,
               });
               for (const row of unsettled) {
-                const views = {
-                  ...(row.views as Record<string, unknown>),
-                  minddrop_stage: 'settled',
-                };
-                const { error } = await supabase.from(table).update({ views }).eq('id', row.id);
-                if (error) {
+                try {
+                  await updateDropRow(kind, row.id, 'recover_settle', (item) => {
+                    const views = (item.views as Record<string, unknown>) || {};
+                    if (views.minddrop_stage !== 'saved') return null;
+                    return { views: { ...views, minddrop_stage: 'settled' } };
+                  });
+                } catch (err) {
                   console.warn('[GremlyStore] could not settle a Mind Drop item', {
                     table,
                     id: row.id,
-                    error: error.message,
+                    error: String(err),
                   });
-                  continue;
                 }
-                set(
-                  (state) =>
-                    ({
-                      [table]: (state[table] as Array<{ id: string; views?: unknown }>).map(
-                        (item) =>
-                          item.id === row.id
-                            ? {
-                                ...item,
-                                views: {
-                                  ...(item.views as Record<string, unknown>),
-                                  minddrop_stage: 'settled',
-                                },
-                              }
-                            : item,
-                      ),
-                    }) as Partial<GremlyState>,
-                );
               }
             }
 
-            // Find todos stuck in enrichment (views->minddrop_stage is streaming, enriching, or pending)
-            const { data: stuckTodos } = await supabase
-              .from('todos')
-              .select('id, views, updated_at')
-              .eq('owner_id', userId)
-              .or(
-                'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
-              )
-              .lt('updated_at', cutoffTime);
-
-            // Find habits stuck in enrichment
-            const { data: stuckHabits } = await supabase
-              .from('habits')
-              .select('id, views, updated_at')
-              .eq('owner_id', userId)
-              .or(
-                'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
-              )
-              .lt('updated_at', cutoffTime);
-
-            // Find notes stuck in enrichment
-            const { data: stuckNotes } = await supabase
-              .from('notes')
-              .select('id, views, updated_at')
-              .eq('owner_id', userId)
-              .or(
-                'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
-              )
-              .lt('updated_at', cutoffTime);
-
-            const totalStuck =
-              (stuckTodos?.length ?? 0) + (stuckHabits?.length ?? 0) + (stuckNotes?.length ?? 0);
-
-            if (totalStuck === 0) {
-              return; // Nothing stuck, no log needed
-            }
-
-            console.log(
-              `[GremlyStore] 🔧 Found ${totalStuck} stuck MindDrop items, recovering...`,
-              {
-                todos: stuckTodos?.length ?? 0,
-                habits: stuckHabits?.length ?? 0,
-                notes: stuckNotes?.length ?? 0,
-              },
-            );
-
-            // Reset stuck todos - mark as classified (ready for manual editing)
-            for (const todo of stuckTodos ?? []) {
-              const updatedViews = {
-                ...(todo.views as Record<string, unknown>),
-                ai_pending: false,
-                ai_failed: true,
-                minddrop_stage: 'classified',
-              };
-              await supabase.from('todos').update({ views: updatedViews }).eq('id', todo.id);
-            }
-
-            // Reset stuck habits
-            for (const habit of stuckHabits ?? []) {
-              const updatedViews = {
-                ...(habit.views as Record<string, unknown>),
-                ai_pending: false,
-                ai_failed: true,
-                minddrop_stage: 'classified',
-              };
-              await supabase.from('habits').update({ views: updatedViews }).eq('id', habit.id);
-            }
-
-            // Reset stuck notes
-            for (const note of stuckNotes ?? []) {
-              const updatedViews = {
-                ...(note.views as Record<string, unknown>),
-                ai_pending: false,
-                ai_failed: true,
-                minddrop_stage: 'classified',
-              };
-              await supabase.from('notes').update({ views: updatedViews }).eq('id', note.id);
-            }
-
-            // Update local store state
-            const state = get();
-            set({
-              todos: state.todos.map((t) => {
-                const stuck = stuckTodos?.find((s) => s.id === t.id);
-                if (stuck) {
-                  return {
-                    ...t,
-                    views: {
-                      ...(t.views as Record<string, unknown>),
-                      ai_pending: false,
-                      ai_failed: true,
-                      minddrop_stage: 'classified',
-                    },
-                  };
+            // An older build's stages (streaming, enriching, pending) left for
+            // 30s: marked failed and classified, ready to edit by hand
+            const OLDER_STUCK = ['streaming', 'enriching', 'pending'];
+            let recovered = 0;
+            for (const [table, kind] of kinds) {
+              const { data: stuck, error: readError } = await supabase
+                .from(table)
+                .select('id')
+                .eq('owner_id', userId)
+                .or(
+                  'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
+                )
+                .lt('updated_at', cutoffTime);
+              if (readError) {
+                console.warn('[GremlyStore] could not look for stuck Mind Drop items', {
+                  table,
+                  error: readError.message,
+                });
+                continue;
+              }
+              for (const row of stuck ?? []) {
+                try {
+                  const wrote = await updateDropRow(kind, row.id, 'recover_stuck', (item) => {
+                    const views = (item.views as Record<string, unknown>) || {};
+                    if (!OLDER_STUCK.includes(String(views.minddrop_stage))) return null;
+                    return {
+                      views: {
+                        ...views,
+                        ai_pending: false,
+                        ai_failed: true,
+                        minddrop_stage: 'classified',
+                      },
+                    };
+                  });
+                  if (wrote) recovered += 1;
+                } catch (err) {
+                  console.warn('[GremlyStore] could not recover a stuck Mind Drop item', {
+                    table,
+                    id: row.id,
+                    error: String(err),
+                  });
                 }
-                return t;
-              }),
-              habits: state.habits.map((h) => {
-                const stuck = stuckHabits?.find((s) => s.id === h.id);
-                if (stuck) {
-                  return {
-                    ...h,
-                    views: {
-                      ...(h.views as Record<string, unknown>),
-                      ai_pending: false,
-                      ai_failed: true,
-                      minddrop_stage: 'classified',
-                    },
-                  };
-                }
-                return h;
-              }),
-              notes: state.notes.map((n) => {
-                const stuck = stuckNotes?.find((s) => s.id === n.id);
-                if (stuck) {
-                  return {
-                    ...n,
-                    views: {
-                      ...(n.views as Record<string, unknown>),
-                      ai_pending: false,
-                      ai_failed: true,
-                      minddrop_stage: 'classified',
-                    },
-                  };
-                }
-                return n;
-              }),
-            });
-
-            console.log(`[GremlyStore] ✅ Recovered ${totalStuck} stuck MindDrop items`);
+              }
+            }
+            if (recovered) {
+              console.log('[GremlyStore] Recovered stuck Mind Drop items', { count: recovered });
+            }
           } catch (error) {
-            console.error('[GremlyStore] ❌ Failed to recover stuck MindDrop items:', error);
+            console.error('[GremlyStore] Failed to recover stuck Mind Drop items:', error);
           }
         },
 

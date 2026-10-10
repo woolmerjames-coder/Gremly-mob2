@@ -907,6 +907,7 @@ export function CardAsk({
  * leaves.
  */
 export function CardDupe({ item, ask, testID }: { item: UnifiedDrop; ask: Ask; testID?: string }) {
+  const reduced = useReducedMotion();
   const [busy, setBusy] = React.useState(false);
   const busyRef = React.useRef(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -935,7 +936,8 @@ export function CardDupe({ item, ask, testID }: { item: UnifiedDrop; ask: Ask; t
     }
     try {
       const outcome = await applyDropRelation(item.id);
-      afterYes(outcome, leaving, outcome.targetId, GLIDE_MS);
+      // with reduced motion the drop has gone at once, and the one they had pulses now
+      afterYes(outcome, leaving, outcome.targetId, reduced ? 0 : GLIDE_MS);
     } catch (err) {
       if (leaving.length) eventBus.emit('minddrop:cards_stay', { ids: leaving });
       setError(wordsForError(err));

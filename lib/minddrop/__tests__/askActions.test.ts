@@ -110,13 +110,18 @@ describe('Not now', () => {
     expect(after.views.clarification_skipped).toBeUndefined();
   });
 
-  it('works on a todo or a habit drop, and records the day for an older ask', async () => {
+  it('works on a todo or a habit drop, and starts the ask’s day again today, so Sweep asks again', async () => {
     setStore([
-      { id: 't1', created_at: `${day(-1)}T08:00:00`, views: { relation: relation('card') } },
+      {
+        id: 't1',
+        created_at: `${day(-1)}T08:00:00`,
+        views: { relation: relation('card'), ask_since: day(-1) },
+      },
     ]);
     await notNow('t1');
     expect(mockState.updateTodo).toHaveBeenCalled();
-    expect(mockState.todos[0].views).toMatchObject({ ask_on_card: false, ask_since: day(-1) });
+    // final check item 9: an ask from yesterday would lapse before tomorrow's quick sweep
+    expect(mockState.todos[0].views).toMatchObject({ ask_on_card: false, ask_since: today });
   });
 });
 

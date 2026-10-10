@@ -17,7 +17,7 @@ import { keepsHeldNote, type RelationEntity } from './dropRelation';
 import { applyDropRelation, keepDropAsNew, type RelationOutcome } from './relationActions';
 import { updateDropRow } from './dropSync';
 import type { ClarificationOption, ClarificationWhen } from './clarification';
-import { askOf, askSinceOf, asksOf, isAskLive, isOlderMulti, type Ask, type AskItem } from './asks';
+import { askOf, asksOf, isAskLive, isOlderMulti, type Ask, type AskItem } from './asks';
 
 type Kind = 'todo' | 'habit' | 'note';
 
@@ -35,8 +35,11 @@ function findItem(id: string): { kind: Kind; item: AskItem & { id: string } } | 
 
 /**
  * Not now, on the card: the strip closes and the item stays exactly as saved.
- * Nothing is resolved or skipped; Sweep asks again (stage 8). Written on the
- * row as the database holds it, in turn with the pipeline's own updates.
+ * Nothing is resolved or skipped; Sweep asks again (stage 8). The ask's day
+ * starts again today, so it is live for tonight's Sweep and tomorrow's quick
+ * sweep and the card's Sweep will ask again is true (final check item 9).
+ * Written on the row as the database holds it, in turn with the pipeline's
+ * own updates.
  */
 export async function notNow(id: string): Promise<void> {
   const found = findItem(id);
@@ -44,7 +47,7 @@ export async function notNow(id: string): Promise<void> {
   await updateDropRow(found.kind, found.item.id, 'not_now', (row) => {
     const views = { ...((row.views as Record<string, unknown>) || {}) };
     views.ask_on_card = false;
-    if (!views.ask_since) views.ask_since = askSinceOf(row as AskItem);
+    views.ask_since = getDateService().today();
     return { views };
   });
 }

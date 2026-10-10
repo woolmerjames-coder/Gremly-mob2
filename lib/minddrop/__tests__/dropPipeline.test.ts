@@ -313,6 +313,57 @@ describe('dropPipeline', () => {
       );
     });
 
+    it('a saved drop gives its slot back, so a burst of drops each starts at the tap (final check item 13)', async () => {
+      // started with an empty queue: its first sweep would wait on these drops
+      await startQueueRunner();
+      const drops = ['b1', 'b2', 'b3', 'b4'].map((id) =>
+        makeDrop({ localId: id, phase: 'queued' }),
+      );
+      // the queue as saveDrop leaves it
+      const queue = new Map(drops.map((d) => [d.localId, d]));
+      (getQueue as jest.Mock).mockImplementation(async () => [...queue.values()]);
+      (saveDrop as jest.Mock).mockImplementation(async (id: string, d: QueuedDrop) => {
+        queue.set(id, d);
+      });
+      const sortGates = new Map<string, () => void>();
+      const queued = jest.fn(
+        (d: QueuedDrop) =>
+          new Promise<QueuedDrop>((resolve) =>
+            sortGates.set(d.localId, () => resolve({ ...d, phase: 'saved' })),
+          ),
+      );
+      // the saved phase waits for its details until the end of this test
+      const settleGates: Array<() => void> = [];
+      const saved = jest.fn(
+        (d: QueuedDrop) =>
+          new Promise<QueuedDrop>((resolve) =>
+            settleGates.push(() => resolve({ ...d, phase: 'complete' })),
+          ),
+      );
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'queued' ? queued : p === 'saved' ? saved : null,
+      );
+      // not awaited: each run waits on its gate
+      void triggerProcessing();
+      for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+      // three slots: the fourth waits
+      expect(queued.mock.calls.map((c) => c[0].localId)).toEqual(['b1', 'b2', 'b3']);
+      sortGates.get('b1')!();
+      for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+      // b1 is saved and waits for its details without its slot: b4 starts now
+      const started = queued.mock.calls.map((c) => c[0].localId);
+      const savedIds = saved.mock.calls.map((c) => c[0].localId);
+      // let every drop finish, so no run is left holding a slot for the next test
+      for (let round = 0; round < 3; round += 1) {
+        sortGates.forEach((open) => open());
+        settleGates.forEach((open) => open());
+        for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+      }
+      stopQueueRunner();
+      expect(savedIds).toEqual(['b1']);
+      expect(started).toEqual(['b1', 'b2', 'b3', 'b4']);
+    });
+
     it('skips terminal-phase drops', async () => {
       await startQueueRunner();
 

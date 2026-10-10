@@ -372,12 +372,33 @@ async function insertRow(
     // before the queue moved on. The same drop id returns that row.
     if (error.code === '23505') {
       console.warn('[DropSync] Duplicate drop detected, fetching existing row', { dropId });
-      const { data: existing } = await supabase
+      const { data: existing, error: readError } = await supabase
         .from(table)
         .select('*')
         .eq('owner_id', payload.owner_id as string)
         .eq('drop_id', dropId)
         .single();
+      if (readError) {
+        console.error('[DropSync] the row an earlier try saved could not be read', {
+          dropId,
+          error: readError.message || readError.code,
+        });
+      }
+      // The row an earlier try saved has been archived since (a yes on the
+      // card, a split): it is not this drop's to show again, so the save fails
+      // loudly rather than counting it as saved (final check item 15)
+      if (existing && existing.archived === true) {
+        console.error('[DropSync] the drop id belongs to an archived row; not saved again', {
+          dropId,
+          table,
+          id: existing.id,
+          archived_reason: existing.archived_reason ?? null,
+        });
+        return {
+          success: false,
+          error: new Error(`[DropSync] drop ${dropId} is already saved and archived`),
+        };
+      }
       if (existing) {
         const known = (useGremlyStore.getState() as any)[storeKeyOf(entityType)]?.some(
           (x: { id: string }) => x.id === existing.id,

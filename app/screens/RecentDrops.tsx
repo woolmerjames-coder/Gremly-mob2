@@ -572,6 +572,14 @@ const UnifiedCardWrapper = React.memo<{
       if (how.as !== 'fade') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       }
+      // Reduced motion: it has gone at once, with no slide, fold or glide
+      // (final check item 10)
+      if (reduced) {
+        leaveGather.setValue(0);
+        leaveGlide.setValue(1);
+        onLeft?.(itemId);
+        return;
+      }
       const anim =
         how.as === 'slide'
           ? Animated.sequence([
@@ -604,6 +612,12 @@ const UnifiedCardWrapper = React.memo<{
     React.useEffect(() => {
       if (!returning) return;
       leaveGather.setValue(0);
+      // Reduced motion: back at once after an Undo (final check item 10)
+      if (reduced) {
+        leaveGlide.setValue(0);
+        onReturned?.(itemId);
+        return;
+      }
       const anim = Animated.timing(leaveGlide, {
         toValue: 0,
         duration: 420,
@@ -614,7 +628,7 @@ const UnifiedCardWrapper = React.memo<{
         if (finished) onReturned?.(itemId);
       });
       return () => anim.stop();
-    }, [returning, itemId, onReturned, leaveGather, leaveGlide]);
+    }, [returning, itemId, onReturned, leaveGather, leaveGlide, reduced]);
     const glideWidth = Dimensions.get('window').width + 48;
     const leaveStyle =
       how.as === 'slide'
