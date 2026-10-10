@@ -801,6 +801,48 @@ For James:
 
 Blocking questions: one, on item 6: should deleting a todo or habit also set aside what Gremly took from it, as deleting a note does?
 
+### The planning chat's final check, items 1 to 25 (10 October)
+
+What changed (commits cb79fcc6, fb5635c6, 775ccef9, 23343cc7 and 6d6a71c6; item 6 has its own note below):
+1. A drop whose calls fail three times stays on the list as a card with its words and "That didn't go through. Tap to try again." (Today's quick add shows Retry). `retryDrop` gives it three more tries, and `retryFailedDrops` does the same for every failed drop when the app comes back or the network does (`lib/network/offlineSync.ts`). An older degraded item is read again with classify-v3, and the move keeps its created_at and its links.
+2. Keep as one saves the kept item as `split_group.as_one` says (a note, with a logged warning, only when as_one is missing) and gives it the details, filing and reminder a piece gets. The meta words and the bubble name the kind ("One journal entry it is.").
+3. No error's own words reach a card: `wordsForError` shows "That did not go through. Try again in a moment." unless the error is one of our own plain messages (`PlainError`).
+4. `created_at` is the drop's own time on the insert, on split pieces and when an item changes kind, so a card keeps its place when it saves.
+5. The reminder call runs after a clarify answer and for each clear split piece, carries over when an unsure split is split, and `scheduleDropReminder` and `addReminderToItem` write through `updateDropRow`.
+7. The classifier's own call is kept apart from the switch: `split_said` (Worker log and `drop_timing`), `views.split.classifier_said` and `split_group.classifier_said`, and `split_answer` carries what was said, shown and tapped.
+8. The routing stays as built; the Worker logs when normSegment flattens an unclear piece (no words in the log).
+9. Not now sets ask_since to today.
+10. With reduced motion the leave, fold, glide, Undo and pulse motions finish at once.
+11. Every title change crossfades and holds the taller height; a title that lands after the settle is let go, for a drop and for a piece.
+12. One reaction per drop: only a drop queued in this run speaks.
+13. A drop frees its runner slot once it is saved.
+14. `recoverStuckMindDrops` writes through `updateDropRow` and logs a failed read.
+15. A 23505 on an archived row is logged and fails loudly instead of counting as saved.
+16. Insert errors in `lib/appEvents.ts`, and errors the started calls in `dropCalls.ts` used to swallow, are logged, each call by name.
+17. The card's deadline words use the shared helpers; Steps' due day uses `todoDayOf`.
+18. The reaction length cut counts code points and never splits an emoji; sentenceCase leaves a first word with a capital inside it alone.
+19. Words: the bubble when the kind is unclear ("Got it. I couldn’t tell what kind this is, so it’s yours to pick."), the relation toast names the kind the drop stays as, one time format (9:30am, and 3pm on the hour) through `formatTime` in the When picker, the pick label, the clarification popup and the event banner, "Added yesterday" with plain relative times, and the reclassify fallback line is "Got it.".
+20. Done on the time wheel saves the time it shows (9am when none was set). On a habit card in Sweep, LET GO is hidden and a left swipe springs back.
+21. Sweep on a small phone: the deck avoids the keyboard, the ask slot scrolls to the Something else field, and the card can shrink so the inline calendar never pushes the buttons off.
+22. VoiceOver announces a new question or an error on the strip.
+23. The relation question names the item from its own title ("Log today’s Run?" with "Log it", "Mark <title> done?").
+24. Training step 2 is a statement.
+25. The stale lines saying the app falls back to v2 are fixed (`docs/minddrop-classify-v3.md`, `cortex-index.js`, `phase1.ts`).
+26. Left as they are, as asked.
+The stray `workers/cortex/__p_tmp.mjs` is deleted and was never committed.
+
+Tests: the whole jest run, in eight shards: 734 suites pass and the same 76 are wholly skipped as in the baseline, 10,712 tests pass, none failing; tsc is clean. The whole run found one test the fixes had missed: `offlineSync.test.ts` mocked the pipeline without `retryFailedDrops`. Fixed, with a new test that failed drops get their tries before processing. House rules over every line since the merge: no new long dashes outside tests; the only new regexes check a shape (a date) or are the sentenceCase rule the planning chat allowed; nothing switched on only in development; no new clock reads outside DateService (one parse of a given day for its weekday); no new icons and no small text.
+Deviations, and what is left for later:
+- `runPhase1` in `lib/minddrop/phase1.ts` has no caller now; it joins the dead code list for the separate clean up.
+- Today's own rows keep their time format (NowFocusRow's AM and PM time range); Today is being rebuilt in its own session (`docs/2026-10-today-rebuild.md`).
+- `lib/conversion.ts` gets no created_at: its conversions run only from dead code (`handleCategoryChipPick`, and `pipelineStages.ts`, which nothing imports).
+For James:
+- Deploy cortex (ship day item 5; it carries split_said, the normSegment log, the "Got it." line and item 6's Worker part, which waits for the flag): `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`.
+- Push the branch: `cd ~/Documents/gremly-mob2 && git push`.
+- Open the simulator for the stage 12 run: `cd ~/Documents/gremly-mob2 && npx expo run:ios`.
+- Still open from before: the delete links SQL, and the memory question in the planning chat answers.
+Blocking questions: none.
+
 ### Final check item 6: the already have it check sees deadlines (10 October)
 
 What changed:

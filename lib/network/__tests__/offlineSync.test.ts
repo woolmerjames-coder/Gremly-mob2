@@ -20,9 +20,11 @@ jest.mock('../NetworkStatus', () => ({
 
 const mockTriggerProcessing = jest.fn().mockResolvedValue(undefined);
 const mockReclassifyDegradedEntities = jest.fn().mockResolvedValue(undefined);
+const mockRetryFailedDrops = jest.fn().mockResolvedValue(0);
 jest.mock('../../minddrop/dropPipeline', () => ({
   triggerProcessing: (...args: any[]) => mockTriggerProcessing(...args),
   reclassifyDegradedEntities: (...args: any[]) => mockReclassifyDegradedEntities(...args),
+  retryFailedDrops: (...args: any[]) => mockRetryFailedDrops(...args),
 }));
 
 const mockRefreshFromServer = jest.fn().mockResolvedValue(undefined);
@@ -54,6 +56,7 @@ beforeEach(() => {
   mockNetworkStatus.isConnected = true;
   mockTriggerProcessing.mockResolvedValue(undefined);
   mockReclassifyDegradedEntities.mockResolvedValue(undefined);
+  mockRetryFailedDrops.mockResolvedValue(0);
   mockGetState.mockReturnValue({
     isInitialized: true,
     refreshFromServer: mockRefreshFromServer,
@@ -130,6 +133,23 @@ describe('offlineSync', () => {
   });
 
   describe('flushOfflineQueue behavior', () => {
+    it('gives failed drops their tries again before processing (final check item 1)', async () => {
+      const order: string[] = [];
+      mockRetryFailedDrops.mockImplementation(async () => {
+        order.push('retry');
+        return 1;
+      });
+      mockTriggerProcessing.mockImplementation(async () => {
+        order.push('process');
+      });
+      const mod = loadModule();
+      mod.initOfflineSync();
+      jest.advanceTimersByTime(5000);
+      await jest.runAllTimersAsync();
+
+      expect(order.slice(0, 2)).toEqual(['retry', 'process']);
+    });
+
     it('calls refreshFromServer after triggerProcessing', async () => {
       const mod = loadModule();
       mod.initOfflineSync();
