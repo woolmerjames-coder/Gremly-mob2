@@ -212,9 +212,6 @@ function getMindDropVisualState(entity: {
 // Track which items have already been animated in (persists across re-renders)
 const animatedInItemIds = new Set<string>();
 
-/** Stores card_notes by drop ID for session-only display */
-const sessionCardNotes = new Map<string, string>();
-
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -1440,7 +1437,6 @@ const RecentDrops: React.FC<{
             ai_pending: true,
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
-            card_note: drop.cardNote,
             people: drop.people,
             chip_data_ready: drop.phase === 'enriched',
             bucket_confirmed: bucketConfirmed,
