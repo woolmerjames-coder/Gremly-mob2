@@ -167,7 +167,6 @@ import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 import { type Mood } from '../../lib/shared/moods';
 import RecentDropsMemo, {
   RecentDropsTestable as RecentDropsTestable,
-  resetAnimationTrackingForDrop,
   markDropAsRecentlyPromoted,
   useMaybeGlobalOverlay,
   noopOverlayController,
@@ -177,7 +176,7 @@ import RecentDropsMemo, {
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
-export { RecentDropsTestable, resetAnimationTrackingForDrop, markDropAsRecentlyPromoted };
+export { RecentDropsTestable, markDropAsRecentlyPromoted };
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
