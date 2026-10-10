@@ -59,6 +59,26 @@ describe('AskStrip', () => {
     expect(r.getByTestId('ask-not-now')).toBeTruthy();
   });
 
+  it('announces a new question to VoiceOver as it opens, and an answer that did not go through (final check item 22)', () => {
+    const { AccessibilityInfo } = require('react-native');
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    const r = render(
+      <AskStrip open question="Is the dentist already booked?" buttons={buttons()} testID="ask" />,
+    );
+    expect(announce).toHaveBeenCalledWith('Is the dentist already booked?');
+    r.rerender(
+      <AskStrip
+        open
+        question="Is the dentist already booked?"
+        buttons={buttons()}
+        error="That did not go through. Try again in a moment."
+        testID="ask"
+      />,
+    );
+    expect(announce).toHaveBeenLastCalledWith('That did not go through. Try again in a moment.');
+    announce.mockRestore();
+  });
+
   it('gives every answer at least 38 points, and Not now at least 32', () => {
     const r = render(
       <AskStrip open question="Q?" buttons={buttons()} onNotNow={jest.fn()} testID="ask" />,

@@ -6,6 +6,7 @@
  * invite a drop on an empty box are the exception and are not read here.
  */
 import { SPEECH_POOLS } from '../gremlySpeech';
+import { getTrainingDropPrompt } from '../../training/trainingFlow';
 import {
   AFTER_LINE,
   AGE_BANDS,
@@ -38,6 +39,10 @@ const pools: Record<string, unknown> = {
     BRAND: SPEECH_POOLS.BRAND,
   },
   'on an error': SPEECH_POOLS.ERRORS,
+  // the guided drops' lines between drops (final check item 24)
+  'in the guided drops': [0, 1, 2, 3, 4, 5].map(
+    (step) => getTrainingDropPrompt(step)?.message ?? [],
+  ),
   'in a nudge': SPEECH_POOLS.SWEEP_NUDGE,
   'in a growth moment': [
     FED_LINES,

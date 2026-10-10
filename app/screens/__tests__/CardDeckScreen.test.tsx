@@ -922,11 +922,13 @@ describe('CardDeckScreen: a card with a question (Mind Drop rethink stage 8)', (
     await waitFor(() => quick.getByText('Is the dentist already booked?'));
   });
 
-  it('a habit is on the deck only for its question: moving on decides nothing', async () => {
+  it('a habit is on the deck only for its question: no LET GO, and moving on decides nothing', async () => {
     deal(asking({}, 'habit'), mockTodoCandidate);
     const result = render(<CardDeckScreen navigation={mockNavigation} />);
     await waitFor(() => result.getByText('Is the dentist already booked?'));
-    fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
+    // a swipe never clears a habit, so its card offers no LET GO (final check item 20)
+    expect(result.queryByRole('button', { name: 'Let go of this item' })).toBeNull();
+    fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
     await waitFor(() => result.getByText('Test task'));
     expect(mockLapse).toHaveBeenCalledTimes(1);
     expect(mockApply).not.toHaveBeenCalled();

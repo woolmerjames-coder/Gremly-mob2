@@ -22,8 +22,9 @@ export function getTrainingDropPrompt(step: number): { message: string } | null 
       return null;
     case 2:
       return {
+        // a statement: Gremly's bubble never asks (final check item 24)
         message:
-          'That got things started. Try a task next. What do you need to get done this week?',
+          'That got things started. Try a task next, something you need to get done this week.',
       };
     case 3:
       return {

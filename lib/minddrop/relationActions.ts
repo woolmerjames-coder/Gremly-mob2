@@ -32,7 +32,7 @@ import { env, getEnv } from '../env';
 import type { QueuedDrop } from './dropQueue';
 import { hasUsableClarification } from './clarification';
 import { keyedCalls, type StartedCall } from './dropCalls';
-import { updateDropRow } from './dropSync';
+import { kindWordOf, updateDropRow } from './dropSync';
 import { DIDNT_GO, PlainError } from './plainError';
 import {
   changeForEntity,
@@ -370,11 +370,13 @@ export function outcomeWords(
   dropKind: DropItemKind = 'note',
 ): { confirm: string; toast: RelationToastWords } {
   const t = named(entity.title);
+  // the kind the drop was saved as, as its card names it (final check item 19)
+  const keptAs = dropKind === 'note' ? kindWordOf('log', rel.classified.subtype) : dropKind;
   const detail = !keptDrop
     ? 'Drop archived'
-    : dropKind === 'note' && rel.classified.subtype === 'journal'
+    : keptAs === 'journal'
       ? 'Your journal entry stays'
-      : `Your drop stays as a ${dropKind}`;
+      : `Your drop stays as ${keptAs === 'event' || keptAs === 'idea' ? 'an' : 'a'} ${keptAs}`;
   if (rel.intent === 'same') {
     // the prototype's toast: Kept one · Drop archived
     return {

@@ -230,16 +230,36 @@ export function relationLine(rel: DropRelation): string {
   }
 }
 
-/** The popup's question. */
-export function relationQuestion(rel: DropRelation): string {
+/** "today’s", "yesterday’s", or the weekday’s, for the day a habit is logged. */
+function dayOwn(day: string | null | undefined, today: string | undefined): string {
+  if (!day || !today) return 'today’s';
+  if (day === today) return 'today’s';
+  if (day === addDays(today, -1)) return 'yesterday’s';
+  const d = new Date(`${day}T12:00:00Z`);
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return `${names[d.getUTCDay()]}’s`;
+}
+
+/**
+ * The card's question. A yes or no about one item names it, from the item's
+ * own title as it is now (`title`), as the prototype does: Log today’s Run?
+ * (final check item 23).
+ */
+export function relationQuestion(
+  rel: DropRelation,
+  opts: { title?: string; today?: string } = {},
+): string {
   if (rel.kind === 'choose') return 'Which one did you mean?';
   if (rel.kind === 'same') return 'Same as this one?';
   if (rel.kind === 'remove') return 'Remove this from your list?';
+  const title = (opts.title ?? rel.entity.title ?? '').trim();
   switch (rel.intent) {
     case 'complete':
-      return 'Mark this one done?';
+      return title ? `Mark ${title} done?` : 'Mark this one done?';
     case 'logged':
-      return 'Log this for your habit?';
+      return title
+        ? `Log ${dayOwn(rel.change.field === 'logged' ? rel.change.to : null, opts.today)} ${title}?`
+        : 'Log this for your habit?';
     case 'add':
       return rel.entity.type === 'todo' ? 'Add this to its notes?' : 'Add this to your note?';
     default:
@@ -279,7 +299,8 @@ export function relationButtons(rel: DropRelation): {
     case 'completed':
       return { primary: 'Yes, mark it done', secondary: 'Not that one', hint: null };
     case 'logged':
-      return { primary: 'Yes, log it', secondary: 'Not that one', hint: null };
+      // the prototype's Log it
+      return { primary: 'Log it', secondary: 'Not that one', hint: null };
     case 'body_add':
       return {
         primary: rel.entity.type === 'todo' ? 'Add to its notes' : 'Add to note',

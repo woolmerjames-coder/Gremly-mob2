@@ -38,7 +38,10 @@ export function formatDays(days: string[], opts: DayWordsOptions = {}): string {
   return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 
-/** "2:00pm" from HH:mm (a seconds part is ignored). */
+/**
+ * "9:30am", or "2pm" on the hour, from HH:mm (a seconds part is ignored): the
+ * one time format the app writes (the prototype's; final check item 19).
+ */
 export function formatTime(time: string | null | undefined): string {
   if (!time) return '';
   const m = time.match(/^(\d{1,2}):(\d{2})/);
@@ -46,5 +49,5 @@ export function formatTime(time: string | null | undefined): string {
   const h = parseInt(m[1], 10);
   const suffix = h >= 12 ? 'pm' : 'am';
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${m[2]}${suffix}`;
+  return m[2] === '00' ? `${h12}${suffix}` : `${h12}:${m[2]}${suffix}`;
 }

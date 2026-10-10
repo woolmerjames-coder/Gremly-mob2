@@ -615,7 +615,10 @@ export function CardAsk({
     };
     const tick = rel.intent === 'logged' || rel.intent === 'complete';
     return {
-      question: relationQuestion(rel),
+      question: relationQuestion(rel, {
+        title: entity.title,
+        today: getDateService().today(),
+      }),
       extra:
         place === 'sweep' && rel.kind === 'same' ? (
           // both side by side: the one they had, and this drop with when it was added
@@ -788,7 +791,7 @@ export function CardAsk({
     const optionId = shown.step.optionId;
     const fallbackOption = shown.step.fallbackOption;
     const day = format(parseISO(pickDay), 'EEE d MMM');
-    const at = pickTime ? format(parseISO(`${pickDay}T${pickTime}`), 'h:mm a') : null;
+    const at = pickTime ? formatTime(pickTime) : null;
     strip = {
       question: 'When is it?',
       extra: (

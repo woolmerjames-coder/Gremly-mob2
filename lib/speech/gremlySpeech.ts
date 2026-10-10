@@ -232,7 +232,7 @@ export const SPEECH_POOLS = {
     ],
     ai_failed: [
       'Saved, but my brain hiccuped. Sweep can sort it.',
-      'Got it! My classifier stumbled, so you decide the type.',
+      'Got it. I couldn\u2019t tell what kind this is, so it\u2019s yours to pick.',
       'Saved to inbox. I\u2019ll let you file this one.',
     ],
     generic: [

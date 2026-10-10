@@ -10,6 +10,7 @@ import {
   keepsDropAfterYes,
   parseRelation,
   rawChangeOf,
+  addDays,
   relationButtons,
   relationLine,
   relationQuestion,
@@ -166,6 +167,19 @@ describe('words', () => {
       secondary: 'Keep it',
     });
     expect(relationLine(every[3])).toBe('Mark “Send Q3 deck to Priya” done? Tap to check');
+  });
+
+  it('names the item in a yes or no about it, from its title now, and logs with Log it (final check item 23)', () => {
+    expect(relationQuestion(every[4], { title: 'Run', today: TODAY })).toBe('Log today’s Run?');
+    expect(relationButtons(every[4]).primary).toBe('Log it');
+    const yesterday = {
+      ...every[4],
+      change: { field: 'logged', from: null, to: addDays(TODAY, -1) },
+    } as (typeof every)[4];
+    expect(relationQuestion(yesterday, { title: 'Run', today: TODAY })).toBe(
+      'Log yesterday’s Run?',
+    );
+    expect(relationQuestion(every[3], { title: 'Send the deck' })).toBe('Mark Send the deck done?');
   });
 });
 

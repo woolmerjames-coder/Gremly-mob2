@@ -9,6 +9,7 @@ import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, parseISO } from 'date-fns';
+import { formatTime } from '../../lib/chat/dayWords';
 import { Calendar, Clock, type LucideIcon } from 'lucide-react-native';
 import { getDateService } from '../../lib/date/DateService';
 
@@ -60,11 +61,13 @@ export function WhenPicker({
   testID?: string;
 }) {
   const ios = Platform.OS === 'ios';
+  // the time the wheel shows before it is moved
+  const WHEEL_START = '09:00';
   // Android opens its calendar dialog straight away; iOS shows the calendar in place
   const [open, setOpen] = React.useState<'date' | 'time' | null>(ios ? null : 'date');
   const today = getDateService().calendarDay();
   const dayWords = format(parseISO(date), 'EEE d MMM');
-  const timeWords = time ? format(parseISO(`${date}T${time}`), 'h:mm a') : null;
+  const timeWords = time ? formatTime(time) : null;
 
   const picked = (kind: 'date' | 'time', event: { type: string }, at?: Date) => {
     // the Android dialog closes itself; the iOS wheel closes with Done
@@ -118,7 +121,7 @@ export function WhenPicker({
         <View>
           <DateTimePicker
             testID={testID ? `${testID}-${open}-wheel` : undefined}
-            value={open === 'time' ? parseISO(`${date}T${time ?? '09:00'}`) : parseISO(date)}
+            value={open === 'time' ? parseISO(`${date}T${time ?? WHEEL_START}`) : parseISO(date)}
             mode={open}
             display={ios ? 'spinner' : 'default'}
             minimumDate={open === 'date' ? parseISO(today) : undefined}
@@ -127,7 +130,11 @@ export function WhenPicker({
           />
           {ios ? (
             <Pressable
-              onPress={() => setOpen(null)}
+              onPress={() => {
+                // Done saves the time the wheel shows, moved or not (final check item 20)
+                if (open === 'time' && !time) onTime(WHEEL_START);
+                setOpen(null);
+              }}
               style={styles.done}
               accessibilityRole="button"
               testID={testID ? `${testID}-time-done` : undefined}

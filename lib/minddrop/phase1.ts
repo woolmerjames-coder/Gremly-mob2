@@ -338,9 +338,10 @@ export interface ClassifyV3Result {
  * classification, the multi split and, when ambiguous, the clarifying
  * question and options.
  *
- * Returns null on ANY failure (disabled, non-OK, bad shape, network) so the
- * caller can fall back to the v2 path (detect-multi + classify-phase1-v2).
- * Timeouts are applied by the caller (dropPhases.ts).
+ * Returns null on ANY failure (disabled, non-OK, bad shape, network): the
+ * drop's runner tries again, then shows the drop's words with Retry; the
+ * degraded reclassify leaves the item for later. There is no v2 path in this
+ * build. Timeouts are applied by the caller (dropPhases.ts).
  */
 export async function runClassifyV3(
   text: string,
@@ -351,7 +352,7 @@ export async function runClassifyV3(
   if (!cortexUrl || !text?.trim()) return null;
 
   // Abort the request itself on timeout so a slow call does not keep running
-  // in the background after the pipeline has moved on to the v2 fallback.
+  // in the background after the runner has given up on this try.
   const controller =
     timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null;
   const abortTimer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -387,14 +388,14 @@ export async function runClassifyV3(
     });
 
     if (!res.ok) {
-      console.log('[ClassifyV3] non-OK, falling back to v2', { status: res.status });
+      console.log('[ClassifyV3] non-OK; the runner tries again', { status: res.status });
       return null;
     }
 
     const json = await res.json();
     const validBuckets = ['todo', 'habit', 'log'];
     if (!json || !validBuckets.includes(json.bucket)) {
-      console.log('[ClassifyV3] bad shape, falling back to v2');
+      console.log('[ClassifyV3] bad shape; the runner tries again');
       return null;
     }
 
@@ -481,7 +482,7 @@ export async function runClassifyV3(
       latencyMs: typeof json.latency_ms === 'number' ? json.latency_ms : null,
     };
   } catch (err) {
-    console.log('[ClassifyV3] request failed, falling back to v2', { error: String(err) });
+    console.log('[ClassifyV3] request failed; the runner tries again', { error: String(err) });
     return null;
   } finally {
     if (abortTimer) clearTimeout(abortTimer);

@@ -257,7 +257,7 @@ describe('an unclear drop asks on its card', () => {
     act(() =>
       mockPickers['minddrop-ask-n1-picker-time-wheel']({ type: 'set' }, parseISO(`${day}T09:30`)),
     );
-    expect(r.getByText(/^Save for .*, 9:30 AM$/)).toBeTruthy();
+    expect(r.getByText(/^Save for .*, 9:30am$/)).toBeTruthy();
     fireEvent.press(r.getByTestId('minddrop-ask-n1-pick-save'));
     await tick(ASK_CHOSEN_MS);
     expect(remindersAheadNow).toHaveBeenCalledWith(day, '09:30');
@@ -267,6 +267,20 @@ describe('an unclear drop asks on its card', () => {
       isFreeText: undefined,
       when: { date: day, time: '09:30' },
     });
+  });
+
+  it('Done on the time wheel saves the time it shows, even when it was not moved (final check item 20)', async () => {
+    const item = unclear();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_1'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-when-pick'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-picker-time'));
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-picker-time-done'));
+    expect(r.getByText(/^Save for .*, 9am$/)).toBeTruthy();
   });
 
   it('asks Want a reminder? once the day is set, and saves the one picked after the answer', async () => {
@@ -565,6 +579,7 @@ describe('the quiet duplicate line', () => {
   });
 
   it('Keep just one glides the drop into the one they had, which pulses once it arrives, then the toast', async () => {
+    mockReduced.value = false;
     const said: unknown[] = [];
     const offs = [
       eventBus.on('minddrop:cards_leaving', (p) => said.push(['leaving', p])),
@@ -597,6 +612,26 @@ describe('the quiet duplicate line', () => {
     await tick(TOAST_AFTER_CARDS_MS);
     expect(said).toContainEqual(['toast', 'Kept “Call the vet about the booster”']);
     offs.forEach((off) => off());
+  });
+
+  it('with reduced motion the drop has gone at once, and the one they had pulses then (final check item 10)', async () => {
+    const said: unknown[] = [];
+    const off = eventBus.on('minddrop:card_pulse', (p) => said.push(['pulse', p]));
+    (applyDropRelation as jest.Mock).mockResolvedValue({
+      summary: 'Kept Call the vet about the booster.',
+      confirm: 'Kept one',
+      toast: { icon: 'kept', title: 'Kept one', detail: 'Drop archived' },
+      targetId: 't1',
+      targetType: 'todo',
+      undo: jest.fn(),
+    });
+    const item = dupe();
+    const r = render(<CardDupe item={item} ask={cardDupeAsk(item)!} />);
+    fireEvent.press(r.getByTestId('minddrop-dupe-d1-keep-one'));
+    await tick(ASK_SWAP_MS);
+    await tick(ASK_CLOSE_MS);
+    expect(said).toContainEqual(['pulse', { id: 't1' }]);
+    off();
   });
 
   it('two quick taps on Keep just one keep one, once', async () => {

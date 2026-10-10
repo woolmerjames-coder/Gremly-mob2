@@ -20,6 +20,8 @@ import {
   Modal,
   Dimensions,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -1273,8 +1275,12 @@ function CardDeck({
         )}
       </View>
 
-      {/* Full-screen Card Area */}
-      <View style={styles.decisionCardArea}>
+      {/* Full-screen Card Area: it makes room for the keyboard, so a card's
+          Something else field stays above it (final check item 21) */}
+      <KeyboardAvoidingView
+        style={styles.decisionCardArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <SweepCardNew
           key={`${currentCandidate.id}-${currentIndex}-${cardFlipKey}`}
           candidate={currentCandidate}
@@ -1315,7 +1321,7 @@ function CardDeck({
           askOpen={askOpen}
           splitBar={keepAsOneFor(currentCandidate, decidedIds)}
         />
-      </View>
+      </KeyboardAvoidingView>
 
       {/* Bottom section: how many are saved already */}
       <View style={styles.bottomSection}>

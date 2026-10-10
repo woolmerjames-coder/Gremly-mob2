@@ -9,7 +9,7 @@ Which model and design it runs on was decided by the audit in `docs/2026-09-29-m
 - `workers/cortex/classifyV3.js`: the prompts, the fixed answer options for each kind of question, the habit gate and the checks on the model's output. Pure module, used by the Worker and by the audit harness, so both run identical logic.
 - `workers/cortex/cortex-index.js`, route `classify-v3`: calls the model through `aiClassify` with the `classify` tier, then the optional second opinion and the question writer.
 - `workers/cortex/aiProvider.js`: tiers `classify`, `second_opinion` and `clarify_writer`, all set by Worker vars.
-- App: `lib/minddrop/phase1.ts` (`runClassifyV3`) and `lib/minddrop/dropPhases.ts` (`handleQueued`), behind `FEATURE_FLAGS.CLASSIFY_V3_ENABLED` (`EXPO_PUBLIC_CLASSIFY_V3=on`).
+- App: `lib/minddrop/phase1.ts` (`runClassifyV3`) and `lib/minddrop/dropPhases.ts` (`handleQueued`). Since the Mind Drop rethink (stage 11) it is the app's only classifier: there is no app flag and no v2 path. An older build's degraded item is also read again with it (`reclassifyDegradedEntities`).
 
 ## The prompt
 
@@ -59,13 +59,13 @@ The second opinion uses its own prompt (`buildSecondOpinionPrompt`), built from 
 
 The main model gets 5 seconds. If it has not answered after 3 seconds (`CLASSIFY_HEDGE_MS`), the backup model starts too and the first valid answer wins. The backup gets 4 seconds.
 
-The whole route stays within 9 seconds, inside the app's 10 second budget for the call. The second opinion (up to 3s, backup 2.5s) only starts if at least 2s are left, and the writer (up to 2.5s, backup 1.5s) only if at least 1.5s are left; both deadlines are cut to fit what is left. If either step is skipped, slow or fails, the answer so far stands. If the whole call fails, the app falls back to the v2 chain for that drop.
+The whole route stays within 9 seconds, inside the app's 10 second budget for the call. The second opinion (up to 3s, backup 2.5s) only starts if at least 2s are left, and the writer (up to 2.5s, backup 1.5s) only if at least 1.5s are left; both deadlines are cut to fit what is left. If either step is skipped, slow or fails, the answer so far stands. If the whole call fails, the drop's runner tries it again (three tries), then the drop's card shows its words with Retry, and it is tried again when the app or the network comes back. Builds from before the Mind Drop rethink fall back to their v2 chain.
 
 ## Worker vars
 
 | Var | Meaning |
 |---|---|
-| `CLASSIFY_V3_ENABLED` | `"true"` to serve the route. Anything else returns 503, and the app uses v2. |
+| `CLASSIFY_V3_ENABLED` | `"true"` to serve the route, and it must stay so: builds from the Mind Drop rethink have no other classifier. Anything else returns 503 (builds already out then use v2). |
 | `CLASSIFY_PROVIDER`, `CLASSIFY_MODEL` | Main model. Default until one is picked: OpenAI `gpt-4.1-mini`. |
 | `CLASSIFY_PROMPT` | `v3.8`, `v3.7`, `v4.1` or `v4`, for builds that do not send `piece_questions` (builds from before the Mind Drop rethink). Unknown values run the code's default, `v3.8`. |
 | `CLASSIFY_PROMPT_NEW_BUILDS` | The version for builds that send `piece_questions` (from the Mind Drop rethink). Unset or unknown: `CLASSIFY_PROMPT`. |

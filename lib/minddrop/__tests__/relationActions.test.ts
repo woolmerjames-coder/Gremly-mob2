@@ -53,7 +53,10 @@ jest.mock('../../env', () => ({
   getEnv: () => undefined,
 }));
 jest.mock('../../date/DateService', () => ({ dateService: { today: () => '2026-09-30' } }));
-jest.mock('../dropSync', () => ({ updateDropRow: jest.fn() }));
+jest.mock('../dropSync', () => ({
+  updateDropRow: jest.fn(),
+  kindWordOf: jest.requireActual('../dropSync').kindWordOf,
+}));
 import { updateDropRow } from '../dropSync';
 
 /** dropSync's per-row update, as it behaves: the change built on the item, written through the store */
@@ -461,6 +464,15 @@ describe('what the toast says', () => {
         true,
       ).toast.detail,
     ).toBe('Your drop stays as a note');
+    // the kind it was saved as, as its card names it (final check item 19)
+    const event = {
+      ...held(complete),
+      classified: { ...held(complete).classified, bucket: 'log' as const, subtype: 'event' },
+    };
+    expect(
+      outcomeWords(event, habit, { field: 'logged', from: null, to: '2026-09-30' }, false, true)
+        .toast.detail,
+    ).toBe('Your drop stays as an event');
     expect(
       outcomeWords(journal, habit, { field: 'logged', from: null, to: '2026-09-30' }, false, true)
         .toast,

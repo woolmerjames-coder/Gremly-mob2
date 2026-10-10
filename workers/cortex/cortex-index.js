@@ -8009,7 +8009,10 @@ Segment rules:
       // Replaces detect-multi + preparse (8 calls) + Phase 1 + clarify-ambiguity
       // for a drop with one structured call. Response is a superset of the
       // classify-phase1-v2 shape. Off unless the Worker var
-      // CLASSIFY_V3_ENABLED = "true"; clients fall back to the v2 path.
+      // CLASSIFY_V3_ENABLED = "true". Builds from the Mind Drop rethink have no
+      // other classifier: a failed call is tried again by the drop's runner,
+      // and after three tries the drop's card shows its words and Retry.
+      // Builds already out fall back to their v2 path.
       // Corpus results: docs/minddrop-classify-v3.md
       // =========================
       if (type === 'classify-v3') {
@@ -8382,7 +8385,8 @@ CURRENT DATE: ${currentDate}`;
                   : 'start_habit'
                 : null,
             smart_title: fallbackTitle(text, 'reclassify-after-clarification'),
-            confirmation_message: 'Saved for later.',
+            // the answer is kept as they gave it; the line never speaks of saving
+            confirmation_message: 'Got it.',
             target_date: null,
             scheduled_date: null,
             latency_ms: latency,

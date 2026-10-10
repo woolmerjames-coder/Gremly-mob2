@@ -14,7 +14,15 @@
  * (CardAsk). With reduced motion on, it opens and closes at once.
  */
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Reanimated, {
   Easing,
   useAnimatedStyle,
@@ -122,6 +130,15 @@ export function AskStrip({
     if (!error) return;
     chosenRef.current = null;
     setChosen(null);
+  }, [error]);
+
+  // VoiceOver hears a new question as it opens, and an answer that did not go
+  // through, without having to find them (final check item 22)
+  React.useEffect(() => {
+    if (open && question) AccessibilityInfo.announceForAccessibility(question);
+  }, [open, question]);
+  React.useEffect(() => {
+    if (error) AccessibilityInfo.announceForAccessibility(error);
   }, [error]);
 
   const choose = (key: string, run: () => void) => {

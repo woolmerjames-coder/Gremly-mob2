@@ -1,26 +1,26 @@
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import { getDateService } from '../date/DateService';
 
+/**
+ * How long ago, in words a person reads: just now, 5 min ago, 3 hrs ago on the
+ * day itself; yesterday; 3 days ago within the week; then the date (final
+ * check item 19: never "1d ago"). Days are the person's own days.
+ */
 export function relativeTime(iso: string): string {
+  const ds = getDateService();
   const d = new Date(iso);
-  const diff = getDateService().now().getTime() - d.getTime();
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
-  const days = Math.floor(h / 24);
-  if (days < 7) return `${days}d ago`;
-  return getDateService().formatForChip(getDateService().toLocalDate(d));
-}
-
-/** Format "14:00" → "2PM", "09:30" → "9:30AM" */
-export function formatTime12h(time: string): string {
-  const [h, m] = time.split(':').map(Number);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+  const days = ds.daysBetween(ds.dayOf(iso) ?? ds.today(), ds.today());
+  if (days <= 0) {
+    const s = Math.floor((ds.now().getTime() - d.getTime()) / 1000);
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    return `${h} hr${h > 1 ? 's' : ''} ago`;
+  }
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  return ds.formatForChip(ds.toLocalDate(d));
 }
 
 /**
