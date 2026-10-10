@@ -1360,11 +1360,9 @@ const RecentDrops: React.FC<{
         // If the QueuedDrop reference is the same, reuse the old UnifiedDrop
         const cached = prevDropMappingRef.current.get(drop);
         if (cached) {
-          console.log('[CACHE] Hit for:', drop.localId);
           newMapping.set(drop, cached);
           return cached;
         }
-        console.log('[CACHE] Miss for:', drop.localId);
 
         // QueuedDrop changed — create new UnifiedDrop
         // An unsure split sorts as the kind it is saved as (stage 4)
