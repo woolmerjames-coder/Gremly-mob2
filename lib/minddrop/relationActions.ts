@@ -5,8 +5,8 @@
  * - fetchDropRelation: the Worker's answer, or null (off, slow, unsure, failed).
  * - heldRelationFor: the answer as the saved item carries it (from stage 4 the
  *   drop is saved as its own kind and the answer attaches to it whenever it
- *   lands). holdDropForRelation, which filed the drop as a note carrying the
- *   question, is an older build's way, kept until stage 11.
+ *   lands). An older build filed the drop as a note carrying the question;
+ *   such notes are still answered and lapsed here (keepsHeldNote).
  * - applyDropRelation: the user said yes. The change goes through the chat
  *   card's own applyEntityChange (lib/chat/entityCards.ts), so sync, rollback
  *   and Undo behave the same in both places. The drop is found among todos,
@@ -194,39 +194,6 @@ export async function fetchDropRelation(
   const result = await Promise.race([request, timeout]);
   if (timer) clearTimeout(timer);
   return result;
-}
-
-/**
- * Hold the drop while it waits: it syncs as a note carrying the question and
- * how it was classified. A note drop keeps its kind (an event stays an event);
- * a todo or habit waits as a plain note, so nothing new appears in their lists
- * before they answer.
- *
- * No longer called by the pipeline: from stage 4 a drop is saved as its own
- * kind and the answer attaches to it (heldRelationFor). Kept until stage 11's
- * impact audit; the relation tests build their held relations with it.
- */
-export function holdDropForRelation(drop: QueuedDrop, relation: DropRelation): QueuedDrop {
-  const classified: RelationClassified = {
-    bucket: (drop.bucket as RelationClassified['bucket']) || 'log',
-    subtype: drop.subtype ?? null,
-    habitSubtype: drop.habitSubtype ?? null,
-    needsClarification: !!drop.needsClarification,
-    ambiguityType: drop.ambiguityType ?? null,
-    clarificationQuestion: drop.clarificationQuestion ?? null,
-    clarificationOptions: (drop.clarificationOptions as unknown[] | null | undefined) ?? null,
-  };
-  return {
-    ...drop,
-    bucket: 'log',
-    subtype: drop.bucket === 'log' ? (drop.subtype ?? 'general') : 'general',
-    habitSubtype: null,
-    needsClarification: false,
-    ambiguityType: null,
-    clarificationQuestion: null,
-    clarificationOptions: null,
-    relation: { ...relation, status: 'pending', classified } as HeldRelation,
-  };
 }
 
 /** The kind of item a drop was saved as. */

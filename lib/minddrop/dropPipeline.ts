@@ -171,13 +171,12 @@ async function processOne(drop: QueuedDrop): Promise<void> {
       // Immediately process next phase of same drop — no tick delay.
       // Each phase still has its own timeout and error boundary via the
       // recursive processOne call. The tick interval is now only a fallback
-      // sweep for retries, crash recovery, and multi_awaiting checks.
+      // sweep for retries and crash recovery.
       if (updated.phase !== 'complete' && updated.phase !== 'failed') {
         await processOne(updated);
       }
     } else {
-      // Phase didn't change (e.g. multi_awaiting with children still processing)
-      // Just persist the lastAttemptAt update
+      // Phase didn't change: just persist the lastAttemptAt update
       await saveDrop(updated.localId, updated);
     }
   } catch (error) {
@@ -307,7 +306,7 @@ export async function startQueueRunner(): Promise<void> {
   // Initial sweep
   await tick();
 
-  // Start tick interval for retries, multi_awaiting, crash recovery
+  // Start tick interval for retries and crash recovery
   tickTimer = setInterval(() => {
     if (isRunning) {
       void tick();

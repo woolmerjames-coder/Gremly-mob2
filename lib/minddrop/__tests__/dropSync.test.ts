@@ -4,7 +4,6 @@
  * Tests for the Supabase sync layer that writes classified + enriched drops
  * as todos, habits, or notes. Covers:
  * - syncDropToSupabase: entity type routing (todo/habit/note), payload construction
- * - syncMultiDropToSupabase: multi segment wrapper note creation
  * - Error handling: auth checks, bucket validation, duplicate key recovery (23505)
  * - dueDayOverride for "Plan your tomorrow" mode
  */
@@ -76,7 +75,6 @@ import {
   insertSplitPieces,
   settleDropRow,
   syncDropToSupabase,
-  syncMultiDropToSupabase,
   updateDropDetails,
   updateDropQuestion,
   updateDropWords,
@@ -338,63 +336,6 @@ describe('syncDropToSupabase', () => {
     const result = await syncDropToSupabase(makeDrop(), makeEnrichment());
     expect(result.success).toBe(true);
     expect(result.supabaseId).toBe('existing-id');
-  });
-});
-
-// ── syncMultiDropToSupabase ──────────────────────────────────────
-
-describe('syncMultiDropToSupabase', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockFrom.mockImplementation(() => buildChain());
-    mockInsertResult = { data: { id: 'multi-uuid-1' }, error: null };
-    mockSelectResult = { data: null, error: null };
-  });
-
-  it('inserts into notes table as a wrapper note', async () => {
-    const drop = makeDrop({
-      isMulti: true,
-      multiSummary: 'Shopping and mood check',
-      multiSegments: [
-        { text: 'Buy milk', bucket: 'todo', subtype: null },
-        { text: 'Feeling great', bucket: 'log', subtype: 'general' },
-      ],
-      dominantBucket: 'log',
-      dominantSubtype: 'general' as any,
-    });
-
-    const result = await syncMultiDropToSupabase(drop);
-
-    expect(result.success).toBe(true);
-    expect(result.entityType).toBe('note');
-    expect(mockFrom).toHaveBeenCalledWith('notes');
-    expect(mockFrom).toHaveBeenCalledWith('notes');
-  });
-
-  it('returns failure when user is not authenticated', async () => {
-    const origGetState = require('../../store/useGremlyStore').useGremlyStore.getState;
-    require('../../store/useGremlyStore').useGremlyStore.getState = () => ({
-      userId: null,
-    });
-
-    const result = await syncMultiDropToSupabase(makeDrop({ isMulti: true }));
-    expect(result.success).toBe(false);
-
-    require('../../store/useGremlyStore').useGremlyStore.getState = origGetState;
-  });
-
-  it('emits entity:created event after sync', async () => {
-    const drop = makeDrop({
-      isMulti: true,
-      multiSummary: 'Test',
-      multiSegments: [],
-    });
-
-    await syncMultiDropToSupabase(drop);
-    expect(eventBus.emit).toHaveBeenCalledWith(
-      'entity:created',
-      expect.objectContaining({ type: 'note' }),
-    );
   });
 });
 

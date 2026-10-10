@@ -2,7 +2,7 @@
  * dropProcessor.duplicate.test.ts
  *
  * Tests for the 23505 (duplicate key violation) handler in
- * syncDropToSupabase and syncMultiDropToSupabase.
+ * syncDropToSupabase.
  *
  * When a drop row already exists in Supabase (from a prior attempt that
  * was killed after insert but before local dequeue), the handler:
@@ -87,33 +87,6 @@ describe('23505 duplicate key handler (documentary)', () => {
 
       const callers = ['useMindDropSubmit', 'useDropRecovery', 'offlineSync'];
       expect(callers).toHaveLength(3);
-    });
-  });
-
-  describe('syncMultiDropToSupabase — multi-entity', () => {
-    it('documents the same 23505 handler pattern for multi-drops', () => {
-      // syncMultiDropToSupabase also uses insert + 23505 handler:
-      //   const { data, error } = await supabase.from('notes').insert(payload).select().single();
-      //   if (error) {
-      //     if (error.code === '23505') {
-      //       const { data: existing } = await supabase.from('notes')
-      //         .select('id')
-      //         .eq('owner_id', payload.owner_id)
-      //         .eq('drop_id', payload.drop_id)
-      //         .single();
-      //       if (existing) return { success: true, supabaseId: existing.id, entityType: 'note' };
-      //     }
-      //   }
-
-      const handler = {
-        table: 'notes',
-        errorCode: '23505',
-        returnEntityType: 'note',
-      };
-
-      expect(handler.table).toBe('notes');
-      expect(handler.errorCode).toBe('23505');
-      expect(handler.returnEntityType).toBe('note');
     });
   });
 

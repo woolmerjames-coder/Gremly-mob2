@@ -1,12 +1,11 @@
 /**
- * relationActions: holding a drop, the yes (with Undo), and keeping it as new.
+ * relationActions: the yes (with Undo), and keeping a drop as new.
  * The store and the chat card's applyEntityChange are mocked; what they do
  * is tested where they live.
  */
 import {
   applyDropRelation,
   fetchDropRelation,
-  holdDropForRelation,
   keepDropAsNew,
   leavingCardIds,
   outcomeWords,
@@ -16,6 +15,26 @@ import {
 import type { DropRelation, HeldRelation, RelationEntity } from '../dropRelation';
 import type { QueuedDrop } from '../dropQueue';
 import { applyEntityChange } from '../../chat/entityCards';
+
+/**
+ * The relation an older build saved on a drop it held as a note (its
+ * holdDropForRelation, removed in stage 11): pending, with how it was classified.
+ */
+function heldRelationOf(drop: QueuedDrop, rel: DropRelation): HeldRelation {
+  return {
+    ...rel,
+    status: 'pending',
+    classified: {
+      bucket: (drop.bucket as any) || 'log',
+      subtype: drop.subtype ?? null,
+      habitSubtype: drop.habitSubtype ?? null,
+      needsClarification: !!drop.needsClarification,
+      ambiguityType: drop.ambiguityType ?? null,
+      clarificationQuestion: drop.clarificationQuestion ?? null,
+      clarificationOptions: (drop.clarificationOptions as unknown[] | null | undefined) ?? null,
+    },
+  } as HeldRelation;
+}
 
 const mockState: any = {};
 jest.mock('../../store/useGremlyStore', () => ({
@@ -94,7 +113,7 @@ const complete: DropRelation = {
 };
 
 function heldNote(rel: DropRelation, classified: Partial<HeldRelation['classified']> = {}) {
-  const held = holdDropForRelation(baseDrop(), rel).relation as HeldRelation;
+  const held = heldRelationOf(baseDrop(), rel);
   return {
     id: 'note-1',
     type: 'note',
@@ -177,38 +196,6 @@ describe('shouldRelate', () => {
     expect(shouldRelate(baseDrop({ needsClarification: true, ambiguityType: 'bucket' }))).toBe(
       true,
     );
-  });
-});
-
-describe('holdDropForRelation', () => {
-  it('holds a todo as a plain note and remembers how it was classified', () => {
-    const held = holdDropForRelation(
-      baseDrop({
-        needsClarification: true,
-        ambiguityType: 'bucket',
-        clarificationQuestion: 'Q?',
-        clarificationOptions: [] as any,
-      }),
-      complete,
-    );
-    expect(held.bucket).toBe('log');
-    expect(held.subtype).toBe('general');
-    expect(held.needsClarification).toBe(false);
-    expect(held.relation).toMatchObject({
-      status: 'pending',
-      kind: 'edit',
-      classified: {
-        bucket: 'todo',
-        needsClarification: true,
-        ambiguityType: 'bucket',
-        clarificationQuestion: 'Q?',
-      },
-    });
-  });
-
-  it('keeps a note drop its own kind', () => {
-    const held = holdDropForRelation(baseDrop({ bucket: 'log', subtype: 'event' }), complete);
-    expect(held.subtype).toBe('event');
   });
 });
 
@@ -571,7 +558,7 @@ describe('a drop saved as its own kind (Mind Drop rethink stage 6)', () => {
     bucket: 'todo' | 'habit' | 'log',
     subtype: string | null = null,
   ) => ({
-    ...(holdDropForRelation(baseDrop(), rel).relation as HeldRelation),
+    ...heldRelationOf(baseDrop(), rel),
     surface: 'card' as const,
     classified: { ...classifiedOf(bucket, subtype) },
   });

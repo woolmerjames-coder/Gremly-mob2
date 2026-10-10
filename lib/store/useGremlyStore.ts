@@ -1018,8 +1018,6 @@ export interface GremlyState extends WorldsActions {
   // ═══════════════════════════════════════════════════════════════════
   // MULTI-DROP + CLARIFICATION ACTIONS
   // ═══════════════════════════════════════════════════════════════════
-  /** Split a multi-drop into separate pending drops for each selected segment */
-  splitMultiDrop: (localId: string, items: import('../minddrop/types').MultiDropItem[]) => void;
   /** Resolve a multi-drop as a single entity (keep as-is) */
   resolveMultiDropAsSingle: (localId: string) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
@@ -7569,103 +7567,6 @@ export const useGremlyStore = create<GremlyState>()(
           } catch (error) {
             console.error('[GremlyStore] ❌ Failed to recover stuck MindDrop items:', error);
           }
-        },
-
-        /**
-         * Split a multi-drop note into separate entities for each selected segment.
-         * The original multi-drop note is archived and individual entities are created.
-         * Works with notes that have views.is_multi=true (already synced to Supabase).
-         */
-        splitMultiDrop: (noteId: string, items: import('../minddrop/types').MultiDropItem[]) => {
-          set((state) => {
-            // Find the note by ID
-            const note = state.notes.find((n) => n.id === noteId);
-            if (!note) {
-              console.warn('[GremlyStore] splitMultiDrop: note not found', { noteId });
-              return state;
-            }
-
-            // Archive the original multi-drop note
-            const now = nowTimestamp();
-            const updatedNotes = state.notes.map((n) =>
-              n.id === noteId
-                ? {
-                    ...n,
-                    archived: true,
-                    archived_at: now,
-                    archived_reason: 'split' as const,
-                    views: { ...n.views, minddrop_stage: 'enriched' as const },
-                    updated_at: now,
-                  }
-                : n,
-            );
-
-            // Create new notes for each selected item
-            const newNotes: typeof state.notes = [];
-            items.forEach((item, index) => {
-              const newNote = {
-                id: `${noteId}-split-${index}-${getDateService().now().getTime()}`,
-                type: 'note' as const,
-                owner_id: note.owner_id,
-                title: item.smart_title ?? item.preview_title ?? item.text.substring(0, 50),
-                body: item.text,
-                subtype: 'catchall' as const,
-                space_id: note.space_id,
-                ai_placed: true,
-                origin: note.origin,
-                views: {
-                  minddrop_stage: 'enriched',
-                  ai_pending: false,
-                  bucket: item.bucket,
-                  subtype: item.subtype,
-                },
-                created_at: now,
-                updated_at: now,
-              };
-              newNotes.push(newNote as any);
-            });
-
-            console.log('[GremlyStore] splitMultiDrop: split into', items.length, 'notes');
-
-            // Also update Supabase asynchronously
-            (async () => {
-              try {
-                // Archive the original note
-                await supabase
-                  .from('notes')
-                  .update({
-                    archived: true,
-                    archived_at: now,
-                    archived_reason: 'split',
-                    views: { ...note.views, minddrop_stage: 'resolved' },
-                    updated_at: now,
-                  })
-                  .eq('id', noteId);
-
-                // Insert new notes
-                for (const newNote of newNotes) {
-                  await supabase.from('notes').insert({
-                    owner_id: newNote.owner_id,
-                    title: newNote.title,
-                    body: newNote.body,
-                    subtype: newNote.subtype,
-                    space_id: newNote.space_id,
-                    ai_placed: newNote.ai_placed,
-                    origin: newNote.origin,
-                    views: newNote.views,
-                    updated_at: newNote.updated_at,
-                  });
-                }
-                console.log('[GremlyStore] splitMultiDrop: Supabase updated');
-              } catch (error) {
-                console.error('[GremlyStore] splitMultiDrop: Supabase error', error);
-              }
-            })();
-
-            return {
-              notes: [...updatedNotes.filter((n) => n.id !== noteId || n.archived), ...newNotes],
-            };
-          });
         },
 
         /**
