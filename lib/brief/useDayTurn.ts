@@ -49,6 +49,7 @@ import { isBreakHabit } from '../plan/candidatePool';
 import { dayRecordFromStore, meetingsFromStore } from '../plan/storePlan';
 import type { PlanChange } from '../plan/usePlanFlow';
 import type { BriefChangesMeta, BriefPlanMeta, DailyThreadMeta } from './types';
+import { feedForChatSave } from '../chat/feedsGremly';
 // Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
 import {
   deadlineOf,
@@ -696,6 +697,8 @@ export function useDayTurn(deps: DayTurnDeps) {
             icon: 'saved',
           });
         }
+        // something new saved feeds Gremly like a drop, once for the tap
+        if (res.savedNew) void feedForChatSave();
         if (res.failed.length) await say(DAY_TURN_COPY.someFailed);
         // what went through, for the ritual that is keeping track (the weekly review)
         if (res.done.length && meta.card?.length && d.onApplied) {

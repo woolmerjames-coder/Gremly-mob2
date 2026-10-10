@@ -16,6 +16,7 @@ import {
 } from '../useDayTurn';
 import { callBriefTurn } from '../../cortex/CortexClient';
 import { applyCardChanges, applyDayChanges } from '../applyChanges';
+import { feedForChatSave } from '../../chat/feedsGremly';
 import { patchDailyThreadMeta } from '../../repo/dailyThreadRepo';
 import type { SpaceChatMessage } from '../../types';
 
@@ -90,6 +91,7 @@ jest.mock('../../store/useGremlyStore', () => ({
   },
 }));
 jest.mock('../../store/selectors', () => ({ selectHabitsDueToday: () => [{ id: 'run' }] }));
+jest.mock('../../chat/feedsGremly', () => ({ feedForChatSave: jest.fn(async () => {}) }));
 jest.mock('../../plan/storePlan', () => ({
   meetingsFromStore: () => [{ id: 'm', title: 'Team huddle', start: 480, end: 510 }],
   dayRecordFromStore: () => ({
@@ -806,6 +808,41 @@ describe('the agent', () => {
       remove: [],
       pin: [{ id: 'mum', start: 720 }],
     });
+  });
+
+  it('feeds Gremly like a drop when the card saved something new, and only then', async () => {
+    (callBriefTurn as jest.Mock).mockResolvedValue({
+      ok: true,
+      data: { engine: 'agent', reply: 'Sure.', card: CARD, tasks: [] },
+    });
+    const result = (savedNew: boolean) => ({
+      done: ['c1'],
+      created: {},
+      failed: [],
+      plan: { add: [], remove: [], pin: [] },
+      frameChanged: false,
+      savedNew,
+      revert: jest.fn(),
+    });
+    (applyCardChanges as jest.Mock).mockResolvedValueOnce(result(false));
+    const first = harness();
+    await act(async () => {
+      await first.hook.result.current.run('call mum at 12', null);
+    });
+    await act(async () => {
+      await first.hook.result.current.apply(first.messages[3], []);
+    });
+    expect(feedForChatSave).not.toHaveBeenCalled();
+
+    (applyCardChanges as jest.Mock).mockResolvedValueOnce(result(true));
+    const second = harness();
+    await act(async () => {
+      await second.hook.result.current.run('call mum at 12', null);
+    });
+    await act(async () => {
+      await second.hook.result.current.apply(second.messages[3], []);
+    });
+    expect(feedForChatSave).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the item a row made, so the row can open it', async () => {

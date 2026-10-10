@@ -485,6 +485,7 @@ export type Database = {
       };
       daily_ritual_progress: {
         Row: {
+          chat_saves_count: number;
           created_at: string | null;
           drops_count: number | null;
           feeding_gauge_value: number | null;
@@ -497,6 +498,7 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          chat_saves_count?: number;
           created_at?: string | null;
           drops_count?: number | null;
           feeding_gauge_value?: number | null;
@@ -509,6 +511,7 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          chat_saves_count?: number;
           created_at?: string | null;
           drops_count?: number | null;
           feeding_gauge_value?: number | null;
@@ -2972,6 +2975,7 @@ export type Database = {
       get_or_create_ritual_progress: {
         Args: { p_owner_id: string; p_ritual_day: string };
         Returns: {
+          chat_saves_count: number;
           created_at: string | null;
           drops_count: number | null;
           feeding_gauge_value: number | null;
@@ -3026,9 +3030,32 @@ export type Database = {
           user_id: string;
         }[];
       };
+      increment_chat_save_count: {
+        Args: { p_owner_id: string; p_ritual_day: string };
+        Returns: {
+          chat_saves_count: number;
+          created_at: string | null;
+          drops_count: number | null;
+          feeding_gauge_value: number | null;
+          gauge_breakdown: Json | null;
+          is_fed: boolean | null;
+          owner_id: string;
+          ritual_completed_at: string | null;
+          ritual_day: string;
+          sweeps_count: number | null;
+          updated_at: string | null;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'daily_ritual_progress';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       increment_drop_count: {
         Args: { p_owner_id: string; p_ritual_day: string };
         Returns: {
+          chat_saves_count: number;
           created_at: string | null;
           drops_count: number | null;
           feeding_gauge_value: number | null;
@@ -3050,6 +3077,7 @@ export type Database = {
       increment_sweep_count: {
         Args: { p_owner_id: string; p_ritual_day: string };
         Returns: {
+          chat_saves_count: number;
           created_at: string | null;
           drops_count: number | null;
           feeding_gauge_value: number | null;

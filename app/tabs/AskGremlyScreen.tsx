@@ -2728,6 +2728,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
             }
           }
 
+          let savedSummary = false;
           if (includeSummary && autoTitle) {
             try {
               await store.createNote({
@@ -2737,6 +2738,7 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
                 ai_placed: true,
                 origin: 'chat_save',
               });
+              savedSummary = true;
             } catch (err) {
               console.warn('[AskGremly] Failed to save summary:', err);
             }
@@ -2762,9 +2764,12 @@ export default function AskGremlyScreen({ embedded = false, item }: AskGremlyScr
               );
           }
 
-          for (let i = 0; i < savedIds.length + (includeSummary ? 1 : 0); i++) {
+          // Something new saved feeds Gremly like a drop, once for the tap however
+          // many it saved (lib/chat/feedsGremly.ts); changes to things he already
+          // tracks are not new and do not count
+          if (savedEntities.length > 0 || savedSummary) {
             try {
-              await store.addGaugeContribution('drop', 0.08);
+              await store.creditChatSave();
             } catch {
               /* non-blocking */
             }

@@ -125,7 +125,10 @@ export function getTierForAge(age: number) {
 
 /**
  * Returns the gauge contribution for a single drop, using diminishing returns.
- * @param dropNumber - 1-indexed drop number for today
+ * A tap that saves something new in a chat is worth a drop and climbs the same
+ * ladder, so the place counts the day's drops and chat saves together
+ * (useGremlyStore.creditChatSave, lib/chat/feedsGremly.ts).
+ * @param dropNumber - 1-indexed place on today's ladder (drops plus chat saves)
  * Source: Soul Document v8
  */
 export function getDropValue(dropNumber: number): number {

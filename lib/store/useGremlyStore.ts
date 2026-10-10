@@ -657,6 +657,8 @@ export interface GremlyState extends WorldsActions {
   firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
   todayDropsCount: number;
+  /** Taps that saved something new in a chat today; they climb the drops' ladder too */
+  todayChatSavesCount: number;
   todaySweepsCount: number;
   todayRitualCompletedAt: string | null;
   todayAgeCelebrationShownAt: string | null;
@@ -805,6 +807,8 @@ export interface GremlyState extends WorldsActions {
   resetDailyGauge: () => void;
   /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
   previewGaugeDrop: () => { justCrossedFed: boolean };
+  /** A tap that saved something new in a chat feeds Gremly like one drop (lib/chat/feedsGremly.ts) */
+  creditChatSave: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -1268,6 +1272,7 @@ const initialState = {
   firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
   todayDropsCount: 0,
+  todayChatSavesCount: 0,
   todaySweepsCount: 0,
   todayRitualCompletedAt: null as string | null,
   todayAgeCelebrationShownAt: null as string | null,
@@ -1802,6 +1807,7 @@ export const useGremlyStore = create<GremlyState>()(
               // boundary, followDayBoundary at the end of this file)
               currentDate: ritualDay,
               todayDropsCount: ritualProgress?.drops_count ?? 0,
+              todayChatSavesCount: ritualProgress?.chat_saves_count ?? 0,
               todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
               todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
               feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
@@ -2023,6 +2029,7 @@ export const useGremlyStore = create<GremlyState>()(
             accountCreatedAt: null,
             todayRitualDay: null,
             todayDropsCount: 0,
+            todayChatSavesCount: 0,
             todaySweepsCount: 0,
             todayRitualCompletedAt: null,
             feedingGaugeValue: 0,
@@ -2126,6 +2133,7 @@ export const useGremlyStore = create<GremlyState>()(
             set({
               todayRitualDay: currentRitualDay,
               todayDropsCount: 0,
+              todayChatSavesCount: 0,
               todaySweepsCount: 0,
               todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
               todayAgeCelebrationShownAt: null, // Reset celebration flag for new day
@@ -2194,12 +2202,19 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           const newDropsCount = data?.drops_count ?? get().todayDropsCount + 1;
-          set({ todayDropsCount: newDropsCount, todayRitualDay: currentRitualDay });
+          const chatSaves = data?.chat_saves_count ?? get().todayChatSavesCount;
+          set({
+            todayDropsCount: newDropsCount,
+            todayChatSavesCount: chatSaves,
+            todayRitualDay: currentRitualDay,
+          });
 
-          // Feed the gauge (Soul Document v8: drops contribute to feeding gauge)
-          const dropGaugeValue = getDropValue(newDropsCount);
+          // Feed the gauge (Soul Document v8: drops contribute to feeding gauge).
+          // Drops and chat saves climb one ladder, so its place counts both.
+          const dropGaugeValue = getDropValue(newDropsCount + chatSaves);
           console.log('[GremlyStore] incrementDropCount: calling addGaugeContribution', {
             dropNumber: newDropsCount,
+            chatSaves,
             gaugeValue: dropGaugeValue,
           });
           get()
@@ -2628,6 +2643,29 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
+        creditChatSave: async () => {
+          // One tap that saved something new in a chat counts as one drop: it
+          // takes the next place on the day's ladder, drops and chat saves
+          // together, and is credited under its own source so the two can be
+          // told apart. The count is the server's, like a drop's, so two
+          // devices never take the same place.
+          const userId = get().userId;
+          if (!userId) return;
+          const currentRitualDay = get().ensureCurrentRitualDay();
+          const { data, error } = await supabase.rpc('increment_chat_save_count', {
+            p_owner_id: userId,
+            p_ritual_day: currentRitualDay,
+          });
+          if (error) {
+            console.error('[GremlyStore] increment_chat_save_count failed:', error);
+            return;
+          }
+          const chatSaves = data?.chat_saves_count ?? get().todayChatSavesCount + 1;
+          const drops = data?.drops_count ?? get().todayDropsCount;
+          set({ todayChatSavesCount: chatSaves, todayRitualDay: currentRitualDay });
+          await get().addGaugeContribution('chat_save', getDropValue(drops + chatSaves));
+        },
+
         creditPlanItems: async (count: number) => {
           // Three items a day, however many plans the day has. What the day has
           // had so far is read back from its contributions, which carry the
@@ -2671,8 +2709,15 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         previewGaugeDrop: () => {
-          const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue, isFedToday } = get();
-          const dropNumber = todayDropsCount + pendingGaugePreviews + 1;
+          const {
+            todayDropsCount,
+            todayChatSavesCount,
+            pendingGaugePreviews,
+            feedingGaugeValue,
+            isFedToday,
+          } = get();
+          // the drops' ladder, which the day's chat saves climb too
+          const dropNumber = todayDropsCount + todayChatSavesCount + pendingGaugePreviews + 1;
           const value = getDropValue(dropNumber);
           const multiplier = !get().graduatedAt ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
@@ -2724,6 +2769,7 @@ export const useGremlyStore = create<GremlyState>()(
           set({
             todayRitualDay: ritualDay,
             todayDropsCount: ritualProgress?.drops_count ?? 0,
+            todayChatSavesCount: ritualProgress?.chat_saves_count ?? 0,
             todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
             todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
             feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
@@ -4914,6 +4960,7 @@ export const useGremlyStore = create<GremlyState>()(
             parkedForDay: [],
             // Reset daily counters
             todayDropsCount: 0,
+            todayChatSavesCount: 0,
             todaySweepsCount: 0,
             todayRitualCompletedAt: null,
             // Reset hidden-today (Not Today feature)
@@ -10024,6 +10071,7 @@ export const useGremlyStore = create<GremlyState>()(
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
           todayDropsCount: state.todayDropsCount,
+          todayChatSavesCount: state.todayChatSavesCount,
           todaySweepsCount: state.todaySweepsCount,
           todayRitualCompletedAt: state.todayRitualCompletedAt,
           dailyBrief: state.dailyBrief,

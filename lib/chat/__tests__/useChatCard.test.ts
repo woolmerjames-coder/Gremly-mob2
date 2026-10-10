@@ -9,9 +9,14 @@ import { chatCardMeta, chatHistoryOf, useChatCard } from '../useChatCard';
 import { applyChanges } from '../../changes/apply';
 import type { SpaceChatMessage } from '../../types';
 import { sayNoToChapters } from '../../worlds/saidNo';
+import { feedForChatSave, savedSomethingNew } from '../feedsGremly';
 
 jest.mock('../../changes/apply', () => ({ applyChanges: jest.fn() }));
 jest.mock('../../worlds/saidNo', () => ({ sayNoToChapters: jest.fn() }));
+jest.mock('../feedsGremly', () => ({
+  savedSomethingNew: jest.fn(() => false),
+  feedForChatSave: jest.fn(async () => {}),
+}));
 jest.mock('../../brief/useDayTurn', () => ({
   cardOutcomeWords: (meta: { status: string }) =>
     meta.status === 'open' ? null : `(card ${meta.status})`,
@@ -171,6 +176,32 @@ describe('the card in a chat', () => {
     expect(deps.say).toHaveBeenCalledWith("No problem, I've left everything as it is.");
     await act(() => hook.result.current.apply(cardMessage('dismissed'), []));
     expect(applyChanges).not.toHaveBeenCalled();
+  });
+});
+
+describe('feeding Gremly', () => {
+  it('a card that saved something new feeds him once, like a drop', async () => {
+    const outcomes = [
+      { cid: 'c1', ok: true, summary: '', revert: jest.fn() },
+      { cid: 'c2', ok: true, summary: '', revert: jest.fn(), createdId: 'new-todo' },
+    ];
+    (applyChanges as jest.Mock).mockResolvedValue({ outcomes, revertAll: jest.fn() });
+    (savedSomethingNew as jest.Mock).mockReturnValueOnce(true);
+    const { hook } = setup();
+    await act(() => hook.result.current.apply(cardMessage(), []));
+    expect(savedSomethingNew).toHaveBeenCalledWith(card, outcomes);
+    expect(feedForChatSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('a card that saved nothing new does not feed him', async () => {
+    (applyChanges as jest.Mock).mockResolvedValue({
+      outcomes: [{ cid: 'c1', ok: true, summary: '', revert: jest.fn() }],
+      revertAll: jest.fn(),
+    });
+    const { hook } = setup();
+    await act(() => hook.result.current.apply(cardMessage(), ['c2']));
+    expect(savedSomethingNew).toHaveBeenCalledWith([card[0]], expect.any(Array));
+    expect(feedForChatSave).not.toHaveBeenCalled();
   });
 });
 

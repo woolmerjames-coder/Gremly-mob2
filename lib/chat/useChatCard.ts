@@ -23,6 +23,7 @@ import { useTodayThread } from '../brief/todayThread';
 import { getDateService } from '../date/DateService';
 import type { BriefChangesMeta, DailyThreadMeta } from '../brief/types';
 import { sayNoToChapters } from '../worlds/saidNo';
+import { feedForChatSave, savedSomethingNew } from './feedsGremly';
 
 const CHECKLIST: Record<string, 'proposed' | 'needs_answer' | 'not_possible' | 'noted'> = {
   proposed: 'proposed',
@@ -164,6 +165,8 @@ export function useChatCard(deps: ChatCardDeps) {
               icon: 'saved',
             });
           }
+          // something new saved feeds Gremly like a drop, once for the tap
+          if (savedSomethingNew(rows, outcomes)) void feedForChatSave();
           if (failed.length) await d.say(DAY_TURN_COPY.someFailed);
         } catch (err) {
           console.warn('[ChatCard] apply failed:', err);

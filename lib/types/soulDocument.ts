@@ -26,6 +26,8 @@ export interface Tier {
 /** All possible sources of gauge contributions. Source: Soul Document v8 */
 export type FeedingContributionSource =
   | 'drop'
+  /** A tap that saved something new in a chat: worth a drop, on the drops' ladder */
+  | 'chat_save'
   | 'sweep'
   | 'journal'
   | 'brief'

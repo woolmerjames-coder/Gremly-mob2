@@ -187,6 +187,22 @@ describe('applying the change card', () => {
     expect(res.created).toEqual({ c1: 'new-1' });
   });
 
+  it('a new todo is something new saved, which feeds Gremly; moves and skips are not', async () => {
+    const made = await applyDayChanges(
+      [change({ kind: 'create_todo', title: 'Pack', day: '2026-10-02', start: 600, minutes: 20 })],
+      ctx,
+    );
+    expect(made.savedNew).toBe(true);
+    const moved = await applyDayChanges(
+      [
+        change({ cid: 'c1', kind: 'move_day', id: 'mum', item: 'todo', day: '2026-10-05' }),
+        change({ cid: 'c2', kind: 'skip_habit', id: 'run', item: 'habit' }),
+      ],
+      ctx,
+    );
+    expect(moved.savedNew).toBe(false);
+  });
+
   it('a change that fails is reported, not claimed', async () => {
     store.archiveTodo.mockRejectedValueOnce(new Error('offline'));
     const res = await applyDayChanges(
@@ -330,6 +346,36 @@ describe("applying the agent's card", () => {
     const res = await applyCardChanges(card, { ...ctx, inPlan: new Set(['mum']) });
     expect(res.plan.remove).toEqual(['mum']);
     expect(res.plan.pin).toEqual([]);
+  });
+
+  it('a row that adds an item is something new saved; a new day or a tick is not', async () => {
+    const add = [
+      {
+        cid: 'c3',
+        op: 'add',
+        type: 'todo',
+        id: null,
+        title: 'Buy sunscreen',
+        fields: { name: 'Buy sunscreen', day: '2026-10-02' },
+      },
+    ] as Change[];
+    expect((await applyCardChanges(add, ctx)).savedNew).toBe(true);
+    // an add that could not be saved is not something new
+    store.createTodo.mockRejectedValueOnce(new Error('offline'));
+    expect((await applyCardChanges(add, ctx)).savedNew).toBe(false);
+    const edits = [
+      {
+        cid: 'c1',
+        op: 'change',
+        type: 'todo',
+        id: 'mum',
+        title: 'Call Mum',
+        fields: { day: '2026-10-03' },
+        before: { day: '2026-10-02' },
+      },
+      { cid: 'c2', op: 'done', type: 'todo', id: 'deck', title: 'Finish the deck' },
+    ] as Change[];
+    expect((await applyCardChanges(edits, ctx)).savedNew).toBe(false);
   });
 
   it('a todo put off for later leaves its day, and with it the plan', async () => {

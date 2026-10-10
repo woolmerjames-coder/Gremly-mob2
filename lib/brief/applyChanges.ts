@@ -13,6 +13,7 @@ import { applyChanges } from '../changes/apply';
 import { fromDayChange } from '../changes/fromLegacy';
 import { checkChange, type Change } from '../changes/model';
 import { contextFor, findItem } from '../changes/snapshot';
+import { savedSomethingNew } from '../chat/feedsGremly';
 
 export interface ApplyResult {
   done: string[];
@@ -24,6 +25,8 @@ export interface ApplyResult {
   frameChanged: boolean;
   /** They accepted Gremly's offer to plan the rest of today */
   planDay?: boolean;
+  /** Something new was saved, which feeds Gremly like a drop (lib/chat/feedsGremly.ts) */
+  savedNew: boolean;
   /** Puts back everything that was done, in one go */
   revert: () => Promise<void>;
 }
@@ -38,6 +41,7 @@ export async function applyDayChanges(
     created: {},
     plan: { add: [], remove: [], pin: [] },
     frameChanged: false,
+    savedNew: false,
     revert: async () => {},
   };
 
@@ -63,6 +67,7 @@ export async function applyDayChanges(
     threadId: ctx.threadId,
   });
   out.revert = revertAll;
+  out.savedNew = savedSomethingNew(checked, outcomes);
   const created = new Map<string, string>();
   for (const o of outcomes) {
     if (o.ok) {
@@ -160,6 +165,7 @@ export async function applyCardChanges(changes: Change[], ctx: CardContext): Pro
     created: {},
     plan: { add: [], remove: [], pin: [] },
     frameChanged: false,
+    savedNew: false,
     revert: async () => {},
   };
   const { outcomes, revertAll } = await applyChanges(changes, {
@@ -167,6 +173,7 @@ export async function applyCardChanges(changes: Change[], ctx: CardContext): Pro
     threadId: ctx.threadId,
   });
   out.revert = revertAll;
+  out.savedNew = savedSomethingNew(changes, outcomes);
   const created = new Map<string, string>();
   for (const o of outcomes) {
     if (o.ok) {
