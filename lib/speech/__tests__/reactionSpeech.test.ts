@@ -13,11 +13,10 @@ const ctx = (over: Partial<ReactionSpeechContext> = {}): ReactionSpeechContext =
   ...over,
 });
 
-const payload = (message: string | null, followUp: 'multi' | 'clarify' | null = null) => ({
+const payload = (message: string | null) => ({
   localId: 'd-1',
   message,
   rawReaction: message,
-  followUp,
 });
 
 describe('reactionSpeechOf', () => {
@@ -31,18 +30,8 @@ describe('reactionSpeechOf', () => {
     expect(c.poolLine).not.toHaveBeenCalled();
   });
 
-  it('never shows a follow up line, even when an older payload still names one', () => {
-    for (const followUp of ['multi', 'clarify'] as const) {
-      expect(reactionSpeechOf(payload('Two things, both safe.', followUp), ctx())).toEqual({
-        show: 'reaction',
-        message: 'Two things, both safe.',
-        fromPool: false,
-      });
-    }
-  });
-
   it("uses the bubble's own line when the title call failed, for any drop", () => {
-    expect(reactionSpeechOf(payload(null, 'clarify'), ctx())).toEqual({
+    expect(reactionSpeechOf(payload(null), ctx())).toEqual({
       show: 'reaction',
       message: 'Grabbed it.',
       fromPool: true,

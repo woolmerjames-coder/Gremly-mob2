@@ -276,9 +276,7 @@ describe('handleQueued', () => {
     const out = await handleQueued(drop());
     expect(out.smartTitle).toBe('Call mum about Sunday');
     expect(out.confirmationMessage).toBe('She will love that.');
-    expect(reactions).toEqual([
-      expect.objectContaining({ message: 'She will love that.', followUp: null }),
-    ]);
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
   });
 
   it('keeps an unclear drop with its type and the classifier question', async () => {
@@ -347,7 +345,6 @@ describe('handleQueued', () => {
         localId: out.localId,
         message: 'She will love that.',
         rawReaction: 'She will love that.',
-        followUp: null,
       },
     ]);
   });
@@ -490,7 +487,8 @@ describe('handleSorted', () => {
     expect(sentTypes()).toContain('clarify-ambiguity');
     expect(sentTypes()).not.toContain('enrich-phase2');
     // the question is on the card: no follow up line in the bubble
-    expect(reactions).toEqual([expect.objectContaining({ followUp: null })]);
+    expect(reactions).toHaveLength(1);
+    expect(reactions[0]).not.toHaveProperty('followUp');
   });
 
   it('gives an unclear drop its reaction at the save, with no follow up line', async () => {
@@ -505,9 +503,7 @@ describe('handleSorted', () => {
     const q = await handleQueued(drop());
     expect(reactions).toEqual([]);
     await handleSorted(q);
-    expect(reactions).toEqual([
-      expect.objectContaining({ message: 'She will love that.', followUp: null }),
-    ]);
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
   });
 
   it('gives an unsure split its reaction at the save when the words come after the sort', async () => {
@@ -528,9 +524,7 @@ describe('handleSorted', () => {
     const q = await handleQueued(drop({ text: 'buy milk, walk daily' }));
     expect(reactions).toEqual([]);
     await handleSorted(q);
-    expect(reactions).toEqual([
-      expect.objectContaining({ message: 'She will love that.', followUp: null }),
-    ]);
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
   });
 
   it('saves an unsure split as one item of its kind as one, with the pieces waiting', async () => {
@@ -657,9 +651,7 @@ describe('handleSorted', () => {
     expect(reactions).toEqual([]);
     const out = await handleSorted(q);
     expect(out.phase).toBe('saved');
-    expect(reactions).toEqual([
-      expect.objectContaining({ message: 'She will love that.', followUp: null }),
-    ]);
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
     await handleSaved(out);
     await flush();
     // the pieces' own words are never shown

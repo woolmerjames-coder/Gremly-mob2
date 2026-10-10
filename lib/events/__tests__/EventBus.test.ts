@@ -160,7 +160,6 @@ describe('EventBus', () => {
         localId: 'drop-1',
         message: 'Nice one! Pepper time!',
         rawReaction: 'Pepper time!',
-        followUp: null,
       });
 
       expect(handler).toHaveBeenCalledTimes(1);
@@ -168,43 +167,16 @@ describe('EventBus', () => {
         localId: 'drop-1',
         message: 'Nice one! Pepper time!',
         rawReaction: 'Pepper time!',
-        followUp: null,
       });
     });
 
-    it('fires with null message/rawReaction for multi path', () => {
+    it('fires with a null message when the title call gave no reaction', () => {
       const handler = jest.fn();
       eventBus.on('drop:reaction_ready', handler);
 
-      eventBus.emit('drop:reaction_ready', {
-        localId: 'drop-2',
-        message: null,
-        rawReaction: null,
-        followUp: 'multi',
-      });
+      eventBus.emit('drop:reaction_ready', { localId: 'drop-2', message: null, rawReaction: null });
 
-      expect(handler).toHaveBeenCalledWith({
-        localId: 'drop-2',
-        message: null,
-        rawReaction: null,
-        followUp: 'multi',
-      });
-    });
-
-    it('fires with clarify followUp', () => {
-      const handler = jest.fn();
-      eventBus.on('drop:reaction_ready', handler);
-
-      eventBus.emit('drop:reaction_ready', {
-        localId: 'drop-3',
-        message: 'Hmm, tell me more',
-        rawReaction: 'Tell me more',
-        followUp: 'clarify',
-      });
-
-      expect(handler).toHaveBeenCalledWith(
-        expect.objectContaining({ followUp: 'clarify', rawReaction: 'Tell me more' }),
-      );
+      expect(handler).toHaveBeenCalledWith({ localId: 'drop-2', message: null, rawReaction: null });
     });
 
     it('unsubscribe stops delivery', () => {
@@ -216,7 +188,6 @@ describe('EventBus', () => {
         localId: 'drop-4',
         message: 'test',
         rawReaction: 'test',
-        followUp: null,
       });
 
       expect(handler).not.toHaveBeenCalled();

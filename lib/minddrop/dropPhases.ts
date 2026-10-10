@@ -247,8 +247,6 @@ function sendReaction(drop: QueuedDrop, reaction: string | null): void {
     localId: drop.localId,
     message: reaction,
     rawReaction: reaction,
-    // no follow up line since stage 10; the field itself goes in stage 11
-    followUp: null,
   });
 }
 
