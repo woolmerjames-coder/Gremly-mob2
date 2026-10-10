@@ -159,7 +159,7 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
    - speed and cost: `ai_usage` and `app_events` kind `drop_timing` against the baseline before stage 1 (sorted about 2.0s, settled about 4.0s, about 0.37¢ a drop);
    - the split choice data: `app_events` kind `split_answer`, what the classifier said (clear or unsure) against what was tapped (split, keep_as_one, not_now), for the automatic splits call;
    - the share of places people change: `app_events` kind `place_change` against the drops filed somewhere.
-8. **Two weeks after ship:** check Expo for sessions on older builds. If there are none, remove what only they need: the Worker routes `detect-multi` and `classify-phase1-v2` and the question writer inside `classify-v3`; the journal word list `isSenseMakingJournal` in `classify-phase1`; and Phase 2's event title (`smart_title`). One care: the new build still calls `classify-phase1` when it reclassifies a degraded item (`runPhase1`), so taking the word list out changes that path too and needs a replay first, as stage 11 item 11 did. The questions and lapses read (stage 12) is due then too.
+8. **Two weeks after ship:** check Expo for sessions on older builds. If there are none, remove what only they need: the Worker routes `detect-multi` and `classify-phase1-v2` and the question writer inside `classify-v3`; the journal word list `isSenseMakingJournal` in `classify-phase1`; and Phase 2's event title (`smart_title`). The new build calls none of them: since the final check's fixes it reads an older degraded item again with `classify-v3`. The questions and lapses read (stage 12) is due then too.
 9. Anything later stages add.
 
 ## Stage notes

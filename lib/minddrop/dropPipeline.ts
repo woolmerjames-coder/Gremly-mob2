@@ -22,11 +22,12 @@ import {
   migrateDropPhases,
   loadQueueIntoZustand,
 } from './dropQueue';
-import { forgetDropCalls, getPhaseHandler } from './dropPhases';
+import { CLASSIFY_V3_TIMEOUT_MS, forgetDropCalls, getPhaseHandler } from './dropPhases';
 import { kindWordOf } from './dropSync';
 import { fileDropItem, startedDropFiling } from './fileDrop';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { runPhase1 } from './phase1';
+import { runClassifyV3 } from './phase1';
+import { copyLinks } from '../changes/links';
 import { supabase } from '../supabase/client';
 import { nowTimestamp, getDateService } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
@@ -344,9 +345,23 @@ export async function triggerProcessing(): Promise<void> {
 // retryDrop — User taps retry on a failed card
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** A failed drop back at the phase it failed in, with its tries counted again. */
+async function resumeFailed(drop: QueuedDrop): Promise<DropPhase> {
+  const resumePhase = drop.failedAtPhase || 'queued';
+  await saveDrop(drop.localId, {
+    ...drop,
+    phase: resumePhase,
+    retryCount: 0,
+    lastError: null,
+    lastAttemptAt: undefined,
+  });
+  return resumePhase;
+}
+
 /**
  * Reset a failed drop to its failedAtPhase so it can be reprocessed.
- * Called when the user taps the retry button on a failed card.
+ * Called when the person taps Retry on a failed card (RecentDrops, and the
+ * Today quick add's row).
  */
 export async function retryDrop(localId: string): Promise<void> {
   const queue = await getQueue();
@@ -357,22 +372,28 @@ export async function retryDrop(localId: string): Promise<void> {
     return;
   }
 
-  const resumePhase = drop.failedAtPhase || 'queued';
-
-  const retriedDrop: QueuedDrop = {
-    ...drop,
-    phase: resumePhase,
-    retryCount: 0,
-    lastError: null,
-    lastAttemptAt: undefined,
-  };
-
-  await saveDrop(retriedDrop.localId, retriedDrop);
-
+  const resumePhase = await resumeFailed(drop);
   console.log('[Pipeline] Drop retried', { localId, resumePhase });
 
   // Trigger immediate processing
   void triggerProcessing();
+}
+
+/**
+ * Every failed drop goes back to the phase it failed in, for three more tries,
+ * when the app comes back to the foreground and when the network comes back
+ * (lib/network/offlineSync.ts). Its card shows the person's words and Retry
+ * meanwhile, so a drop is never out of sight.
+ */
+export async function retryFailedDrops(): Promise<number> {
+  const queue = await getQueue();
+  const failed = queue.filter((d) => d.phase === 'failed');
+  for (const drop of failed) {
+    const resumePhase = await resumeFailed(drop);
+    console.log('[Pipeline] Failed drop tried again', { localId: drop.localId, resumePhase });
+  }
+  if (failed.length) void triggerProcessing();
+  return failed.length;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -424,12 +445,16 @@ export async function reclassifyDegradedEntities(): Promise<void> {
         (entity as any).body || (entity as any).notes || (entity as any).name || '';
       if (!originalText.trim()) continue;
 
-      const result = await runPhase1(originalText, { hasAttachments: false });
-
-      if (result.classificationDegraded) {
-        console.log('[Reclassify] Still degraded, skipping entity', { id: entity.id });
+      // the same classifier as a new drop (classify-v3); an older build's
+      // degraded item is read again with it, never with the v2 route
+      const v3 = await runClassifyV3(originalText, {}, CLASSIFY_V3_TIMEOUT_MS);
+      if (!v3) {
+        console.log('[Reclassify] Classifier did not answer, trying again later', {
+          id: entity.id,
+        });
         continue;
       }
+      const result = v3.phase1;
 
       const currentBucket = entity.entityType;
       const newBucket = result.bucket === 'log' ? 'note' : result.bucket;
@@ -512,9 +537,11 @@ export async function reclassifyDegradedEntities(): Promise<void> {
           const tags = (entity as any).tags || [];
           const spaceId = (entity as any).space_id || null;
 
-          // Build base payload for new table
+          // Build base payload for new table; it keeps the day it was made, so
+          // its card keeps its place
           let newPayload: Record<string, any> = {
             owner_id: ownerId,
+            created_at: (entity as any).created_at,
             drop_id: dropId,
             space_id: spaceId,
             tags,
@@ -569,6 +596,14 @@ export async function reclassifyDegradedEntities(): Promise<void> {
             console.error('[Reclassify] Insert failed', { error: insertErr });
             continue;
           }
+
+          // Its Worlds and Chapters go with it: deleting the old row removes its
+          // links (migration 20261021090000)
+          await copyLinks(
+            newBucket === 'todo' ? 'todo' : newBucket === 'habit' ? 'habit' : 'note',
+            entity.id,
+            newEntity.id,
+          );
 
           // Delete from old table
           await supabase.from(entity.table).delete().eq('id', entity.id);

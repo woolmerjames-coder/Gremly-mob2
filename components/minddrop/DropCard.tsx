@@ -125,6 +125,11 @@ export interface DropCardProps {
   splitBar?: React.ReactNode;
   /** anything else under the meta line (a retry line, an older card's own line) */
   footer?: React.ReactNode;
+  /**
+   * Nothing is working on it (a drop that did not go through, waiting for its
+   * Retry): no wait dots, and the tile's dot stays still.
+   */
+  stopped?: boolean;
   /** stage 6: changes when Keep just one folds a drop into this card, which pulses once */
   pulseKey?: number;
   /**
@@ -264,6 +269,7 @@ export function DropCard({
   dupeLine,
   splitBar,
   footer,
+  stopped = false,
   pulseKey,
   place,
   style,
@@ -346,7 +352,12 @@ export function DropCard({
   }, [settled]);
 
   const placeText = settled && place?.text ? place.text : null;
-  const label = [cardAccessibilityLabel(kind, sorted ? title : rawTitle, meta, stage), placeText]
+  const label = [
+    stopped && !sorted
+      ? rawTitle
+      : cardAccessibilityLabel(kind, sorted ? title : rawTitle, meta, stage),
+    placeText,
+  ]
     .filter(Boolean)
     .join('. ');
   const talk = settled && !!onTalk;
@@ -385,7 +396,7 @@ export function DropCard({
               <KindIcon kind={kind} draw={drawIcon} reduced={reduced} />
             </Reanimated.View>
           ) : (
-            <CatchDot reduced={reduced} />
+            <CatchDot reduced={reduced || stopped} />
           )}
         </Reanimated.View>
 
@@ -415,7 +426,7 @@ export function DropCard({
           )}
 
           <View style={styles.meta} testID="drop-card-meta">
-            {!sorted ? (
+            {!sorted && stopped ? null : !sorted ? (
               <View style={styles.wait} testID="drop-card-wait">
                 <WaitDot delay={0} reduced={reduced} />
                 <WaitDot delay={150} reduced={reduced} />

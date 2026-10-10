@@ -28,6 +28,7 @@ import {
   useNeedsMindDropTutorial,
 } from '../../lib/store/lifecycleSelectors';
 import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
+import { retryDrop } from '../../lib/minddrop/dropPipeline';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import {
   selectItemById,
@@ -914,9 +915,18 @@ const AnimatedMindDropCard = React.memo<{
       handleEdit(item.id, item.kind, item.unsorted);
     };
 
+    // A drop that failed in the queue (its words, not yet saved) tries again
+    // through the pipeline; a saved item whose details failed reruns them
+    const failedLine = isPending
+      ? "That didn't go through. Tap to try again."
+      : "Couldn't finish loading. Tap to retry.";
     const footer = isFailed ? (
       <Pressable
         onPress={() => {
+          if (isPending) {
+            void retryDrop(item.drop_id || item.id);
+            return;
+          }
           eventBus.emit('drop:retry_enrichment', {
             localId: item.drop_id || item.id,
             text: item.text || item.title || '',
@@ -926,15 +936,14 @@ const AnimatedMindDropCard = React.memo<{
         }}
         style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, minHeight: 32 }}
         accessibilityRole="button"
-        accessibilityLabel="Couldn't finish loading. Tap to retry."
+        accessibilityLabel={failedLine}
+        testID={`minddrop-retry-${item.id}`}
       >
         <Animated.Image
           source={require('../../assets/buttonforHP.png')}
           style={{ width: 26, height: 26, marginRight: 8, borderRadius: 13 }}
         />
-        <Text style={{ fontSize: 13, color: '#916908', fontWeight: '600' }}>
-          Couldn't finish loading. Tap to retry.
-        </Text>
+        <Text style={{ fontSize: 13, color: '#916908', fontWeight: '600' }}>{failedLine}</Text>
       </Pressable>
     ) : null;
 
@@ -959,6 +968,7 @@ const AnimatedMindDropCard = React.memo<{
         onTalk={canTalk ? () => onTalk!(item) : undefined}
         talkTestID={`minddrop-talk-${item.id}`}
         footer={footer}
+        stopped={isFailed}
         askStrip={isPending ? null : <CardAsk item={item} ask={stripAsk} />}
         dupeLine={dupeAsk && !stripAsk ? <CardDupe item={item} ask={dupeAsk} /> : null}
         pulseKey={pulseKey}
@@ -1345,10 +1355,12 @@ const RecentDrops: React.FC<{
     const seen = (dropId: string) => savedDropIds.has(dropId) || leftDropIds.current.has(dropId);
     const hasSavedItem = (drop: QueuedDrop) =>
       seen(drop.localId) || (drop.pieceRows ?? []).some((piece) => seen(piece.dropId));
+    // A failed drop stays on the list with its words and Retry (it is tried
+    // again on its own when the app or the network comes back): a drop is
+    // never out of sight
     const activeDrops = queueItems.filter(
       (drop) =>
         drop.phase !== 'complete' &&
-        drop.phase !== 'failed' &&
         // saved (isDropSaved in dropQueue.ts) and its item is in the list
         !((!!drop.supabaseId || !!drop.pieceRows?.length) && hasSavedItem(drop)),
     );
@@ -1430,7 +1442,8 @@ const RecentDrops: React.FC<{
           due_date: drop.extractedDate ?? null,
           due_day: drop.extractedDate?.split('T')[0] ?? null,
           views: {
-            ai_pending: true,
+            ai_pending: drop.phase !== 'failed',
+            ai_failed: drop.phase === 'failed',
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
             people: drop.people,

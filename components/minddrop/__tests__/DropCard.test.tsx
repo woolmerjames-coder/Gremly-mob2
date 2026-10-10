@@ -65,6 +65,31 @@ describe('DropCard, landed', () => {
   );
 });
 
+describe('DropCard, stopped (a drop that did not go through)', () => {
+  it('keeps the words as typed and its footer, with no waiting dots, and reads as the words', () => {
+    const r = render(
+      <DropCard
+        kind="note"
+        stage="landed"
+        rawTitle="email the hoa about the parking permit"
+        title="email the hoa about the parking permit"
+        meta={[]}
+        stopped
+        footer={<Text>That didn't go through. Tap to try again.</Text>}
+        testID="card"
+      />,
+    );
+    expect(r.getByTestId('drop-card-title').props.children).toBe(
+      'email the hoa about the parking permit',
+    );
+    expect(r.queryByTestId('drop-card-wait')).toBeNull();
+    expect(r.getByText("That didn't go through. Tap to try again.")).toBeTruthy();
+    expect(r.getByTestId('card').props.accessibilityLabel).toBe(
+      'email the hoa about the parking permit',
+    );
+  });
+});
+
 describe('DropCard, sorted', () => {
   it.each(KINDS)(
     '%s: the kind tile, the title and the kind word; the rest waits for the settle',
