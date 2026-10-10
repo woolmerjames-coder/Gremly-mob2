@@ -153,7 +153,8 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
 2. Deploy inngest-jobs (stage 2c: the brief, the notification counts and the daily context count a todo with only a deadline on its deadline day; stage 8: the morning and evening counts follow the ask rules, habits with a question included): `cd ~/Documents/gremly-mob2/workers/inngest-jobs && npx wrangler deploy`.
 3. Confirm the data fabric's Worker changes are live (stage 9 needs them): an `assign-worlds` reply carries `filed`. Stage 9 gives the check.
 4. Run the old questions SQL (in the stage 8 note below), before the build reaches people: from stage 6 the app lets old questions go itself as it loads, one write each, and one account has 139 of them.
-5. Anything later stages add.
+5. Cortex for stage 11 (it can go any time before ship day; builds already out are not affected beyond the tags and habit days the stage 11 note measured): `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. `CLASSIFY_V3_ENABLED` must stay "true": the new build has no other classifier.
+6. Anything later stages add.
 
 ## Stage notes
 
@@ -640,3 +641,124 @@ For James:
 - The stage 3 run's cost of this: v3.8 split 2 drops in 1,000 (5 in its second run) that should have stayed one; each is one tap on Keep as one, under the pieces or in that evening's Sweep.
 
 Blocking questions: none.
+
+
+### Stage 9 gate: filing with and without the details (10 October, your yes of 10 October)
+
+What ran: `scripts/filing-replay/gate.mjs` (new, with `gate.sh`) filed the 100 most recent drops of the three people with Worlds who dropped anything (66 of yours, 24 and 10 of the other two; items they placed themselves left out, as filing never touches those), each both ways and twice, with the prompt (`filing-2026-10-07c`), model (GPT-6 Luna) and bar that ship: "with" sent the item's tags, people and date, "without" only the drop's words, title and kind, as the app now does at the save. Each drop was filed with its own day as today, against the Worlds and Chapters as they are now. The drops and graphs were read with read only queries and sit in `scripts/filing-replay/out/real/` (gitignored); nothing was written to the database. 400 calls, all answered by Luna.
+
+Result:
+- 83 drops landed in the same place in all four runs.
+- 13 differed only because the model wavered between two runs of the same input: the place changed between runs with the details for 11 drops, and without them for 9, so it is the model's own wobble, not the fields.
+- 4 drops were steady each way and moved between the two: three went from nowhere (with the details) to a World (without), and one went from one World to another. None reads as a wrong place without the details; one of the four arguably reads better without them.
+- Filed somewhere: 142 of 200 with the details, 148 of 200 without.
+- The full list, with each drop and where it went, is in `scripts/filing-replay/out/gate-report.json` (gitignored), and in my message to you.
+
+For James: the gate asks whether the loss is real. On these drops it is not, so filing stays at the save. Say if you read the four differently.
+
+Blocking questions: none.
+
+
+### Stage 11: clean up, after an impact audit (10 October)
+
+What changed: one commit per removal, each after the audit below, with tsc clean and the related tests green after each.
+
+**1. The v2 fallback chain** (commit 8c754df1)
+- `classifyV2` (a local function in `dropPhases.ts`), `mightBeMulti` (a word list check on the drop) and `extractTemporal` (a date regex, unused since the details call): called only in `dropPhases.ts` and tested only in `dropPhases.heuristic.test.ts`. Removed, with that test file.
+- `lib/minddrop/detectMulti.ts`: imported only by `dropPhases.ts`, mocked in two `dropPhases` test files, and its own test. Removed, with its test. `scripts/minddrop-audit/run-v2.mjs` has its own copy for the audit and is untouched. The Worker's `detect-multi` route stays for builds already out.
+- `runPhase1` stays: `dropPipeline.ts` still uses it to reclassify items saved while the classifier was degraded. The Worker's `classify-phase1-v2` route stays for that and for builds already out.
+- `FEATURE_FLAGS.CLASSIFY_V3_ENABLED`: read only by `dropPhases.ts`. Removed. `EXPO_PUBLIC_CLASSIFY_V3` in `eas.json` is now read by nothing; it is left in `eas.json`, which is your build config.
+- Now a classify-v3 failure throws: the runner tries the drop again and, after its tries, shows it as failed. The Worker var `CLASSIFY_V3_ENABLED` must stay "true", which `wrangler.toml` now says.
+
+**2. The old card parts** (commit 3754bec0)
+- In `RecentDrops.tsx`, rendered by nothing since stage 5 (each was rendered on main): `PendingSkeleton`, `EnrichingSkeleton`, `RevealingCard`, `ClarifyBadge`, `Row3Chips`, and what only they used: `AnimatedChipsTransition`, `AnimatedBadgeTransition`, `ShimmerBar`, the four animation sets and `resetAnimationTrackingForDrop` (two calls in `RecentDrops.tsx` and a re-export in `CatchAllNotepad.tsx` that nothing imports), and `ASK_TIME`. Removed, with the imports only they used, and `RecentDrops.row3chips.test.tsx`.
+- `TypewriterText` stays: `CatchAllNotepad.tsx` imports it.
+- `cardHelpers.ts`: `truncateText`, `formatDateForChip`, `getContextualMeta` and `getDisplayTagsForRecentDrop` were used only by those parts. Removed. The rest of the file has other callers.
+- `app/components/minddrop/ShimmerPlaceholder.tsx`: imported only by its own test. Removed, with the test.
+- Found dead but not removed, because they were already dead on main and so were not left behind by this work: `AnimatedCardInsert`, `AnimatedCardSlideDown` and `CardInsertLayoutAnimation` in `RecentDrops.tsx`, and `handleCategoryChipPick` in `CatchAllNotepad.tsx` (it returns at once on every call). Say if you want them gone.
+
+**3. The card note** (commit 134a2ebf)
+- `sessionCardNotes` in `RecentDrops.tsx`: never written since stage 5 and read only by `RevealingCard` (removed above). Removed.
+- `cardNote` on the queue item (`dropQueue.ts`) and `card_note` on the pending card's views: never set by anything, read by nothing. Removed.
+- `callPhase1_5a` no longer exists (stage 2 replaced it), and the Worker sends no card note. Nothing left to remove there.
+
+**4. Timing chips and the clarification chip** (commit 1c56d63c)
+- `MidConfidenceChips`: rendered in `CatchAllNotepad.tsx` only while `timingChips` had something in it, and nothing ever set it to anything but empty (on main too), so it could never show. Removed: the render, `timingChips`, `pendingTodoId`, `handleTimingSelection`, its auto dismiss effect, `timingAskedRef` (set by nothing), `getTimingChips` and `timingOptionToDate` (used only by that handler and a unit test), the component file, and the tests of those two functions. The metrics fields `timingShown`, `timingSelected` and `timingFallback` stay in the metrics log, always 0 as before.
+- `ClarificationIndicatorChip`: imported only by its own test. Removed, with the test and a stale comment.
+- Found and left: `isUrgent` in `CatchAllNotepad.tsx` is a word list check that nothing in the app calls (only its test). It was on main and is not in the AI path; say if you want it gone.
+
+**5. Dead code from the review** (commit 5ea0151b)
+- `splitMultiDrop` in the store: no caller anywhere (the old split modal used the pipeline's own path). Removed from the store and its type.
+- `multi_awaiting`: nothing in the app makes a drop take this phase any more; only comments in `dropPipeline.ts` named it, and they now say what the tick does. The phase name itself stays in `DropPhase` and `LEGACY_PHASES`, because a drop an older build left in that phase on someone's phone is moved on by `migrateDropPhases` when the new build starts; the pending card's mapping of older phase names stays with it.
+- `syncMultiDropToSupabase` in `dropSync.ts`: no caller since stage 4. Removed, with its tests in `dropSync.test.ts` and a test in `dropProcessor.duplicate.test.ts` that only described it in comments.
+- `holdDropForRelation` in `relationActions.ts`: no caller since stage 4; the relation tests used it to build an older build's held relation, and now build it with a small helper of their own. Removed. The notes older builds held are still answered and lapsed (`keepsHeldNote`), untouched.
+
+**6. The popups and split screens** (commit 322aa1b3)
+- `MultiSplitModal`: rendered by nothing since stage 7; imported only by its own test. Removed, with the test. (`modal.persistence.test.tsx` only describes the pattern with its own stand ins and stays.)
+- `SweepMultiSplitStep`: rendered by nothing since stage 8; only `MultiSplitModal` imported a type from it. Removed.
+- `RelationPopup`: drawn by `OverlayContext`, but `openRelationPopup` was called by nothing since stage 6, so it could never open. Removed, with its test, and from `OverlayContext`: `openRelationPopup`, its state, `openNextQuestion` and `openRelationItem` (used only by the popup), and the test's mock of it. `RecentDrops.tsx` no longer names it in its overlay type. `NEXT_QUESTION_CONFIRM_MS` in `popupTiming.ts` was read only by the popup and its test, and goes too. `openItemThenReturn` stays (exported and tested).
+- The pending card's local split fields (`multi_items`, `multi_summary_title`, and `multi_segments` and `multi_summary` on its views) and the same two fields copied onto every list item: read only by `MultiSplitModal`. Removed from `RecentDrops.tsx` and the `UnifiedDrop` type. Older notes keep `views.multi_items` in the database; the ask rules still read it there to let those splits go.
+- Stay, with callers: `ClarificationPopup` (the item's own screen, `UnifiedOverlayV2`, and `OverlayContext`), `resolveSkippedClarification` (the same two), and `RelationToast` (Mind Drop and Sweep).
+
+**7. The bubble's follow up lines** (commit 5570763e)
+- `lib/speech/followUpMessages.ts`: no caller since stage 10. Removed.
+- `followUp` on `drop:reaction_ready`: always null since stage 10 and read by nothing (the listener stopped reading it in stage 10). Removed from the event's type, from `sendReaction`, and from the tests; the two `EventBus` tests that only existed for the multi and clarify values became one test of a reaction with no words.
+- `followUpSignal` on the queue item: set by nothing, read by nothing. Removed.
+- The other `followUp` in the code (`followUp: 'when'` on a clarification option, which opens When is it?) is a different thing and stays.
+
+**8. Render logs** (commit 1d5b6600)
+- `RecentDrops.tsx`: the `[CACHE] Hit` and `[CACHE] Miss` logs ran inside the pending cards' `useMemo`, so on every render, once per pending drop. Removed. The old cards' `[RENDER_CHECK]` logs went with the cards in commit 3754bec0.
+- `CatchAllNotepad.tsx`: no log runs as it renders; the rest are in handlers and effects, and the auto grow ones only in development. Left.
+- `CardDeckScreen.tsx`: no `console.log` left; its `sweepLog.debug` logger stays.
+
+**9. The Worker's old title helpers** (commit 9955a285, cortex)
+- `titleCase`, `stripLeadingMeta` with its `META_STARTERS` word list, `sanitizeTitle` (word lists and regexes on the model's title) and `dedupeTitle`: since stage 2 every live title goes through `sentenceCase` in `workers/shared/titles.js`, and these four were called only by each other and by `processPhase2Response`, which nothing calls. All five removed from `cortex-index.js`.
+- `isStopTag` (with `STOP_TAGS`) and `parseDaysFromText` stay for now: the details route and chat still use them (item 11 below).
+- `habitRead.js` has its own `titleCase`, used only on weekday names the code makes, never on model output. Left.
+
+**10. Phase 2's event title** (not removed)
+- The details prompt still asks for `smart_title`, the event's name. The new build ignores it (stage 4), but builds already out still use it: on main, `dropSync.ts` saves `enrichment.smart_title` as an event's title. Taking it out of the prompt now would change their events' titles, which the rule that every Worker change keeps the builds already out working forbids. It goes when those builds are gone, with the Worker routes only they call (your decision of 9 October: once Expo shows no sessions on older builds for two weeks). No replay was run, since nothing changed.
+
+**11. The word list and day parser on the details route** (commit 383d621c, cortex)
+- Your message of 9 October: remove `STOP_TAGS` (`isStopTag`) and `parseDaysFromText` from the details route once a replay shows tags and habit days are no worse. The replay: the 320 real drops of the stage 2b details run (`scripts/minddrop-prompt-replay/out/real-details.jsonl`, gitignored), with the model's own replies from today's details prompt, and the two filters applied and not applied. No new model calls were needed, as both filters only act on the reply.
+  - Habit days: 24 habits, and the text parser added days to none of them (the model gave none and the drops name no days). No change.
+  - Tags: the word list removed a tag from 5 of 320 drops: meeting twice (a meeting with two people, a phone call meeting), review twice (asking for a review of work, a full review of the Sweep), and notes once (a drop that says notes). Each names the drop's category or topic, as the prompt asks, so they are no worse; no prompt rule was needed.
+- Removed from the details route, and then, with no caller left anywhere, `STOP_TAGS`, `isStopTag`, `parseDaysFromText` and its `DAY_NAME_TO_NUMBER` map. The plan said chat still uses both; it does not (their only other caller was `processPhase2Response`, removed in commit 9955a285).
+- For you, not changed: the details route still lowercases and hyphenates the model's tags and cuts them to seven, rounds the time estimate to five minutes within 5 to 240, and drops a time window or date that is not a valid value. That is code on model output beyond the dash swap and the length cut; most of it checks the shape (a date that is a date). Say if you want any of it gone. Separately, `isSenseMakingJournal` (a word list on the drop) still picks journal over general in the `classify-phase1` route, which builds already out and the app's reclassify of degraded items still call.
+
+**12. Looked at and left, with the reason**
+- `heuristicClassify` (a word list guess at the kind): `useMindDropSubmit` still runs it at the tap and puts its guess on the submit result. Nothing reads the guess any more: `CatchAllNotepad` only checks that a drop was made, before the training steps and celebrations, and the other screens that submit ignore the result. So it decides nothing the person or the model sees. Taking it out means reshaping that submit result, which the training steps and celebrations read and stage 10 kept untouched. Say if you want it gone and I will do it with their tests.
+- `compactTitle` (your stage 5 question): in `buildCanonicalFromMindDrop.ts` it is only the title call's title, or the drop's words, trimmed, with no word list. In the item's own screen, `firstLine` (`overlayV2.state.ts`, through `lib/text/compactTitle.ts`) makes a title from the person's own words with a list of filler starts to strip, but only when an item being saved has no title of its own; it never touches the model's title. Not Mind Drop's AI path, so left; it is a house rule question for the item screen.
+- The Worker routes that builds already out still call (`detect-multi`, `classify-phase1-v2`, the question writer inside `classify-v3`) stay until those builds are gone, as you decided on 9 October.
+
+**13. Two tests of copies** (commit c95d907e)
+- `tests/cortex/__tests__/sanitizeTitle.test.ts` and `cardNoteFormatting.test.ts` tested their own copies of the Worker's `sanitizeTitle` and its card note handling, both now gone from the Worker (commit 9955a285, and the card note since stage 2). They imported nothing, so they still passed. Removed.
+
+Tests: after every removal, tsc and the tests of the files it touched (each listed in its commit). Then the whole jest run, in 23 parts: 804 suites, 728 passing and 76 skipped (the same 76 as the baseline, which are wholly skipped), none failing; 11,307 tests, 10,776 passing and 531 skipped, none failing. The baseline before stage 1 was 785 suites and 10,996 tests, none failing; the difference is the tests this work added less the ones its removals took out. `node --check` on `cortex-index.js` after each Worker change, and all 40 cortex Worker suites pass.
+
+Deviations:
+- Phase 2's event title and `heuristicClassify` stay, for the reasons above.
+- `isStopTag` and `parseDaysFromText` went from the whole Worker, not only the details route, since nothing else used them.
+
+Plan corrections:
+- The plan said chat still uses `isStopTag` and `parseDaysFromText`; their only other caller was dead code.
+- The plan listed `runPhase1` with the v2 chain; the app's reclassify of degraded items still uses it.
+
+For James:
+- Deploy cortex for the Worker part (ship day checklist item 5): `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`.
+- Decisions that are yours, none blocking: whether `heuristicClassify` goes (with the training and celebration tests); the details route's tag and estimate tidying; `isSenseMakingJournal` in the older classifier route; `firstLine` in the item screen; and the dead code that was already dead on main (`AnimatedCardInsert`, `AnimatedCardSlideDown`, `handleCategoryChipPick`, `isUrgent`).
+- Found while cleaning up your test drops, not changed: deleting a card in the app leaves its World and Chapter links behind, so Worlds slowly collect links to items that are gone.
+
+Blocking questions: none.
+
+
+### Stage 12, part one: the tests and the house rules sweep (10 October)
+
+1. Tests: the whole jest run above (none failing; the same 76 suites wholly skipped as the baseline). The prompt rule tests (no dashes, no examples, no word lists, static) pass for every prompt this build touched, in the cortex suites.
+2. House rules sweep, over every line this work added (the merged People page work left out, as it is not this build's):
+   - Long dashes in a string a user reads or a prompt: none new. The only ones are the dash swap itself, and the long dash between the two times of a time range in `NowFocusRow`, which was already on main and moved in stage 2c.
+   - New word lists, regexes or pattern matching in the AI path: none. The regexes added check shapes (an id, a date, a clock time), and one in `dropCardModel.ts` lowers the first letter of the card's own meta words mid sentence ("every morning"), never the model's.
+   - Switched on only in development: none.
+   - Dates not through DateService: none reading the clock; two places parse a stored time (`splitList.ts`), which is not reading today.
+   - Icons not from Lucide: none. Text below 12 points in new styles: none.
+3. Still to come, and each needs you: a fresh model playing every moment of the prototype against the simulator (small and large phone, reduced motion on and off), which needs your Mac's simulator open; then a few days of real drops for timing and cost; and after two weeks, the questions and lapses read.
