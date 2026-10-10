@@ -118,6 +118,27 @@ describe('resolveEntityClarification: answers that do not file the drop', () => 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('resolves a displayed fallback option when the saved options are missing', async () => {
+    const heard: string[] = [];
+    const unsub = eventBus.on('minddrop:open_chat', ({ text }) => heard.push(text));
+    const note = makeDropNote('n-fallback', 'What should I do now?', 'conversation');
+    useGremlyStore.setState({
+      notes: [{ ...note, views: { needs_clarification: true } }],
+    });
+    const fallbackOption = buildFallbackClarification('conversation').options[0];
+
+    await act(async () => {
+      await useGremlyStore
+        .getState()
+        .resolveEntityClarification('n-fallback', fallbackOption.id, false, null, fallbackOption);
+    });
+
+    unsub();
+    expect(heard).toEqual(['What should I do now?']);
+    expect(useGremlyStore.getState().notes.find((n) => n.id === 'n-fallback')).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('opens Ask Gremly for a question the user wants answered now', async () => {
     const heard: string[] = [];
     const unsub = eventBus.on('minddrop:open_chat', ({ text }) => heard.push(text));

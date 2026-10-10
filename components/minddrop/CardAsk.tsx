@@ -77,7 +77,7 @@ const DIDNT_GO = 'That did not go through. Try again in a moment.';
 
 type Step =
   | { name: 'main' }
-  | { name: 'when'; optionId: string }
+  | { name: 'when'; optionId: string; fallbackOption?: ClarificationOption }
   | { name: 'choose'; options: RelationEntity[] };
 const MAIN: Step = { name: 'main' };
 
@@ -250,7 +250,11 @@ function afterYes(outcome: RelationOutcome, leaving: string[], pulseId?: string)
 }
 
 /** The clarify answers as the strip shows them, or the fixed copy when the saved ones are not usable. */
-function clarifyWords(item: UnifiedDrop): { question: string; options: ClarificationOption[] } {
+function clarifyWords(item: UnifiedDrop): {
+  question: string;
+  options: ClarificationOption[];
+  fallback: boolean;
+} {
   const views = (item.views || {}) as Record<string, unknown>;
   const question = (item.clarification_question || views.clarification_question) as
     | string
@@ -259,7 +263,7 @@ function clarifyWords(item: UnifiedDrop): { question: string; options: Clarifica
   const bucket = item.kind === 'todo' ? 'todo' : item.kind === 'habit' ? 'habit' : 'log';
   const options = mapWorkerOptions(raw, bucket);
   if (question && options && hasUsableClarification(question, options)) {
-    return { question, options };
+    return { question, options, fallback: false };
   }
   const type = (views.ambiguity_type as string | undefined) ?? null;
   console.warn('[CardAsk] the saved question is not usable; asking with the fixed copy', {
@@ -268,7 +272,7 @@ function clarifyWords(item: UnifiedDrop): { question: string; options: Clarifica
     options: Array.isArray(raw) ? raw.length : 0,
   });
   const fallback = buildFallbackClarification(type);
-  return { question: fallback.question, options: fallback.options };
+  return { question: fallback.question, options: fallback.options, fallback: true };
 }
 
 export function CardAsk({
@@ -352,7 +356,11 @@ export function CardAsk({
   // ── clarify ────────────────────────────────────────────────────────────
   const answerClarify = (
     optionId: string,
-    opts: { isFreeText?: boolean; when?: ClarificationWhen | null } = {},
+    opts: {
+      isFreeText?: boolean;
+      when?: ClarificationWhen | null;
+      fallbackOption?: ClarificationOption;
+    } = {},
   ) => {
     setError(null);
     const key = askKey(shown.ask);
@@ -361,6 +369,7 @@ export function CardAsk({
       optionId,
       isFreeText: opts.isFreeText,
       when: opts.when ?? null,
+      fallbackOption: opts.fallbackOption,
     })
       .then(() => {
         // nothing changed (the option was not found, or the item has gone): say so
@@ -491,6 +500,7 @@ export function CardAsk({
   let strip: StripWords;
   if (shown.ask.kind === 'clarify' && shown.step.name === 'when') {
     const optionId = shown.step.optionId;
+    const fallbackOption = shown.step.fallbackOption;
     const ds = getDateService();
     const today = ds.today();
     const days = [
@@ -508,11 +518,15 @@ export function CardAsk({
         key: d.key,
         label: d.label,
         testID: `${tid}-when-${d.key}`,
-        onPress: () => answerClarify(optionId, { when: { date: d.date, time: null } }),
+        onPress: () =>
+          answerClarify(optionId, {
+            when: { date: d.date, time: null },
+            fallbackOption,
+          }),
       })),
       hint: 'You can add a time later',
       // the prototype's When is it?: Not now files it without a day
-      onNotNow: () => answerClarify(optionId),
+      onNotNow: () => answerClarify(optionId, { fallbackOption }),
     };
   } else if (shown.ask.kind === 'clarify') {
     const words = clarifyWords(item);
@@ -524,10 +538,17 @@ export function CardAsk({
         testID: `${tid}-option-${o.id}`,
         onPress: () => {
           if (o.action?.followUp === 'when') {
-            closeThen({ ask: shown.ask, step: { name: 'when', optionId: o.id } });
+            closeThen({
+              ask: shown.ask,
+              step: {
+                name: 'when',
+                optionId: o.id,
+                fallbackOption: words.fallback ? o : undefined,
+              },
+            });
             return;
           }
-          answerClarify(o.id);
+          answerClarify(o.id, { fallbackOption: words.fallback ? o : undefined });
         },
       })),
       onFreeText: (text) => answerClarify(text, { isFreeText: true }),

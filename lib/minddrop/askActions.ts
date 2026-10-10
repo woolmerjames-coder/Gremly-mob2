@@ -16,7 +16,7 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { keepsHeldNote, type RelationEntity } from './dropRelation';
 import { applyDropRelation, keepDropAsNew, type RelationOutcome } from './relationActions';
 import { updateDropRow } from './dropSync';
-import type { ClarificationWhen } from './clarification';
+import type { ClarificationOption, ClarificationWhen } from './clarification';
 import { askOf, askSinceOf, asksOf, isAskLive, type Ask, type AskItem } from './asks';
 
 type Kind = 'todo' | 'habit' | 'note';
@@ -119,7 +119,13 @@ export async function lapseStaleAsks(today: string = getDateService().today()): 
 }
 
 export type AskAnswer =
-  | { kind: 'clarify'; optionId: string; isFreeText?: boolean; when?: ClarificationWhen | null }
+  | {
+      kind: 'clarify';
+      optionId: string;
+      isFreeText?: boolean;
+      when?: ClarificationWhen | null;
+      fallbackOption?: ClarificationOption;
+    }
   | { kind: 'relation'; yes: true; picked?: RelationEntity }
   | { kind: 'relation'; yes: false };
 
@@ -129,14 +135,18 @@ export type AskAnswer =
  */
 export async function answerAsk(id: string, answer: AskAnswer): Promise<RelationOutcome | null> {
   if (answer.kind === 'clarify') {
-    await useGremlyStore
-      .getState()
-      .resolveEntityClarification(
+    const resolve = useGremlyStore.getState().resolveEntityClarification;
+    if (answer.fallbackOption) {
+      await resolve(
         id,
         answer.optionId,
         answer.isFreeText === true,
         answer.when ?? null,
+        answer.fallbackOption,
       );
+    } else {
+      await resolve(id, answer.optionId, answer.isFreeText === true, answer.when ?? null);
+    }
     return null;
   }
   if (answer.yes) return applyDropRelation(id, answer.picked);
