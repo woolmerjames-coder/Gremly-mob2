@@ -36,7 +36,7 @@ import { aiClassify, getProviders } from '../../workers/cortex/aiProvider.js';
 import { configureModels } from '../../workers/cortex/models.js';
 import { helperFetch } from '../../workers/cortex/helperClient.js';
 import { jsonCall } from '../../workers/inngest-jobs/context/llm.js';
-import { sentenceCase, fallbackTitle } from '../../workers/cortex/titles.js';
+import { sentenceCase, fallbackTitle } from '../../workers/shared/titles.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);

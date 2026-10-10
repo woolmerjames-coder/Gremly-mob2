@@ -256,6 +256,24 @@ describe('an answer', () => {
       false,
       when,
     );
+    const fallbackOption = {
+      id: 'opt_2',
+      label: 'Still thinking about it',
+      action: {
+        bucket: 'log' as const,
+        subtype: 'idea',
+        target_date: false,
+        scheduled_date: false,
+      },
+    };
+    await answerAsk('n1', { kind: 'clarify', optionId: 'opt_2', fallbackOption });
+    expect(mockState.resolveEntityClarification).toHaveBeenLastCalledWith(
+      'n1',
+      'opt_2',
+      false,
+      null,
+      fallbackOption,
+    );
   });
 
   it('a relation yes applies it, and a no keeps the drop as new', async () => {

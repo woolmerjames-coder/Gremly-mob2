@@ -1042,6 +1042,7 @@ export interface GremlyState extends WorldsActions {
     optionId: string,
     isFreeText?: boolean,
     when?: ClarificationWhen | null,
+    fallbackOption?: ClarificationOption,
   ) => Promise<void>;
   resolveSkippedClarification: (entityId: string) => Promise<void>;
 
@@ -7789,7 +7790,13 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        resolveEntityClarification: async (localId, optionId, isFreeText = false, when = null) => {
+        resolveEntityClarification: async (
+          localId,
+          optionId,
+          isFreeText = false,
+          when = null,
+          fallbackOption,
+        ) => {
           const state = get();
 
           // ─────────────────────────────────────────────────────────────────────
@@ -7838,6 +7845,8 @@ export const useGremlyStore = create<GremlyState>()(
             ((entity.views as Record<string, unknown> | undefined)?.clarification_options as
               | Array<{ id: string; label: string; action?: any }>
               | undefined);
+          const selectedFallbackOption =
+            fallbackOption?.id === optionId ? fallbackOption : undefined;
 
           // Determine the selected label based on whether it's free text or a predefined option
           let selectedLabel: string;
@@ -7850,14 +7859,15 @@ export const useGremlyStore = create<GremlyState>()(
             );
           } else {
             // User selected a predefined option - look up the label
-            if (!clarificationOptions) {
+            if (!clarificationOptions && !selectedFallbackOption) {
               console.warn('[GremlyStore] resolveEntityClarification: No clarification options', {
                 entityId,
               });
               return;
             }
 
-            const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
+            const selectedOption =
+              selectedFallbackOption ?? clarificationOptions?.find((opt) => opt.id === optionId);
             if (!selectedOption) {
               console.warn('[GremlyStore] resolveEntityClarification: Option not found', {
                 entityId,
@@ -7874,7 +7884,9 @@ export const useGremlyStore = create<GremlyState>()(
           // the drop leaves Mind Drop, so there is nothing to reclassify.
           const selectedKind = isFreeText
             ? null
-            : optionKind(clarificationOptions?.find((opt) => opt.id === optionId));
+            : optionKind(
+                selectedFallbackOption ?? clarificationOptions?.find((opt) => opt.id === optionId),
+              );
           if (selectedKind) {
             const dropText = String(
               (entity as Note).body || (entity as Note).title || (entity as any).name || '',
@@ -8003,7 +8015,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Get bucket/subtype from the selected option (if not free text)
           const selectedOption = isFreeText
             ? null
-            : clarificationOptions?.find((opt) => opt.id === optionId);
+            : (selectedFallbackOption ?? clarificationOptions?.find((opt) => opt.id === optionId));
           const selectedBucket =
             (selectedOption as { action?: { bucket?: string } } | null)?.action?.bucket || null;
           const selectedSubtype =

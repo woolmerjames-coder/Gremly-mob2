@@ -107,9 +107,9 @@ const DIDNT_GO = 'That did not go through. Try again in a moment.';
 
 type Step =
   | { name: 'main' }
-  | { name: 'when'; optionId: string }
+  | { name: 'when'; optionId: string; fallbackOption?: ClarificationOption }
   /** Pick a date on When is it?: a calendar and a time if they know it */
-  | { name: 'pick'; optionId: string }
+  | { name: 'pick'; optionId: string; fallbackOption?: ClarificationOption }
   /** Want a reminder? once a booked appointment has its day */
   | { name: 'remind'; options: BookedReminder[] }
   | { name: 'choose'; options: RelationEntity[] };
@@ -339,7 +339,11 @@ function afterYes(outcome: RelationOutcome, leaving: string[], pulseId?: string,
 }
 
 /** The clarify answers as the strip shows them, or the fixed copy when the saved ones are not usable. */
-function clarifyWords(item: UnifiedDrop): { question: string; options: ClarificationOption[] } {
+function clarifyWords(item: UnifiedDrop): {
+  question: string;
+  options: ClarificationOption[];
+  fallback: boolean;
+} {
   const views = (item.views || {}) as Record<string, unknown>;
   const question = (item.clarification_question || views.clarification_question) as
     | string
@@ -348,7 +352,7 @@ function clarifyWords(item: UnifiedDrop): { question: string; options: Clarifica
   const bucket = item.kind === 'todo' ? 'todo' : item.kind === 'habit' ? 'habit' : 'log';
   const options = mapWorkerOptions(raw, bucket);
   if (question && options && hasUsableClarification(question, options)) {
-    return { question, options };
+    return { question, options, fallback: false };
   }
   const type = (views.ambiguity_type as string | undefined) ?? null;
   console.warn('[CardAsk] the saved question is not usable; asking with the fixed copy', {
@@ -357,7 +361,7 @@ function clarifyWords(item: UnifiedDrop): { question: string; options: Clarifica
     options: Array.isArray(raw) ? raw.length : 0,
   });
   const fallback = buildFallbackClarification(type);
-  return { question: fallback.question, options: fallback.options };
+  return { question: fallback.question, options: fallback.options, fallback: true };
 }
 
 export function CardAsk({
@@ -466,7 +470,11 @@ export function CardAsk({
   // ── clarify ────────────────────────────────────────────────────────────
   const answerClarify = (
     optionId: string,
-    opts: { isFreeText?: boolean; when?: ClarificationWhen | null } = {},
+    opts: {
+      isFreeText?: boolean;
+      when?: ClarificationWhen | null;
+      fallbackOption?: ClarificationOption;
+    } = {},
   ) => {
     setError(null);
     onAnswer?.();
@@ -476,6 +484,7 @@ export function CardAsk({
       optionId,
       isFreeText: opts.isFreeText,
       when: opts.when ?? null,
+      fallbackOption: opts.fallbackOption,
     })
       .then(() => {
         // nothing changed (the option was not found, or the item has gone): say so
@@ -492,15 +501,25 @@ export function CardAsk({
    * A booked appointment's day (and time): filed with it, and Want a reminder?
    * next when a reminder is still ahead (it saves once the answer has gone through).
    */
-  const bookOn = (optionId: string, when: { date: string; time: string | null }) => {
+  const bookOn = (
+    optionId: string,
+    when: { date: string; time: string | null },
+    fallbackOption?: ClarificationOption,
+  ) => {
     const ahead = remindersAheadNow(when.date, when.time);
     if (!ahead.length) {
-      answerClarify(optionId, { when });
+      answerClarify(optionId, { when, fallbackOption });
       return;
     }
     setError(null);
     onAnswer?.();
-    const answer = answerAsk(id, { kind: 'clarify', optionId, isFreeText: undefined, when });
+    const answer = answerAsk(id, {
+      kind: 'clarify',
+      optionId,
+      isFreeText: undefined,
+      when,
+      fallbackOption,
+    });
     // the reminder step says so if this does not go through
     answer.catch((err) =>
       console.warn('[CardAsk] the answer did not save', { id, error: String(err) }),
@@ -758,6 +777,7 @@ export function CardAsk({
     };
   } else if (shown.ask.kind === 'clarify' && shown.step.name === 'pick') {
     const optionId = shown.step.optionId;
+    const fallbackOption = shown.step.fallbackOption;
     const day = format(parseISO(pickDay), 'EEE d MMM');
     const at = pickTime ? format(parseISO(`${pickDay}T${pickTime}`), 'h:mm a') : null;
     strip = {
@@ -776,14 +796,15 @@ export function CardAsk({
           key: 'save',
           label: at ? `Save for ${day}, ${at}` : `Save for ${day}`,
           testID: `${tid}-pick-save`,
-          onPress: () => bookOn(optionId, { date: pickDay, time: pickTime }),
+          onPress: () => bookOn(optionId, { date: pickDay, time: pickTime }, fallbackOption),
         },
       ],
       // as on When is it?: Not now files it without a day
-      onNotNow: () => answerClarify(optionId),
+      onNotNow: () => answerClarify(optionId, { fallbackOption }),
     };
   } else if (shown.ask.kind === 'clarify' && shown.step.name === 'when') {
     const optionId = shown.step.optionId;
+    const fallbackOption = shown.step.fallbackOption;
     const ds = getDateService();
     const today = ds.today();
     const days = [
@@ -802,7 +823,7 @@ export function CardAsk({
           key: d.key,
           label: d.label,
           testID: `${tid}-when-${d.key}`,
-          onPress: () => bookOn(optionId, { date: d.date, time: null }),
+          onPress: () => bookOn(optionId, { date: d.date, time: null }, fallbackOption),
         })),
         {
           key: 'pick',
@@ -812,13 +833,13 @@ export function CardAsk({
           onPress: () => {
             setPickDay(ds.addDays(ds.calendarDay(), 1));
             setPickTime(null);
-            closeThen({ ask: shown.ask, step: { name: 'pick', optionId } });
+            closeThen({ ask: shown.ask, step: { name: 'pick', optionId, fallbackOption } });
           },
         },
       ],
       hint: 'You can add a time later',
       // the prototype's When is it?: Not now files it without a day
-      onNotNow: () => answerClarify(optionId),
+      onNotNow: () => answerClarify(optionId, { fallbackOption }),
     };
   } else if (shown.ask.kind === 'clarify') {
     const words = clarifyWords(item);
@@ -830,10 +851,17 @@ export function CardAsk({
         testID: `${tid}-option-${o.id}`,
         onPress: () => {
           if (o.action?.followUp === 'when') {
-            closeThen({ ask: shown.ask, step: { name: 'when', optionId: o.id } });
+            closeThen({
+              ask: shown.ask,
+              step: {
+                name: 'when',
+                optionId: o.id,
+                fallbackOption: words.fallback ? o : undefined,
+              },
+            });
             return;
           }
-          answerClarify(o.id);
+          answerClarify(o.id, { fallbackOption: words.fallback ? o : undefined });
         },
       })),
       onFreeText: (text) => answerClarify(text, { isFreeText: true }),

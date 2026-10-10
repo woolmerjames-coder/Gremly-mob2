@@ -67,6 +67,7 @@ import { applyDropRelation, leavingCardIds } from '../../../lib/minddrop/relatio
 import { cardDupeAsk, cardStripAsk } from '../../../lib/minddrop/asks';
 import { keepSplitAsOne, logSplitAnswer, splitDropNow } from '../../../lib/minddrop/splitActions';
 import { remindBefore, remindersAheadNow } from '../../../lib/minddrop/bookedReminder';
+import { buildFallbackClarification } from '../../../lib/minddrop/clarification';
 import { parseISO } from 'date-fns';
 import { eventBus } from '../../../lib/events/EventBus';
 import { getDateService } from '../../../lib/date/DateService';
@@ -328,6 +329,27 @@ describe('an unclear drop asks on its card', () => {
     await tick(0);
     expect(r.getByText('That did not go through. Try again in a moment.')).toBeTruthy();
     expect(r.getByText('Want a reminder?')).toBeTruthy();
+  });
+
+  it('asks with the fixed copy when the saved question is not usable, and sends the answer it showed', async () => {
+    const item = {
+      ...unclear(),
+      clarification_question: null,
+      clarification_options: null,
+      views: { ...unclear().views, ambiguity_type: 'date_type' },
+    } as unknown as UnifiedDrop;
+    const shown = buildFallbackClarification('date_type');
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText(shown.question)).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-n1-option-opt_2'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('n1', {
+      kind: 'clarify',
+      optionId: 'opt_2',
+      isFreeText: undefined,
+      when: null,
+      fallbackOption: shown.options[1],
+    });
   });
 
   it('Not now on When is it? files it without a day', async () => {
