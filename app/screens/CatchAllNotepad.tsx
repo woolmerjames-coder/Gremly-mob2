@@ -81,12 +81,6 @@ import { teaserLine } from '../../lib/wrapup/words';
 import { dismissWrapNudge } from '../../lib/wrapup/dismiss';
 import { weekdayOf } from '../../lib/wrapup/day';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
-import {
-  MidConfidenceChips,
-  type CategoryChip,
-  type TimingOption,
-  type TimingChip,
-} from '../components/minddrop/MidConfidenceChips';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -112,7 +106,6 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { Lock, Camera, LogOut, User, Calendar, X } from 'lucide-react-native';
-// ClarificationIndicatorChip moved to badge position - import removed
 import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { env } from '../../lib/env';
 import {
@@ -995,116 +988,6 @@ export function isUrgent(input: string): boolean {
   return keywords.some((k) => input.toLowerCase().includes(k));
 }
 
-/**
- * Generates timing chip options based on current time
- */
-export function getTimingChips(): Array<{ option: TimingOption; label: string }> {
-  const now = getDateService().now();
-  const hour = now.getHours();
-  const day = now.getDay(); // 0 = Sunday, 5 = Friday
-
-  // Morning (6-10)
-  if (hour >= 6 && hour < 10) {
-    return [
-      { option: 'today', label: 'Today' },
-      { option: 'tomorrow', label: 'Tomorrow' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Evening (18-23)
-  if (hour >= 18 && hour < 23) {
-    return [
-      { option: 'tomorrow', label: 'Tomorrow' },
-      { option: 'today-actually', label: 'Today actually' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Late night (23-5)
-  if (hour >= 23 || hour < 5) {
-    return [
-      { option: 'tomorrow', label: 'Tomorrow' },
-      { option: 'later-this-week', label: 'Later this week' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Friday after 15:00
-  if (day === 5 && hour >= 15) {
-    return [
-      { option: 'monday', label: 'Monday' },
-      { option: 'this-weekend', label: 'This weekend' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Default (rest of the time)
-  return [
-    { option: 'today', label: 'Today' },
-    { option: 'tomorrow', label: 'Tomorrow' },
-    { option: 'someday', label: 'Someday' },
-  ];
-}
-
-/**
- * Converts timing option to ISO date string
- */
-export function timingOptionToDate(option: TimingOption): string | null {
-  // counted from the person's day, so after midnight Today is still their today
-  const now = getDateService().dayNow();
-
-  switch (option) {
-    case 'today':
-    case 'today-actually': {
-      // Today at 17:00 local
-      const today = new Date(now);
-      today.setHours(17, 0, 0, 0);
-      return today.toISOString();
-    }
-
-    case 'tomorrow': {
-      // Tomorrow at 09:00 local
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(9, 0, 0, 0);
-      return tomorrow.toISOString();
-    }
-
-    case 'later-this-week': {
-      // +3 days at 09:00 local
-      const later = new Date(now);
-      later.setDate(later.getDate() + 3);
-      later.setHours(9, 0, 0, 0);
-      return later.toISOString();
-    }
-
-    case 'this-weekend': {
-      // Upcoming Saturday at 10:00 local
-      const dayOfWeek = now.getDay();
-      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7; // 0-6, if 0 then next week
-      const saturday = new Date(now);
-      saturday.setDate(saturday.getDate() + daysUntilSaturday);
-      saturday.setHours(10, 0, 0, 0);
-      return saturday.toISOString();
-    }
-
-    case 'monday': {
-      // Next Monday at 09:00 local
-      const dayOfWeek = now.getDay();
-      const daysUntilMonday = (1 - dayOfWeek + 7) % 7 || 7; // If today is Monday, go to next Monday
-      const monday = new Date(now);
-      monday.setDate(monday.getDate() + daysUntilMonday);
-      monday.setHours(9, 0, 0, 0);
-      return monday.toISOString();
-    }
-
-    case 'someday':
-    default:
-      return null; // No due date
-  }
-}
-
 export type CatchAllNotepadProps = {
   trustRefreshMs?: number;
   // Optional P8: allow parent to pass network status if a hook exists elsewhere
@@ -1141,7 +1024,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const createTodo = useGremlyStore((s) => s.createTodo);
   const createNote = useGremlyStore((s) => s.createNote);
   const createHabit = useGremlyStore((s) => s.createHabit);
-  const updateTodo = useGremlyStore((s) => s.updateTodo);
   const updateNote = useGremlyStore((s) => s.updateNote);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
@@ -1341,8 +1223,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
-  const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [showRitualProgress, setShowRitualProgress] = useState(false);
@@ -1375,7 +1255,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const hasShownGreetingRef = useRef(false);
   const lastSpeechTimeRef = useRef<number | null>(null);
   const hasShownMeterSpeechRef = useRef(false);
-  const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
   const currentSubmissionHasPhotosRef = useRef(false);
   const pendingTrainingReactionRef = useRef<string | null>(null);
@@ -2565,77 +2444,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ],
   );
 
-  const handleTimingSelection = useCallback(
-    async (option: TimingOption) => {
-      const todoId = pendingTodoId;
-      if (!todoId) {
-        console.warn('[MindDrop][Timing] No pending todo id');
-        return;
-      }
-
-      try {
-        setTimingChips([]);
-        setPendingTodoId(null);
-
-        const dueDate = timingOptionToDate(option);
-
-        // Mind Drop timing chip path: PARTIAL update for due date only.
-        // This is intentionally separate from UnifiedOverlayV2's toCreateOrUpdateInput().
-        // Do NOT include title, name, tags, or other fields here — those remain controlled by:
-        // 1. Initial Mind Drop create (auto-actions path with AI tags)
-        // 2. Overlay edits via UnifiedOverlayV2 (user-initiated changes)
-        await updateTodo(todoId, {
-          due_date: dueDate,
-          undefined_due: !dueDate,
-        });
-
-        triggerRecentRefresh();
-
-        // Track timing selection (skip if this is auto-fallback which is already tracked)
-        if (option !== 'someday' || timingChips.length > 0) {
-          metricsRef.current.timingSelected += 1;
-          logMetrics('timing_selected', { todoId, option, dueDate });
-        }
-
-        if (TOASTS_ON) {
-          const label = option === 'someday' ? 'Added to list' : 'Scheduled ✓';
-          showActionToast({
-            type: 'success',
-            content: label,
-          });
-        }
-      } catch (error) {
-        console.error('[MindDrop][Timing] Failed to assign timing', error);
-      }
-    },
-    [
-      pendingTodoId,
-      updateTodo,
-      triggerRecentRefresh,
-      TOASTS_ON,
-      showActionToast,
-      timingChips.length,
-      logMetrics,
-    ],
-  );
-
-  // Auto-dismiss timing chips after configured interval
-  useEffect(() => {
-    if (!timingChips?.length) return;
-    // Auto-dismiss after 5s and assign 'Someday' (due null)
-    const timeout = setTimeout(() => {
-      setTimingChips([]);
-      if (pendingTodoId) {
-        // Auto-assign "Someday" (no due date)
-        metricsRef.current.timingFallback += 1;
-        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
-
-        handleTimingSelection('someday');
-      }
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [timingChips, pendingTodoId, logMetrics, handleTimingSelection]);
-
   const wakeOnInput = useWakeOnInput();
 
   const handleChangeText = useCallback(
@@ -3384,16 +3192,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             style={styles.helperCounter}
           >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
         </View>
-      ) : null}
-
-      {timingChips.length > 0 && !chatMode ? (
-        <MidConfidenceChips
-          variant="timing"
-          timingChips={timingChips}
-          onTimingPick={handleTimingSelection}
-          prompt="When do you want to do this?"
-          autoDismissMs={5000}
-        />
       ) : null}
 
       {compactTyping ? null : (
