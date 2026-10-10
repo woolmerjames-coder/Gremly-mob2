@@ -30,7 +30,8 @@
 //   v3.8 (default from 9 Oct 2026, Mind Drop rethink stage 3): v3.7 plus how
 //         sure a multi split is (clear or unsure), the drop's outcome as one
 //         entry, and a piece that can be ambiguous with its own question.
-//         wrangler.toml keeps CLASSIFY_PROMPT = "v3.7" until James switches it.
+//         Builds from the Mind Drop rethink run it (CLASSIFY_PROMPT_NEW_BUILDS,
+//         from 10 Oct 2026); builds already out keep CLASSIFY_PROMPT = "v3.7".
 //   v3.7: frozen exactly as it ran before v3.8 (a test checks its hash).
 //         Semantic rules. v3.5 (the audited prompt; on 1,000 new
 //                   random drops it scored the same as v4 with Gemini 3.8
@@ -41,7 +42,8 @@
 //   v4.1: the default plus ordered decision steps and labeller rules.
 //   v4:   v4.1 plus a short reason and a checklist of facts, with the habit
 //         rule enforced in code from the facts.
-// Chosen with the Worker var CLASSIFY_PROMPT (older names run the default).
+// Chosen with the Worker vars CLASSIFY_PROMPT and CLASSIFY_PROMPT_NEW_BUILDS
+// (classifyPromptFor; older names run the default).
 export const PROMPT_VERSION = 'v3.8';
 export const PROMPT_VERSIONS = ['v3.8', 'v3.7', 'v4.1', 'v4'];
 
@@ -1039,6 +1041,22 @@ export function normalizeClassifyV3(parsed, text = '', opts = {}) {
   }
 
   return result;
+}
+
+/**
+ * Which prompt version a classify-v3 request runs (10 Oct 2026). Builds from the
+ * Mind Drop rethink send piece_questions and read the split and the drop as one,
+ * so they run CLASSIFY_PROMPT_NEW_BUILDS; builds already out run CLASSIFY_PROMPT
+ * until people move to the new build, so no build sees a prompt it was not made
+ * for. A missing or unknown value falls back to CLASSIFY_PROMPT, then to the
+ * code's default.
+ */
+export function classifyPromptFor(env, body) {
+  const known = (v) => PROMPT_VERSIONS.includes(v);
+  if (body?.piece_questions === true && known(env?.CLASSIFY_PROMPT_NEW_BUILDS)) {
+    return env.CLASSIFY_PROMPT_NEW_BUILDS;
+  }
+  return known(env?.CLASSIFY_PROMPT) ? env.CLASSIFY_PROMPT : PROMPT_VERSION;
 }
 
 /**

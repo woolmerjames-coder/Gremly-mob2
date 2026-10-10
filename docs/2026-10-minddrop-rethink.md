@@ -144,12 +144,12 @@ Keep it short and plain. No dashes as punctuation.
 Kept by the builder, from James's answers of 9 October. Where it differs from the plan's deploy table, this wins.
 
 - **One app build.** There is one TestFlight build, made once every stage is done, stage 11's clean up and stage 12 included, and the planning chat has done its final check. Stage 11 goes in this build, not a later one. The simulator checks after stages 6 and 8 stay.
-- **Before ship day,** cortex Worker deploys are fine as long as `CLASSIFY_PROMPT` stays "v3.7" in `wrangler.toml`: every change since stage 2b keeps the builds already out working (they ignore `split` and `as_one`, and never send `piece_questions` or `write_question`). The simulator checks need the new routes, so a cortex deploy comes before each. `CLASSIFY_SPLIT_AUTO` is "false" from stage 3's gate.
+- **Before ship day,** cortex Worker deploys are fine as long as `CLASSIFY_PROMPT` stays "v3.7" in `wrangler.toml`: every change since stage 2b keeps the builds already out working (they ignore `split` and `as_one`, and never send `piece_questions` or `write_question`). The simulator checks need the new routes, so a cortex deploy comes before each. From 10 October the new build runs `CLASSIFY_PROMPT_NEW_BUILDS` ("v3.8") with `CLASSIFY_SPLIT_AUTO` "true" (see the note of that day below), while builds already out stay on `CLASSIFY_PROMPT` "v3.7".
 - **Everything that waits for the app goes out on ship day,** the same day the TestFlight build goes out, so no build sees a Worker that runs ahead of it. Each stage adds its lines below.
 
 **Ship day checklist** (the day the TestFlight build goes out):
 
-1. Classifier v3.8: in `workers/cortex/wrangler.toml` set `CLASSIFY_PROMPT = "v3.8"` (`CLASSIFY_SPLIT_AUTO` stays "false"), then deploy cortex: `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. Rollback: set it back to "v3.7" and deploy again. v3.8 then serves every build: builds already out ignore `split` and `as_one`, and without `piece_questions` they get no piece questions.
+1. Classifier: nothing to switch. Since 10 October the new build runs v3.8 with automatic splits (`CLASSIFY_PROMPT_NEW_BUILDS`, `CLASSIFY_SPLIT_AUTO`), and builds already out stay on v3.7 (`CLASSIFY_PROMPT`) until people move to the new build. Moving them to v3.8 sooner is optional: set `CLASSIFY_PROMPT = "v3.8"` and deploy cortex (they ignore `split` and `as_one`).
 2. Deploy inngest-jobs (stage 2c: the brief, the notification counts and the daily context count a todo with only a deadline on its deadline day; stage 8: the morning and evening counts follow the ask rules, habits with a question included): `cd ~/Documents/gremly-mob2/workers/inngest-jobs && npx wrangler deploy`.
 3. Confirm the data fabric's Worker changes are live (stage 9 needs them): an `assign-worlds` reply carries `filed`. Stage 9 gives the check.
 4. Run the old questions SQL (in the stage 8 note below), before the build reaches people: from stage 6 the app lets old questions go itself as it loads, one write each, and one account has 139 of them.
@@ -618,5 +618,25 @@ For James:
 - Step 1 of training: the reaction now lands at about 2s, before the gauge card opens at 3s, so it is held for the card more reliably than at the old 4s.
 - Nothing to deploy for stage 10 (app only).
 - Simulator moments: drop call mum about sunday and watch the bubble change at the same moment as the card, with one line and no Tap the card. Drop buy milk and book the dentist: the pieces unzip and the bubble reacts once, to the whole drop. Drop an unclear one (dentist): the question is on the card and the bubble only reacts.
+
+Blocking questions: none.
+
+
+### Automatic splits on, and v3.8 for the new build (10 October, James)
+
+What changed:
+- Your decision of 10 October, after asking why the simulator asked before every split: a clear split now comes apart on its own, with Split into 3 and Keep as one under the pieces, and an unsure one asks One job or two? first, as the prototype does. This reverses the stage 3 gate's `CLASSIFY_SPLIT_AUTO = "false"`.
+- The new build runs v3.8 now rather than from ship day: `classifyPromptFor` in `workers/cortex/classifyV3.js` (used by the classify-v3 route) gives a build that sends `piece_questions` (only builds from this rethink do) the new var `CLASSIFY_PROMPT_NEW_BUILDS` ("v3.8"), and every other build `CLASSIFY_PROMPT`, which stays "v3.7". So the simulator and TestFlight see the prompt the build was made for, and everyone else follows as they update. An unset or unknown value falls back to `CLASSIFY_PROMPT`, then to the code's default.
+- `wrangler.toml`: `CLASSIFY_PROMPT_NEW_BUILDS = "v3.8"`, `CLASSIFY_SPLIT_AUTO = "true"`, with the reasons. `docs/minddrop-classify-v3.md` lists the vars. Ship day item 1 no longer switches the prompt.
+- Found on the way: with the switch off, the Worker turned the classifier's clear into unsure before the app saw it, so `split_answer` would have recorded every split as unsure and the few weeks of data to decide from would not have existed. With the switch on, the app gets the classifier's own call, and Keep as one under a clear split records it as clear.
+
+Tests: `classifyV3.test.js` (the new builds' version for a build that sends `piece_questions`; builds already out on `CLASSIFY_PROMPT`; the fall backs; and `wrangler.toml` holds v3.7, v3.8 and "true"). All cortex Worker tests: 40 suites, 642 tests, passing.
+
+Deviations: none from what you asked.
+
+For James:
+- Deploy cortex before the simulator check: `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. Builds already out see no change (v3.7, and they ignore the split).
+- Rollback for the new build: `CLASSIFY_SPLIT_AUTO = "false"` (every split asks again) or `CLASSIFY_PROMPT_NEW_BUILDS = "v3.7"`, then deploy cortex again.
+- The stage 3 run's cost of this: v3.8 split 2 drops in 1,000 (5 in its second run) that should have stayed one; each is one tap on Keep as one, under the pieces or in that evening's Sweep.
 
 Blocking questions: none.

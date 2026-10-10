@@ -200,8 +200,7 @@ import {
   parseModelJson,
   wantsQuestionWriter,
   AMBIGUITY_TYPES,
-  PROMPT_VERSION,
-  PROMPT_VERSIONS,
+  classifyPromptFor,
 } from './classifyV3.js';
 
 import { handleHabitRead } from './habitRead.js';
@@ -8451,15 +8450,15 @@ Segment rules:
         }
 
         const t0 = Date.now();
-        // CLASSIFY_PROMPT picks a prompt version; anything else (including the
-        // older "v3.5") runs the default.
-        const promptVersion = PROMPT_VERSIONS.includes(env.CLASSIFY_PROMPT)
-          ? env.CLASSIFY_PROMPT
-          : PROMPT_VERSION;
+        // The prompt version: CLASSIFY_PROMPT_NEW_BUILDS for builds from the Mind
+        // Drop rethink (they send piece_questions), CLASSIFY_PROMPT for builds
+        // already out; anything unknown runs the default (classifyPromptFor)
+        const promptVersion = classifyPromptFor(env, body);
         const systemPrompt = buildClassifyV3Prompt({ version: promptVersion });
         // Builds from the Mind Drop rethink send piece_questions, so a piece of a
         // multi drop can ask its own question; builds already out never do.
-        // CLASSIFY_SPLIT_AUTO "false" makes every multi drop ask (stage 3).
+        // CLASSIFY_SPLIT_AUTO "false" makes every multi drop ask (stage 3); "true"
+        // from 10 Oct 2026 lets a clear split come apart on its own.
         const classifyOpts = {
           pieceQuestions: body.piece_questions === true,
           splitAuto: String(env.CLASSIFY_SPLIT_AUTO ?? 'true') !== 'false',

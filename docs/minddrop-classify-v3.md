@@ -67,7 +67,9 @@ The whole route stays within 9 seconds, inside the app's 10 second budget for th
 |---|---|
 | `CLASSIFY_V3_ENABLED` | `"true"` to serve the route. Anything else returns 503, and the app uses v2. |
 | `CLASSIFY_PROVIDER`, `CLASSIFY_MODEL` | Main model. Default until one is picked: OpenAI `gpt-4.1-mini`. |
-| `CLASSIFY_PROMPT` | `v3.7` (default), `v4.1` or `v4`. |
+| `CLASSIFY_PROMPT` | `v3.8`, `v3.7`, `v4.1` or `v4`, for builds that do not send `piece_questions` (builds from before the Mind Drop rethink). Unknown values run the code's default, `v3.8`. |
+| `CLASSIFY_PROMPT_NEW_BUILDS` | The version for builds that send `piece_questions` (from the Mind Drop rethink). Unset or unknown: `CLASSIFY_PROMPT`. |
+| `CLASSIFY_SPLIT_AUTO` | `"false"` makes every multi drop ask (split unsure); anything else lets a clear split come apart on its own. |
 | `CLASSIFY_REASONING_EFFORT` | OpenAI reasoning models, for example `low` for GPT-6 Luna. |
 | `CLASSIFY_THINKING_LEVEL` | Gemini, for example `low` for Gemini 3.8 Flash (it rejects `minimal`). |
 | `CLASSIFY_FALLBACK_PROVIDER`, `CLASSIFY_FALLBACK_MODEL` | Backup model. Use a different provider from the main one. |

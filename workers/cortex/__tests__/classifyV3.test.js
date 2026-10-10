@@ -2,6 +2,8 @@
  * classifyV3.js: prompt + normalisation for the single-call Mind Drop classifier.
  */
 import { createHash } from 'crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AMBIGUITY_TYPES,
   CLARIFY_TYPE_CONFIGS,
@@ -12,6 +14,7 @@ import {
   gateHabit,
   buildClarifyPrompt,
   buildClarification,
+  classifyPromptFor,
   formatDropMessage,
   normalizeClassifyV3,
   parseModelJson,
@@ -750,6 +753,42 @@ describe('normalizeClassifyV3: splits and pieces (v3.8)', () => {
     expect(r.segments[1]).toMatchObject({ bucket: 'log', subtype: 'general' });
     expect(r.segments[1].clarification_question).toBeUndefined();
     expect(r.segments[1].is_ambiguous).toBeUndefined();
+  });
+});
+
+describe('classifyPromptFor (10 Oct 2026)', () => {
+  const env = { CLASSIFY_PROMPT: 'v3.7', CLASSIFY_PROMPT_NEW_BUILDS: 'v3.8' };
+
+  it('runs the new builds’ version for a build that sends piece_questions', () => {
+    expect(classifyPromptFor(env, { piece_questions: true })).toBe('v3.8');
+  });
+
+  it('keeps builds already out on CLASSIFY_PROMPT', () => {
+    expect(classifyPromptFor(env, {})).toBe('v3.7');
+    expect(classifyPromptFor(env, { piece_questions: false })).toBe('v3.7');
+  });
+
+  it('falls back to CLASSIFY_PROMPT when the new builds’ version is unset or unknown', () => {
+    expect(classifyPromptFor({ CLASSIFY_PROMPT: 'v3.7' }, { piece_questions: true })).toBe('v3.7');
+    expect(
+      classifyPromptFor(
+        { CLASSIFY_PROMPT: 'v3.7', CLASSIFY_PROMPT_NEW_BUILDS: 'v9' },
+        { piece_questions: true },
+      ),
+    ).toBe('v3.7');
+  });
+
+  it('runs the code’s default when no known version is set', () => {
+    expect(classifyPromptFor({}, {})).toBe(PROMPT_VERSION);
+    expect(classifyPromptFor({ CLASSIFY_PROMPT: 'v3.5' }, {})).toBe(PROMPT_VERSION);
+  });
+
+  it('matches wrangler.toml: the new build on v3.8 with splits that come apart, builds already out on v3.7', () => {
+    const toml = readFileSync(join(__dirname, '../wrangler.toml'), 'utf8');
+    const varOf = (name) => toml.match(new RegExp(`^${name} = "([^"]*)"`, 'm'))?.[1];
+    expect(varOf('CLASSIFY_PROMPT')).toBe('v3.7');
+    expect(varOf('CLASSIFY_PROMPT_NEW_BUILDS')).toBe('v3.8');
+    expect(varOf('CLASSIFY_SPLIT_AUTO')).toBe('true');
   });
 });
 

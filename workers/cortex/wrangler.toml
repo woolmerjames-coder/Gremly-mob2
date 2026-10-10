@@ -28,16 +28,18 @@ CLASSIFY_MODEL = "gemini-3.8-flash"
 CLASSIFY_THINKING_LEVEL = "low"
 CLASSIFY_FALLBACK_PROVIDER = "openai"
 CLASSIFY_FALLBACK_MODEL = "gpt-6-luna"
-# The classifier's prompt version (classifyV3.js). v3.8 is the code's default from the
-# Mind Drop rethink (9 Oct 2026); this stays "v3.7" until ship day, when it becomes "v3.8"
-# the same day the TestFlight build goes out (the ship day checklist in
-# docs/2026-10-minddrop-rethink.md). Rollback: "v3.7".
+# The classifier's prompt version (classifyV3.js, classifyPromptFor). Builds already out
+# run CLASSIFY_PROMPT, which stays "v3.7" while they are in use. Builds from the Mind Drop
+# rethink (they send piece_questions) run CLASSIFY_PROMPT_NEW_BUILDS, "v3.8" from 10 Oct
+# 2026, so the new build gets v3.8 from the simulator on and everyone else follows as they
+# move to it (docs/2026-10-minddrop-rethink.md). Rollback for the new build: "v3.7".
 CLASSIFY_PROMPT = "v3.7"
-# "false": every multi drop asks on its card (split unsure) rather than splitting the clear
-# ones itself. James's decision at the stage 3 gate (9 Oct 2026), as the clear list had
-# wrong splits; the split cards record what the classifier said and what was tapped, and he
-# decides from that whether to turn it to "true". Builds already out ignore it.
-CLASSIFY_SPLIT_AUTO = "false"
+CLASSIFY_PROMPT_NEW_BUILDS = "v3.8"
+# "true": a clear split comes apart into its pieces on its own, with Keep as one under them,
+# and an unsure one asks on its card, as the prototype does. James's decision of 10 Oct 2026,
+# reversing the stage 3 gate's "false" (every split asked). Builds already out ignore it, and
+# v3.7 never says a split is clear. Rollback: "false".
+CLASSIFY_SPLIT_AUTO = "true"
 # Mind Drop: after a drop is classified, ask whether it is about something the user
 # already has (a repeat, a change, a done todo, a habit they did). It runs on its own
 # model, MODEL_DROP_RELATE below, apart from the chat matcher. On for James's hands-on test (30 Sep 2026),
