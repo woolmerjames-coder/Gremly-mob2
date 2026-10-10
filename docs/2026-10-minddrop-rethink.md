@@ -160,7 +160,7 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
    - the split choice data: `app_events` kind `split_answer`, what the classifier said (clear or unsure) against what was tapped (split, keep_as_one, not_now), for the automatic splits call;
    - the share of places people change: `app_events` kind `place_change` against the drops filed somewhere.
 8. **Two weeks after ship:** check Expo for sessions on older builds. If there are none, remove what only they need: the Worker routes `detect-multi` and `classify-phase1-v2` and the question writer inside `classify-v3`; the journal word list `isSenseMakingJournal` in `classify-phase1`; and Phase 2's event title (`smart_title`). The new build calls none of them: since the final check's fixes it reads an older degraded item again with `classify-v3`. The questions and lapses read (stage 12) is due then too.
-9. Cortex for the deadline check (final check item 6, the note of that name below): the same deploy as item 5, and safe at any time, as the Worker reads deadlines only for a request that sends `deadlines: true`. Whether this build sends it waits for your read of that gate (`RELATE_SENDS_DEADLINES` in `lib/minddrop/relationActions.ts`, false until you say yes).
+9. Cortex for the deadline check (final check item 6, the note of that name below): the same deploy as item 5, and it must be live before the build reaches people, as this build sends `deadlines: true` (you said ship on 10 October). Builds already out never send it, so it is safe to deploy at any time.
 10. Anything later stages add.
 
 ## Stage notes
@@ -848,7 +848,7 @@ Blocking questions: none.
 What changed:
 - Worker, `workers/cortex/minddropRelate.js` and the `minddrop-relate` route in `cortex-index.js`. A request with `deadlines: true` reads each todo's scheduled day and deadline, writes its line as "planned for <day>" or "no day planned", then "deadline <day>" or "no deadline", and gets the deadline prompt. That is the same prompt with four passages swapped, each checked when the module loads: a todo's two dates told apart, `target_date` an edit field for a todo, which date a drop moves (when it is due, must be done by or the deadline moved: the deadline; when they will do it: the planned day; either: no change), and the day rule for both. Semantic only. A target_date change is accepted only with the flag. Without it the prompt, the lines and the checks are exactly as before (tested).
 - App. `target_date` is an editable todo field (`lib/minddrop/dropRelation.ts`). `fromEntityCard` maps it onto the change model's `deadline` (column target_date), so the write, the history line and Undo are the change model's, and due_day is never touched. The words: the question "Move the deadline for <title> to Fri?", the button "Move the deadline", the item row "No deadline → Due Fri 16 Oct", the toast "Moved the deadline for “<title>” to Fri 16 Oct", and the kept line "<title> is now due Fri 16 Oct.". `currentEntity` reads the deadline from the store, so Undo puts back the deadline it had at the tap. A deadline only todo's card then reads Due Fri by the shared rule; a todo with a planned day keeps showing its planned day, as stage 2c decided.
-- `RELATE_SENDS_DEADLINES` in `lib/minddrop/relationActions.ts` is false, so this build does not send the flag yet: the gate below came out outside its band. Everything else is in place and tested; turning it on is that one line.
+- `RELATE_SENDS_DEADLINES` in `lib/minddrop/relationActions.ts` held the flag back until you read the gate below; you said ship on 10 October, so it is on and this build sends `deadlines: true`.
 - Replay. `scripts/relate-replay/run.mjs --deadlines` sends the deadline request. The export `real/items-deadlines.jsonl` (md5 770703a7e4ea86ac0d5ef1a87b315bce) is the same 829 rows as `items.jsonl` (md5 c4c74f3f046b58f4833877435a751d43, unchanged, as is `drops.jsonl`, d47843004b50b00af5cee1e504a27c26) with each todo's target_date and scheduled_date added: 280 todos have a date, 8 a deadline. The made up check is `workers/cortex/__tests__/fixtures/relate-deadlines.json` (21 drops against 12 items, made up ids too; a test checks none of it is in either prompt), run with `scripts/relate-replay/deadlines.sh --run 1`.
 
 The gate (new section at the bottom of `Claude outputs/already-have-it-replay.html`), Luna low on the same 628 drops, right of 26, missed, wrong:
@@ -861,5 +861,14 @@ The gate (new section at the bottom of `Claude outputs/already-have-it-replay.ht
 Tests: `minddropRelate.test.js` 28 pass; `dropRelation.test.ts` 23 (5 new); new `relationDeadline.test.ts` 7, through the real apply, history and Undo on a store mock; one new CardAsk test. The lib/minddrop, components/minddrop, lib/chat and lib/changes suites pass (67 suites), and tsc is clean.
 Deviations: the extra runs above, beyond the two the spec asked for.
 Plan corrections: the spec named the gate runs 3 and 4; those numbers were the 9 October cache order test, so the gate runs are 5 and 6.
-For James: read the new section of the replay page and say ship or hold. Ship: `RELATE_SENDS_DEADLINES = true` before the TestFlight build (or tell me and I will). Hold: nothing; this build treats deadlines as today's does. Either way, cortex can deploy any time (ship day item 9).
+For James: you read it and said ship (10 October), so the flag is on. Deploy cortex before the build reaches people (ship day item 9).
 Blocking questions: none. One for your read: does "Council tax is the 30th" read as a deadline count as wrong?
+
+### A todo with only a deadline is caught by every wrap up (10 October, your question)
+
+You asked whether a todo with a deadline and no day to do it stays in the wrap up until it gets one. It does, and four tests now hold it (`lib/store/__tests__/selectors.test.ts`, "a todo with only a deadline, before its deadline"):
+- it is a card in every evening's wrap up from the day it is dropped, through its deadline and after it, until it has a day to do it;
+- once it has a day it waits for that day, then comes back;
+- the morning quick sweep asks it until it is decided, and the evening keeps it either way;
+- Later holds it until the day it comes back. Put off past its deadline, it still shows on Today on the deadline day, and as overdue after.
+Nothing changed in the app. A heads up some days before a deadline (Today showing it early, or a reminder) is still a choice for later.

@@ -2564,3 +2564,69 @@ describe('a todo with a deadline and no day planned', () => {
     expect(passed.meta).toMatchObject({ todoStatus: 'overdue', byDeadline: true });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// A todo with only a deadline is never lost before its deadline (James, 10 Oct):
+// every evening's wrap up brings it back until it has a day to do it
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a todo with only a deadline, before its deadline', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const at = (iso: string) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(iso));
+  };
+  // dropped on the 10th, due by Friday the 19th, no day to do it yet
+  const report = (over: Record<string, unknown> = {}) =>
+    makeTodo({
+      id: 'report',
+      due_day: null,
+      scheduled_date: null,
+      target_date: '2025-12-19',
+      created_at: '2025-12-10T09:00:00Z',
+      ...over,
+    } as Partial<Todo>);
+  const wrapUpIds = (todos: Todo[]) =>
+    selectWrapUp(makeState({ todos }) as any).cards.map((c) => c.candidate.id);
+
+  it('is a card in every evening wrap up until its deadline, and after it', () => {
+    for (const day of ['2025-12-12', '2025-12-15', '2025-12-18', '2025-12-19', '2025-12-22']) {
+      at(`${day}T20:00:00Z`);
+      expect(wrapUpIds([report()])).toEqual(['report']);
+    }
+  });
+
+  it('once it has a day to do it, it waits for that day, then comes back', () => {
+    at('2025-12-15T20:00:00Z');
+    expect(wrapUpIds([report({ due_day: '2025-12-17' })])).toEqual([]);
+    at('2025-12-17T20:00:00Z');
+    expect(wrapUpIds([report({ due_day: '2025-12-17' })])).toEqual(['report']);
+  });
+
+  it('the morning quick sweep asks it until it is decided, and the evening keeps it either way', () => {
+    at('2025-12-15T16:00:00Z');
+    const ids = (todos: Todo[]) =>
+      selectQuickSweepCandidates(makeState({ todos }) as any).map((c) => c.candidate.id);
+    expect(ids([report()])).toEqual(['report']);
+    expect(ids([report({ decided_at: '2025-12-14T21:00:00Z' })])).toEqual([]);
+    at('2025-12-15T20:00:00Z');
+    expect(wrapUpIds([report({ decided_at: '2025-12-14T21:00:00Z' })])).toEqual(['report']);
+  });
+
+  it('Later holds it until the day it comes back; a Later past the deadline still shows on Today on the day', () => {
+    at('2025-12-16T20:00:00Z');
+    expect(wrapUpIds([report({ resurface_at: '2025-12-17' })])).toEqual([]);
+    at('2025-12-17T20:00:00Z');
+    expect(wrapUpIds([report({ resurface_at: '2025-12-17' })])).toEqual(['report']);
+    // put off to after the deadline: Today still has it on the deadline day, and overdue after
+    at('2025-12-19T16:00:00Z');
+    const late = makeState({ todos: [report({ resurface_at: '2025-12-23' })] });
+    expect(selectTodosDueToday(late as any).map((t) => t.id)).toEqual(['report']);
+    at('2025-12-20T16:00:00Z');
+    const after = makeState({ todos: [report({ resurface_at: '2025-12-23' })] });
+    expect(selectOverdueTodos(after as any).map((t) => t.id)).toEqual(['report']);
+  });
+});

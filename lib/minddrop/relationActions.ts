@@ -158,12 +158,12 @@ function deviceTimezone(): string | undefined {
  * from the day they plan to do it (deadlines: true, final check item 6). The
  * app handles a deadline change in full (dropRelation, applyDropRelation and
  * its Undo, the card's words), and the Worker answers only a request that
- * says so. Held off: the relate replay gate on 10 October came out outside
- * the band from runs 1 and 2 (see final check item 6 in
- * docs/2026-10-minddrop-rethink.md), so it waits for James's read; turning
- * it on is this one line.
+ * says so. On from 10 October: the relate replay gate came out outside the
+ * band from runs 1 and 2, within the run to run noise shown by the extra runs,
+ * and James read it and said ship (final check item 6 in
+ * docs/2026-10-minddrop-rethink.md).
  */
-export const RELATE_SENDS_DEADLINES = false;
+export const RELATE_SENDS_DEADLINES = true;
 
 /** Never rejects: null means file the drop as usual. */
 export async function fetchDropRelation(
