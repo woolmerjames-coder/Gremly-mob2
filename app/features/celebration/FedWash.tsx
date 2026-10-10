@@ -3,6 +3,11 @@
  * the box, so the box stays on top and keeps taking text. The controller
  * owns the clock; this only draws. The home tells the controller where the
  * box starts so the root MomentLayer can carry on from there on day 3.
+ *
+ * It rises from the bottom of its parent, so the parent must end where the
+ * box starts (the home's page area). It must not sit in a view that has
+ * bottom padding: an absolute child is measured from the outer edge, past the
+ * padding, so the wash would sit that much too low.
  */
 
 /* eslint-disable react-hooks/immutability */
@@ -26,11 +31,9 @@ const IN = Easing.bezier(0.6, 0, 0.8, 0.4);
 interface Props {
   /** The height of the region above the box, which the wash fills */
   height: number;
-  /** Where that region ends: the box's height, measured from the bottom */
-  bottom: number;
 }
 
-export function FedWash({ height, bottom }: Props) {
+export function FedWash({ height }: Props) {
   const washHeight = useSharedValue(0);
   const up = useRef(false);
 
@@ -64,7 +67,7 @@ export function FedWash({ height, bottom }: Props) {
   const style = useAnimatedStyle(() => ({ height: washHeight.value }));
 
   return (
-    <Animated.View style={[styles.wash, { bottom }, style]} pointerEvents="none" testID="fed-wash">
+    <Animated.View style={[styles.wash, style]} pointerEvents="none" testID="fed-wash">
       <LinearGradient
         colors={WASH}
         locations={[0, 0.48, 1]}
@@ -75,6 +78,6 @@ export function FedWash({ height, bottom }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wash: { position: 'absolute', left: 0, right: 0, overflow: 'hidden', zIndex: 1 },
+  wash: { position: 'absolute', left: 0, right: 0, bottom: 0, overflow: 'hidden', zIndex: 1 },
   gradient: { position: 'absolute', left: 0, right: 0, bottom: 0 },
 });

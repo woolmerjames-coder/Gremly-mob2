@@ -15,7 +15,7 @@
 // Reanimated shared values are mutated through .value by design
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
   type SharedValue,
@@ -100,12 +100,22 @@ export function MomentLayer() {
       if (payload.kind !== 'moment' || !payload.moment) return;
       const m = payload.moment;
       if (m.phase === 'start') {
+        // The moment takes the whole page. A drop leaves the keyboard up, and
+        // under it the wash had only a sliver above the box while the words
+        // spilled over the box, and on day 3 Keep going sat behind the keys
+        Keyboard.dismiss();
         setHostTop(celebrationController.getWashHostTop());
         if (endTimer.current) {
           clearTimeout(endTimer.current);
           endTimer.current = null;
         }
         setMounted(true);
+      }
+      if (m.phase === 'charge') {
+        // the box has moved down since the start if the keyboard went, so the
+        // cover grows from where the box is now
+        const top = celebrationController.getWashHostTop();
+        if (top !== null) setHostTop((prev) => (prev === null ? prev : top));
       }
       setMoment(m);
     });

@@ -88,10 +88,9 @@ export default function GremlyHomeScreen() {
 
   const [mode, setMode] = useState<HomeMode>('drop');
   const [pagerHeight, setPagerHeight] = useState(0);
-  // The box: the fed wash fills everything above it, and the root moment
+  // The box: the fed wash fills the page area above it, and the root moment
   // layer carries on from its top on day 3, so the controller is told where it is
   const dockRef = useRef<View | null>(null);
-  const [dockHeight, setDockHeight] = useState(0);
   // on a fed day the box keeps a sage tint, from the moment the wash falls until the day ends
   const isFedToday = useGremlyStore((s) => s.isFedToday);
   const reportDock = useCallback(() => {
@@ -399,41 +398,37 @@ export default function GremlyHomeScreen() {
             style={styles.body}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
-            <Animated.ScrollView
-              ref={pagerRef}
-              style={styles.pager}
-              horizontal
-              pagingEnabled
-              bounces={false}
-              overScrollMode="never"
-              showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              scrollEventThrottle={16}
-              onScroll={onScroll}
-              onScrollBeginDrag={onScrollBeginDrag}
-              onMomentumScrollEnd={onMomentumScrollEnd}
-              onLayout={onPagerLayout}
-              testID="gremly-home-pager"
-            >
-              {dropPage}
-              {chatPage}
-            </Animated.ScrollView>
+            {/* The page area: the pages and the fed wash over them. The wash sits in here,
+                not loose in the keyboard view, because that view makes room for the
+                keyboard with bottom padding and a loose wash measured from its bottom
+                edge ended up behind the box and the keyboard, leaving only the words */}
+            <View style={styles.pageArea}>
+              <Animated.ScrollView
+                ref={pagerRef}
+                style={styles.pager}
+                horizontal
+                pagingEnabled
+                bounces={false}
+                overScrollMode="never"
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                scrollEventThrottle={16}
+                onScroll={onScroll}
+                onScrollBeginDrag={onScrollBeginDrag}
+                onMomentumScrollEnd={onMomentumScrollEnd}
+                onLayout={onPagerLayout}
+                testID="gremly-home-pager"
+              >
+                {dropPage}
+                {chatPage}
+              </Animated.ScrollView>
 
-            {/* The fed wash: the pages' height, ending at the box, under the box in the stack */}
-            {pagerHeight > 0 && dockHeight > 0 ? (
-              <FedWash height={pagerHeight} bottom={dockHeight} />
-            ) : null}
+              {/* The fed wash: the pages' height, ending at the box, under the box in the stack */}
+              {pagerHeight > 0 ? <FedWash height={pagerHeight} /> : null}
+            </View>
 
             {/* The one input box, fixed under both pages, with Gremly perched on it */}
-            <View
-              ref={dockRef}
-              style={styles.dock}
-              testID="gremly-home-dock"
-              onLayout={(e) => {
-                setDockHeight(e.nativeEvent.layout.height);
-                reportDock();
-              }}
-            >
+            <View ref={dockRef} style={styles.dock} testID="gremly-home-dock" onLayout={reportDock}>
               {isFedToday ? (
                 <LinearGradient
                   colors={DOCK_FED}
@@ -482,6 +477,9 @@ const styles = StyleSheet.create({
     right: 0,
   },
   body: {
+    flex: 1,
+  },
+  pageArea: {
     flex: 1,
   },
   pager: {

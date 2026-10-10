@@ -249,4 +249,20 @@ describe('GremlyHomeScreen', () => {
     expect(mockMarkHomeSwipeHintSeen).toHaveBeenCalled();
     jest.useRealTimers();
   });
+
+  it('keeps the fed wash with the pages, apart from the box and the keyboard room', () => {
+    const { getByTestId } = render(<GremlyHomeScreen />);
+    fireEvent(getByTestId('gremly-home-pager'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 600 } },
+    });
+    const hasId = (id: string) => (n: { props: { testID?: string } }) => n.props.testID === id;
+    // the nearest view holding both the wash and the pages
+    let area = getByTestId('fed-wash').parent;
+    while (area && area.findAll(hasId('gremly-home-pager')).length === 0) area = area.parent;
+    expect(area).toBeTruthy();
+    // it must not be the keyboard view, which also holds the box: the wash rises
+    // from its parent's bottom edge, and that view keeps the keyboard's room as
+    // bottom padding, so a wash in there sat behind the box and the keyboard
+    expect(area!.findAll(hasId('gremly-home-dock'))).toHaveLength(0);
+  });
 });
