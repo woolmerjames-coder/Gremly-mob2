@@ -73,6 +73,8 @@ import { DIDNT_GO, PlainError } from '../../../lib/minddrop/plainError';
 import { parseISO } from 'date-fns';
 import { eventBus } from '../../../lib/events/EventBus';
 import { getDateService } from '../../../lib/date/DateService';
+import { dayWords } from '../../../lib/minddrop/dropCardModel';
+import { formatDay } from '../../../lib/chat/dayWords';
 import { TOAST_AFTER_CARDS_MS } from '../../../lib/minddrop/popupTiming';
 import type { UnifiedDrop } from '../../../types/UnifiedDrop';
 
@@ -450,6 +452,32 @@ describe('a drop about something they already have', () => {
     expect(said).toContainEqual(['go', { ids: ['d1'] }]);
     expect(said).toContainEqual(['toast', 'Moved “Call the vet”']);
     offs.forEach((off) => off());
+  });
+
+  it('a deadline moved asks in deadline words, with the day as the card reads it (final check item 6)', async () => {
+    const friday = ds.addDays(today, 3);
+    const item = related({
+      kind: 'edit',
+      intent: 'edit',
+      entity: { ...vet, target_date: null },
+      others: [other],
+      change: { field: 'target_date', from: null, to: friday },
+    });
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    const day = dayWords(friday);
+    expect(
+      r.getByText(`Move the deadline for Call the vet about the booster to ${day}?`),
+    ).toBeTruthy();
+    expect(r.getByText('Move the deadline')).toBeTruthy();
+    expect(r.getByText('Not that one')).toBeTruthy();
+    expect(r.getByText(`No deadline → Due ${formatDay(friday)}`)).toBeTruthy();
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-yes'));
+    await tick(ASK_CHOSEN_MS);
+    expect(answerAsk).toHaveBeenCalledWith('d1', {
+      kind: 'relation',
+      yes: true,
+      picked: undefined,
+    });
   });
 
   it('says why when the yes could not be made, and lets the cards stay', async () => {

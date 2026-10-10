@@ -34,6 +34,7 @@ import { hasUsableClarification } from './clarification';
 import { keyedCalls, type StartedCall } from './dropCalls';
 import { kindWordOf, updateDropRow } from './dropSync';
 import { DIDNT_GO, PlainError } from './plainError';
+import { dayOnly } from '../../workers/shared/todoDay';
 import {
   changeForEntity,
   keepsDropAfterYes,
@@ -152,6 +153,18 @@ function deviceTimezone(): string | undefined {
   }
 }
 
+/**
+ * Whether this build asks the already have it check to tell a todo's deadline
+ * from the day they plan to do it (deadlines: true, final check item 6). The
+ * app handles a deadline change in full (dropRelation, applyDropRelation and
+ * its Undo, the card's words), and the Worker answers only a request that
+ * says so. Held off: the relate replay gate on 10 October came out outside
+ * the band from runs 1 and 2 (see final check item 6 in
+ * docs/2026-10-minddrop-rethink.md), so it waits for James's read; turning
+ * it on is this one line.
+ */
+export const RELATE_SENDS_DEADLINES = false;
+
 /** Never rejects: null means file the drop as usual. */
 export async function fetchDropRelation(
   text: string,
@@ -174,6 +187,7 @@ export async function fetchDropRelation(
           text,
           currentDate: dateService.today(),
           timezone: deviceTimezone(),
+          ...(RELATE_SENDS_DEADLINES ? { deadlines: true } : {}),
         }),
         ...(controller ? { signal: controller.signal } : {}),
       });
@@ -274,6 +288,8 @@ export function currentEntity(e: RelationEntity): {
         title: t.name || t.title || e.title,
         due_day: t.due_day ?? null,
         due_time: t.due_time ? String(t.due_time).slice(0, 5) : null,
+        // the deadline as it is now, so a yes and its Undo start from it
+        target_date: dayOnly(t.target_date),
         space_id: t.space_id ?? e.space_id ?? null,
       },
       gone: null,
@@ -401,6 +417,15 @@ export function outcomeWords(
       return {
         confirm: 'Moved',
         toast: { icon: 'moved', title: `Moved ${t} to ${formatTime(change.to)}`, detail },
+      };
+    case 'target_date':
+      return {
+        confirm: 'Deadline moved',
+        toast: {
+          icon: 'moved',
+          title: `Moved the deadline for ${t} to ${dayWords(change.to)}`,
+          detail,
+        },
       };
     case 'name':
       return {

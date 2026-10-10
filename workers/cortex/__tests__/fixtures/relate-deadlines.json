@@ -1,0 +1,255 @@
+{
+  "about": "Made up drops against made up items for the already have it check's deadline rule (final check item 6). Test data only: the ids are made up too. Never put any of it in a prompt (workers/cortex/__tests__/minddropRelate.test.js checks). Run with scripts/relate-replay/deadlines.sh. today is a Wednesday. expect: relation and entity (null for new); field and value for an edit; nochange true means any answer is fine except a change to a date.",
+  "today": "2026-10-14",
+  "items": {
+    "todos": [
+      {
+        "id": "39ba17d1-0000-4000-8000-a0eba86d4ddb",
+        "name": "Finish the quarterly budget report",
+        "due_day": "2026-10-15",
+        "target_date": "2026-10-16"
+      },
+      {
+        "id": "8152c304-0000-4000-8000-3959694f792f",
+        "name": "Submit the grant application",
+        "target_date": "2026-10-19"
+      },
+      {
+        "id": "edeca4cf-0000-4000-8000-2b0f1eb23309",
+        "name": "Renew the car insurance",
+        "due_day": "2026-10-17"
+      },
+      {
+        "id": "9072fe3e-0000-4000-8000-211e211e4fdf",
+        "name": "Send the invoice to Harper Studio",
+        "target_date": "2026-10-23"
+      },
+      {
+        "id": "0045b39f-0000-4000-8000-fb3a7e1ebecc",
+        "name": "Book the venue for the team offsite",
+        "due_day": "2026-10-14",
+        "target_date": "2026-10-21"
+      },
+      {
+        "id": "1e608eef-0000-4000-8000-660f158ec65a",
+        "name": "Write the conference talk abstract",
+        "target_date": "2026-10-30"
+      },
+      { "id": "cf45476d-0000-4000-8000-1548f926d534", "name": "Pay the council tax" },
+      {
+        "id": "060300d4-0000-4000-8000-abddbdc745e2",
+        "name": "Return the library books",
+        "scheduled_date": "2026-10-16T00:00:00+00:00",
+        "target_date": "2026-10-18"
+      },
+      {
+        "id": "97de5043-0000-4000-8000-194b2f30e8e8",
+        "name": "Call the plumber about the boiler",
+        "due_day": "2026-10-15",
+        "due_time": "09:00:00"
+      }
+    ],
+    "habits": [
+      {
+        "id": "80d4f427-0000-4000-8000-7cee7d1d85b4",
+        "name": "Run",
+        "subtype": "start_habit",
+        "frequency": "3 times a week"
+      },
+      {
+        "id": "7f778b35-0000-4000-8000-cc176adcf3bb",
+        "name": "Read before bed",
+        "subtype": "start_habit",
+        "frequency": "daily"
+      }
+    ],
+    "notes": [
+      {
+        "id": "bf87b31a-0000-4000-8000-fd848bf27569",
+        "title": "Dentist appointment",
+        "subtype": "event",
+        "target_date": "2026-10-22",
+        "event_time": "10:00:00",
+        "views": {}
+      }
+    ]
+  },
+  "drops": [
+    {
+      "id": "d01",
+      "covers": "deadline moved",
+      "text": "The budget report deadline got pushed back to Monday",
+      "expect": {
+        "relation": "edit",
+        "entity": "39ba17d1-0000-4000-8000-a0eba86d4ddb",
+        "field": "target_date",
+        "value": "2026-10-19"
+      }
+    },
+    {
+      "id": "d02",
+      "covers": "deadline moved",
+      "text": "Grant application is now due on the 23rd",
+      "expect": {
+        "relation": "edit",
+        "entity": "8152c304-0000-4000-8000-3959694f792f",
+        "field": "target_date",
+        "value": "2026-10-23"
+      }
+    },
+    {
+      "id": "d03",
+      "covers": "deadline moved",
+      "text": "Harper Studio need the invoice by Tuesday now",
+      "expect": {
+        "relation": "edit",
+        "entity": "9072fe3e-0000-4000-8000-211e211e4fdf",
+        "field": "target_date",
+        "value": "2026-10-20"
+      }
+    },
+    {
+      "id": "d04",
+      "covers": "deadline moved",
+      "text": "Abstract deadline moved up to this Friday",
+      "expect": {
+        "relation": "edit",
+        "entity": "1e608eef-0000-4000-8000-660f158ec65a",
+        "field": "target_date",
+        "value": "2026-10-16"
+      }
+    },
+    {
+      "id": "d05",
+      "covers": "deadline moved",
+      "text": "Library books have to be back by Thursday",
+      "expect": {
+        "relation": "edit",
+        "entity": "060300d4-0000-4000-8000-abddbdc745e2",
+        "field": "target_date",
+        "value": "2026-10-15"
+      }
+    },
+    {
+      "id": "d06",
+      "covers": "planned day moved",
+      "text": "Doing the budget report on Friday instead of tomorrow",
+      "expect": {
+        "relation": "edit",
+        "entity": "39ba17d1-0000-4000-8000-a0eba86d4ddb",
+        "field": "due_day",
+        "value": "2026-10-16"
+      }
+    },
+    {
+      "id": "d07",
+      "covers": "planned day moved",
+      "text": "Moving the car insurance renewal to tomorrow, I'll sort it then",
+      "expect": {
+        "relation": "edit",
+        "entity": "edeca4cf-0000-4000-8000-2b0f1eb23309",
+        "field": "due_day",
+        "value": "2026-10-15"
+      }
+    },
+    {
+      "id": "d08",
+      "covers": "planned day moved",
+      "text": "Not booking the offsite venue today after all, I'll do it Monday",
+      "expect": {
+        "relation": "edit",
+        "entity": "0045b39f-0000-4000-8000-fb3a7e1ebecc",
+        "field": "due_day",
+        "value": "2026-10-19"
+      }
+    },
+    {
+      "id": "d09",
+      "covers": "planned day moved",
+      "text": "Plumber call moved to Saturday when I'm home",
+      "expect": {
+        "relation": "edit",
+        "entity": "97de5043-0000-4000-8000-194b2f30e8e8",
+        "field": "due_day",
+        "value": "2026-10-17"
+      }
+    },
+    {
+      "id": "d10",
+      "covers": "deadline only todo, same",
+      "text": "Need to send Harper Studio their invoice",
+      "expect": { "relation": "same", "entity": "9072fe3e-0000-4000-8000-211e211e4fdf" }
+    },
+    {
+      "id": "d11",
+      "covers": "deadline only todo, same",
+      "text": "Write abstract for the conference talk",
+      "expect": { "relation": "same", "entity": "1e608eef-0000-4000-8000-660f158ec65a" }
+    },
+    {
+      "id": "d12",
+      "covers": "deadline only todo, same",
+      "text": "Get the grant application in",
+      "expect": { "relation": "same", "entity": "8152c304-0000-4000-8000-3959694f792f" }
+    },
+    {
+      "id": "d13",
+      "covers": "deadline only todo, done",
+      "text": "Sent the invoice to Harper Studio",
+      "expect": { "relation": "complete", "entity": "9072fe3e-0000-4000-8000-211e211e4fdf" }
+    },
+    {
+      "id": "d14",
+      "covers": "deadline only todo, done",
+      "text": "Returned the library books this morning",
+      "expect": { "relation": "complete", "entity": "060300d4-0000-4000-8000-abddbdc745e2" }
+    },
+    {
+      "id": "d15",
+      "covers": "deadline only todo, done",
+      "text": "Grant application submitted!",
+      "expect": { "relation": "complete", "entity": "8152c304-0000-4000-8000-3959694f792f" }
+    },
+    {
+      "id": "d16",
+      "covers": "could mean either",
+      "text": "Budget report is Friday now",
+      "expect": { "nochange": true }
+    },
+    {
+      "id": "d17",
+      "covers": "could mean either",
+      "text": "Council tax is the 30th",
+      "expect": { "nochange": true }
+    },
+    {
+      "id": "d18",
+      "covers": "could mean either",
+      "text": "Offsite venue booking: Thursday",
+      "expect": { "nochange": true }
+    },
+    {
+      "id": "d19",
+      "covers": "could mean either",
+      "text": "Conference abstract is Friday",
+      "expect": { "nochange": true }
+    },
+    {
+      "id": "d20",
+      "covers": "nothing to do with any item",
+      "text": "Buy milk",
+      "expect": { "relation": null }
+    },
+    {
+      "id": "d21",
+      "covers": "an appointment moved, as before",
+      "text": "Moved the dentist to Thursday at 3",
+      "expect": {
+        "relation": "edit",
+        "entity": "bf87b31a-0000-4000-8000-fd848bf27569",
+        "field": "due_day",
+        "value": "2026-10-15"
+      }
+    }
+  ]
+}

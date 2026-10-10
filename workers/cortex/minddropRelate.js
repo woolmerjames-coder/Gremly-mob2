@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { helperFetch } from './helperClient.js';
+import { dayOnly, plannedDayOf } from '../shared/todoDay.js';
 
 // A question costs a tap; only a confident match earns one.
 export const RELATE_CONFIDENCE_FLOOR = 75;
@@ -31,6 +32,11 @@ const EDIT_FIELDS = {
   note: ['due_day', 'due_time', 'name'],
   habit: ['name', 'frequency'],
 };
+// For a build that says it understands deadlines (the request's deadlines:
+// true, from the Mind Drop rethink's final check): a todo's deadline too.
+// Every other build gets exactly what it got before.
+const EDIT_FIELDS_DEADLINES = { ...EDIT_FIELDS, todo: [...EDIT_FIELDS.todo, 'target_date'] };
+const editFields = (deadlines) => (deadlines ? EDIT_FIELDS_DEADLINES : EDIT_FIELDS);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -62,7 +68,7 @@ export async function fetchDropItems(env, userId, todayIso) {
   const since = addDays(todayIso, -RELATE_LOG_WINDOW_DAYS);
   const [todos, habits, notes, logs] = await Promise.all([
     get(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=not.is.true&select=id,name,title,due_day,due_time,space_id,updated_at&order=updated_at.desc&limit=300`,
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=not.is.true&select=id,name,title,due_day,due_time,scheduled_date,target_date,space_id,updated_at&order=updated_at.desc&limit=300`,
     ),
     get(
       `habits?owner_id=eq.${userId}&archived_at=is.null&select=id,name,title,subtype,frequency,space_id,updated_at&order=updated_at.desc&limit=100`,
@@ -93,6 +99,10 @@ export function shapeItems({ todos = [], habits = [], notes = [], logged = new M
       title: t.name || t.title || '',
       due_day: t.due_day || null,
       due_time: clockTime(t.due_time),
+      // the day they plan to do it and the deadline, apart (stage 2b): read
+      // only for a build that understands deadlines
+      planned_day: plannedDayOf(t),
+      target_date: dayOnly(t.target_date),
       space_id: t.space_id || null,
     });
   for (const h of habits)
@@ -168,11 +178,53 @@ A wrong match is worse than no match: when in doubt, the relation is new. Never 
 Return ONLY JSON: {"considered":["..."],"relation":"new"|"same"|"edit"|"add"|"complete"|"logged"|"remove","entity_id":"..."|null,"change":{"field":"...","value":"...","time":"..."|null}|null,"own_entry":true|false|null,"confidence":0-100,"ask":true|false,"candidates":["..."]}`;
 
 /**
+ * The prompt for a build that understands deadlines (deadlines: true): the
+ * same prompt, with a todo's two dates told apart and the deadline a field an
+ * edit can change. Semantic rules only: no examples, no word lists, no sample
+ * drops. Built from MINDDROP_RELATE_PROMPT so the rest never drifts; each
+ * replaced passage must be there, or the module fails to load (and its test).
+ */
+function withDeadlines(prompt) {
+  const swaps = [
+    [
+      "the user's items: their open todos and their notes, some with a day and time, and their habits",
+      "the user's items: their open todos, each with the day they plan to do it and the deadline it must be done by when either is set, their notes, some with a day and time, and their habits",
+    ],
+    [
+      'has to change: its day, its time, its name, or how often a habit repeats.',
+      'has to change: its day, its time, its deadline, its name, or how often a habit repeats.',
+    ],
+    [
+      'due_day (YYYY-MM-DD), due_time (HH:MM, 24 hour), name (the new title)',
+      "due_day (YYYY-MM-DD, for a todo the day they plan to do it), due_time (HH:MM, 24 hour), target_date (YYYY-MM-DD: a todo's deadline), name (the new title)",
+    ],
+    [
+      'A due_day is the one calendar day',
+      "A todo can have two dates: the day they plan to do it (due_day) and the deadline it must be done by (target_date). When an edit moves a todo's date, a drop that says when the thing is due, when it must be done by, or that its deadline has moved changes target_date; a drop that says when they will do it changes due_day. When the words could mean either, the change is null.\n\nA due_day or a target_date is the one calendar day",
+    ],
+  ];
+  let out = prompt;
+  for (const [from, to] of swaps) {
+    if (!out.includes(from))
+      throw new Error(`[MindDropRelate] deadline prompt: passage not found: ${from}`);
+    out = out.replace(from, to);
+  }
+  return out;
+}
+
+export const MINDDROP_RELATE_PROMPT_DEADLINES = withDeadlines(MINDDROP_RELATE_PROMPT);
+
+/** The prompt for this request: the deadline one only for a build that says it understands it. */
+export function relatePromptFor(deadlines) {
+  return deadlines ? MINDDROP_RELATE_PROMPT_DEADLINES : MINDDROP_RELATE_PROMPT;
+}
+
+/**
  * The user turn: today, the drop, then every item with its key. The drop stays
  * before the list: putting it last, so the list could be cached between drops,
  * made Luna ask less and miss more in the relate replay (runs 3 and 4, 9 Oct 2026).
  */
-export function buildRelateInput({ todayIso, text, candidates }) {
+export function buildRelateInput({ todayIso, text, candidates, deadlines = false }) {
   const lines = [
     `Today is ${weekdayOf(todayIso)} ${todayIso}.`,
     `\nDROP:\n${String(text).slice(0, 600)}`,
@@ -181,7 +233,11 @@ export function buildRelateInput({ todayIso, text, candidates }) {
   for (const c of candidates) {
     const detail =
       c.type === 'todo'
-        ? `${c.due_day ? `due ${c.due_day}` : 'no due day'}${c.due_time ? ` at ${c.due_time}` : ''}`
+        ? deadlines
+          ? // both dates in plain words (final check item 6); due_day is the
+            // planned day since stage 2b, so it is never called due here
+            `${c.planned_day ? `planned for ${c.planned_day}${c.due_time ? ` at ${c.due_time}` : ''}` : 'no day planned'}; ${c.target_date ? `deadline ${c.target_date}` : 'no deadline'}`
+          : `${c.due_day ? `due ${c.due_day}` : 'no due day'}${c.due_time ? ` at ${c.due_time}` : ''}`
         : c.type === 'habit'
           ? `${c.habit_kind === 'break' ? 'a habit to cut out, ' : ''}${c.frequency || 'no frequency set'}${
               c.logged_days?.length
@@ -206,7 +262,7 @@ export function parseJson(raw) {
 }
 
 /** The fields the app needs to show an item on the card. */
-function publicEntity(c) {
+function publicEntity(c, deadlines = false) {
   const e = { id: c.id, type: c.type, title: c.title, space_id: c.space_id || null };
   if (c.type === 'habit') {
     e.frequency = c.frequency || null;
@@ -216,6 +272,8 @@ function publicEntity(c) {
     e.due_day = c.due_day || null;
     e.due_time = c.due_time || null;
     if (c.type === 'note') e.target_date = c.target_date || null;
+    // a todo's deadline, for a build that understands it
+    if (c.type === 'todo' && deadlines) e.target_date = c.target_date || null;
   }
   return e;
 }
@@ -225,13 +283,13 @@ function publicEntity(c) {
  * null when there is nothing to ask (an invalid value, a value it already has,
  * a day already logged). Also used when the user picks from several.
  */
-export function changeFor(intent, entity, change, todayIso) {
+export function changeFor(intent, entity, change, todayIso, { deadlines = false } = {}) {
   const field = change?.field;
   const raw = change?.value;
   const value = typeof raw === 'string' ? raw.trim() : raw == null ? null : String(raw);
   if (intent === 'edit') {
-    if (!EDIT_FIELDS[entity.type]?.includes(field) || !value) return null;
-    if (field === 'due_day' && !DAY.test(value)) return null;
+    if (!editFields(deadlines)[entity.type]?.includes(field) || !value) return null;
+    if ((field === 'due_day' || field === 'target_date') && !DAY.test(value)) return null;
     if (field === 'due_time' && !TIME.test(value)) return null;
     const from =
       field === 'name'
@@ -281,7 +339,7 @@ export function changeFor(intent, entity, change, todayIso) {
  * Every card carries `others`: the other items the model considered, for "Not
  * that one".
  */
-export function decideRelation(answer, candidates, todayIso) {
+export function decideRelation(answer, candidates, todayIso, { deadlines = false } = {}) {
   if (!answer || typeof answer !== 'object') return null;
   const intent = String(answer.relation || '').toLowerCase();
   if (!RELATIONS.has(intent) || intent === 'new') return null;
@@ -311,13 +369,13 @@ export function decideRelation(answer, candidates, todayIso) {
   // Two or more fit about equally: the user picks, then sees that item's card.
   if (answer.ask === true) {
     const options = known(answer.candidates).filter((c) =>
-      fits(intent, c, answer.change, todayIso),
+      fits(intent, c, answer.change, todayIso, deadlines),
     );
     if (options.length >= 2) {
       return {
         kind: 'choose',
         intent,
-        candidates: options.slice(0, 3).map(publicEntity),
+        candidates: options.slice(0, 3).map((c) => publicEntity(c, deadlines)),
         change: answer.change && typeof answer.change === 'object' ? answer.change : null,
         value,
         own_entry: ownEntry,
@@ -331,8 +389,8 @@ export function decideRelation(answer, candidates, todayIso) {
   const others = known(answer.considered)
     .filter((c) => c.id !== entity.id)
     .slice(0, 3)
-    .map(publicEntity);
-  const base = { intent, entity: publicEntity(entity), others, confidence };
+    .map((c) => publicEntity(c, deadlines));
+  const base = { intent, entity: publicEntity(entity, deadlines), others, confidence };
 
   if (intent === 'same') {
     const extra =
@@ -342,23 +400,25 @@ export function decideRelation(answer, candidates, todayIso) {
     return { kind: 'same', ...base, extra };
   }
   if (intent === 'remove') return { kind: 'remove', ...base };
-  const change = changeFor(intent, entity, answer.change, todayIso);
+  const change = changeFor(intent, entity, answer.change, todayIso, { deadlines });
   return change ? { kind: 'edit', ...base, change, own_entry: ownEntry } : null;
 }
 
 /** Whether an item could take this relation at all (used to trim a choice). */
-function fits(intent, c, change, todayIso) {
+function fits(intent, c, change, todayIso, deadlines = false) {
   if (intent === 'same' || intent === 'remove') return true;
   // a change is only offered when it can be made to that item
-  return !!changeFor(intent, c, change, todayIso);
+  return !!changeFor(intent, c, change, todayIso, { deadlines });
 }
 
 /**
  * Is this drop about something the user has? Never throws; any failure, a slow
  * answer or an unsure one returns relation null, and the drop files as usual.
- * @param {{env: object, userId?: string, text: string, todayIso: string, items?: Array}} p
+ * @param {{env: object, userId?: string, text: string, todayIso: string, items?: Array, deadlines?: boolean}} p
+ *   deadlines: the build understands a todo's deadline apart from its planned
+ *   day (it sends deadlines: true); without it the call is exactly as before.
  */
-export async function relateDrop({ env, userId, text, todayIso, items }) {
+export async function relateDrop({ env, userId, text, todayIso, items, deadlines = false }) {
   const started = Date.now();
   try {
     const all = items || (await fetchDropItems(env, userId, todayIso));
@@ -375,8 +435,11 @@ export async function relateDrop({ env, userId, text, todayIso, items }) {
         'drop_relate',
         {
           messages: [
-            { role: 'system', content: MINDDROP_RELATE_PROMPT },
-            { role: 'user', content: buildRelateInput({ todayIso, text, candidates }) },
+            { role: 'system', content: relatePromptFor(deadlines) },
+            {
+              role: 'user',
+              content: buildRelateInput({ todayIso, text, candidates, deadlines }),
+            },
           ],
           max_tokens: 300,
           temperature: 0,
@@ -391,8 +454,9 @@ export async function relateDrop({ env, userId, text, todayIso, items }) {
     if (!res?.ok) return { relation: null, answer: null };
     const json = await res.json();
     const answer = parseJson(json.choices?.[0]?.message?.content || '');
-    const relation = decideRelation(answer, candidates, todayIso);
+    const relation = decideRelation(answer, candidates, todayIso, { deadlines });
     console.log('[MindDropRelate]', {
+      deadlines,
       items: candidates.length,
       relation: answer?.relation || null,
       kind: relation?.kind || 'none',

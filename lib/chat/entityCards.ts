@@ -88,6 +88,18 @@ export function describeChange(
         label: 'Change to',
       };
     }
+    case 'target_date': {
+      // a todo's deadline: Due Fri, as the card's meta line reads it
+      const due = (d: string | null | undefined) => {
+        const w = dayWords(d);
+        return w ? `Due ${w === 'Today' || w === 'Tomorrow' ? w.toLowerCase() : w}` : '';
+      };
+      return {
+        from: due(change.from) || 'No deadline',
+        to: due(change.to),
+        label: 'Move the deadline to',
+      };
+    }
     case 'name':
       return { from: change.from || entity.title, to: change.to, label: 'Rename to' };
     case 'frequency':
@@ -118,6 +130,8 @@ export function primaryLabel(change: EntityCardChange): string {
       return 'Yes, move it';
     case 'due_time':
       return 'Yes, change the time';
+    case 'target_date':
+      return 'Move the deadline';
     case 'name':
       return 'Yes, rename it';
     case 'completed':
@@ -166,6 +180,8 @@ export function entityAfterChange(
       return { ...entity, due_day: change.to, target_date: change.to };
     case 'due_time':
       return { ...entity, due_time: change.to };
+    case 'target_date':
+      return { ...entity, target_date: change.to };
     case 'name':
       return { ...entity, title: change.to };
     case 'frequency':
@@ -197,6 +213,8 @@ function closingLine(
       return `Logged ${title} for ${formatDays(loggedDaysOf(change), { relative: false })}.`;
     case 'name':
       return `Renamed to ${words.to}.`;
+    case 'target_date':
+      return `${title} is now due ${formatDay(change.to, { relative: false })}.`;
     case 'body':
       return 'Note updated.';
     case 'body_add':

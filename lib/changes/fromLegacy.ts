@@ -38,6 +38,10 @@ export function fromEntityCard(entity: EntityCardEntity, change: EntityCardChang
       return { ...base, op: 'change', fields: { day: change.to } };
     case 'due_time':
       return { ...base, op: 'change', fields: { time: change.to } };
+    case 'target_date':
+      // a todo's deadline, never the day they plan to do it (final check item 6)
+      if (entity.type !== 'todo') throw new Error('That change did not go through.');
+      return { ...base, op: 'change', fields: { deadline: change.to } };
     case 'name':
       return { ...base, op: 'change', fields: { name: change.to } };
     case 'frequency': {

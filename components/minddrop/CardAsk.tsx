@@ -74,6 +74,7 @@ import {
 import { describeChange, formatDay, formatTime } from '../../lib/chat/entityCards';
 import {
   KIND_COLORS,
+  dayWords,
   dropCardKind,
   howOftenWords,
   itemStateWords,
@@ -618,6 +619,8 @@ export function CardAsk({
       question: relationQuestion(rel, {
         title: entity.title,
         today: getDateService().today(),
+        // the day as the card's meta line reads it: Move the deadline for Report to Fri?
+        day: dayWords,
       }),
       extra:
         place === 'sweep' && rel.kind === 'same' ? (

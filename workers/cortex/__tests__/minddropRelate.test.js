@@ -3,7 +3,9 @@
  */
 import {
   MINDDROP_RELATE_PROMPT,
+  MINDDROP_RELATE_PROMPT_DEADLINES,
   RELATE_CONFIDENCE_FLOOR,
+  relatePromptFor,
   buildRelateInput,
   changeFor,
   decideRelation,
@@ -12,6 +14,7 @@ import {
   withKeys,
 } from '../minddropRelate.js';
 import { configureModels } from '../models.js';
+import deadlineCheck from './fixtures/relate-deadlines.json';
 
 const TODAY = '2026-09-30';
 const items = withKeys([
@@ -80,18 +83,53 @@ const answer = (o) => ({
 });
 
 describe('prompt', () => {
-  it('has no examples, no word lists and no dashes (house rules)', () => {
-    expect(MINDDROP_RELATE_PROMPT).not.toMatch(/[–—]/);
-    expect(MINDDROP_RELATE_PROMPT).not.toMatch(
+  it.each([
+    ['the prompt', MINDDROP_RELATE_PROMPT],
+    ['the deadline prompt', MINDDROP_RELATE_PROMPT_DEADLINES],
+  ])('%s has no examples, no word lists and no dashes (house rules)', (_name, prompt) => {
+    expect(prompt).not.toMatch(/[–—]/);
+    expect(prompt).not.toMatch(
       /\bexamples?\b|\be\.g\.|\bsuch as\b|\bfor instance\b|\bfor example\b/i,
     );
-    const rules = MINDDROP_RELATE_PROMPT.split('Return ONLY JSON')[0];
+    const rules = prompt.split('Return ONLY JSON')[0];
     expect(rules).not.toMatch(/\([^)]*,[^)]*,[^)]*\)/);
     expect(rules).not.toMatch(/"[^"]+"\s*,\s*"[^"]+"\s*,\s*"[^"]+"/); // no quoted phrase lists
   });
 
   it('is the same for every user and day, so it can be cached', () => {
     expect(MINDDROP_RELATE_PROMPT).not.toMatch(/20\d\d-\d\d-\d\d/);
+    expect(MINDDROP_RELATE_PROMPT_DEADLINES).not.toMatch(/20\d\d-\d\d-\d\d/);
+  });
+
+  it('gives the deadline prompt only to a build that understands deadlines (final check item 6)', () => {
+    expect(relatePromptFor(false)).toBe(MINDDROP_RELATE_PROMPT);
+    expect(relatePromptFor(true)).toBe(MINDDROP_RELATE_PROMPT_DEADLINES);
+    // the deadline prompt tells a todo's two dates apart and lets an edit move the deadline
+    expect(MINDDROP_RELATE_PROMPT_DEADLINES).toContain('target_date');
+    expect(MINDDROP_RELATE_PROMPT).not.toContain('target_date');
+    // the rest of the prompt is the same text
+    expect(MINDDROP_RELATE_PROMPT_DEADLINES).toContain(MINDDROP_RELATE_PROMPT.slice(-400));
+  });
+
+  it('never holds the made up deadline check: no drop and no item of it is in either prompt', () => {
+    const { todos, habits, notes } = deadlineCheck.items;
+    const words = [
+      ...deadlineCheck.drops.map((d) => d.text),
+      ...[...todos, ...habits, ...notes].map((x) => x.name || x.title),
+    ];
+    for (const prompt of [MINDDROP_RELATE_PROMPT, MINDDROP_RELATE_PROMPT_DEADLINES]) {
+      for (const w of words) expect(prompt.toLowerCase()).not.toContain(w.toLowerCase());
+    }
+    // it covers what the gate asks for
+    const covers = new Set(deadlineCheck.drops.map((d) => d.covers));
+    for (const c of [
+      'deadline moved',
+      'planned day moved',
+      'deadline only todo, same',
+      'deadline only todo, done',
+      'could mean either',
+    ])
+      expect(covers).toContain(c);
   });
 
   it('puts today, the drop and every item in the user turn', () => {
@@ -100,6 +138,87 @@ describe('prompt', () => {
     expect(input).toContain('DROP:\nvet moved');
     for (const i of items) expect(input).toContain(`- id ${i.key} [${i.type}]`);
     expect(input).toContain('a habit to cut out');
+  });
+});
+
+describe('a todo with a deadline (final check item 6)', () => {
+  const todos = withKeys(
+    shapeItems({
+      todos: [
+        { id: 'todo-rep-0001', name: 'Send the report', target_date: '2026-10-09' },
+        {
+          id: 'todo-gym-0002',
+          name: 'Book the gym class',
+          due_day: '2026-10-01',
+          due_time: '07:30:00',
+          target_date: '2026-10-03',
+        },
+        { id: 'todo-nil-0003', name: 'Fix the shelf' },
+        { id: 'todo-sch-0004', name: 'Call the bank', scheduled_date: '2026-10-02' },
+      ],
+    }),
+  );
+  const tkey = (id) => todos.find((i) => i.id === id).key;
+
+  it('writes both dates in plain words for a build that understands deadlines', () => {
+    const input = buildRelateInput({
+      todayIso: TODAY,
+      text: 'x',
+      candidates: todos,
+      deadlines: true,
+    });
+    expect(input).toContain(
+      `- id ${tkey('todo-rep-0001')} [todo] Send the report (no day planned; deadline 2026-10-09)`,
+    );
+    expect(input).toContain(
+      `- id ${tkey('todo-gym-0002')} [todo] Book the gym class (planned for 2026-10-01 at 07:30; deadline 2026-10-03)`,
+    );
+    expect(input).toContain(
+      `- id ${tkey('todo-nil-0003')} [todo] Fix the shelf (no day planned; no deadline)`,
+    );
+    expect(input).toContain(
+      `- id ${tkey('todo-sch-0004')} [todo] Call the bank (planned for 2026-10-02; no deadline)`,
+    );
+  });
+
+  it('leaves the item line exactly as before for a build that does not', () => {
+    const input = buildRelateInput({ todayIso: TODAY, text: 'x', candidates: todos });
+    expect(input).toContain(`- id ${tkey('todo-rep-0001')} [todo] Send the report (no due day)`);
+    expect(input).toContain(
+      `- id ${tkey('todo-gym-0002')} [todo] Book the gym class (due 2026-10-01 at 07:30)`,
+    );
+    expect(input).not.toContain('deadline');
+  });
+
+  it('accepts a deadline change only with the flag, and never as the planned day', () => {
+    const moved = answer({
+      relation: 'edit',
+      entity_id: tkey('todo-rep-0001'),
+      change: { field: 'target_date', value: '2026-10-10' },
+    });
+    expect(decideRelation(moved, todos, TODAY)).toBeNull();
+    const rel = decideRelation(moved, todos, TODAY, { deadlines: true });
+    expect(rel).toMatchObject({
+      kind: 'edit',
+      change: { field: 'target_date', from: '2026-10-09', to: '2026-10-10' },
+      entity: { id: 'todo-rep-0001', target_date: '2026-10-09' },
+    });
+    // a deadline that is not a date, or already that day, asks nothing
+    const bad = answer({ ...moved, change: { field: 'target_date', value: 'Friday' } });
+    expect(decideRelation(bad, todos, TODAY, { deadlines: true })).toBeNull();
+    const same = answer({ ...moved, change: { field: 'target_date', value: '2026-10-09' } });
+    expect(decideRelation(same, todos, TODAY, { deadlines: true })).toBeNull();
+  });
+
+  it('answers an old request exactly as before: no deadline on the todo it shows', () => {
+    const moved = answer({
+      relation: 'edit',
+      entity_id: tkey('todo-gym-0002'),
+      change: { field: 'due_day', value: '2026-10-02' },
+    });
+    const rel = decideRelation(moved, todos, TODAY);
+    expect(rel.entity).not.toHaveProperty('target_date');
+    expect(rel.change).toEqual({ field: 'due_day', from: '2026-10-01', to: '2026-10-02' });
   });
 });
 
@@ -445,6 +564,21 @@ describe('relateDrop: its own model setting', () => {
   afterEach(() => {
     globalThis.fetch = realFetch;
     configureModels({});
+  });
+
+  it('sends the deadline prompt and item lines only for a build that says it understands deadlines', async () => {
+    configureModels({
+      OPENAI_API_KEY: 'k',
+      HELPER_MODEL: 'gpt-6-luna',
+      MODEL_DROP_RELATE: 'gpt-6-luna',
+    });
+    const calls = stubFetch();
+    await relateDrop({ env: {}, text: 'dentist', todayIso: TODAY, items: raw });
+    await relateDrop({ env: {}, text: 'dentist', todayIso: TODAY, items: raw, deadlines: true });
+    expect(calls[0].body.messages[0].content).toBe(MINDDROP_RELATE_PROMPT);
+    expect(calls[0].body.messages[1].content).toContain('(no due day)');
+    expect(calls[1].body.messages[0].content).toBe(MINDDROP_RELATE_PROMPT_DEADLINES);
+    expect(calls[1].body.messages[1].content).toContain('(no day planned; no deadline)');
   });
 
   it('runs on MODEL_DROP_RELATE at low reasoning, apart from the chat matcher', async () => {

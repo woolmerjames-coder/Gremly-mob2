@@ -695,7 +695,13 @@ export type EntityCardField =
   | 'body_add'
   | 'completed'
   /** habits: log a day they did it (the day as YYYY-MM-DD) */
-  | 'logged';
+  | 'logged'
+  /**
+   * todos: the deadline it must be done by (YYYY-MM-DD), apart from the day
+   * they plan to do it (due_day). Only Mind Drop's already have it check
+   * proposes it, for a build that sends deadlines: true (final check item 6).
+   */
+  | 'target_date';
 export interface EntityCardEntity {
   id: ID;
   type: EntityCardEntityType;

@@ -5,6 +5,7 @@
 # the Cowork VM; it does nothing elsewhere.
 #   scripts/relate-replay/run.sh --variant gemini --run 1
 #   scripts/relate-replay/run.sh --variant luna-none --run 1
+#   scripts/relate-replay/run.sh --variant luna-low --run 5 --deadlines
 # Keys come from .audit-keys.local at the repo root (OPENAI_API_KEY, GEMINI_TEST_API_KEY).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

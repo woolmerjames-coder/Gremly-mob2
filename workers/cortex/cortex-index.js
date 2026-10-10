@@ -8001,7 +8001,16 @@ Segment rules:
           ? String(body.currentDate)
           : todayIsoIn(userTimezone);
         // Never throws; any failure or doubt comes back as no relation
-        const { relation } = await relateDrop({ env, userId: authenticatedUserId, text, todayIso });
+        // a build that understands a todo's deadline says so (deadlines: true,
+        // the Mind Drop rethink's final check); every other build is answered
+        // exactly as before
+        const { relation } = await relateDrop({
+          env,
+          userId: authenticatedUserId,
+          text,
+          todayIso,
+          deadlines: body.deadlines === true,
+        });
         return j({ enabled: true, relation });
       }
 

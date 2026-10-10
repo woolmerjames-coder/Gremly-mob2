@@ -160,7 +160,8 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
    - the split choice data: `app_events` kind `split_answer`, what the classifier said (clear or unsure) against what was tapped (split, keep_as_one, not_now), for the automatic splits call;
    - the share of places people change: `app_events` kind `place_change` against the drops filed somewhere.
 8. **Two weeks after ship:** check Expo for sessions on older builds. If there are none, remove what only they need: the Worker routes `detect-multi` and `classify-phase1-v2` and the question writer inside `classify-v3`; the journal word list `isSenseMakingJournal` in `classify-phase1`; and Phase 2's event title (`smart_title`). The new build calls none of them: since the final check's fixes it reads an older degraded item again with `classify-v3`. The questions and lapses read (stage 12) is due then too.
-9. Anything later stages add.
+9. Cortex for the deadline check (final check item 6, the note of that name below): the same deploy as item 5, and safe at any time, as the Worker reads deadlines only for a request that sends `deadlines: true`. Whether this build sends it waits for your read of that gate (`RELATE_SENDS_DEADLINES` in `lib/minddrop/relationActions.ts`, false until you say yes).
+10. Anything later stages add.
 
 ## Stage notes
 
@@ -799,3 +800,24 @@ For James:
 - Open the simulator for the stage 12 run.
 
 Blocking questions: one, on item 6: should deleting a todo or habit also set aside what Gremly took from it, as deleting a note does?
+
+### Final check item 6: the already have it check sees deadlines (10 October)
+
+What changed:
+- Worker, `workers/cortex/minddropRelate.js` and the `minddrop-relate` route in `cortex-index.js`. A request with `deadlines: true` reads each todo's scheduled day and deadline, writes its line as "planned for <day>" or "no day planned", then "deadline <day>" or "no deadline", and gets the deadline prompt. That is the same prompt with four passages swapped, each checked when the module loads: a todo's two dates told apart, `target_date` an edit field for a todo, which date a drop moves (when it is due, must be done by or the deadline moved: the deadline; when they will do it: the planned day; either: no change), and the day rule for both. Semantic only. A target_date change is accepted only with the flag. Without it the prompt, the lines and the checks are exactly as before (tested).
+- App. `target_date` is an editable todo field (`lib/minddrop/dropRelation.ts`). `fromEntityCard` maps it onto the change model's `deadline` (column target_date), so the write, the history line and Undo are the change model's, and due_day is never touched. The words: the question "Move the deadline for <title> to Fri?", the button "Move the deadline", the item row "No deadline → Due Fri 16 Oct", the toast "Moved the deadline for “<title>” to Fri 16 Oct", and the kept line "<title> is now due Fri 16 Oct.". `currentEntity` reads the deadline from the store, so Undo puts back the deadline it had at the tap. A deadline only todo's card then reads Due Fri by the shared rule; a todo with a planned day keeps showing its planned day, as stage 2c decided.
+- `RELATE_SENDS_DEADLINES` in `lib/minddrop/relationActions.ts` is false, so this build does not send the flag yet: the gate below came out outside its band. Everything else is in place and tested; turning it on is that one line.
+- Replay. `scripts/relate-replay/run.mjs --deadlines` sends the deadline request. The export `real/items-deadlines.jsonl` (md5 770703a7e4ea86ac0d5ef1a87b315bce) is the same 829 rows as `items.jsonl` (md5 c4c74f3f046b58f4833877435a751d43, unchanged, as is `drops.jsonl`, d47843004b50b00af5cee1e504a27c26) with each todo's target_date and scheduled_date added: 280 todos have a date, 8 a deadline. The made up check is `workers/cortex/__tests__/fixtures/relate-deadlines.json` (21 drops against 12 items, made up ids too; a test checks none of it is in either prompt), run with `scripts/relate-replay/deadlines.sh --run 1`.
+
+The gate (new section at the bottom of `Claude outputs/already-have-it-replay.html`), Luna low on the same 628 drops, right of 26, missed, wrong:
+- Runs 1 and 2 (7 October, the band): 18, 8, 2 and 20, 6, 0.
+- Runs 5 and 6, the deadline request: 17, 7, 3 and 16, 9, 2. Outside the band on right in both, on missed in run 6 and on wrong in run 5. By the gate as written it does not ship, so it is held.
+- To tell the prompt from the noise I ran two more of each, at a few cents a run: runs 9 and 10 with deadlines, 18, 8, 0 and 21, 5, 1; and the request of runs 1 and 2 again today (runs 7, 8, 11 and 12), 22, 3, 2, then 16, 10, 2, then 20, 5, 2, then 20, 6, 1. Over four runs each: 18.0 right, 7.2 missed and 1.5 wrong with deadlines, against 19.5, 6.0 and 1.8 without. The unchanged prompt ranged 16 to 22 right today, so two runs gave a band narrower than the noise.
+- One answer only the deadline request gave: a drop that plans a todo for today was read as reporting it done, in runs 5 and 6 (not 9 or 10); the page shows it. No real drop moves a deadline, and no run proposed one.
+- The made up check: 20 of 21 in both runs. Every deadline move, planned day move, same and done came out right, and an appointment move still moves the appointment. The one miss, both times: "Council tax is the 30th", which I wrote as could mean either, was read as the bill's deadline.
+
+Tests: `minddropRelate.test.js` 28 pass; `dropRelation.test.ts` 23 (5 new); new `relationDeadline.test.ts` 7, through the real apply, history and Undo on a store mock; one new CardAsk test. The lib/minddrop, components/minddrop, lib/chat and lib/changes suites pass (67 suites), and tsc is clean.
+Deviations: the extra runs above, beyond the two the spec asked for.
+Plan corrections: the spec named the gate runs 3 and 4; those numbers were the 9 October cache order test, so the gate runs are 5 and 6.
+For James: read the new section of the replay page and say ship or hold. Ship: `RELATE_SENDS_DEADLINES = true` before the TestFlight build (or tell me and I will). Hold: nothing; this build treats deadlines as today's does. Either way, cortex can deploy any time (ship day item 9).
+Blocking questions: none. One for your read: does "Council tax is the 30th" read as a deadline count as wrong?

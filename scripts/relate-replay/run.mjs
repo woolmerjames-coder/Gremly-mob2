@@ -4,12 +4,18 @@
  * (MINDDROP_RELATE_PROMPT, buildRelateInput, decideRelation); only the model
  * changes. Input: real/drops.jsonl and real/items.jsonl (gitignored, real data).
  * Output: results/<variant>-<run>.jsonl, one line per drop.
+ *
+ * --deadlines: the request a build that understands deadlines sends
+ * (deadlines: true, final check item 6): the deadline prompt, each todo with
+ * its planned day and its deadline, and a deadline change allowed. Reads
+ * real/items-deadlines.jsonl, the same rows with target_date and
+ * scheduled_date added for todos.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  MINDDROP_RELATE_PROMPT,
+  relatePromptFor,
   RELATE_ITEMS_MAX,
   RELATE_LOG_WINDOW_DAYS,
   addDays,
@@ -31,6 +37,7 @@ const VARIANT = arg('variant', 'gemini');
 const RUN = arg('run', '1');
 const LIMIT = Number(arg('limit', '0')) || Infinity;
 const CONC = Number(arg('conc', '6'));
+const DEADLINES = args.includes('--deadlines');
 
 const keys = {};
 const kf = join(ROOT, '.audit-keys.local');
@@ -57,19 +64,25 @@ const V = VARIANTS[VARIANT];
 if (!V) throw new Error(`unknown variant ${VARIANT}`);
 
 const drops = readFileSync(join(HERE, 'real/drops.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-const rawItems = readFileSync(join(HERE, 'real/items.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+const ITEMS_FILE = DEADLINES ? 'real/items-deadlines.jsonl' : 'real/items.jsonl';
+const rawItems = readFileSync(join(HERE, ITEMS_FILE), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 // item row: [owner, key8, type, title, due, time, habitKind, frequency, logs, created, gone, updated]
+// items-deadlines.jsonl adds [..., target_date, scheduled_date] for todos
 const items = rawItems.map((r) => ({
   o: r[0], id: r[1], type: r[2], title: r[3], due: r[4], time: r[5], kind: r[6], freq: r[7], logs: r[8] || [],
-  c: r[9], g: r[10], u: r[11],
+  c: r[9], g: r[10], u: r[11], target: r[12] ?? null, scheduled: r[13] ?? null,
 }));
+const PROMPT = relatePromptFor(DEADLINES);
 
 /** What the Worker would have read for this person at the moment of the drop. */
 function itemsAt(owner, at, day) {
   const live = items.filter((i) => i.o === owner && i.c < at && (i.g == null || i.g > at));
   const byNew = (a, b) => b.c - a.c;
   const todos = live.filter((i) => i.type === 'todo').sort(byNew).slice(0, 300)
-    .map((i) => ({ id: i.id, name: i.title, due_day: i.due, due_time: i.time }));
+    .map((i) => ({
+      id: i.id, name: i.title, due_day: i.due, due_time: i.time,
+      ...(DEADLINES ? { target_date: i.target, scheduled_date: i.scheduled } : {}),
+    }));
   const since = addDays(day, -RELATE_LOG_WINDOW_DAYS);
   const logged = new Map();
   const habits = live.filter((i) => i.type === 'habit').sort(byNew).slice(0, 100).map((i) => {
@@ -135,12 +148,12 @@ async function one(idx) {
   // the Worker asks nothing when there is nothing to compare against
   if (!candidates.length || !String(text || '').trim())
     return { i: idx, owner, items: 0, ok: true, skipped: true, error: null, ms: 0, usage: null, cost: 0, cost_jan: 0, answer: null, asks: false, kind: null, intent: null, entity: null, candidates: null, change: null };
-  const user = buildRelateInput({ todayIso: day, text, candidates });
+  const user = buildRelateInput({ todayIso: day, text, candidates, deadlines: DEADLINES });
   let r, ms;
   for (let attempt = 0; attempt < 3; attempt++) {
     const t0 = Date.now();
     try {
-      r = await call(MINDDROP_RELATE_PROMPT, user);
+      r = await call(PROMPT, user);
     } catch (e) {
       r = { ok: false, error: String(e).slice(0, 200) };
     }
@@ -149,9 +162,9 @@ async function one(idx) {
     await new Promise((s) => setTimeout(s, 2000 * (attempt + 1)));
   }
   const answer = r.ok ? parseJson(r.content) : null;
-  const rel = answer ? decideRelation(answer, candidates, day) : null;
+  const rel = answer ? decideRelation(answer, candidates, day, { deadlines: DEADLINES }) : null;
   return {
-    i: idx, owner, items: candidates.length, ok: !!r.ok, error: r.ok ? null : r.error, ms,
+    i: idx, owner, items: candidates.length, deadlines: DEADLINES, ok: !!r.ok, error: r.ok ? null : r.error, ms,
     usage: r.usage || null, cost: r.cost || 0, cost_jan: r.cost_jan || 0,
     answer,
     asks: !!rel,
@@ -172,7 +185,9 @@ if (existsSync(outFile))
     if (o.ok) done.add(o.i);
   }
 const todo = drops.map((_, i) => i).filter((i) => !done.has(i)).slice(0, LIMIT);
-console.log(`[relate-replay] ${VARIANT} run ${RUN}: ${todo.length} drops to run (${done.size} already done)`);
+console.log(
+  `[relate-replay] ${VARIANT} run ${RUN}${DEADLINES ? ' (deadlines)' : ''}: ${todo.length} drops to run (${done.size} already done)`,
+);
 let next = 0, finished = 0;
 async function worker() {
   while (next < todo.length) {

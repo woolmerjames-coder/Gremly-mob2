@@ -104,9 +104,14 @@ const INTENTS = new Set(['same', 'edit', 'add', 'complete', 'logged', 'remove'])
 const ENTITY_TYPES = new Set(['todo', 'habit', 'note']);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-/** What a drop may change on each kind of item; mirrors the Worker. */
+/**
+ * What a drop may change on each kind of item; mirrors the Worker. A todo's
+ * deadline (target_date) is apart from the day they plan to do it (due_day):
+ * this build sends deadlines: true, so the Worker may propose it (final check
+ * item 6).
+ */
 const EDIT_FIELDS: Record<string, string[]> = {
-  todo: ['due_day', 'due_time', 'name'],
+  todo: ['due_day', 'due_time', 'target_date', 'name'],
   note: ['due_day', 'due_time', 'name'],
   habit: ['name', 'frequency'],
 };
@@ -218,6 +223,8 @@ export function relationLine(rel: DropRelation): string {
   const t = quoted(rel.entity.title);
   if (rel.kind === 'same') return 'Looks like one you already have. Tap to check';
   if (rel.kind === 'remove') return `Remove ${t}? Tap to check`;
+  if (rel.intent === 'edit' && rel.change.field === 'target_date')
+    return `Move the deadline for ${t}? Tap to check`;
   switch (rel.intent) {
     case 'complete':
       return `Mark ${t} done? Tap to check`;
@@ -243,16 +250,23 @@ function dayOwn(day: string | null | undefined, today: string | undefined): stri
 /**
  * The card's question. A yes or no about one item names it, from the item's
  * own title as it is now (`title`), as the prototype does: Log today’s Run?
- * (final check item 23).
+ * (final check item 23). `day` puts a day in the card's words (Fri), for a
+ * deadline moved: Move the deadline for Report to Fri? (final check item 6).
  */
 export function relationQuestion(
   rel: DropRelation,
-  opts: { title?: string; today?: string } = {},
+  opts: { title?: string; today?: string; day?: (day: string) => string } = {},
 ): string {
   if (rel.kind === 'choose') return 'Which one did you mean?';
   if (rel.kind === 'same') return 'Same as this one?';
   if (rel.kind === 'remove') return 'Remove this from your list?';
   const title = (opts.title ?? rel.entity.title ?? '').trim();
+  if (rel.intent === 'edit' && rel.change.field === 'target_date') {
+    const day = opts.day ? opts.day(rel.change.to) : '';
+    const to = day === 'Today' || day === 'Tomorrow' ? day.toLowerCase() : day;
+    const what = title || 'this one';
+    return to ? `Move the deadline for ${what} to ${to}?` : `Move the deadline for ${what}?`;
+  }
   switch (rel.intent) {
     case 'complete':
       return title ? `Mark ${title} done?` : 'Mark this one done?';
@@ -294,6 +308,8 @@ export function relationButtons(rel: DropRelation): {
       return { primary: 'Yes, move it', secondary: 'Not that one', hint: null };
     case 'due_time':
       return { primary: 'Yes, change the time', secondary: 'Not that one', hint: null };
+    case 'target_date':
+      return { primary: 'Move the deadline', secondary: 'Not that one', hint: null };
     case 'name':
       return { primary: 'Yes, rename it', secondary: 'Not that one', hint: null };
     case 'completed':
@@ -347,7 +363,7 @@ export function changeForEntity(
   const value = typeof raw?.value === 'string' ? raw.value.trim() : null;
   if (intent === 'edit') {
     if (!field || !EDIT_FIELDS[entity.type]?.includes(field) || !value) return null;
-    if (field === 'due_day' && !DAY.test(value)) return null;
+    if ((field === 'due_day' || field === 'target_date') && !DAY.test(value)) return null;
     if (field === 'due_time' && !TIME.test(value)) return null;
     const from =
       field === 'name'
