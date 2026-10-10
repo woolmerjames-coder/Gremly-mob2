@@ -154,7 +154,13 @@ Kept by the builder, from James's answers of 9 October. Where it differs from th
 3. Confirm the data fabric's Worker changes are live (stage 9 needs them): an `assign-worlds` reply carries `filed`. Stage 9 gives the check.
 4. Run the old questions SQL (in the stage 8 note below), before the build reaches people: from stage 6 the app lets old questions go itself as it loads, one write each, and one account has 139 of them.
 5. Cortex for stage 11 (it can go any time before ship day; builds already out are not affected beyond the tags and habit days the stage 11 note measured): `cd ~/Documents/gremly-mob2/workers/cortex && npx wrangler deploy`. `CLASSIFY_V3_ENABLED` must stay "true": the new build has no other classifier.
-6. Anything later stages add.
+6. The delete links SQL (the note of 10 October, planning chat answers, below): it can run any time before ship day, and the sooner the better, as it also clears the links deleted items left behind.
+7. **After the TestFlight build ships, a check and not a blocker:** a few days of real drops, then read (the builder can run these reads with read only queries):
+   - speed and cost: `ai_usage` and `app_events` kind `drop_timing` against the baseline before stage 1 (sorted about 2.0s, settled about 4.0s, about 0.37¢ a drop);
+   - the split choice data: `app_events` kind `split_answer`, what the classifier said (clear or unsure) against what was tapped (split, keep_as_one, not_now), for the automatic splits call;
+   - the share of places people change: `app_events` kind `place_change` against the drops filed somewhere.
+8. **Two weeks after ship:** check Expo for sessions on older builds. If there are none, remove what only they need: the Worker routes `detect-multi` and `classify-phase1-v2` and the question writer inside `classify-v3`; the journal word list `isSenseMakingJournal` in `classify-phase1`; and Phase 2's event title (`smart_title`). One care: the new build still calls `classify-phase1` when it reclassifies a degraded item (`runPhase1`), so taking the word list out changes that path too and needs a replay first, as stage 11 item 11 did. The questions and lapses read (stage 12) is due then too.
+9. Anything later stages add.
 
 ## Stage notes
 
@@ -734,6 +740,11 @@ What changed: one commit per removal, each after the audit below, with tsc clean
 **13. Two tests of copies** (commit c95d907e)
 - `tests/cortex/__tests__/sanitizeTitle.test.ts` and `cardNoteFormatting.test.ts` tested their own copies of the Worker's `sanitizeTitle` and its card note handling, both now gone from the Worker (commit 9955a285, and the card note since stage 2). They imported nothing, so they still passed. Removed.
 
+**14. The tap time kind guess** (commit 497509bf, your planning chat's call of 10 October)
+- `heuristicClassify` (a word list guess at the kind, made at the tap) is gone, with its two test files. My earlier note said nothing read the guess; one more place did: the Today quick add (`lib/now/useNowQuickAdd.ts`) turned it into the kind of its completion result. Nothing reads that result (the Today screen passes no completion callback), so it now reports the kind as unknown, and its test was rewritten to match.
+- Drop's submit (`CatchAllNotepad.tsx`) now returns only whether the drop went into the queue, and whether it crossed the fed line. The training steps and the fed celebration read exactly those two, so their code did not change; the stage 12 simulator run covers them.
+- `src/qa/ClassificationHarness.ts`, `scripts/runClassificationHarness.ts` and the `harness:classify` script only ever tested the guess. Removed. `src/qa/MANUAL_TEST_CHECKLIST.md` still mentions the script, and the photo helpers `isPhotoOnlyDrop` and `getPhotoDropDefaults` now have no caller outside their tests; both are on the clean up list.
+
 Tests: after every removal, tsc and the tests of the files it touched (each listed in its commit). Then the whole jest run, in 23 parts: 804 suites, 728 passing and 76 skipped (the same 76 as the baseline, which are wholly skipped), none failing; 11,307 tests, 10,776 passing and 531 skipped, none failing. The baseline before stage 1 was 785 suites and 10,996 tests, none failing; the difference is the tests this work added less the ones its removals took out. `node --check` on `cortex-index.js` after each Worker change, and all 40 cortex Worker suites pass.
 
 Deviations:
@@ -761,4 +772,30 @@ Blocking questions: none.
    - Switched on only in development: none.
    - Dates not through DateService: none reading the clock; two places parse a stored time (`splitList.ts`), which is not reading today.
    - Icons not from Lucide: none. Text below 12 points in new styles: none.
-3. Still to come, and each needs you: a fresh model playing every moment of the prototype against the simulator (small and large phone, reduced motion on and off), which needs your Mac's simulator open; then a few days of real drops for timing and cost; and after two weeks, the questions and lapses read.
+3. Still to come, in this order (your planning chat, 10 October): a fresh model playing every moment of the prototype against the simulator (small and large phone, reduced motion on and off; the guided training drops, steps 1 to 4 with the gauge, and the fed celebration included), which needs your Mac's simulator open; then the planning chat's final check; then the TestFlight build. Real drops for timing and cost come after it ships, as a check and not a blocker (ship day checklist item 7), and the questions and lapses read after two weeks (item 8).
+
+
+### Planning chat answers (10 October)
+
+Your planning chat's answers to the stage 11 and 12 notes, and what was done with each.
+
+1. **Filing stays at the save.** The funeral note from the stage 9 gate (filed into a World about social life without the details, nowhere with them) is noted in `docs/worlds/HANDOFF.md` as a question for filing's own prompt. Nothing changed in the prompt.
+2. **The tap time kind guess is gone** (commit 497509bf, stage 11 item 14). The stage 12 simulator run covers the guided training drops (steps 1 to 4, the gauge included) and the fed celebration, as they read the submit result that changed.
+3. **The details route's tag lowercasing and time rounding stay.**
+4. **The older route's journal word list and the event title stay** while builds already out need them. Ship day checklist item 8 is the two week follow up that removes them with the v2 routes.
+5. **Dead code that was already on main stays,** for a separate clean up. The list:
+   - `AnimatedCardInsert` and `AnimatedCardSlideDown` in `app/screens/RecentDrops.tsx`;
+   - `handleCategoryChipPick` and `isUrgent` in `app/screens/CatchAllNotepad.tsx` (`isUrgent` has a test in `CatchAllNotepad.timing.unit.test.ts`);
+   - `archiveItemsByDropId` on the repos (`lib/repo/IRepo.ts`, `supabase.ts`, `memory.ts`): no caller in the app, only tests;
+   - and, dead since item 14 of this build: `isPhotoOnlyDrop` and `getPhotoDropDefaults` in `lib/minddrop/photoDrop.ts` (with `__tests__/lib/minddrop/photoDrop.test.ts`), and `src/qa/MANUAL_TEST_CHECKLIST.md`, which describes the removed classification harness.
+6. **Deleted items leave no links** (commit e9a395e1). A trigger after every delete on todos, notes and habits removes the item's World, Chapter and life context links, and any record of it being taken out of a place, in the same transaction, so every way of deleting is covered (the app, a Worker, the SQL editor). If the links cannot be removed, the delete fails with them. The migration also clears the links deleted items already left: 13 World links and 4 Chapter links today, none for life contexts. Migration `supabase/migrations/20261021090000_forget_deleted_item_links.sql`; pgTAP test `supabase/tests/forget_item_links.test.sql`, run against Postgres 16 with pgTAP: 11 of 11 pass with the migration and 7 fail without it.
+   - Archived items (Keep just one, Keep as one, a Split, the Sweep, converted) were checked and do not show in World or Chapter pages: `liveItem` in `lib/worlds/model.ts` leaves every archived item out, and the writers of a World's or Chapter's words read only items the Sweep and the tidy ups cleared (`CLEARED_REASONS` in `filed.js`). Nothing changed there.
+   - Not changed, and yours: what Gremly remembers. The memory reader reads each delete from `item_changes`; a deleted note's facts are set aside, and a deleted todo or habit sets nothing aside, by your decision of 6 October (tidying away is not forgetting). The planning chat's line (things a person deleted must never show up in what Gremly remembers) reads the other way for todos and habits.
+   - `world_observations` can name items by id (`source_drop_ids`), but it has no rows and nothing writes it, so nothing to do now.
+7. **Stage 12's order:** the simulator run with a fresh model next, then the planning chat's final check, then TestFlight. Real drops for speed and cost, the split choice data and the share of places people change go after TestFlight ships, on the ship day checklist (item 7).
+
+For James:
+- Run the delete links SQL (in my message; the same as the migration file, with a check at the end).
+- Open the simulator for the stage 12 run.
+
+Blocking questions: one, on item 6: should deleting a todo or habit also set aside what Gremly took from it, as deleting a note does?

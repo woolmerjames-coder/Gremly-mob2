@@ -18,8 +18,10 @@
 -- while its links stay.
 --
 -- Archived items (the Sweep, Keep just one, Keep as one, converted) are not
--- deleted rows and keep their links. The app and the writers already leave
--- archived items out of World and Chapter pages.
+-- deleted rows and keep their links. World and Chapter pages leave every
+-- archived item out (liveItem in lib/worlds/model.ts), and the writers of
+-- their words read only the ones the Sweep and the tidy ups cleared
+-- (CLEARED_REASONS in workers/inngest-jobs/context/filed.js).
 --
 -- Facts the reader took from an item are not touched here: the reader reads
 -- the delete from item_changes and decides what to set aside.

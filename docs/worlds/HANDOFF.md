@@ -265,6 +265,27 @@ it replies (`lib/minddrop/fileDrop.ts`), and `app_events` kind `place_change`
 counts the places people change from a card. The Worlds build only adds the
 same place to the wrap up's cards.
 
+For filing's own prompt (Mind Drop rethink, stage 9 gate, 10 October). The
+gate filed 100 real drops with and without the details, and filing stays at
+the save. One of the four drops that moved steadily between the two ways
+was a note about a funeral: with only its words, title and kind it went,
+every time, into a World about the person's social life; with the details
+it went nowhere. A funeral filed under social life reads wrong. This is a
+question for how the filing prompt weighs what a drop is about against a
+World's theme, not for when filing runs. Nothing was changed in the prompt;
+James's planning chat asked for it to be noted here for that work. The
+drop and where it went are in `scripts/filing-replay/out/gate-report.json`
+(gitignored, real data).
+
+Deleted items (Mind Drop rethink, 10 October). Deleting a todo, note or
+habit now removes its World, Chapter and life context links in the database
+(trigger `zz_forget_deleted_item_links`, migration
+`20261021090000_forget_deleted_item_links.sql`, which also cleared the links
+already left behind). Archived items keep their links: the pages leave
+every archived item out (`liveItem` in `lib/worlds/model.ts`), and the
+writers read only the ones the Sweep and the tidy ups cleared
+(`CLEARED_REASONS` in `workers/inngest-jobs/context/filed.js`).
+
 ## What exists today
 
 The screens, all replaced:
