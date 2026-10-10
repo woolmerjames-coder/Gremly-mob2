@@ -58,9 +58,14 @@ jest.mock('../../env', () => ({
   getEnv: (key: string) => (key === 'EXPO_PUBLIC_CORTEX_URL' ? 'https://test.cortex' : undefined),
 }));
 
-import { DROP_WAITS, handleQueued, handleSorted } from '../dropPhases';
+import { DROP_WAITS, handleQueued, handleSaved, handleSorted } from '../dropPhases';
 import { runClassifyV3 } from '../phase1';
-import { attachDropRelation, syncDropToSupabase } from '../dropSync';
+import {
+  attachDropRelation,
+  settleDropRow,
+  syncDropToSupabase,
+  updateDropDetails,
+} from '../dropSync';
 
 const complete = {
   kind: 'edit',
@@ -237,5 +242,52 @@ describe('the already have it answer in the new order', () => {
     const opts = (syncDropToSupabase as jest.Mock).mock.calls[0][2];
     expect(opts.extraViews.relation).toBeUndefined();
     expect(attachDropRelation).not.toHaveBeenCalled();
+  });
+
+  it('holds the settle for an answer still on its way, so a duplicate known in time is on the card', async () => {
+    // the stage 6 simulator check: the answer landed a second after the details
+    let open = () => {};
+    relateGate = new Promise<void>((r) => {
+      open = r;
+    });
+    DROP_WAITS.settleMs = 2000;
+    const saved = await sortAndSave(drop({ text: 'ring the vet about the booster jab' }), {
+      bucket: 'todo',
+    });
+    expect(saved.relationPending).toBe(true);
+    const settling = handleSaved(saved);
+    await flush();
+    expect(updateDropDetails).not.toHaveBeenCalled();
+    expect(settleDropRow).not.toHaveBeenCalled();
+    open();
+    const out = await settling;
+    const attached = (attachDropRelation as jest.Mock).mock.invocationCallOrder[0];
+    const settledAt = Math.min(
+      (updateDropDetails as jest.Mock).mock.invocationCallOrder[0] ?? Infinity,
+      (settleDropRow as jest.Mock).mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(settledAt).toBeLessThan(Infinity);
+    expect(attached).toBeLessThan(settledAt);
+    expect(out.relationIn).toBe('in_time');
+  });
+
+  it('settles at the five seconds without an answer still out, which then goes to Sweep', async () => {
+    let open = () => {};
+    relateGate = new Promise<void>((r) => {
+      open = r;
+    });
+    const saved = await sortAndSave(drop(), { bucket: 'todo' });
+    const out = await handleSaved(saved);
+    expect(out.relationIn).toBe('after_settle');
+    expect(attachDropRelation).not.toHaveBeenCalled();
+    open();
+    await flush();
+    expect(attachDropRelation).toHaveBeenCalled();
+  });
+
+  it('records that an answer in before the save was in time', async () => {
+    const saved = await sortAndSave(drop(), { bucket: 'todo' });
+    const out = await handleSaved(saved);
+    expect(out.relationIn).toBe('in_time');
   });
 });

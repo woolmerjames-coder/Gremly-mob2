@@ -644,6 +644,18 @@ describe('a drop saved as its own kind (Mind Drop rethink stage 6)', () => {
     },
   );
 
+  it('records the item a yes changed, the one picked from a which one included, and Undo clears it', async () => {
+    withDrop('todo', same);
+    const outcome = await applyDropRelation('drop-x', other);
+    expect(dropNow('todo').views.relation.applied_to).toEqual({
+      id: 't2',
+      type: 'todo',
+      title: 'Send Q4 plan to Priya',
+    });
+    await outcome.undo();
+    expect(dropNow('todo').views.relation.applied_to).toBeNull();
+  });
+
   it('is found by its drop id too', async () => {
     withDrop('todo', same);
     expect(leavingCardIds('local-x')).toEqual(['drop-x']);

@@ -90,6 +90,8 @@ export type HeldRelation = DropRelation & {
   classified: RelationClassified;
   /** the closing line once the user said yes */
   summary?: string | null;
+  /** the item a yes changed: the one shown, or the one picked from a which one */
+  applied_to?: { id: string; type: RelationEntity['type']; title: string } | null;
   /**
    * Where it is asked (Mind Drop rethink stage 4): 'card' when the answer
    * reached the saved item before its card settled, 'sweep' after. Missing on

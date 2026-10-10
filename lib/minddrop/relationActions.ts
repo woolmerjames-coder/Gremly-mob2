@@ -583,7 +583,8 @@ async function applyOnce(dropId: string, picked?: RelationEntity): Promise<Relat
   // so a second yes cannot apply it twice.
   const keepDrop = keepsDropAfterYes(rel);
   try {
-    if (!(await setRelation(drop.id, { status: 'applied', summary }))) {
+    const appliedTo = { id: entity.id, type: entity.type, title: entity.title };
+    if (!(await setRelation(drop.id, { status: 'applied', summary, applied_to: appliedTo }))) {
       throw new Error('the drop is no longer there');
     }
     if (!keepDrop) await archiveDrop(dropKind, drop.id);
@@ -592,7 +593,9 @@ async function applyOnce(dropId: string, picked?: RelationEntity): Promise<Relat
       error: String(err),
     });
     await revert().catch(() => {});
-    await setRelation(drop.id, { status: 'pending', summary: null }).catch(() => {});
+    await setRelation(drop.id, { status: 'pending', summary: null, applied_to: null }).catch(
+      () => {},
+    );
     throw new Error('That did not go through. Try again in a moment.');
   }
 
@@ -604,7 +607,7 @@ async function applyOnce(dropId: string, picked?: RelationEntity): Promise<Relat
     undo: async () => {
       await revert();
       if (!keepDrop) await restoreDrop(dropKind, drop.id);
-      await setRelation(drop.id, { status: 'pending', summary: null });
+      await setRelation(drop.id, { status: 'pending', summary: null, applied_to: null });
     },
   };
 }

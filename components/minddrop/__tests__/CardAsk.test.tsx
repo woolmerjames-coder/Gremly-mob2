@@ -15,7 +15,8 @@ jest.mock('lucide-react-native', () => {
     { get: (_t, name) => () => React.createElement(View, { testID: `icon-${String(name)}` }) },
   );
 });
-jest.mock('../../../design/animations', () => ({ useReducedMotion: () => true }));
+const mockReduced = { value: true };
+jest.mock('../../../design/animations', () => ({ useReducedMotion: () => mockReduced.value }));
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(),
   ImpactFeedbackStyle: { Light: 'light' },
@@ -141,6 +142,7 @@ const tick = (ms: number) =>
   });
 
 beforeEach(() => {
+  mockReduced.value = true;
   jest.useFakeTimers();
   today = ds.today();
   mockGone.value = null;
@@ -337,6 +339,40 @@ describe('a drop about something they already have', () => {
       yes: true,
       picked: expect.objectContaining({ id: 't2' }),
     });
+  });
+
+  it('a which one about a habit shows the habit picked with its week, its next dot filling, after Log it', async () => {
+    const run = { id: 'h1', type: 'habit' as const, title: 'Run', frequency: '3x per week' };
+    const walk = { id: 'h2', type: 'habit' as const, title: 'Walk', frequency: 'daily' };
+    mockState.habits = [{ id: 'h1', name: 'Run', cadence: 'weekly', target_per_period: 3 }];
+    mockState.habitProgress = [];
+    (answerAsk as jest.Mock).mockResolvedValue({
+      summary: 'Logged Run for today.',
+      confirm: 'Logged',
+      toast: {
+        icon: 'logged',
+        title: 'Logged “Run” for today',
+        detail: 'Your journal entry stays',
+      },
+      targetId: 'h1',
+      targetType: 'habit',
+      undo: jest.fn(),
+    });
+    // with motion on, the dot gets its moment before the strip closes
+    mockReduced.value = false;
+    const item = related({
+      kind: 'choose',
+      intent: 'logged',
+      candidates: [run, walk],
+      change: null,
+      value: null,
+    });
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.queryByTestId('minddrop-ask-d1-item')).toBeNull();
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-pick-h1'));
+    await tick(ASK_CHOSEN_MS);
+    expect(r.getByTestId('minddrop-ask-d1-item')).toBeTruthy();
+    expect(r.getByLabelText('1 of 3 this week')).toBeTruthy();
   });
 
   it('says so when the item has gone since, and offers to keep it as new', async () => {

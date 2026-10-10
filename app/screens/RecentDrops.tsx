@@ -50,6 +50,7 @@ import { runPhase2 } from '../../lib/minddrop/phase2';
 import { useTheme } from '../../src/theme/useTheme';
 import Reanimated, {
   FadeIn,
+  FadeInUp,
   FadeOut,
   SlideInDown,
   Layout,
@@ -484,13 +485,27 @@ export const markDropAsRecentlyPromoted = (dropId: string) => {
 };
 
 /**
+ * How a new drop's card comes into the list (Mind Drop rethink, after the
+ * stage 6 simulator check): slowly and softly, rising 16px as it fades in over
+ * .9s, while the cards below make room over .65s. The slower arrival gives the
+ * sort its moment. Reanimated skips both when reduced motion is on.
+ */
+const CARD_ENTER_MS = 1020;
+const CARD_ENTERING = FadeInUp.delay(120)
+  .duration(900)
+  .easing(ReanimatedEasing.out(ReanimatedEasing.quad))
+  .withInitialValues({ opacity: 0, transform: [{ translateY: 16 }] });
+const CARD_LAYOUT = Layout.duration(650).easing(ReanimatedEasing.out(ReanimatedEasing.quad));
+
+/**
  * UnifiedCardWrapper - Single wrapper for both pending and real items.
  *
  * CRITICAL: Using a single component prevents React from remounting children
  * when an item transitions from pending to real. This preserves modal state.
  *
- * - isPending=true: Apply depth emergence animation (scale + opacity)
- * - isPending=false: Apply slide-down animation via Reanimated Layout
+ * - a new pending drop comes in with CARD_ENTERING
+ * - every card moves with CARD_LAYOUT once it is in, so the list makes room
+ *   smoothly when a drop arrives or a card leaves
  */
 const UnifiedCardWrapper = React.memo<{
   itemId: string;
@@ -533,10 +548,13 @@ const UnifiedCardWrapper = React.memo<{
     const [wasPending, setWasPending] = React.useState(isPending);
     const [layoutEnabled, setLayoutEnabled] = React.useState(false);
 
-    // Animation values for depth emergence (pending items)
-    const hasAnimated = animatedInItemIds.has(itemId);
-    const scale = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.65), []);
-    const opacity = React.useMemo(() => new Animated.Value(hasAnimated ? 1 : 0.2), []);
+    // A new drop's card comes in slowly (CARD_ENTERING), once: decided when it
+    // mounts, and remembered by id so a remount never plays it again
+    const [entering] = React.useState(() => {
+      const fresh = isPending && !animatedInItemIds.has(itemId);
+      if (fresh) animatedInItemIds.add(itemId);
+      return fresh;
+    });
 
     // Leaving: a small gather (the card draws back a touch and settles), then it
     // glides away to the right, picking up speed with a slight tilt and fading at
@@ -618,41 +636,16 @@ const UnifiedCardWrapper = React.memo<{
       }
     }, [isPending, wasPending, dropId]);
 
-    // Pending item animation (depth emergence)
+    // The cards around it make room smoothly (CARD_LAYOUT): a card that has
+    // just been promoted from pending waits a moment, so its own update does not
+    // slide; any other card, a pending one included, once it is in
     React.useEffect(() => {
-      if (!isPending || hasAnimated) return;
-
-      animatedInItemIds.add(itemId);
-
-      const timeout = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(scale, {
-            toValue: 1,
-            duration: 750,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: 750,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-        ]).start();
-      }, 200);
-
-      return () => clearTimeout(timeout);
-    }, [itemId, isPending, hasAnimated, scale, opacity]);
-
-    // Real item Layout animation (slide-down)
-    React.useEffect(() => {
-      if (isPending) return;
-
-      const wasRecentlyPromoted = dropId && recentlyPromotedDropIds.has(dropId);
-      const delay = wasRecentlyPromoted ? 2000 : 500;
+      const wasRecentlyPromoted = !isPending && !!dropId && recentlyPromotedDropIds.has(dropId);
+      const delay = isPending ? CARD_ENTER_MS : wasRecentlyPromoted ? 2000 : 500;
 
       if (wasRecentlyPromoted && dropId) {
         recentlyPromotedDropIds.delete(dropId);
+        setLayoutEnabled(false);
       }
 
       const timeout = setTimeout(() => {
@@ -661,24 +654,16 @@ const UnifiedCardWrapper = React.memo<{
       return () => clearTimeout(timeout);
     }, [isPending, dropId]);
 
-    // Pending items: use Animated.View with scale/opacity
-    if (isPending && !hasAnimated) {
-      return <Animated.View style={{ opacity, transform: [{ scale }] }}>{children}</Animated.View>;
-    }
-
-    // Real items with Layout enabled: use Reanimated.View
-    if (!isPending && layoutEnabled) {
-      return (
-        <Reanimated.View
-          layout={Layout.duration(450).easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
-        >
-          <Animated.View style={leaveStyle}>{children}</Animated.View>
-        </Reanimated.View>
-      );
-    }
-
-    // Default: plain View (pending after animation, or real before Layout enabled)
-    return <Animated.View style={leaveStyle}>{children}</Animated.View>;
+    // One shape for every state, so the card inside is never remounted (its
+    // own state, and the question on it, stay as they are)
+    return (
+      <Reanimated.View
+        entering={entering ? CARD_ENTERING : undefined}
+        layout={layoutEnabled ? CARD_LAYOUT : undefined}
+      >
+        <Animated.View style={leaveStyle}>{children}</Animated.View>
+      </Reanimated.View>
+    );
   },
 );
 UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';

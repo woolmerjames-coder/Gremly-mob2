@@ -432,3 +432,14 @@ For James:
 - The Worker's morning count still counts every unanswered question until stage 8; the app's own Sweep counts live ones only.
 
 Blocking questions: none.
+
+### Stage 6, after the simulator check (9 October)
+
+From James's first run:
+- The new card popped in. A new drop's card now comes in slowly and softly (Reanimated `FadeInUp`: it rises 16px as it fades in over .9s after .12s), and every card moves with one layout transition (.65s, eased out) once it is in, a pending card included, so the list makes room smoothly. `UnifiedCardWrapper` keeps one shape in every state, so the card inside is never remounted when it is promoted or its layout transition switches on (it was, before: the old pending branch and the layout branch were different trees). Reduced motion skips both.
+- The vet duplicate was caught, but late: the check took 5.3s on Luna that time and landed about a second after the card had settled, so it went to Sweep (`surface: 'sweep'`). The settle now waits for the already have it answer as it waits for the details, within the same five seconds from the sort, and the answer is on the row before the settle's own write; `drop_timing` gains `relation` (in_time, after_settle or not_asked).
+- Logged to: the prototype has no lasting card; the habit's small card sits in the question, its next dot fills after Log it, the strip closes and the meta line reads Logged to Run. James's run asked Which one did you mean? (he has two run habits), which had no small card and lost the Logged to line. A yes now records the item it changed (`relation.applied_to`), so Logged to reads after a which one too, and a which one shows the picked habit's small card with its dot filling before it closes.
+- His test drops (13 items, their filing links, change history, timing rows, and the day's drop count and gauge) are removed by SQL he runs; `ai_usage` keeps its cost rows.
+
+Tests: `dropPhases.relation.test.ts` (the settle waits for an answer still on its way and it attaches first; at the five seconds it settles and the answer goes to Sweep; an answer in before the save is in time), `dropCardModel.test.ts` (Logged to after a which one), `relationActions.test.ts` (the item a yes changed, cleared by Undo), `CardAsk.test.tsx` (the picked habit's small card with its dot). Every test related to the changed files: 387 suites, 4,529 tests passing, none failing. `tsc` clean.
+

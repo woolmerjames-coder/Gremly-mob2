@@ -816,11 +816,24 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
   const deadline = (started ?? now()) + DROP_WAITS.settleMs;
   const timeLeft = () => Math.max(0, deadline - now());
 
+  // The already have it answer belongs to a settled card, so the settle waits
+  // for it as it waits for the details, within the same five seconds: a
+  // duplicate known in time shows its line on the card rather than going to
+  // Sweep (the stage 6 simulator check: a slow check landed a second after
+  // the settle). whenRelationLands, which listened first, puts it on the row
+  // ahead of the settle's own write.
+  const relationCall = drop.relationPending && shouldRelate(drop) ? dropRelationFor(drop) : null;
+  const relationWait = relationCall ? within(relationCall, timeLeft()) : Promise.resolve(null);
+  const relationIn = async (): Promise<QueuedDrop['relationIn']> => {
+    if (!relationCall) return shouldRelate(drop) || drop.relation ? 'in_time' : 'not_asked';
+    return (await relationWait) === undefined ? 'after_settle' : 'in_time';
+  };
+
   // An unclear drop settles with the writer's words when they are in time;
   // otherwise the classifier's question stays (a question never arrives later)
   if (isUnclear(drop)) {
     const call = startDropClarification({ ...drop, bucket: kind.bucket });
-    const words = await within(call, timeLeft());
+    const [words] = await Promise.all([within(call, timeLeft()), relationWait]);
     if (words === undefined) {
       await settleDropRow(saved);
       void call.promise.then(() =>
@@ -835,17 +848,22 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
         { settle: true },
       );
     }
-    return settled(drop, { detailsIn: 'not_asked', resumed: drop.resumed || resumed || undefined });
+    return settled(drop, {
+      detailsIn: 'not_asked',
+      relationIn: await relationIn(),
+      resumed: drop.resumed || resumed || undefined,
+    });
   }
 
   const call = startDropDetails(drop, kind);
-  const enrichment = await within(call, timeLeft());
+  const [enrichment] = await Promise.all([within(call, timeLeft()), relationWait]);
   if (enrichment === undefined) {
     // settles without its details; they are written when they land
     await settleDropRow(saved);
     whenDetailsLand(drop, saved, kind, call);
     return settled(drop, {
       detailsIn: 'after_settle',
+      relationIn: await relationIn(),
       resumed: drop.resumed || resumed || undefined,
     });
   }
@@ -858,6 +876,7 @@ export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
   return settled(drop, {
     ...detailsOntoDrop(enrichment, null),
     detailsIn: enrichment ? 'in_time' : 'none',
+    relationIn: await relationIn(),
     resumed: drop.resumed || resumed || undefined,
   });
 }

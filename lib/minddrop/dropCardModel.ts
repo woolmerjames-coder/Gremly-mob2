@@ -242,8 +242,10 @@ function outcomePart(item: CardItem, kind: DropCardKind): MetaPart | null {
   if (kind !== 'journal') return null;
   const rel = relationOf(item.views);
   if (!rel) return null;
-  if (rel.status === 'applied' && rel.intent === 'logged' && rel.kind !== 'choose') {
-    return { key: 'outcome', icon: 'check', text: `Logged to ${rel.entity.title}` };
+  if (rel.status === 'applied' && rel.intent === 'logged') {
+    // the habit it was logged to: the one picked from a which one, or the one shown
+    const title = rel.applied_to?.title ?? (rel.kind !== 'choose' ? rel.entity.title : null);
+    if (title) return { key: 'outcome', icon: 'check', text: `Logged to ${title}` };
   }
   if (rel.status === 'kept') {
     return { key: 'outcome', icon: 'notebook-pen', text: 'Kept as a journal entry' };

@@ -250,6 +250,22 @@ describe('the meta line', () => {
       text: 'Kept as a journal entry',
     });
     expect(metaParts({ views: rel('pending', 'logged') }, 'journal')).toEqual([]);
+    // a which one: the habit picked, as the yes recorded it
+    const picked = {
+      relation: {
+        kind: 'choose',
+        intent: 'logged',
+        status: 'applied',
+        candidates: [],
+        applied_to: { id: 'h2', type: 'habit', title: 'Morning run' },
+        classified: { bucket: 'log', subtype: 'journal' },
+      },
+    };
+    expect(metaParts({ views: picked }, 'journal')[0]).toEqual({
+      key: 'outcome',
+      icon: 'check',
+      text: 'Logged to Morning run',
+    });
     expect(metaParts({ views: rel('applied', 'logged') }, 'note')).toEqual([]);
   });
 

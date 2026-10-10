@@ -288,6 +288,8 @@ export function CardAsk({
   const [open, setOpen] = React.useState(!!ask);
   const [error, setError] = React.useState<string | null>(null);
   const [logged, setLogged] = React.useState(false);
+  // a which one answered Log it: the habit picked, shown with its dot filling
+  const [loggedTo, setLoggedTo] = React.useState<RelationEntity | null>(null);
   // an answer is being made: the strip stays as it is until it finishes
   const busy = React.useRef(false);
   const swapping = React.useRef(false);
@@ -315,6 +317,7 @@ export function CardAsk({
         const to = next ?? (now ? { ask: now, step: MAIN } : null);
         setError(null);
         setLogged(false);
+        setLoggedTo(null);
         setShown(to);
         setOpen(!!to);
       }, swapMs);
@@ -383,7 +386,9 @@ export function CardAsk({
           picked,
         })) as RelationOutcome;
         if (outcome.toast.icon === 'logged') {
+          // the small card of the habit shows its week's next dot fill, then the strip closes
           setLogged(true);
+          if (picked) setLoggedTo(picked);
           if (!reduced) await new Promise((r) => setTimeout(r, LOGGED_POP_MS));
         }
         busy.current = false;
@@ -404,6 +409,9 @@ export function CardAsk({
     };
     const chooseFrom = (options: RelationEntity[]): StripWords => ({
       question: 'Which one did you mean?',
+      extra: loggedTo ? (
+        <ItemRow entity={loggedTo} logged={logged} testID={`${tid}-item`} />
+      ) : undefined,
       buttons: [
         ...options.map((o) => {
           const now = currentEntity(o).entity ?? o;
