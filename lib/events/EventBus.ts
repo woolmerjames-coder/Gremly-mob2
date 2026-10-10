@@ -153,6 +153,7 @@ export type EventMap = {
     localId: string;
     message: string | null;
     rawReaction: string | null;
+    /** Always null since Mind Drop rethink stage 10 (no follow up line); removed in stage 11. */
     followUp: 'multi' | 'clarify' | null;
   };
 };

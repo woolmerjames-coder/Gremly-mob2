@@ -25,29 +25,33 @@ export const WAITING_LINE = 'That’s three. I grow in a moment.';
 
 const MIDDLE_DOT = '·';
 
-const FED_LINES: Record<FedDay, readonly string[]> = {
+/*
+ * The pools are exported for the tests: a growth moment says what happened,
+ * never asks (Mind Drop rethink stage 10).
+ */
+export const FED_LINES: Record<FedDay, readonly string[]> = {
   1: ['You fed me.', 'Fed. Thank you.', 'All of it, mine now.'],
   2: ['You fed me again.', 'Two days fed.', 'Fed. Twice.'],
   3: ['Three days.', 'That’s three.'],
 };
 
-const FED_COUNTS: Record<FedDay, string> = {
+export const FED_COUNTS: Record<FedDay, string> = {
   1: 'One of three. Two more and I grow.',
   2: 'Two of three. One more and I grow.',
   3: 'Three of three. Here we go.',
 };
 
-const FED_BUBBLES: Record<1 | 2, readonly string[]> = {
+export const FED_BUBBLES: Record<1 | 2, readonly string[]> = {
   1: ['Two more days like this and I grow.', 'Same again twice and I grow.'],
   2: ['One more day like this and I grow.', 'Tomorrow could be the one.'],
 };
 
 /** How his line under the number reads, by how old he is. Never shown as a band. */
-const AGE_BANDS: ReadonlyArray<readonly [number, number, string]> = [
+export const AGE_BANDS: ReadonlyArray<readonly [number, number, string]> = [
   [0, 2, 'Bigger.'],
   [3, 5, '{n}. I feel different.'],
-  [6, 9, '{n}. I feel different. Do I look it?'],
-  [10, 15, '{n}. What’s next?'],
+  [6, 9, '{n}. I feel different. I think it shows.'],
+  [10, 15, '{n}. More to come.'],
   [16, 25, '{n}. We’re getting good at this.'],
   [26, 40, '{n}. Steady as we go.'],
   [41, 60, '{n}. You keep showing up. So do I.'],

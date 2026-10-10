@@ -120,7 +120,13 @@ function calculateDuration(message: string): number {
 // Speech Pools
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SPEECH_POOLS = {
+/**
+ * Every fixed line Gremly's bubble says. Exported for the tests. After a drop,
+ * on an error and in a nudge, a line is a statement, never a question (Mind Drop rethink stage 10): no one should take Mind Drop for a
+ * chat and answer in their next drop. The greetings that invite a drop on an
+ * empty box are the exception.
+ */
+export const SPEECH_POOLS = {
   GREETINGS: {
     morning: [
       'Morning! What\u2019s on your mind?',
@@ -158,7 +164,7 @@ const SPEECH_POOLS = {
       "{date}, locked in. That one's off your plate.",
       "Set for {date}. I'll worry about it, you won't.",
       'Pinned to {date}. Go forget about it.',
-      "{date}. It's handled. Next?",
+      "{date}. It's handled.",
     ],
     todo_no_date: [
       "Got it. We'll figure out when later.",
@@ -220,19 +226,19 @@ const SPEECH_POOLS = {
 
   ERRORS: {
     network: [
-      'Offline? No worries. Saved locally, I\u2019ll sync later.',
+      'Offline, no worries. Saved locally, I\u2019ll sync later.',
       'Connection\u2019s shaky, but I\u2019ve got it. Will sync soon.',
       'Saved on your device. I\u2019ll upload when signal\u2019s back.',
     ],
     ai_failed: [
-      'Saved, but my brain hiccuped. Sort it in Sweep?',
-      'Got it! My classifier stumbled — you decide the type.',
+      'Saved, but my brain hiccuped. Sweep can sort it.',
+      'Got it! My classifier stumbled, so you decide the type.',
       'Saved to inbox. I\u2019ll let you file this one.',
     ],
     generic: [
-      'Something went sideways. Try that again?',
-      'Weird glitch. One more time?',
-      'That didn\u2019t land. Mind trying again?',
+      'Something went sideways. Try that again.',
+      'Weird glitch. Give it one more go.',
+      'That didn\u2019t land. Try it once more.',
     ],
   },
 
@@ -244,10 +250,10 @@ const SPEECH_POOLS = {
 
   RETURNING_USER: [
     "You're back. And that's already saved.",
-    'Hey. Caught it. What else you been sitting on?',
+    'Hey. Caught it. Plenty of room for the rest.',
     "There you are. First one's down, keep going.",
-    'Welcome back. Got it. What else?',
-    "Been a minute. That one's safe, what's next?",
+    'Welcome back. Got it.',
+    "Been a minute. That one's safe.",
   ],
 
   EMPTY_STATE: [
@@ -271,7 +277,7 @@ const SPEECH_POOLS = {
   SWEEP_NUDGE: {
     short: [
       "I've been collecting things. Sweep when you're ready.",
-      'A few days of drops sitting here. Want to sort through them?',
+      'A few days of drops sitting here, ready for a Sweep.',
       "Stuff's been piling up. Sweep whenever.",
     ],
     long: [
@@ -283,11 +289,11 @@ const SPEECH_POOLS = {
 
   RAPID_FIRE: [
     'And another one. Keep going.',
-    'Got it. Next?',
-    'Caught. What else?',
+    'Got it. Keep them coming.',
+    'Caught. Plenty of room.',
     'Yep. Keep clearing.',
     "In. Don't stop.",
-    "That's mine. What's next?",
+    "That's mine. On to the next.",
     'Another one down.',
   ],
 

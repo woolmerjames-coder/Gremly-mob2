@@ -125,7 +125,7 @@ import {
   getFirstVisitSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
-import { getFollowUpMessage } from '../../lib/speech/followUpMessages';
+import { reactionSpeechOf } from '../../lib/speech/reactionSpeech';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   appendLineageToWhyString,
@@ -1372,7 +1372,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const followUpTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const hasShownGreetingRef = useRef(false);
   const lastSpeechTimeRef = useRef<number | null>(null);
@@ -1404,9 +1403,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => {
       if (gremlySpeechTimeoutRef.current) {
         clearTimeout(gremlySpeechTimeoutRef.current);
-      }
-      if (followUpTimeoutRef.current) {
-        clearTimeout(followUpTimeoutRef.current);
       }
     };
   }, []);
@@ -1547,113 +1543,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     trainingDropStep,
   ]);
 
-  // Subscribe to AI reaction events from the pipeline (speech bubble)
+  // Gremly's reaction to a drop, as its card sorts (Mind Drop rethink stage 10):
+  // the only comment on a drop, with no follow up line (reactionSpeech.ts)
   useEffect(() => {
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
-      const { message, rawReaction, followUp } = payload;
-
-      // Training mode: handle speech for guided drops
       const storeState = useGremlyStore.getState();
-      if (
+      const inTraining =
         !storeState.graduatedAt &&
         storeState.trainingDropStep >= 1 &&
-        storeState.trainingDropStep <= 4
-      ) {
-        if (storeState.trainingDropStep === 1) {
-          // Step 1: stash RAW reaction for gauge modal dismiss
-          pendingTrainingReactionRef.current = rawReaction || null;
-        } else {
-          // Steps 2-4: combine RAW reaction + training prompt
-          const trainingPrompt = getTrainingDropPrompt(storeState.trainingDropStep + 1);
-          if (trainingPrompt) {
-            const reaction = rawReaction || '';
-            const combined = reaction
-              ? reaction + '\n\n' + trainingPrompt.message
-              : trainingPrompt.message;
-            setGremlySpeech({
-              message: combined,
-              variant: 'default',
-            });
-          }
-        }
+        storeState.trainingDropStep <= 4;
+      const speech = reactionSpeechOf(payload, {
+        trainingStep: inTraining ? storeState.trainingDropStep : null,
+        trainingPrompt: getTrainingDropPrompt,
+        poolLine: () => getGremlySpeech(buildSpeechContext('post_drop'))?.message || null,
+      });
+
+      if (speech.show === 'hold') {
+        // the first guided drop: the reaction waits for the gauge card to close
+        pendingTrainingReactionRef.current = speech.reaction;
+        return;
+      }
+      if (speech.show === 'training') {
+        setGremlySpeech({ message: speech.message, variant: 'default' });
         return;
       }
 
       console.log('[SpeechBubble] drop:reaction_ready received', {
         localId: payload.localId,
-        message: message?.substring(0, 30),
-        followUp,
+        message: payload.message?.substring(0, 30),
+        wasPoolFallback: speech.show === 'reaction' && speech.fromPool,
       });
-
-      // Cancel any pending follow-up from a previous drop
-      if (followUpTimeoutRef.current) {
-        clearTimeout(followUpTimeoutRef.current);
-        followUpTimeoutRef.current = null;
-      }
-
-      // Resolve beat 1: AI reaction — only fall back to pool when there's no follow-up
-      // (multi/clarify drops should NOT show a generic pool message)
-      const reactionMessage =
-        message ||
-        (!followUp
-          ? (() => {
-              const ctx = buildSpeechContext('post_drop');
-              const fallback = getGremlySpeech(ctx);
-              return fallback?.message || null;
-            })()
-          : null);
-
-      const recentSpeech = useGremlyStore.getState().recentSpeech;
-
-      console.log('[Speech] Displaying reaction:', {
-        message: reactionMessage,
-        followUp,
-        wasPoolFallback: !message,
-      });
-
-      if (reactionMessage && !followUp) {
-        // Single beat — just the reaction
-        const duration = calculateSpeechDuration(reactionMessage);
-        showGremlySpeech(reactionMessage, duration);
-        useGremlyStore.getState().pushRecentSpeech(reactionMessage);
-      } else if (reactionMessage && followUp) {
-        // Two beats — vary the order so it doesn't feel templated
-        const reactionFirst = Math.random() < 0.5;
-        const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
-        const first = reactionFirst ? reactionMessage : followUpMsg;
-        const second = reactionFirst ? followUpMsg : reactionMessage;
-        const firstDuration = reactionFirst
-          ? calculateSpeechDuration(reactionMessage)
-          : followUpMsg
-            ? calculateSpeechDuration(followUpMsg)
-            : 5000;
-        const secondDuration = reactionFirst
-          ? followUpMsg
-            ? calculateSpeechDuration(followUpMsg)
-            : 5000
-          : calculateSpeechDuration(reactionMessage);
-
-        if (first) showGremlySpeech(first, firstDuration);
-        useGremlyStore.getState().pushRecentSpeech(reactionMessage);
-
-        followUpTimeoutRef.current = setTimeout(() => {
-          followUpTimeoutRef.current = null;
-          if (second) showGremlySpeech(second, secondDuration);
-        }, firstDuration + 500);
-      } else if (!reactionMessage && followUp) {
-        // No reaction (e.g. multi parent) — just follow-up
-        const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
-        if (followUpMsg) showGremlySpeech(followUpMsg, calculateSpeechDuration(followUpMsg));
-      }
-      // If both null, no speech (shouldn't happen but safe)
+      if (speech.show !== 'reaction') return;
+      showGremlySpeech(speech.message, calculateSpeechDuration(speech.message));
+      useGremlyStore.getState().pushRecentSpeech(speech.message);
     });
 
-    return () => {
-      unsubscribe();
-      if (followUpTimeoutRef.current) {
-        clearTimeout(followUpTimeoutRef.current);
-      }
-    };
+    return unsubscribe;
   }, [showGremlySpeech, buildSpeechContext]);
 
   // Return-visit speech: fire when user returns to MindDrop after visiting another tab

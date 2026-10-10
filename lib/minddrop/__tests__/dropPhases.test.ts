@@ -11,6 +11,9 @@
  * - saved: details in time are written with the settle; late ones after it;
  *   an unclear drop takes the writer's words only when they are the writer's.
  * - an older build's phases run the handler they move to.
+ * - the bubble (stage 10): every drop's reaction goes with its sort, a
+ *   split's too, never with a follow up line; one that comes later shows up
+ *   to the settle and is let go after it.
  */
 
 import type { QueuedDrop } from '../dropQueue';
@@ -324,8 +327,36 @@ describe('handleQueued', () => {
     expect(out).toMatchObject({ phase: 'sorted', isMulti: true, split: 'unsure' });
     expect(out.asOne).toEqual({ bucket: 'todo', subtype: null, habitSubtype: null });
     expect(out.multiSegments).toHaveLength(2);
-    // the split line as before: no reaction
-    expect(reactions).toEqual([expect.objectContaining({ message: null, followUp: 'multi' })]);
+    // the title call is still out: no split line, and the reaction waits for its words
+    expect(reactions).toEqual([]);
+  });
+
+  it('gives a split its reaction at the sort when the words are back, with no follow up line', async () => {
+    (runClassifyV3 as jest.Mock).mockImplementation(async () => {
+      await flush();
+      return v3(
+        { bucket: 'todo' },
+        {
+          is_multi: true,
+          split: 'clear',
+          as_one: null,
+          segments: [
+            { text: 'buy milk', bucket: 'todo', subtype: null },
+            { text: 'walk daily', bucket: 'habit', habitSubtype: 'start_habit' },
+          ],
+        },
+      );
+    });
+    const out = await handleQueued(drop({ text: 'buy milk, walk daily' }));
+    expect(out.confirmationMessage).toBe('She will love that.');
+    expect(reactions).toEqual([
+      {
+        localId: out.localId,
+        message: 'She will love that.',
+        rawReaction: 'She will love that.',
+        followUp: null,
+      },
+    ]);
   });
 
   it('gives a piece that asks a question to show even when its own was unusable', async () => {
@@ -476,7 +507,48 @@ describe('handleSorted', () => {
     expect(saved.clarificationQuestion).toBe('Booked yet?');
     expect(sentTypes()).toContain('clarify-ambiguity');
     expect(sentTypes()).not.toContain('enrich-phase2');
-    expect(reactions).toEqual([expect.objectContaining({ followUp: 'clarify' })]);
+    // the question is on the card: no follow up line in the bubble
+    expect(reactions).toEqual([expect.objectContaining({ followUp: null })]);
+  });
+
+  it('gives an unclear drop its reaction at the save, with no follow up line', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3({ bucket: 'log', subtype: 'general', is_ambiguous: true, ambiguity_type: 'bucket' }),
+    );
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'note-1',
+      entityType: 'note',
+    });
+    const q = await handleQueued(drop());
+    expect(reactions).toEqual([]);
+    await handleSorted(q);
+    expect(reactions).toEqual([
+      expect.objectContaining({ message: 'She will love that.', followUp: null }),
+    ]);
+  });
+
+  it('gives an unsure split its reaction at the save when the words come after the sort', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3(
+        { bucket: 'todo' },
+        {
+          is_multi: true,
+          split: 'unsure',
+          as_one: { bucket: 'todo', subtype: null, habitSubtype: null },
+          segments: [
+            { text: 'buy milk', bucket: 'todo', subtype: null },
+            { text: 'walk daily', bucket: 'habit', habitSubtype: 'start_habit' },
+          ],
+        },
+      ),
+    );
+    const q = await handleQueued(drop({ text: 'buy milk, walk daily' }));
+    expect(reactions).toEqual([]);
+    await handleSorted(q);
+    expect(reactions).toEqual([
+      expect.objectContaining({ message: 'She will love that.', followUp: null }),
+    ]);
   });
 
   it('saves an unsure split as one item of its kind as one, with the pieces waiting', async () => {
@@ -580,6 +652,77 @@ describe('handleSorted', () => {
     // the whole drop's check found nothing, so no piece is checked on its own
     expect(sentOf('minddrop-relate')).toHaveLength(1);
     expect(attachDropRelation).not.toHaveBeenCalled();
+  });
+
+  const clearSplit = () =>
+    v3(
+      { bucket: 'todo' },
+      {
+        is_multi: true,
+        split: 'clear',
+        as_one: null,
+        segments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      },
+    );
+
+  it('sends a clear split’s reaction with its pieces, from the whole drop’s words', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    (runClassifyV3 as jest.Mock).mockResolvedValue(clearSplit());
+    const q = await handleQueued(drop({ text: 'a, b' }));
+    expect(reactions).toEqual([]);
+    const out = await handleSorted(q);
+    expect(out.phase).toBe('saved');
+    expect(reactions).toEqual([
+      expect.objectContaining({ message: 'She will love that.', followUp: null }),
+    ]);
+    await handleSaved(out);
+    await flush();
+    // the pieces' own words are never shown
+    expect(reactions).toHaveLength(1);
+  });
+
+  it('shows a clear split’s late reaction up to the settle', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    (runClassifyV3 as jest.Mock).mockResolvedValue(clearSplit());
+    gates['enrich-phase1-5a'] = gate();
+    const out = await handleSorted(await handleQueued(drop({ text: 'a, b' })));
+    expect(reactions).toEqual([]);
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+    await handleSaved(out);
+  });
+
+  it('lets a clear split’s reaction go when it lands after the settle', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    (runClassifyV3 as jest.Mock).mockResolvedValue(clearSplit());
+    gates['enrich-phase1-5a'] = gate();
+    const out = await handleSorted(await handleQueued(drop({ text: 'a, b' })));
+    const done = await handleSaved(out);
+    expect(done.phase).toBe('complete');
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(reactions).toHaveLength(0);
+  });
+
+  it('says nothing, and asks for no words, for a clear split sorted before a restart', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    await handleSorted(
+      sorted({
+        isMulti: true,
+        split: 'clear',
+        multiSegments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      }),
+    );
+    await flush();
+    expect(reactions).toHaveLength(0);
+    expect(sentOf('enrich-phase1-5a')).toHaveLength(0);
   });
 
   it('checks each piece on its own only when the whole drop’s check found something', async () => {

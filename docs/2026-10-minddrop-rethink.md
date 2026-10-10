@@ -594,3 +594,29 @@ For James:
 - Simulator moments: a drop about something in a World you have (for example: book flights for lisbon, if you have a Lisbon trip) settles with the place at the end of its meta line; tap it and the picker opens; change it, and the card shows your choice.
 
 Blocking questions: none (the gate above waits for your yes).
+
+
+### Stage 10: the speech bubble (9 October)
+
+What changed:
+- The reaction goes with the sort. Stage 4 had already moved `drop:reaction_ready` to the sort (once the kind and the words are both in) and let go of a reaction that came after the settle; stage 10 adds the same for a split. A split's reaction comes from the title call at the tap, which saw the whole drop: at the sort when the words are back, otherwise with the save (an unsure split, saved as one item) or with the pieces (a clear split: the title call gets the same second more while the pieces are saved, `handleSorted`). One that comes later shows up to the settle and is let go after it (`sendLateReaction`, and `whenSplitWordsLand` for a clear split, whose pieces keep their own titles). The pieces' own reactions are never shown. A clear split sorted before an app restart says nothing and makes no title call just for the bubble.
+- No follow up line. `followUp` is always null (`sendReaction` in `lib/minddrop/dropPhases.ts`), and the bubble's listener in `CatchAllNotepad.tsx` no longer reads it: the two beat path and its timer are gone, so neither Tap the card line can show. `lib/speech/followUpMessages.ts` and the field itself stay until stage 11's audit (no caller is left in the app; the field is marked always null in `EventBus.ts`).
+- The listener's rules moved to `lib/speech/reactionSpeech.ts` (pure, so the tests read the real rules): the reaction alone; the bubble's own line after a drop only when the title call failed (now for an unclear drop or a split too, which before showed the follow up line instead); the guided training drops as before (step 1 held for the gauge card in `pendingTrainingReactionRef`, steps 2 to 4 the reaction then the next prompt).
+- Nothing in the bubble asks. Rewritten as statements: in `lib/speech/gremlySpeech.ts`, `{date}. It's handled.`; `RETURNING_USER`: Hey. Caught it. Plenty of room for the rest. / Welcome back. Got it. / Been a minute. That one's safe.; `RAPID_FIRE`: Got it. Keep them coming. / Caught. Plenty of room. / That's mine. On to the next.; `ai_failed`: Saved, but my brain hiccuped. Sweep can sort it.; `generic`: Something went sideways. Try that again. / Weird glitch. Give it one more go. / That didn't land. Try it once more.; `SWEEP_NUDGE.short`: A few days of drops sitting here, ready for a Sweep. In `lib/speech/momentWords.ts`: {n}. I feel different. I think it shows. and {n}. More to come. The empty box greetings, `EMPTY_STATE` and `RETURN.time_shift.afternoon` are as they were. `SPEECH_POOLS` and the growth pools are exported for the tests.
+- The outcome lines after a tap on the card were already statements (the relation's closing lines, One note it is.); nothing changed there.
+- Celebrations (`celebrate()` and the gauge preview) are untouched.
+
+Tests: new `lib/speech/__tests__/reactionSpeech.test.ts` (the reaction alone; never a follow up line, even when a payload names one; the bubble's own line only when there is no reaction; training step 1 held, steps 2 to 4 with the next prompt, never the bubble's own line in training) and `lib/speech/__tests__/noQuestions.test.ts` (every line after a drop, on an error, in a nudge and in a growth moment is a statement with no long dash). `dropPhases.test.ts`: a split gets its reaction at the sort when the words are back, with `followUp` null; an unclear drop and an unsure split get theirs at the save; a clear split's goes with its pieces, a late one shows up to the settle and is let go after it, and one sorted before a restart says nothing and asks for no words. `momentWords.test.ts` and `CelebrationController.test.ts` read the new age lines. Every test related to the changed files: the 7 suites above (136 passing); CatchAllNotepad's 24 suites and EventBus (191 passing, 69 skipped in the 7 suites already wholly skipped); all of `lib/minddrop` (36 suites, 682 passing, 2 skipped); training and `useMindDropSubmit` (62 passing). None failing. `tsc` clean; eslint has no errors.
+
+Deviations:
+- The plan names the sweep nudge, `ai_failed`, `generic`, `RETURNING_USER`, `RAPID_FIRE` and the Next? line; the network error line Offline? No worries. also asked, so it is now Offline, no worries. The `ai_failed` line with a long dash now uses a comma.
+- The listener's follow up code is gone in this stage rather than left dead for stage 11, since it is exactly the two lines the plan removes here; the file and the field wait for stage 11's audit as planned.
+
+For James:
+- Every new line above is mine: change any you like. The celebrations prototype still has Do I look it?; the build follows the 9 October decision.
+- The guided training's step 2 prompt still asks What do you need to get done this week?. It invites the next drop like the greetings do, and the plan keeps training unchanged, so I left it. Say if you want it as a statement.
+- Step 1 of training: the reaction now lands at about 2s, before the gauge card opens at 3s, so it is held for the card more reliably than at the old 4s.
+- Nothing to deploy for stage 10 (app only).
+- Simulator moments: drop call mum about sunday and watch the bubble change at the same moment as the card, with one line and no Tap the card. Drop buy milk and book the dentist: the pieces unzip and the bubble reacts once, to the whole drop. Drop an unclear one (dentist): the question is on the card and the bubble only reacts.
+
+Blocking questions: none.

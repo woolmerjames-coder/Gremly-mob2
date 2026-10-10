@@ -12,7 +12,9 @@
  *            title call gets at most a second more; then the drop is saved as
  *            its kind, as one item that asks for an unsure split, or as its
  *            pieces for a clear split. The reaction goes to the bubble as the
- *            card sorts, once the kind and the words are both in.
+ *            card sorts, once the kind and the words are both in, a split's
+ *            too (stage 10); one that comes later shows up to the settle and
+ *            is let go after it.
  *   saved    About 2.3s. The card waits for the details (for an unclear drop,
  *            the writer's words) until five seconds after the sort, writes them
  *            in one update and settles. Details that come later are written when
@@ -271,21 +273,33 @@ function wordsOf(
   };
 }
 
-/** Gremly's reaction for the bubble, once per drop, when the kind and the words are both in. */
+/**
+ * Gremly's reaction for the bubble, once per drop, when the kind and the words
+ * are both in (stage 10). It is the only comment on a drop, a split's included,
+ * and never comes with a follow up line: the question or the split is already
+ * on the card. A reaction of null (the title call failed) lets the bubble use
+ * its own line, as before.
+ */
 function sendReaction(drop: QueuedDrop, reaction: string | null): void {
   if (reactionSent.has(drop.localId)) return;
   remember(reactionSent, drop.localId);
-  const followUp: 'multi' | 'clarify' | null = drop.isMulti
-    ? 'multi'
-    : drop.needsClarification
-      ? 'clarify'
-      : null;
-  const message = drop.isMulti ? null : reaction;
   eventBus.emit('drop:reaction_ready', {
     localId: drop.localId,
-    message,
-    rawReaction: message,
-    followUp,
+    message: reaction,
+    rawReaction: reaction,
+    // no follow up line since stage 10; the field itself goes in stage 11
+    followUp: null,
+  });
+}
+
+/** A reaction that comes after the sort: shown up to the settle; after it, Gremly lets the drop go. */
+function sendLateReaction(drop: QueuedDrop, reaction: string | null): void {
+  if (!settledIds.has(drop.localId)) {
+    sendReaction(drop, reaction);
+    return;
+  }
+  console.log('[DropPhases] reaction came after the settle; not shown', {
+    localId: drop.localId,
   });
 }
 
@@ -363,12 +377,7 @@ function whenWordsLand(drop: QueuedDrop, saved: SavedDropRow, wordsTitle: string
   void dropWordsFor(drop).promise.then(async (words) => {
     try {
       if (!words?.smartTitle) fallbackTitle(drop.text, 'enrich-phase1-5a');
-      // the bubble speaks up to the settle; after it, Gremly lets the drop go
-      if (!settledIds.has(drop.localId)) sendReaction(drop, words?.reaction ?? null);
-      else
-        console.log('[DropPhases] reaction came after the settle; not shown', {
-          localId: drop.localId,
-        });
+      sendLateReaction(drop, words?.reaction ?? null);
       await updateDropWords(saved, words, wordsTitle);
     } catch (err) {
       console.warn('[DropPhases] the late title could not be saved', {
@@ -377,6 +386,18 @@ function whenWordsLand(drop: QueuedDrop, saved: SavedDropRow, wordsTitle: string
       });
     }
   });
+}
+
+/**
+ * A clear split's reaction, when the title call answers after its pieces are
+ * saved. The whole drop's words are only for the bubble: each piece has its
+ * own title.
+ */
+function whenSplitWordsLand(drop: QueuedDrop): void {
+  const key = `${drop.localId}:words`;
+  if (waiting.has(key)) return;
+  remember(waiting, key);
+  void dropWordsFor(drop).promise.then((words) => sendLateReaction(drop, words?.reaction ?? null));
 }
 
 /** The already have it answer, whenever it lands (for the card before the settle, Sweep after). */
@@ -570,10 +591,15 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
       dominantSubtype: multiResult.dominant_subtype || null,
       bucket: phase1Result.bucket,
       subtype: phase1Result.subtype,
-      ...(words.done ? { smartTitle: wordsOf(drop, words.value).smartTitle } : {}),
     };
-    // The bubble's split line, with no reaction, as before (stage 7 changes it)
-    sendReaction(sorted, null);
+    // The title call at the tap saw the whole drop, so a split gets its
+    // reaction like any other drop (stage 10); the pieces' own are not shown
+    if (words.done) {
+      const { smartTitle, reaction } = wordsOf(drop, words.value);
+      sorted.smartTitle = smartTitle;
+      sorted.confirmationMessage = reaction;
+      sendReaction(sorted, reaction);
+    }
     return sorted;
   }
 
@@ -632,7 +658,18 @@ export async function handleSorted(drop: QueuedDrop): Promise<QueuedDrop> {
   // A clear split is saved as its pieces, each settled as it is (stage 7 gives
   // each piece its own title and details)
   if (isClearSplit(drop)) {
-    const pieceRows = await insertSplitPieces(drop);
+    // The whole drop's reaction goes with the pieces: the title call gets the
+    // same second more while they are saved. A split sorted before a restart
+    // gets none, and no title call just for the bubble.
+    const reactionDue = queuedThisRun.has(drop.localId) && !reactionSent.has(drop.localId);
+    const [pieceRows, words] = await Promise.all([
+      insertSplitPieces(drop),
+      reactionDue ? within(dropWordsFor(drop), DROP_WAITS.wordsAfterSortMs) : Promise.resolve(null),
+    ]);
+    if (reactionDue) {
+      if (words === undefined) whenSplitWordsLand(drop);
+      else sendReaction(drop, words?.reaction ?? null);
+    }
     console.log('[DropPhases] saved as its pieces', {
       localId: drop.localId,
       pieces: pieceRows.length,
