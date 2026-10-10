@@ -12,6 +12,7 @@ import {
   cardDupeAsk,
   cardStripAsk,
   isAskLive,
+  isOlderMulti,
   keptForSweep,
   liveAsksOf,
   sweepShowsAsk,
@@ -166,8 +167,37 @@ describe('the card', () => {
     expect(cardDupeAsk(item)?.kind).toBe('same');
   });
 
-  it('shows no split strip until stage 7 draws one', () => {
-    expect(cardStripAsk(settled({ split: { status: 'pending' }, ask_on_card: true }))).toBeNull();
+  it('asks an unsure split on the card from the sort, before its details are in', () => {
+    expect(cardStripAsk(settled({ split: { status: 'pending' }, ask_on_card: true }))?.kind).toBe(
+      'split',
+    );
+    const sorted = {
+      ...settled(),
+      views: { minddrop_stage: 'saved', split: { status: 'pending' } },
+    };
+    expect(cardStripAsk(sorted)?.kind).toBe('split');
+    expect(cardStripAsk(settled({ split: { status: 'pending' }, ask_on_card: false }))).toBeNull();
+    expect(cardStripAsk(settled({ split: { status: 'kept' } }))).toBeNull();
+  });
+
+  it('reads an older build’s note still waiting to be split as a split made on its own day, never on the card', () => {
+    const older = {
+      id: 'old',
+      created_at: `${day(-40)}T09:00:00`,
+      views: { is_multi: true, minddrop_stage: 'multi_pending', multi_items: [{ text: 'a' }] },
+    };
+    expect(asksOf(older)).toEqual([
+      { kind: 'split', since: day(-40), onCard: false, lapsesNow: true },
+    ]);
+    expect(isAskLive(askOf(older))).toBe(false);
+    // one an older build made today lets go at the next load too
+    const today = { ...older, created_at: `${day(0)}T09:00:00` };
+    expect(askOf(today)?.since).toBe(day(0));
+    expect(isAskLive(askOf(today))).toBe(false);
+    expect(cardStripAsk(older)).toBeNull();
+    // once it has an outcome it asks nothing
+    expect(asksOf({ ...older, views: { ...older.views, split: { status: 'kept' } } })).toEqual([]);
+    expect(isOlderMulti({ views: { is_multi: true, minddrop_stage: 'enriched' } })).toBe(false);
   });
 
   it('treats a relation an older build held as a note as one for the card', () => {

@@ -20,7 +20,10 @@ export type AppEventKind =
   | 'story_view'
   // One per Mind Drop: how long it took to sort, save and settle, with no words
   // (Mind Drop rethink stage 4; stage 12 compares it with the baseline)
-  | 'drop_timing';
+  | 'drop_timing'
+  // One per split answered: what the classifier said (clear or unsure) and what
+  // the person tapped (split, keep as one, not now), with no words (stage 7)
+  | 'split_answer';
 
 // How long the same event for the same thing counts once (0: every one counts).
 const THROTTLE_MS: Record<AppEventKind, number> = {
@@ -29,6 +32,7 @@ const THROTTLE_MS: Record<AppEventKind, number> = {
   chapter_view: 10 * 60 * 1000,
   story_view: 10 * 60 * 1000,
   drop_timing: 0,
+  split_answer: 0,
 };
 
 const lastLogged = new Map<string, number>();

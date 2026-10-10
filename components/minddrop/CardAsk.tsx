@@ -8,7 +8,12 @@
  *   time: a new ask, or the next step of this one (When is it?, Which one did
  *   you mean?), comes in once the last has closed. Answers go through
  *   askActions.answerAsk, so the card and Sweep share one path.
- * - CardDupe is the quiet duplicate line, with Keep just one.
+ * - An unsure split asks One job or two? with its pieces shown, from the
+ *   sort (stage 7): Split saves the pieces as their own items and the card
+ *   gives way to them; Keep as one keeps the one item; Not now keeps it as
+ *   one and Sweep asks again. Each answer is logged (splitActions).
+ * - CardDupe is the quiet duplicate line, with Keep just one: the drop glides
+ *   into the one they had, which pulses once it arrives.
  *
  * After a yes: the cards that go are held in place, the change is made, the
  * strip closes, the cards slide away, the toast comes in with Undo, and
@@ -23,7 +28,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import { format, parseISO } from 'date-fns';
-import { Check } from 'lucide-react-native';
+import { Check, Split } from 'lucide-react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date/DateService';
 import { eventBus, type EventMap } from '../../lib/events/EventBus';
@@ -66,12 +71,21 @@ import {
 } from '../../lib/minddrop/dropCardModel';
 import { TOAST_AFTER_CARDS_MS } from '../../lib/minddrop/popupTiming';
 import { weekAround, weeklyTarget } from '../../lib/week/habitWeek';
+import {
+  keepSplitAsOne,
+  logSplitAnswer,
+  numberWord,
+  splitDropNow,
+} from '../../lib/minddrop/splitActions';
+import { wordsAsTitle } from '../../workers/shared/titles';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 
 /** The gap between one strip closing and the next opening (the prototype's .38s). */
 export const ASK_SWAP_MS = 380;
 /** After Log it, the week dot pops before the strip closes. */
 const LOGGED_POP_MS = 650;
+/** Keep just one: the drop glides into the one they had (the prototype's .52s), then it pulses. */
+export const GLIDE_MS = 520;
 const BUBBLE_MS = 4000;
 const DIDNT_GO = 'That did not go through. Try again in a moment.';
 
@@ -220,6 +234,49 @@ export function ItemRow({
   );
 }
 
+/** The kind tile of a piece of an unsure split, as views.split keeps its kind word. */
+function pieceKind(word: unknown): DropCardKind {
+  if (word === 'question') return 'ask';
+  if (
+    word === 'todo' ||
+    word === 'habit' ||
+    word === 'event' ||
+    word === 'journal' ||
+    word === 'idea'
+  ) {
+    return word;
+  }
+  return 'note';
+}
+
+/** An unsure split's pieces, each with its kind tile and its words. */
+export function SplitPieces({
+  pieces,
+  testID,
+}: {
+  pieces: Array<Record<string, unknown>>;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.pieces} testID={testID}>
+      {pieces.map((p, i) => {
+        const kind = pieceKind(p.kind);
+        const Icon = KIND_ICONS[kind];
+        return (
+          <View key={i} style={styles.piece} testID={testID ? `${testID}-${i}` : undefined}>
+            <View style={[styles.pieceTile, { backgroundColor: KIND_COLORS[kind].wash }]}>
+              <Icon size={13} strokeWidth={2.2} color={KIND_COLORS[kind].ink} />
+            </View>
+            <Text style={styles.pieceText} numberOfLines={2}>
+              {wordsAsTitle(String(p.text || ''))}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 type ToastPayload = EventMap['minddrop:relation_done'];
 
 function toastOf(outcome: RelationOutcome): ToastPayload {
@@ -237,10 +294,17 @@ function toastOf(outcome: RelationOutcome): ToastPayload {
  * slide away, the toast follows a beat later, and the bubble says what
  * happened. Not tied to the card, which may be leaving.
  */
-function afterYes(outcome: RelationOutcome, leaving: string[], pulseId?: string) {
+function afterYes(outcome: RelationOutcome, leaving: string[], pulseId?: string, pulseAfterMs = 0) {
   setTimeout(() => {
     if (leaving.length) eventBus.emit('minddrop:cards_go', { ids: leaving });
-    if (pulseId) eventBus.emit('minddrop:card_pulse', { id: pulseId });
+    // after Keep just one, the one they had pulses once the drop has glided into it
+    if (pulseId) {
+      if (pulseAfterMs > 0) {
+        setTimeout(() => eventBus.emit('minddrop:card_pulse', { id: pulseId }), pulseAfterMs);
+      } else {
+        eventBus.emit('minddrop:card_pulse', { id: pulseId });
+      }
+    }
     eventBus.emit('gremly:speak', { message: outcome.summary, duration: BUBBLE_MS });
     setTimeout(
       () => eventBus.emit('minddrop:relation_done', toastOf(outcome)),
@@ -488,8 +552,71 @@ export function CardAsk({
     };
   }
 
+  function splitStrip(): StripWords {
+    const views = (item.views || {}) as Record<string, any>;
+    const pieces: Array<Record<string, unknown>> = Array.isArray(views.split?.pieces)
+      ? views.split.pieces
+      : [];
+    const count = numberWord(pieces.length);
+    const target = { type: item.kind, id };
+    const split = async () => {
+      busy.current = true;
+      setError(null);
+      // the card waits in place while its pieces are saved, then gives way to them
+      eventBus.emit('minddrop:cards_leaving', { ids: [id], hold: true, as: 'fade' });
+      try {
+        await splitDropNow(id);
+        busy.current = false;
+        closeThen();
+        setTimeout(() => eventBus.emit('minddrop:cards_go', { ids: [id] }), ASK_CLOSE_MS);
+      } catch (err) {
+        busy.current = false;
+        eventBus.emit('minddrop:cards_stay', { ids: [id] });
+        console.warn('[CardAsk] the split did not go through', { id, error: String(err) });
+        setError(err instanceof Error && err.message ? err.message : DIDNT_GO);
+      }
+    };
+    const keep = () => {
+      setError(null);
+      keepSplitAsOne(id)
+        .then((kept) => {
+          // nothing changed (the item has gone, or it was answered elsewhere): say so
+          if (!kept) setError(DIDNT_GO);
+        })
+        .catch((err) => {
+          console.warn('[CardAsk] keeping it as one did not save', { id, error: String(err) });
+          setError(DIDNT_GO);
+        });
+    };
+    return {
+      question: `One job or ${count}?`,
+      extra: <SplitPieces pieces={pieces} testID={`${tid}-pieces`} />,
+      buttons: [
+        {
+          key: 'split',
+          label: `Split into ${count}`,
+          icon: Split,
+          testID: `${tid}-split`,
+          onPress: () => void split(),
+        },
+        { key: 'keep', label: 'Keep as one', testID: `${tid}-keep-one`, onPress: keep },
+      ],
+      hint: 'Keep as one is the safe choice',
+      onNotNow: () => {
+        notNow(id)
+          .then(() => logSplitAnswer('unsure', 'not_now', pieces.length, target))
+          .catch((err) => {
+            console.warn('[CardAsk] Not now did not save', { id, error: String(err) });
+            setError(DIDNT_GO);
+          });
+      },
+    };
+  }
+
   let strip: StripWords;
-  if (shown.ask.kind === 'clarify' && shown.step.name === 'when') {
+  if (shown.ask.kind === 'split') {
+    strip = splitStrip();
+  } else if (shown.ask.kind === 'clarify' && shown.step.name === 'when') {
     const optionId = shown.step.optionId;
     const ds = getDateService();
     const today = ds.today();
@@ -536,8 +663,8 @@ export function CardAsk({
   } else if (shown.ask.relation) {
     strip = relationStrip(shown.ask.relation);
   } else {
-    // a split asks with its own strip from stage 7; cardStripAsk does not offer one yet
-    console.warn('[CardAsk] no strip for this ask yet', { id, kind: shown.ask.kind });
+    // a same is the quiet line, never a strip (cardStripAsk does not offer one)
+    console.warn('[CardAsk] no strip for this ask', { id, kind: shown.ask.kind });
     return null;
   }
 
@@ -581,10 +708,18 @@ export function CardDupe({ item, ask, testID }: { item: UnifiedDrop; ask: Ask; t
     setBusy(true);
     setError(null);
     const leaving = leavingCardIds(item.id);
-    if (leaving.length) eventBus.emit('minddrop:cards_leaving', { ids: leaving, hold: true });
+    // the drop glides into the one they had (when its card is on the list)
+    if (leaving.length) {
+      eventBus.emit('minddrop:cards_leaving', {
+        ids: leaving,
+        hold: true,
+        as: 'into',
+        into: rel.entity.id,
+      });
+    }
     try {
       const outcome = await applyDropRelation(item.id);
-      afterYes(outcome, leaving, outcome.targetId);
+      afterYes(outcome, leaving, outcome.targetId, GLIDE_MS);
     } catch (err) {
       if (leaving.length) eventBus.emit('minddrop:cards_stay', { ids: leaving });
       setError(err instanceof Error && err.message ? err.message : DIDNT_GO);
@@ -619,6 +754,24 @@ const styles = StyleSheet.create({
   miniTitle: { fontFamily: 'PlusJakartaSans-Bold', fontSize: 14, color: '#1A3328' },
   miniSub: { fontFamily: 'Inter-Regular', fontSize: 12.5, color: '#5C6660' },
   dots: { flexDirection: 'row', gap: 4, marginLeft: 'auto' },
+  pieces: { gap: 6 },
+  piece: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#F9F6F1',
+  },
+  pieceTile: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pieceText: { flex: 1, fontFamily: 'Inter-Regular', fontSize: 13.5, color: '#1F2421' },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#D5DED4' },
   dotOn: { backgroundColor: '#454A86' },
 });

@@ -11,8 +11,10 @@
  * - same: the drop is one they already have. Never a question on the card:
  *   a quiet line there (DupeLine), and a question in Sweep;
  * - clarify: an unclear drop (needs_clarification, not resolved);
- * - split: an unsure split (views.split.status pending). Stage 7 draws its
- *   strip; until then it lapses like the rest and never shows on the card.
+ * - split: an unsure split (views.split.status pending), asked on its card
+ *   from the sort (stage 7). An older note still waiting on multi_items is an
+ *   unsure split made on its own day, never on the card, that lapses at the
+ *   next load whatever its day, and stays one note.
  *
  * Every ask has the day it was made (views.ask_since, the person's day) and
  * whether it reached the card by the settle (views.ask_on_card): always for
@@ -46,6 +48,8 @@ export interface Ask {
   since: string;
   /** reached the card by the settle, and not sent off with Not now */
   onCard: boolean;
+  /** an older build's note waiting on multi_items: let go at the next load, whatever its day */
+  lapsesNow?: boolean;
   relation?: HeldRelation;
 }
 
@@ -100,10 +104,22 @@ export function asksOf(item: AskItem | null | undefined): Ask[] {
     });
   }
   if (asksQuestion(item)) asks.push({ kind: 'clarify', since, onCard: !offCard });
-  if ((views.split as { status?: string } | undefined)?.status === 'pending') {
+  const split = views.split as { status?: string } | undefined;
+  if (split?.status === 'pending') {
     asks.push({ kind: 'split', since, onCard: !offCard });
+  } else if (!split?.status && isOlderMulti(item)) {
+    // an older build's note waiting on multi_items: made on its own day, never on
+    // the card, and let go at the next load (even one made today), staying one note
+    const day = getDateService().dayOf(item.created_at ?? null) ?? since;
+    asks.push({ kind: 'split', since: day, onCard: false, lapsesNow: true });
   }
   return asks;
+}
+
+/** A note an older build saved holding several things, still waiting to be split. */
+export function isOlderMulti(item: AskItem): boolean {
+  const views = item.views || {};
+  return views.is_multi === true && views.minddrop_stage === 'multi_pending';
 }
 
 /** The first question the item carries, or null. */
@@ -113,7 +129,7 @@ export function askOf(item: AskItem | null | undefined): Ask | null {
 
 /** Still live today: made today or yesterday (the day after ask_since is not over). */
 export function isAskLive(ask: Ask | null | undefined, today?: string): boolean {
-  if (!ask) return false;
+  if (!ask || ask.lapsesNow) return false;
   const ds = getDateService();
   return ds.daysBetween(ask.since, today ?? ds.today()) <= 1;
 }
@@ -126,8 +142,8 @@ export function liveAsksOf(item: AskItem | null | undefined, today?: string): As
 /**
  * The question strip the card shows, if any: one at a time, never one that
  * arrived after the settle or was sent off with Not now, never a same (that
- * is the quiet line), a question only once the card has settled with its
- * words, and no split until stage 7 draws it.
+ * is the quiet line), and a question only once the card has settled with its
+ * words. An unsure split asks from the sort, as the prototype does.
  */
 export function cardStripAsk(item: AskItem | null | undefined, today?: string): Ask | null {
   const views = item?.views || {};
@@ -136,7 +152,7 @@ export function cardStripAsk(item: AskItem | null | undefined, today?: string): 
   // as the card reads it (dropCardModel's dropCardStage): settled unless still on its way
   const settled = !STILL_COMING.has(views.minddrop_stage);
   for (const ask of liveAsksOf(item, today)) {
-    if (ask.kind === 'same' || ask.kind === 'split' || !ask.onCard) continue;
+    if (ask.kind === 'same' || !ask.onCard) continue;
     if (ask.kind === 'clarify' && !settled) return null;
     return ask;
   }

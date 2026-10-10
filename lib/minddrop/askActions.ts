@@ -17,7 +17,7 @@ import { keepsHeldNote, type RelationEntity } from './dropRelation';
 import { applyDropRelation, keepDropAsNew, type RelationOutcome } from './relationActions';
 import { updateDropRow } from './dropSync';
 import type { ClarificationWhen } from './clarification';
-import { askOf, askSinceOf, asksOf, isAskLive, type Ask, type AskItem } from './asks';
+import { askOf, askSinceOf, asksOf, isAskLive, isOlderMulti, type Ask, type AskItem } from './asks';
 
 type Kind = 'todo' | 'habit' | 'note';
 
@@ -85,7 +85,13 @@ export async function lapseAsk(id: string, ask?: Ask | null): Promise<boolean> {
     }
     if (which.kind === 'split') {
       const split = (views.split as Record<string, unknown> | undefined) || {};
-      return { views: { ...views, split: { ...split, status: 'kept', lapsed: true } } };
+      const kept = { ...views, split: { ...split, status: 'kept', lapsed: true } };
+      // an older build's note waiting on multi_items stays one note, as its keep as
+      // one did (the store's resolveMultiDropAsSingle); multi_items stay for history
+      if (isOlderMulti(row as AskItem)) {
+        return { views: { ...kept, is_multi: false, minddrop_stage: 'enriched' } };
+      }
+      return { views: kept };
     }
     if (!now.relation) return null;
     return { views: { ...views, relation: { ...now.relation, status: 'lapsed' } } };

@@ -214,6 +214,11 @@ export interface SavedPieceRow {
   title: string;
   bucket: MindDropBucket;
   subtype: LogSubtype | null;
+  habitSubtype?: string | null;
+  /** the piece asks its own question (stage 7) */
+  asks?: boolean;
+  /** the row as saved, to tell a person's edit apart from the details (stage 7) */
+  base?: Record<string, unknown> & { views: Record<string, unknown> };
 }
 
 export interface QueuedDrop {

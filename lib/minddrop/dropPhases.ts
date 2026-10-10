@@ -45,6 +45,7 @@ import {
   syncDropToSupabase,
   updateDropDetails,
   updateDropQuestion,
+  updateDropRow,
   updateDropWords,
 } from './dropSync';
 import { eventBus } from '../events/EventBus';
@@ -72,6 +73,7 @@ import {
 } from './dropDetails';
 import { within, type StartedCall } from './dropCalls';
 import { scheduleDropReminder } from './dropReminder';
+import { fillPieces } from './splitActions';
 import { fallbackTitle, wordsAsTitle } from '../../workers/shared/titles';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -400,6 +402,31 @@ function whenRelationLands(drop: QueuedDrop, saved: SavedDropRow, kind: DropKind
   });
 }
 
+/**
+ * An unsure split saved as one: whether the whole drop's already have it check
+ * found something, kept on views.split, so a Split later checks each piece
+ * only then (stage 7).
+ */
+function whenSplitRelationLands(drop: QueuedDrop, saved: SavedDropRow): void {
+  const key = `${drop.localId}:split_relation`;
+  if (waiting.has(key)) return;
+  remember(waiting, key);
+  void dropRelationFor(drop).promise.then(async (relation) => {
+    try {
+      await updateDropRow(saved.entityType, saved.id, 'split_related', (row) => {
+        const views = (row.views as Record<string, any>) || {};
+        if (!views.split || typeof views.split !== 'object') return null;
+        return { views: { ...views, split: { ...views.split, related: !!relation } } };
+      });
+    } catch (err) {
+      console.warn('[DropPhases] the split’s already have it answer could not be kept', {
+        localId: drop.localId,
+        error: String(err),
+      });
+    }
+  });
+}
+
 /** Details that come after the settle are written when they land. */
 function whenDetailsLand(
   drop: QueuedDrop,
@@ -521,7 +548,8 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
   // Several things in one drop: a clear split is saved as its pieces, an
   // unsure one as one item that asks
   if (multiResult.is_multi && multiResult.segments?.length > 1) {
-    forgetDropRelation(drop.localId);
+    // the whole drop's already have it answer is kept as a filter: when it found
+    // something, each piece is checked on its own (stage 7)
     const split: 'clear' | 'unsure' = multiResult.split === 'clear' ? 'clear' : 'unsure';
     const asOne = multiResult.as_one ?? null;
     if (split === 'unsure' && !asOne) {
@@ -653,7 +681,8 @@ export async function handleSorted(drop: QueuedDrop): Promise<QueuedDrop> {
     const call = dropRelationFor(drop);
     if (call.done) relation = call.value ? heldRelationFor(drop, call.value, kind) : null;
     else relationPending = true;
-  } else {
+  } else if (!drop.isMulti) {
+    // (an unsure split keeps the whole drop's check as a filter for a Split later)
     forgetDropRelation(drop.localId);
   }
 
@@ -697,6 +726,7 @@ export async function handleSorted(drop: QueuedDrop): Promise<QueuedDrop> {
 
   if (wordsPending) whenWordsLand(drop, saved, title);
   if (relationPending) whenRelationLands(drop, saved, kind);
+  if (drop.isMulti) whenSplitRelationLands(drop, saved);
   if (!unclear) whenReminderLands(drop, saved, kind);
 
   console.log('[DropPhases] saved', {
@@ -793,8 +823,22 @@ async function saveOlderDrop(drop: QueuedDrop): Promise<QueuedDrop> {
 }
 
 export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
-  // A clear split's pieces are saved and settled
-  if (drop.pieceRows?.length) return settled(drop, { detailsIn: 'not_asked' });
+  // A clear split's pieces: each gets its own details and title (and its own
+  // already have it check when the whole drop's found something), and settles
+  // on its own within the same five seconds (stage 7)
+  if (drop.pieceRows?.length) {
+    const started = sortStarted.get(drop.localId);
+    const deadline = (started ?? now()) + DROP_WAITS.settleMs;
+    const related = dropRelationFor(drop).promise.then(
+      (relation) => !!relation,
+      () => false,
+    );
+    const detailsIn = await fillPieces(drop, drop.pieceRows, { deadline, related });
+    return settled(drop, {
+      detailsIn,
+      resumed: drop.resumed || started === undefined || undefined,
+    });
+  }
 
   if (!drop.supabaseId || !drop.entityType) return saveOlderDrop(drop);
 

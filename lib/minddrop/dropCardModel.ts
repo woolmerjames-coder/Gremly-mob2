@@ -255,18 +255,22 @@ function outcomePart(item: CardItem, kind: DropCardKind): MetaPart | null {
 
 /**
  * The parts of the meta line after the kind word, in order. A question sent
- * off the card with Not now reads Kept as it is and Sweep will ask again
- * until it is answered or lets go (Mind Drop rethink stage 6).
+ * off the card with Not now reads Kept as it is (an unsure split, Kept as
+ * one) and Sweep will ask again until it is answered or lets go (Mind Drop
+ * rethink stages 6 and 7). A split kept as one note reads Kept as one note.
  */
 export function metaParts(item: CardItem, kind: DropCardKind): MetaPart[] {
   const parts: MetaPart[] = [];
   if (keptForSweep(item)) {
+    const split = asksOf(item).some((a) => a.kind === 'split' && isAskLive(a));
     return [
-      { key: 'kept', icon: 'sticky-note', text: 'Kept as it is' },
+      { key: 'kept', icon: 'sticky-note', text: split ? 'Kept as one' : 'Kept as it is' },
       { key: 'sweep', icon: 'moon', text: 'Sweep will ask again' },
     ];
   }
   if (kind === 'ask') return parts;
+  if (item.views?.kept_as_one)
+    parts.push({ key: 'kept', icon: 'sticky-note', text: 'Kept as one note' });
   const outcome = outcomePart(item, kind);
   if (outcome) parts.push(outcome);
   const when = whenWords(item, kind);

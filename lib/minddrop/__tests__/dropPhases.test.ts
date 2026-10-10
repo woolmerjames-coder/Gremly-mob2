@@ -38,6 +38,7 @@ jest.mock('../dropSync', () => {
     updateDropWords: jest.fn().mockResolvedValue(true),
     updateDropQuestion: jest.fn().mockResolvedValue(true),
     attachDropRelation: jest.fn().mockResolvedValue('card'),
+    updateDropRow: jest.fn().mockResolvedValue(true),
   };
 });
 jest.mock('../dropReminder', () => ({
@@ -521,11 +522,31 @@ describe('handleSorted', () => {
     });
   });
 
-  it('saves a clear split as its pieces', async () => {
-    const pieces = [
-      { entityType: 'todo', id: 'p0', dropId: 'split-x-0', index: 0, text: 'a', title: 'A' },
-      { entityType: 'todo', id: 'p1', dropId: 'split-x-1', index: 1, text: 'b', title: 'B' },
-    ];
+  const splitPieces = () => [
+    {
+      entityType: 'todo',
+      id: 'p0',
+      dropId: 'split-x-0',
+      index: 0,
+      text: 'a',
+      title: 'A',
+      bucket: 'todo',
+      subtype: null,
+    },
+    {
+      entityType: 'todo',
+      id: 'p1',
+      dropId: 'split-x-1',
+      index: 1,
+      text: 'b',
+      title: 'B',
+      bucket: 'todo',
+      subtype: null,
+    },
+  ];
+
+  it('saves a clear split as its pieces, and each gets its own details and title', async () => {
+    const pieces = splitPieces();
     (insertSplitPieces as jest.Mock).mockResolvedValue(pieces);
     const d = sorted({
       isMulti: true,
@@ -540,7 +561,70 @@ describe('handleSorted', () => {
     expect(syncDropToSupabase).not.toHaveBeenCalled();
     expect(out).toMatchObject({ phase: 'saved', pieceRows: pieces });
     const done = await handleSaved(out);
-    expect(done).toMatchObject({ phase: 'complete', detailsIn: 'not_asked' });
+    expect(done).toMatchObject({ phase: 'complete', detailsIn: 'in_time' });
+    // each piece: its own details, settled with them, and its own title (no reaction shown)
+    const detailed = (updateDropDetails as jest.Mock).mock.calls.map((c) => [c[0].id, c[3].settle]);
+    expect(detailed).toEqual(
+      expect.arrayContaining([
+        ['p0', true],
+        ['p1', true],
+      ]),
+    );
+    const titled = (updateDropWords as jest.Mock).mock.calls.map((c) => [c[0].id, c[1]]);
+    expect(titled).toEqual(
+      expect.arrayContaining([
+        ['p0', { smartTitle: 'Call mum about Sunday', reaction: null }],
+        ['p1', { smartTitle: 'Call mum about Sunday', reaction: null }],
+      ]),
+    );
+    // the whole drop's check found nothing, so no piece is checked on its own
+    expect(sentOf('minddrop-relate')).toHaveLength(1);
+    expect(attachDropRelation).not.toHaveBeenCalled();
+  });
+
+  it('checks each piece on its own only when the whole drop’s check found something', async () => {
+    replies['minddrop-relate'] = RELATION;
+    const pieces = splitPieces();
+    (insertSplitPieces as jest.Mock).mockResolvedValue(pieces);
+    const out = await handleSorted(
+      sorted({
+        text: 'a, b',
+        isMulti: true,
+        split: 'clear',
+        multiSegments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      }),
+    );
+    await handleSaved(out);
+    await flush();
+    // the whole drop, then each piece
+    expect(sentOf('minddrop-relate').map((b) => b.text)).toEqual(['a, b', 'a', 'b']);
+    const attached = (attachDropRelation as jest.Mock).mock.calls.map((c) => c[0].id);
+    expect(attached.sort()).toEqual(['p0', 'p1']);
+  });
+
+  it('keeps whether an unsure split’s whole drop check found something, for a Split later', async () => {
+    replies['minddrop-relate'] = RELATION;
+    const { updateDropRow } = jest.requireMock('../dropSync');
+    await handleSorted(
+      sorted({
+        smartTitle: 'Two things',
+        isMulti: true,
+        split: 'unsure',
+        asOne: null,
+        multiSegments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      }),
+    );
+    await flush();
+    const call = (updateDropRow as jest.Mock).mock.calls.find((c) => c[2] === 'split_related');
+    expect(call).toBeDefined();
+    const patch = call[3]({ views: { split: { status: 'pending', pieces: [] } } });
+    expect(patch.views.split).toEqual({ status: 'pending', pieces: [], related: true });
   });
 
   it('throws when the save fails, so the runner tries again', async () => {

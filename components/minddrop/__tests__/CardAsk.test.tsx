@@ -29,6 +29,12 @@ jest.mock('../../../lib/minddrop/askActions', () => ({
   answerAsk: jest.fn(),
   notNow: jest.fn(),
 }));
+jest.mock('../../../lib/minddrop/splitActions', () => ({
+  splitDropNow: jest.fn(),
+  keepSplitAsOne: jest.fn(),
+  logSplitAnswer: jest.fn(),
+  numberWord: (n: number) => ['zero', 'one', 'two', 'three', 'four'][n] ?? String(n),
+}));
 const mockGone: { value: string | null } = { value: null };
 jest.mock('../../../lib/minddrop/relationActions', () => ({
   applyDropRelation: jest.fn(),
@@ -38,11 +44,12 @@ jest.mock('../../../lib/minddrop/relationActions', () => ({
   changeNow: () => null,
 }));
 
-import { ASK_SWAP_MS, CardAsk, CardDupe } from '../CardAsk';
+import { ASK_SWAP_MS, CardAsk, CardDupe, GLIDE_MS } from '../CardAsk';
 import { ASK_CHOSEN_MS, ASK_CLOSE_MS } from '../AskStrip';
 import { answerAsk, notNow } from '../../../lib/minddrop/askActions';
 import { applyDropRelation, leavingCardIds } from '../../../lib/minddrop/relationActions';
 import { cardDupeAsk, cardStripAsk } from '../../../lib/minddrop/asks';
+import { keepSplitAsOne, logSplitAnswer, splitDropNow } from '../../../lib/minddrop/splitActions';
 import { eventBus } from '../../../lib/events/EventBus';
 import { getDateService } from '../../../lib/date/DateService';
 import { TOAST_AFTER_CARDS_MS } from '../../../lib/minddrop/popupTiming';
@@ -408,7 +415,7 @@ describe('the quiet duplicate line', () => {
     expect(r.getByText('due today')).toBeTruthy();
   });
 
-  it('Keep just one folds the drop into the one they had, which pulses, then the toast', async () => {
+  it('Keep just one glides the drop into the one they had, which pulses once it arrives, then the toast', async () => {
     const said: unknown[] = [];
     const offs = [
       eventBus.on('minddrop:cards_leaving', (p) => said.push(['leaving', p])),
@@ -432,10 +439,13 @@ describe('the quiet duplicate line', () => {
     fireEvent.press(r.getByTestId('minddrop-dupe-d1-keep-one'));
     await tick(ASK_SWAP_MS);
     expect(applyDropRelation).toHaveBeenCalledWith('d1');
-    expect(said[0]).toEqual(['leaving', { ids: ['d1'], hold: true }]);
+    expect(said[0]).toEqual(['leaving', { ids: ['d1'], hold: true, as: 'into', into: 't1' }]);
     await tick(ASK_CLOSE_MS);
-    await tick(TOAST_AFTER_CARDS_MS);
+    // the drop is gliding: the one they had pulses when it arrives
+    expect(said).not.toContainEqual(['pulse', { id: 't1' }]);
+    await tick(GLIDE_MS);
     expect(said).toContainEqual(['pulse', { id: 't1' }]);
+    await tick(TOAST_AFTER_CARDS_MS);
     expect(said).toContainEqual(['toast', 'Kept “Call the vet about the booster”']);
     offs.forEach((off) => off());
   });
@@ -461,5 +471,106 @@ describe('the quiet duplicate line', () => {
     (item.views as any).minddrop_stage = 'settled';
     expect(cardStripAsk(item)).toBeNull();
     expect(cardDupeAsk(item)).toBeNull();
+  });
+});
+
+describe('an unsure split asks on its card', () => {
+  const unsure = (over: Record<string, unknown> = {}): UnifiedDrop =>
+    ({
+      id: 's1',
+      kind: 'todo',
+      title: 'Clean out the garage and sort the donations',
+      text: 'clean out the garage and sort the donations pile',
+      created_at: `${today}T09:00:00`,
+      views: {
+        // asked from the sort, before its details are in
+        minddrop_stage: 'saved',
+        ask_since: today,
+        split: {
+          status: 'pending',
+          pieces: [
+            { text: 'clean out the garage', kind: 'todo' },
+            { text: 'sort the donations pile', kind: 'todo' },
+          ],
+        },
+        ...over,
+      },
+    }) as unknown as UnifiedDrop;
+
+  it('asks One job or two? with its pieces shown, Split into two and Keep as one', () => {
+    const item = unsure();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText('One job or two?')).toBeTruthy();
+    expect(r.getByText('Clean out the garage')).toBeTruthy();
+    expect(r.getByText('Sort the donations pile')).toBeTruthy();
+    expect(r.getByText('Split into two')).toBeTruthy();
+    expect(r.getByText('Keep as one')).toBeTruthy();
+    expect(r.getByText('Keep as one is the safe choice')).toBeTruthy();
+  });
+
+  it('Split holds the card while its pieces are saved, then the card gives way to them', async () => {
+    const said: unknown[] = [];
+    const offs = [
+      eventBus.on('minddrop:cards_leaving', (p) => said.push(['leaving', p])),
+      eventBus.on('minddrop:cards_go', (p) => said.push(['go', p])),
+    ];
+    (splitDropNow as jest.Mock).mockResolvedValue([]);
+    const item = unsure();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-s1-split'));
+    await tick(ASK_CHOSEN_MS);
+    expect(splitDropNow).toHaveBeenCalledWith('s1');
+    expect(said[0]).toEqual(['leaving', { ids: ['s1'], hold: true, as: 'fade' }]);
+    await tick(ASK_CLOSE_MS);
+    expect(said).toContainEqual(['go', { ids: ['s1'] }]);
+    offs.forEach((off) => off());
+  });
+
+  it('says why when the split could not be made, and the card stays', async () => {
+    const stays: unknown[] = [];
+    const off = eventBus.on('minddrop:cards_stay', (p) => stays.push(p));
+    (splitDropNow as jest.Mock).mockRejectedValue(new Error('This one has already been sorted.'));
+    const item = unsure();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-s1-split'));
+    await tick(ASK_CHOSEN_MS);
+    expect(stays).toEqual([{ ids: ['s1'] }]);
+    expect(r.getByText('This one has already been sorted.')).toBeTruthy();
+    off();
+  });
+
+  it('Keep as one keeps the one item', async () => {
+    (keepSplitAsOne as jest.Mock).mockResolvedValue(true);
+    const item = unsure();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-s1-keep-one'));
+    await tick(ASK_CHOSEN_MS);
+    expect(keepSplitAsOne).toHaveBeenCalledWith('s1');
+    expect(splitDropNow).not.toHaveBeenCalled();
+  });
+
+  it('Not now keeps it as one, and logs what the classifier said and what was tapped', async () => {
+    const item = unsure();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByText('Not now'));
+    await tick(0);
+    expect(notNow).toHaveBeenCalledWith('s1');
+    expect(logSplitAnswer).toHaveBeenCalledWith('unsure', 'not_now', 2, { type: 'todo', id: 's1' });
+  });
+
+  it('says three when there are three', () => {
+    const item = unsure({
+      split: {
+        status: 'pending',
+        pieces: [
+          { text: 'a', kind: 'todo' },
+          { text: 'b', kind: 'habit' },
+          { text: 'c', kind: 'question' },
+        ],
+      },
+    });
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    expect(r.getByText('One job or three?')).toBeTruthy();
+    expect(r.getByText('Split into three')).toBeTruthy();
   });
 });

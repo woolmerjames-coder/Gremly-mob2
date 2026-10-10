@@ -445,6 +445,11 @@ export interface SavedPiece extends SavedDropRow {
   title: string;
   bucket: MindDropBucket;
   subtype: LogSubtype | null;
+  habitSubtype?: HabitSubtype | null;
+  /** the piece asks its own question (saved as a note carrying it, settled as it is) */
+  asks?: boolean;
+  /** the row as saved, to tell a person's edit apart from the details (stage 7) */
+  base?: DropDetailBase;
 }
 
 /** A piece's kind; a piece the classifier could not settle is a general note carrying its question. */
@@ -479,12 +484,18 @@ export function splitPiecesView(pieces: MultiSegment[]): Array<Record<string, un
 }
 
 /**
- * A clear split: each piece saved as its own item, in its own words as the
- * title (sentence case), under `split-<localId>-<index>` with
- * views.split_group. Safe to repeat: a piece already saved is found by its
- * drop id. Throws when a piece cannot be saved, so the runner tries again.
+ * A split: each piece saved as its own item, in its own words as the title
+ * (sentence case), under `split-<localId>-<index>` with views.split_group
+ * (the drop's words and what the classifier said, for Keep as one; and, for a Split tapped on a card, when that card was made, so the
+ * pieces take its place on the list). A piece is saved sorted, and settles when its own details land
+ * (splitActions.fillPieces); a piece that asks is saved settled with its
+ * question. Safe to repeat: a piece already saved is found by its drop id.
+ * Throws when a piece cannot be saved, so the runner tries again.
  */
-export async function insertSplitPieces(drop: QueuedDrop): Promise<SavedPiece[]> {
+export async function insertSplitPieces(
+  drop: QueuedDrop,
+  opts: { said: 'clear' | 'unsure'; at?: string | null } = { said: 'clear' },
+): Promise<SavedPiece[]> {
   const pieces = drop.multiSegments || [];
   const saved: SavedPiece[] = [];
   for (let index = 0; index < pieces.length; index += 1) {
@@ -493,8 +504,7 @@ export async function insertSplitPieces(drop: QueuedDrop): Promise<SavedPiece[]>
     const dropId = pieceDropId(drop.localId, index);
     const title = wordsAsTitle(piece.text);
     const result = await syncDropToSupabase({ ...drop, confirmationMessage: null }, null, {
-      // Stage 7 gives each piece its own title and details; until then it is settled as saved
-      stage: 'settled',
+      stage: piece.needsClarification ? 'settled' : 'saved',
       title,
       kind,
       dropId,
@@ -506,7 +516,15 @@ export async function insertSplitPieces(drop: QueuedDrop): Promise<SavedPiece[]>
         options: (piece.clarificationOptions as unknown[] | null | undefined) ?? null,
       },
       extraViews: {
-        split_group: { id: drop.localId, index, count: pieces.length, text: drop.text },
+        split_group: {
+          id: drop.localId,
+          index,
+          count: pieces.length,
+          text: drop.text,
+          said: opts.said,
+          // a Split on a card later: where the card was, so the pieces take its place
+          ...(opts.at ? { at: opts.at } : {}),
+        },
       },
     });
     if (!result.success || !result.supabaseId || !result.entityType) {
@@ -521,6 +539,9 @@ export async function insertSplitPieces(drop: QueuedDrop): Promise<SavedPiece[]>
       title,
       bucket: kind.bucket,
       subtype: kind.subtype,
+      habitSubtype: kind.habitSubtype,
+      asks: !!piece.needsClarification,
+      base: detailBaseOf(result.entityType, result.row) ?? undefined,
     });
   }
   return saved;

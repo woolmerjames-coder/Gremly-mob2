@@ -225,6 +225,23 @@ describe('the meta line', () => {
     ]);
   });
 
+  it('an unsure split after Not now: Kept as one and Sweep will ask again (stage 7)', () => {
+    const later = {
+      time_estimate_minutes: 120,
+      views: { split: { status: 'pending', pieces: [] }, ask_on_card: false },
+    };
+    expect(metaParts(later as any, 'todo')).toEqual([
+      { key: 'kept', icon: 'sticky-note', text: 'Kept as one' },
+      { key: 'sweep', icon: 'moon', text: 'Sweep will ask again' },
+    ]);
+  });
+
+  it('a split kept as one note says so (stage 7)', () => {
+    expect(metaParts({ views: { kept_as_one: { group: 'd1', count: 3 } } } as any, 'note')).toEqual(
+      [{ key: 'kept', icon: 'sticky-note', text: 'Kept as one note' }],
+    );
+  });
+
   it('a journal entry that stays after an answer says what happened to it', () => {
     const rel = (status: string, intent: string) => ({
       relation: {

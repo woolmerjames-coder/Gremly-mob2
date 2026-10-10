@@ -100,6 +100,11 @@ export function dropRelationFor(drop: QueuedDrop): StartedCall<DropRelation> {
   return early.get(drop.localId) ?? early.start(drop.localId, () => fetchDropRelation(drop.text));
 }
 
+/** The check started for this drop, if it is still in memory (none after an app restart). */
+export function startedDropRelation(localId: string): StartedCall<DropRelation> | null {
+  return early.get(localId);
+}
+
 /** The answer started early, or a fresh ask when there is none. */
 export function takeDropRelation(drop: QueuedDrop): Promise<DropRelation | null> {
   const started = early.get(drop.localId);

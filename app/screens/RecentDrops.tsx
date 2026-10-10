@@ -27,7 +27,6 @@ import { Text } from '../../ui/Text';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
   useHasCompletedFirstDrop,
-  useCanCreate,
   useNeedsMindDropTutorial,
 } from '../../lib/store/lifecycleSelectors';
 import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
@@ -40,7 +39,6 @@ import {
 } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRepo } from '../../providers/RepoProvider';
-import { MultiSplitModal } from '../components/minddrop/MultiSplitModal';
 import type {
   MultiDropItem,
   MindDropBucket,
@@ -57,12 +55,11 @@ import Reanimated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSequence,
-  withSpring,
+  withDelay,
   Easing as ReanimatedEasing,
+  type EntryAnimationsValues,
 } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase/client';
-import { useNavigation } from '@react-navigation/native';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
@@ -92,6 +89,15 @@ import {
 import { env } from '../../lib/env';
 import { heldKindOf, keepsHeldNote, relationOf } from '../../lib/minddrop/dropRelation';
 import { DropCard } from '../../components/minddrop/DropCard';
+import { SplitBar } from '../../components/minddrop/SplitBar';
+import { useReducedMotion } from '../../design/animations';
+import { keptGroupsNow } from '../../lib/minddrop/splitActions';
+import {
+  orderDropList,
+  splitBarFor,
+  splitPlaceOf,
+  withoutPiecesOfCardsOnList,
+} from '../../lib/minddrop/splitList';
 import { CardAsk, CardDupe } from '../../components/minddrop/CardAsk';
 import { cardDupeAsk, cardStripAsk, keptForSweep } from '../../lib/minddrop/asks';
 import { dropCardKind, dropCardStage, metaParts } from '../../lib/minddrop/dropCardModel';
@@ -498,27 +504,93 @@ const CARD_ENTERING = FadeInUp.delay(120)
 const CARD_LAYOUT = Layout.duration(650).easing(ReanimatedEasing.out(ReanimatedEasing.quad));
 
 /**
+ * Where each card sits on the list (its top), by item id and by drop id, so a
+ * card can go into another (Keep just one, Keep as one) and a split's pieces
+ * can come out of the card they were (Mind Drop rethink stage 7). A card's
+ * top is kept for a moment after it goes, so the pieces that take its place
+ * can still find it.
+ */
+const cardTops = new Map<string, number>();
+const TOP_KEPT_MS = 3000;
+
+/** How a card goes: see 'minddrop:cards_leaving' in EventBus. dy: to the card it goes into. */
+export type CardLeaveAs = { as: 'slide' | 'fade' | 'fold' | 'into'; dy: number };
+
+/**
+ * How a card comes in: a new drop (CARD_ENTERING); a piece of a split, out of
+ * the card it was (fromTop), 90ms after the piece before it; or the note a
+ * split was kept as.
+ */
+export type CardEnterAs =
+  | { as: 'drop' }
+  | { as: 'piece'; index: number; fromTop: number }
+  | { as: 'kept' };
+
+/** A piece unzips out of the card it was: up from .94 with a slight overshoot (the prototype's .52s). */
+const PIECE_IN_MS = 520;
+const PIECE_STAGGER_MS = 90;
+function pieceEntering(index: number, fromTop: number) {
+  return (values: EntryAnimationsValues) => {
+    'worklet';
+    const delay = index * PIECE_STAGGER_MS;
+    const config = { duration: PIECE_IN_MS, easing: ReanimatedEasing.bezier(0.2, 0.9, 0.3, 1.12) };
+    return {
+      initialValues: {
+        opacity: 0,
+        transform: [{ translateY: fromTop - values.targetOriginY }, { scale: 0.94 }],
+      },
+      animations: {
+        opacity: withDelay(delay, withTiming(1, { duration: PIECE_IN_MS })),
+        transform: [
+          { translateY: withDelay(delay, withTiming(0, config)) },
+          { scale: withDelay(delay, withTiming(1, config)) },
+        ],
+      },
+    };
+  };
+}
+/** The note a split was kept as comes in where the pieces fold (the prototype's .38s). */
+function keptEntering() {
+  'worklet';
+  const config = { duration: 380, easing: ReanimatedEasing.bezier(0.2, 0.8, 0.2, 1) };
+  return {
+    initialValues: { opacity: 0.4, transform: [{ scale: 0.97 }] },
+    animations: { opacity: withTiming(1, config), transform: [{ scale: withTiming(1, config) }] },
+  };
+}
+/** A drop sorted into its pieces fades as they come out of it. */
+const UNZIP_EXITING = FadeOut.duration(220);
+
+/**
  * UnifiedCardWrapper - Single wrapper for both pending and real items.
  *
  * CRITICAL: Using a single component prevents React from remounting children
  * when an item transitions from pending to real. This preserves modal state.
  *
- * - a new pending drop comes in with CARD_ENTERING
+ * - a new pending drop comes in with CARD_ENTERING; a split's pieces come out
+ *   of the card they were; a split kept as one comes in where they fold
  * - every card moves with CARD_LAYOUT once it is in, so the list makes room
  *   smoothly when a drop arrives or a card leaves
+ * - a card goes as it is told (leaveAs): it slides away to the right, fades
+ *   where it is, folds into the first of its group, or glides into another
  */
 const UnifiedCardWrapper = React.memo<{
   itemId: string;
   dropId?: string | null;
   isPending: boolean;
   children: React.ReactNode;
-  /** the card is going (a yes cleared it, it was ticked off, archived or deleted):
-   * it slides away to the right, then leaves */
+  /** the card is going (a yes cleared it, it was ticked off, archived or deleted) */
   leaving?: boolean;
+  /** how it goes (slides away to the right when not given) */
+  leaveAs?: CardLeaveAs;
   onLeft?: (itemId: string) => void;
   /** the card is coming back after an Undo: it slides back in from the right */
   returning?: boolean;
   onReturned?: (itemId: string) => void;
+  /** how it comes in, decided once when it mounts */
+  enterAs?: CardEnterAs;
+  /** a drop sorted into its pieces: it fades as they come out of it */
+  unzips?: boolean;
 }>(
   ({
     itemId,
@@ -526,40 +598,63 @@ const UnifiedCardWrapper = React.memo<{
     isPending,
     children,
     leaving = false,
+    leaveAs,
     onLeft,
     returning = false,
     onReturned,
+    enterAs,
+    unzips = false,
   }) => {
-    console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
-    // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
-    // React.useEffect(() => {
-    //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
-    //   return () => {
-    //     console.log('[DEBUG:Wrapper] UnifiedCardWrapper UNMOUNTED:', { itemId, dropId });
-    //   };
-    // }, []);
-
-    // DEBUG: Track isPending changes (disabled to reduce Metro noise)
-    // React.useEffect(() => {
-    //   console.log('[DEBUG:Wrapper] isPending changed:', { itemId, dropId, isPending });
-    // }, [isPending, itemId, dropId]);
-
+    const reduced = useReducedMotion();
     // Track animation state - starts true if was pending, then transitions
     const [wasPending, setWasPending] = React.useState(isPending);
     const [layoutEnabled, setLayoutEnabled] = React.useState(false);
 
-    // A new drop's card comes in slowly (CARD_ENTERING), once: decided when it
-    // mounts, and remembered by id so a remount never plays it again
+    // How it comes in, once: decided when it mounts, and remembered by id so a
+    // remount never plays it again
     const [entering] = React.useState(() => {
-      const fresh = isPending && !animatedInItemIds.has(itemId);
-      if (fresh) animatedInItemIds.add(itemId);
-      return fresh;
+      if (!enterAs || animatedInItemIds.has(itemId)) return undefined;
+      animatedInItemIds.add(itemId);
+      if (enterAs.as === 'drop') return CARD_ENTERING;
+      if (reduced) return undefined;
+      if (enterAs.as === 'kept') return keptEntering;
+      return pieceEntering(enterAs.index, enterAs.fromTop);
     });
 
-    // Leaving: a small gather (the card draws back a touch and settles), then it
-    // glides away to the right, picking up speed with a slight tilt and fading at
-    // the end. The list closes the gap once it has gone (the Layout transition
-    // below). Coming back after an Undo runs the glide in reverse.
+    // Where it sits, for the cards that go into it and the pieces that come out of it
+    const onLayout = React.useCallback(
+      (e: { nativeEvent: { layout: { y: number } } }) => {
+        const y = e.nativeEvent.layout.y;
+        cardTops.set(itemId, y);
+        if (dropId) cardTops.set(dropId, y);
+      },
+      [itemId, dropId],
+    );
+    // let its top go a moment after it has gone (not when it is promoted:
+    // the card is still there, under its saved id)
+    const idsRef = React.useRef({ itemId, dropId });
+    idsRef.current = { itemId, dropId };
+    React.useEffect(
+      () => () => {
+        const now = idsRef.current;
+        const keys = now.dropId ? [now.itemId, now.dropId] : [now.itemId];
+        const tops = keys.map((k) => cardTops.get(k));
+        setTimeout(() => {
+          keys.forEach((k, i) => {
+            if (cardTops.get(k) === tops[i]) cardTops.delete(k);
+          });
+        }, TOP_KEPT_MS);
+      },
+      [],
+    );
+
+    // Leaving, as it is told. Slide: a small gather (the card draws back a
+    // touch and settles), then it glides away to the right, picking up speed
+    // with a slight tilt and fading at the end. Fade: it fades where it is.
+    // Fold and into: it moves to the card it joins, shrinking and fading. The
+    // list closes the gap once it has gone (the Layout transition below).
+    // Coming back after an Undo runs the slide in reverse.
+    const how: CardLeaveAs = leaveAs ?? { as: 'slide', dy: 0 };
     const leaveGather = React.useMemo(() => new Animated.Value(0), []);
     const leaveGlide = React.useMemo(() => new Animated.Value(returning ? 1 : 0), []);
     React.useEffect(() => {
@@ -570,25 +665,37 @@ const UnifiedCardWrapper = React.memo<{
         }
         return;
       }
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const anim = Animated.sequence([
-        Animated.timing(leaveGather, {
-          toValue: 1,
-          duration: 140,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(leaveGlide, {
-          toValue: 1,
-          duration: 420,
-          easing: Easing.bezier(0.45, 0, 0.7, 0.2),
-          useNativeDriver: true,
-        }),
-      ]);
+      if (how.as !== 'fade') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+      const anim =
+        how.as === 'slide'
+          ? Animated.sequence([
+              Animated.timing(leaveGather, {
+                toValue: 1,
+                duration: 140,
+                easing: Easing.out(Easing.quad),
+                useNativeDriver: true,
+              }),
+              Animated.timing(leaveGlide, {
+                toValue: 1,
+                duration: 420,
+                easing: Easing.bezier(0.45, 0, 0.7, 0.2),
+                useNativeDriver: true,
+              }),
+            ])
+          : Animated.timing(leaveGlide, {
+              toValue: 1,
+              duration: how.as === 'fade' ? 260 : how.as === 'fold' ? 420 : 520,
+              easing: how.as === 'fade' ? Easing.out(Easing.quad) : Easing.bezier(0.45, 0, 0.2, 1),
+              useNativeDriver: true,
+            });
       anim.start(({ finished }) => {
         if (finished) onLeft?.(itemId);
       });
       return () => anim.stop();
+      // the way it goes is set before it starts going
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [leaving, returning, itemId, onLeft, leaveGather, leaveGlide]);
     React.useEffect(() => {
       if (!returning) return;
@@ -605,24 +712,58 @@ const UnifiedCardWrapper = React.memo<{
       return () => anim.stop();
     }, [returning, itemId, onReturned, leaveGather, leaveGlide]);
     const glideWidth = Dimensions.get('window').width + 48;
-    const leaveStyle = {
-      opacity: leaveGlide.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.9, 0] }),
-      transform: [
-        {
-          translateX: Animated.add(
-            leaveGather.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }),
-            leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, glideWidth] }),
-          ),
-        },
-        {
-          scale: Animated.add(
-            leaveGather.interpolate({ inputRange: [0, 1], outputRange: [1, 0.975] }),
-            leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, -0.03] }),
-          ),
-        },
-        { rotate: leaveGlide.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '4deg'] }) },
-      ],
-    };
+    const leaveStyle =
+      how.as === 'slide'
+        ? {
+            opacity: leaveGlide.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.9, 0] }),
+            transform: [
+              {
+                translateX: Animated.add(
+                  leaveGather.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }),
+                  leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, glideWidth] }),
+                ),
+              },
+              {
+                scale: Animated.add(
+                  leaveGather.interpolate({ inputRange: [0, 1], outputRange: [1, 0.975] }),
+                  leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [0, -0.03] }),
+                ),
+              },
+              {
+                rotate: leaveGlide.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0deg', '4deg'],
+                }),
+              },
+            ],
+          }
+        : how.as === 'fade'
+          ? {
+              opacity: leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+              transform: [
+                { scale: leaveGlide.interpolate({ inputRange: [0, 1], outputRange: [1, 0.98] }) },
+              ],
+            }
+          : {
+              opacity: leaveGlide.interpolate({
+                inputRange: [0, 0.65, 1],
+                outputRange: [1, 0.55, 0],
+              }),
+              transform: [
+                {
+                  translateY: leaveGlide.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, how.dy],
+                  }),
+                },
+                {
+                  scale: leaveGlide.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, how.as === 'fold' ? 0.94 : 0.92],
+                  }),
+                },
+              ],
+            };
 
     // Handle pending→real transition
     React.useEffect(() => {
@@ -638,10 +779,10 @@ const UnifiedCardWrapper = React.memo<{
 
     // The cards around it make room smoothly (CARD_LAYOUT): a card that has
     // just been promoted from pending waits a moment, so its own update does not
-    // slide; any other card, a pending one included, once it is in
+    // slide; a card coming in waits until it is in; any other card, half a second
     React.useEffect(() => {
       const wasRecentlyPromoted = !isPending && !!dropId && recentlyPromotedDropIds.has(dropId);
-      const delay = isPending ? CARD_ENTER_MS : wasRecentlyPromoted ? 2000 : 500;
+      const delay = isPending || entering ? CARD_ENTER_MS : wasRecentlyPromoted ? 2000 : 500;
 
       if (wasRecentlyPromoted && dropId) {
         recentlyPromotedDropIds.delete(dropId);
@@ -652,14 +793,18 @@ const UnifiedCardWrapper = React.memo<{
         setLayoutEnabled(true);
       }, delay);
       return () => clearTimeout(timeout);
-    }, [isPending, dropId]);
+    }, [isPending, dropId, entering]);
 
     // One shape for every state, so the card inside is never remounted (its
-    // own state, and the question on it, stay as they are)
+    // own state, and the question on it, stay as they are). A card going into
+    // another moves over the cards between them.
     return (
       <Reanimated.View
-        entering={entering ? CARD_ENTERING : undefined}
+        entering={entering}
+        exiting={unzips && !reduced ? UNZIP_EXITING : undefined}
         layout={layoutEnabled ? CARD_LAYOUT : undefined}
+        onLayout={onLayout}
+        style={leaving && how.as !== 'slide' ? LEAVING_ON_TOP : undefined}
       >
         <Animated.View style={leaveStyle}>{children}</Animated.View>
       </Reanimated.View>
@@ -667,20 +812,8 @@ const UnifiedCardWrapper = React.memo<{
   },
 );
 UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';
+const LEAVING_ON_TOP = { zIndex: 2 };
 
-// The question, split and "one you already have" lines: set line heights (the
-// Text default is much taller than 13pt type), so the card sits close to a
-// normal card's height
-const ASK_ROW = { flexDirection: 'row' as const, alignItems: 'center' as const, marginTop: 2 };
-const ASK_AVATAR = { width: 22, height: 22, marginRight: 8, borderRadius: 11 };
-const ASK_TEXT = {
-  flex: 1,
-  fontSize: 13,
-  lineHeight: 17,
-  color: '#4A7C59',
-  fontWeight: '600' as const,
-};
-const ASK_HELPER = { flex: 1, fontSize: 12, lineHeight: 15, color: '#657865', marginLeft: 30 };
 // "Talk it through with Gremly" on the newest drop, under a hairline
 const TALK_ROW = {
   flexDirection: 'row' as const,
@@ -703,7 +836,12 @@ const talkUsedIds = new Set<string>();
  * checked on the card, where they already live.
  */
 export function talkItemIdFor(
-  items: Array<{ id: string; drop_id?: string | null; created_at: string }>,
+  items: Array<{
+    id: string;
+    drop_id?: string | null;
+    created_at: string;
+    views?: Record<string, any> | null;
+  }>,
   opts: { pendingIds: Set<string>; nowMs: number; inTraining: boolean; used: Set<string> },
 ): string | null {
   if (opts.inTraining) return null;
@@ -711,6 +849,8 @@ export function talkItemIdFor(
   if (!top) return null;
   if (opts.pendingIds.has(top.drop_id || top.id)) return null;
   if (opts.used.has(top.id)) return null;
+  // a split's pieces and the note it was kept as settle without it (stage 7)
+  if (top.views?.split_group || top.views?.kept_as_one) return null;
   const age = opts.nowMs - new Date(top.created_at).getTime();
   if (!(age >= 0 && age < TALK_WINDOW_MS)) return null;
   return top.id;
@@ -1734,36 +1874,6 @@ const RevealingCard: React.FC<{
   );
 };
 
-/**
- * Pulsing animation hook for Gremly icon on multi-entity cards
- */
-const useGremlyPulse = () => {
-  const pulseAnim = React.useMemo(() => new Animated.Value(1), []);
-
-  React.useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.15,
-          duration: 800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, [pulseAnim]);
-
-  return pulseAnim;
-};
-
 // Module-level Set to track items that have already shown reveal animation
 // Prevents double animation when component remounts or Phase 2 arrives
 const revealedItemIds = new Set<string>();
@@ -1771,10 +1881,6 @@ const revealedItemIds = new Set<string>();
 // Module-level Set to track drops that have already animated their Row 3 chips
 // This persists across pending→entity transition (drop_id stays the same)
 const chipAnimatedIds = new Set<string>();
-
-// Module-level Set to track drops that have already shown multi-drop bounce animation
-// Uses drop_id for stability across pending→synced transition
-const multiBounceAnimatedIds = new Set<string>();
 
 // Module-level Set to track drops that have bounced after chip animation
 // Prevents double bounce when component remounts
@@ -1792,7 +1898,6 @@ const clarificationBounceAnimatedIds = new Set<string>();
 export const resetAnimationTrackingForDrop = (dropId: string) => {
   revealedItemIds.delete(dropId);
   chipAnimatedIds.delete(dropId);
-  multiBounceAnimatedIds.delete(dropId);
   chipBounceAnimatedIds.delete(dropId);
   clarificationBounceAnimatedIds.delete(dropId);
   // console.log('[AnimatedMindDropCard] Reset animation tracking for drop:', dropId);
@@ -1817,41 +1922,18 @@ const AnimatedMindDropCard = React.memo<{
   handleEdit: (id: string, kind: UnifiedDrop['kind'], unsorted?: boolean) => void;
   handleDelete: (id: string, kind: UnifiedDrop['kind']) => void;
   index?: number; // For stagger delay in calm arrival animation
-  // Multi-entity handlers passed from parent
-  onKeepAsNote?: (id: string) => void;
-  onSplitSelected?: (id: string, selectedItems: MultiDropItem[]) => void;
-  // Callback to open modal at parent level (modal lives in RecentDrops, not here)
-  onOpenModal?: (item: UnifiedDrop) => void;
   // Set only on the newest drop while it offers "Talk it through with Gremly"
   onTalk?: (item: UnifiedDrop) => void;
 }>(
-  ({ item, isPending, handleEdit, onOpenModal, onTalk }) => {
+  ({ item, isPending, handleEdit, onTalk }) => {
     // The drop card, look A (Mind Drop rethink stage 5): its state follows the
     // fields stage 4 writes (lib/minddrop/dropCardModel.ts); DropCard draws it.
     // Its questions are asked on the card (stage 6, lib/minddrop/asks.ts): no
     // popup opens from here, and a tap on the card opens the item.
 
-    // An older note still holding multi_items (stage 7 retires these)
-    const isMulti = item.is_multi === true || item.views?.is_multi === true;
+    // An older note still holding multi_items is one note now: its split lapses
+    // as the store loads (asks.ts), and the split modal has left Mind Drop (stage 7)
     const isFailed = getMindDropVisualState(item) === 'failed';
-
-    // An older multi card still gives its small bounce when it first shows
-    const bounceScale = useSharedValue(1);
-    const bounceTrackingId = item.drop_id || item.id;
-    React.useEffect(() => {
-      if (isMulti && !multiBounceAnimatedIds.has(bounceTrackingId)) {
-        multiBounceAnimatedIds.add(bounceTrackingId);
-        bounceScale.value = withSequence(
-          withTiming(1.1, { duration: 180 }),
-          withTiming(0.96, { duration: 140 }),
-          withSpring(1, { damping: 6, stiffness: 120, mass: 1 }),
-        );
-      }
-    }, [isMulti, bounceTrackingId, bounceScale]);
-    const bounceStyle = useAnimatedStyle(() => ({
-      transform: [{ scale: bounceScale.value }],
-    }));
-    const gremlyPulseScale = useGremlyPulse();
 
     // Keep just one on another card folded a drop into this one: it pulses once
     const [pulseKey, setPulseKey] = React.useState(0);
@@ -1865,21 +1947,15 @@ const AnimatedMindDropCard = React.memo<{
 
     const kind = dropCardKind(item);
     const stage = dropCardStage(item, isPending);
-    const title = isMulti
-      ? item.multi_summary_title || item.views?.multi_summary_title || item.title || item.text
-      : item.title || item.text;
+    const title = item.title || item.text;
     const rawTitle = item.text || item.title;
     const meta = React.useMemo(() => metaParts(item, kind), [item, kind]);
 
     // The card's questions (one strip at a time) and the quiet duplicate line
-    const stripAsk = isPending || isMulti ? null : cardStripAsk(item);
-    const dupeAsk = isPending || isMulti || stage !== 'settled' ? null : cardDupeAsk(item);
+    const stripAsk = isPending ? null : cardStripAsk(item);
+    const dupeAsk = isPending || stage !== 'settled' ? null : cardDupeAsk(item);
 
     const handleCardPress = () => {
-      if (isMulti) {
-        if (onOpenModal) onOpenModal(item);
-        return;
-      }
       handleEdit(item.id, item.kind, item.unsorted);
     };
 
@@ -1905,23 +1981,11 @@ const AnimatedMindDropCard = React.memo<{
           Couldn't finish loading. Tap to retry.
         </Text>
       </Pressable>
-    ) : isMulti ? (
-      // an older note still holding multi_items keeps its line until stage 7
-      <View style={[ASK_ROW, { marginTop: 8 }]}>
-        <Animated.Image
-          source={require('../../assets/buttonforHP.png')}
-          style={[ASK_AVATAR, { transform: [{ scale: gremlyPulseScale }] }]}
-        />
-        <Text style={ASK_TEXT} numberOfLines={2}>
-          Should I split these? Tap to decide.
-        </Text>
-      </View>
     ) : null;
 
     const canTalk =
       !!onTalk &&
       !isFailed &&
-      !isMulti &&
       !stripAsk &&
       !dupeAsk &&
       !keptForSweep(item) &&
@@ -1929,23 +1993,21 @@ const AnimatedMindDropCard = React.memo<{
       item.views?.clarification_processing !== true;
 
     return (
-      <Reanimated.View style={bounceStyle}>
-        <DropCard
-          kind={kind}
-          stage={stage}
-          rawTitle={rawTitle || ''}
-          title={title || ''}
-          meta={meta}
-          onPress={handleCardPress}
-          testID={`minddrop-recent-${item.kind}-${item.id}`}
-          onTalk={canTalk ? () => onTalk!(item) : undefined}
-          talkTestID={`minddrop-talk-${item.id}`}
-          footer={footer}
-          askStrip={isPending || isMulti ? null : <CardAsk item={item} ask={stripAsk} />}
-          dupeLine={dupeAsk && !stripAsk ? <CardDupe item={item} ask={dupeAsk} /> : null}
-          pulseKey={pulseKey}
-        />
-      </Reanimated.View>
+      <DropCard
+        kind={kind}
+        stage={stage}
+        rawTitle={rawTitle || ''}
+        title={title || ''}
+        meta={meta}
+        onPress={handleCardPress}
+        testID={`minddrop-recent-${item.kind}-${item.id}`}
+        onTalk={canTalk ? () => onTalk!(item) : undefined}
+        talkTestID={`minddrop-talk-${item.id}`}
+        footer={footer}
+        askStrip={isPending ? null : <CardAsk item={item} ask={stripAsk} />}
+        dupeLine={dupeAsk && !stripAsk ? <CardDupe item={item} ask={dupeAsk} /> : null}
+        pulseKey={pulseKey}
+      />
     );
   },
   (prevProps, nextProps) => {
@@ -2001,6 +2063,9 @@ const AnimatedMindDropCard = React.memo<{
       'ask_on_card',
       'relation',
       'split',
+      // a split's pieces and the note it was kept as (stage 7)
+      'split_group',
+      'kept_as_one',
     ];
     for (const f of viewFields) if (va[f] !== vb[f]) return false;
     return true;
@@ -2068,17 +2133,9 @@ const RecentDrops: React.FC<{
 
   // Direct store access - no adapter
   const hasCompletedFirstDrop = useHasCompletedFirstDrop();
-  const canCreate = useCanCreate();
-  const recentDropsNavigation = useNavigation<any>();
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
-  // Multi-entity handlers need these
-  const updateNote = useGremlyStore((s) => s.updateNote);
-  const createTodo = useGremlyStore((s) => s.createTodo);
-  const createHabit = useGremlyStore((s) => s.createHabit);
-  const createNote = useGremlyStore((s) => s.createNote);
-  const archiveNote = useGremlyStore((s) => s.archiveNote);
   const repo = useRepo();
 
   // Queue items from Zustand (driven by dropQueue.ts syncQueueToZustand)
@@ -2153,36 +2210,75 @@ const RecentDrops: React.FC<{
   // delay), so the slide is seen on its own. What they looked like is kept so
   // an Undo can slide them back in.
   const leavingRef = React.useRef<Set<string>>(new Set());
+  // Drops whose card has gone from the list (archived, ticked off, split or
+  // kept as one): never shown again as on their way in, though the queue may
+  // still be finishing them (stage 7)
+  const leftDropIds = React.useRef<Set<string>>(new Set());
   const [leavingIds, setLeavingIds] = React.useState<Set<string>>(() => new Set());
   const [returningIds, setReturningIds] = React.useState<Set<string>>(() => new Set());
   const leftSnapshots = React.useRef<Map<string, UnifiedDrop>>(new Map());
   const leaveTimers = React.useRef<ReturnType<typeof setTimeout>[]>([]);
+  // How each card goes (stage 7), and where to, worked out as it starts going
+  const leaveHowRef = React.useRef<Map<string, { as: CardLeaveAs['as']; into?: string }>>(
+    new Map(),
+  );
+  const leaveAsRef = React.useRef<Map<string, CardLeaveAs>>(new Map());
 
-  const startLeaving = React.useCallback((ids: string[], delayMs = 0, hold = false) => {
-    ids.forEach((id) => leavingRef.current.add(id));
-    // held: marked as going, so nothing else moves them, until told to go
-    if (hold) return;
-    const show = () =>
-      setLeavingIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => leavingRef.current.has(id) && next.add(id));
-        return next;
+  const startLeaving = React.useCallback(
+    (ids: string[], delayMs = 0, hold = false, how?: { as?: CardLeaveAs['as']; into?: string }) => {
+      ids.forEach((id) => {
+        leavingRef.current.add(id);
+        if (how?.as) leaveHowRef.current.set(id, { as: how.as, into: how.into });
       });
-    if (delayMs > 0) leaveTimers.current.push(setTimeout(show, delayMs));
-    else show();
-  }, []);
+      // held: marked as going, so nothing else moves them, until told to go
+      if (hold) return;
+      const show = () => {
+        ids.forEach((id) => {
+          const want = leaveHowRef.current.get(id);
+          if (!want) return;
+          // into a card on the list: the distance to it now; a card that is not
+          // on the list slides away (into) or fades (fold) where it is
+          const from = cardTops.get(id);
+          const to = want.into ? cardTops.get(want.into) : undefined;
+          if (
+            (want.as === 'into' || want.as === 'fold') &&
+            (from === undefined || to === undefined)
+          ) {
+            leaveAsRef.current.set(id, { as: want.as === 'into' ? 'slide' : 'fade', dy: 0 });
+          } else {
+            leaveAsRef.current.set(id, { as: want.as, dy: (to ?? 0) - (from ?? 0) });
+          }
+        });
+        setLeavingIds((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => leavingRef.current.has(id) && next.add(id));
+          return next;
+        });
+      };
+      if (delayMs > 0) leaveTimers.current.push(setTimeout(show, delayMs));
+      else show();
+    },
+    [],
+  );
 
   useEffect(() => {
     const timers = leaveTimers.current;
-    const unsubLeaving = eventBus.on('minddrop:cards_leaving', ({ ids, delayMs, hold }) => {
-      startLeaving(ids, delayMs, hold);
-    });
+    const unsubLeaving = eventBus.on(
+      'minddrop:cards_leaving',
+      ({ ids, delayMs, hold, as, into }) => {
+        startLeaving(ids, delayMs, hold, { as, into });
+      },
+    );
     const unsubGo = eventBus.on('minddrop:cards_go', ({ ids }) => {
       const still = ids.filter((id) => leavingRef.current.has(id));
       if (still.length) startLeaving(still);
     });
     const unsubStay = eventBus.on('minddrop:cards_stay', ({ ids }) => {
-      ids.forEach((id) => leavingRef.current.delete(id));
+      ids.forEach((id) => {
+        leavingRef.current.delete(id);
+        leaveHowRef.current.delete(id);
+        leaveAsRef.current.delete(id);
+      });
       setLeavingIds((prev) => {
         const next = new Set(prev);
         ids.forEach((id) => next.delete(id));
@@ -2208,6 +2304,8 @@ const RecentDrops: React.FC<{
 
   const handleCardLeft = React.useCallback((id: string) => {
     leavingRef.current.delete(id);
+    leaveHowRef.current.delete(id);
+    leaveAsRef.current.delete(id);
     setLeavingIds((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
@@ -2225,6 +2323,7 @@ const RecentDrops: React.FC<{
     setItems((prev) => {
       const item = prev.find((i) => i.id === id);
       if (item) leftSnapshots.current.set(id, item);
+      if (item?.drop_id) leftDropIds.current.add(item.drop_id);
       return prev.filter((i) => i.id !== id);
     });
   }, []);
@@ -2270,16 +2369,6 @@ const RecentDrops: React.FC<{
     );
   }, []);
 
-  // Modal state lifted from AnimatedMindDropCard to prevent remount issues
-  // Modal stays visible even when card remounts due to pending→real transition
-  const [activeModalItem, setActiveModalItem] = React.useState<UnifiedDrop | null>(null);
-
-  // Handler to open modal from child card
-  const handleOpenModal = React.useCallback((item: UnifiedDrop) => {
-    // console.log('[RecentDrops] Opening modal for item:', item.id, item.drop_id);
-    setActiveModalItem(item);
-  }, []);
-
   // Transform queue items to UnifiedDrop array
   // Uses a ref-based cache keyed by QueuedDrop object reference to preserve
   // UnifiedDrop references for unchanged drops (prevents unnecessary re-renders)
@@ -2294,9 +2383,11 @@ const RecentDrops: React.FC<{
   }, [items]);
 
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
+    // its item is on the list, or was and has gone (a yes, a split or Keep as
+    // one while the queue is still finishing it): either way no longer pending
+    const seen = (dropId: string) => savedDropIds.has(dropId) || leftDropIds.current.has(dropId);
     const hasSavedItem = (drop: QueuedDrop) =>
-      savedDropIds.has(drop.localId) ||
-      (drop.pieceRows ?? []).some((piece) => savedDropIds.has(piece.dropId));
+      seen(drop.localId) || (drop.pieceRows ?? []).some((piece) => seen(piece.dropId));
     const activeDrops = queueItems.filter(
       (drop) =>
         drop.phase !== 'complete' &&
@@ -2403,6 +2494,8 @@ const RecentDrops: React.FC<{
             clarification_resolved: false,
             // "Is this one you already have?" once the pipeline has asked (dropRelation.ts)
             relation: drop.relation ?? undefined,
+            // a clear split: the card gives way to its pieces, which come out of it
+            unzips: drop.isMulti === true && drop.split === 'clear',
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
           frequency: drop.extractedFrequency ?? null,
@@ -2439,24 +2532,27 @@ const RecentDrops: React.FC<{
   // This prevents the "jolt" when a pending item is promoted to a real entity.
   // A clear split's pieces (drop id split-<localId>-<index>) wait for their
   // parent's card to go, so the drop never shows twice.
+  // A card split with Split on its card keeps its place until it has gone; its
+  // pieces come out of it then (stage 7).
   const filteredItems = React.useMemo(() => {
-    if (pendingDropIds.size === 0) return items;
     const splitPrefixes = [...pendingDropIds].map((id) => `split-${id}-`);
-    return items.filter(
+    return withoutPiecesOfCardsOnList(items, (item) => leavingRef.current.has(item.id)).filter(
       (item) =>
         !item.drop_id ||
         (!pendingDropIds.has(item.drop_id) &&
           !splitPrefixes.some((prefix) => item.drop_id!.startsWith(prefix))),
     );
-  }, [items, pendingDropIds]);
+    // leavingIds: a held card that stays (cards_stay) lets a kept note show
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, pendingDropIds, leavingIds]);
 
   // Memoized combined list: merge pending + real items, sort, deduplicate.
   // Uses original object references (no spread) so React.memo on cards stays effective.
+  // A split's pieces stay together, in their order, where the drop was, and the
+  // note a split was kept as takes their place (stage 7).
   const { combinedItems, pendingIdSet } = React.useMemo(() => {
     const pending = new Set(pendingItems.map((p) => p.drop_id || p.id));
-    const merged = [...pendingItems, ...filteredItems].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
+    const merged = orderDropList([...pendingItems, ...filteredItems]);
     // Defensive deduplication: prefer first occurrence (pending before real)
     const seen = new Set<string>();
     const deduped = merged.filter((item) => {
@@ -2467,6 +2563,20 @@ const RecentDrops: React.FC<{
     });
     return { combinedItems: deduped, pendingIdSet: pending };
   }, [pendingItems, filteredItems]);
+
+  // Split into 3 and Keep as one, under a clear split's pieces while they are
+  // the newest cards and all still there (stage 7)
+  const splitBar = React.useMemo(
+    () =>
+      filter === 'today'
+        ? splitBarFor(
+            combinedItems,
+            (item) => pendingIdSet.has(item.drop_id || item.id),
+            (item) => leavingIds.has(item.id),
+          )
+        : null,
+    [combinedItems, filter, pendingIdSet, leavingIds],
+  );
 
   // "Talk it through with Gremly" on the newest drop (rules in talkItemIdFor)
   const inTraining = useNeedsMindDropTutorial();
@@ -2508,18 +2618,6 @@ const RecentDrops: React.FC<{
     });
   }, []);
 
-  // Keep modal item synced with latest version from items/pendingItems
-  // (in case Phase 1 updates segments while modal is open)
-  const currentModalItem = React.useMemo(() => {
-    if (!activeModalItem) return null;
-    // Find the current version of this item by drop_id or id in both lists
-    const dropId = activeModalItem.drop_id || activeModalItem.id;
-    const fromPending = pendingItems.find((i) => (i.drop_id || i.id) === dropId);
-    if (fromPending) return fromPending;
-    const fromItems = items.find((i) => (i.drop_id || i.id) === dropId);
-    return fromItems || activeModalItem;
-  }, [activeModalItem, pendingItems, items]);
-
   /**
    * Helper to merge a DB record into the local items state
    * Used when real-time updates arrive from Supabase
@@ -2528,8 +2626,12 @@ const RecentDrops: React.FC<{
     (prev: UnifiedDrop[], record: any, kind: 'todo' | 'habit' | 'note'): UnifiedDrop[] => {
       if (!record?.id) return prev;
 
-      // If the record is archived (note) or completed (todo/habit), remove it from the list
+      // If the record is archived (note) or completed (todo/habit), remove it from the list;
+      // a card already going (a yes, a split, Keep as one) leaves when its motion ends
       if (kind === 'note' && record.archived === true) {
+        if (leavingRef.current.has(record.id)) return prev;
+        const gone = prev.find((item) => item.id === record.id);
+        if (gone?.drop_id) leftDropIds.current.add(gone.drop_id);
         return prev.filter((item) => item.id !== record.id);
       }
 
@@ -3677,605 +3779,6 @@ const RecentDrops: React.FC<{
     [deleteTodo, deleteHabit, deleteNote, onDeleted],
   );
 
-  // Multi-entity: Keep as note handler
-  const handleKeepAsNote = React.useCallback(
-    async (noteId: string) => {
-      if (!canCreate) {
-        recentDropsNavigation.navigate('TrialEndPaywall', { source: 'expiry' });
-        return;
-      }
-      // Close modal first (modal is at RecentDrops level now)
-      setActiveModalItem(null);
-
-      try {
-        const noteToUpdate = items.find((item) => item.id === noteId);
-        if (!noteToUpdate) return;
-
-        const dominantBucket = noteToUpdate.views?.dominant_bucket;
-        const dominantSubtype = noteToUpdate.views?.dominant_subtype;
-        const originalText = noteToUpdate.text || noteToUpdate.title || '';
-        const spaceId = noteToUpdate.views?.space_id ?? null;
-
-        // If dominant_bucket is todo or habit, convert to that type instead of keeping as note
-        if (dominantBucket === 'todo') {
-          // Create a todo from this note
-          const newTodo = await createTodo({
-            name: noteToUpdate.title || originalText,
-            body: originalText,
-            space_id: spaceId,
-            origin: 'catchall',
-            views: {
-              minddrop_stage: 'classified',
-              ai_pending: true,
-              origin: 'multi_kept_together',
-            },
-          } as any);
-
-          if (newTodo?.id) {
-            // Archive the original note
-            await archiveNote(noteId, 'converted_to_todo');
-
-            // Update local state: remove note, add todo
-            setItems((prev) => {
-              const withoutOriginal = prev.filter((item) => item.id !== noteId);
-              const newItem: UnifiedDrop = {
-                id: newTodo.id,
-                kind: 'todo',
-                title: noteToUpdate.title || originalText,
-                text: originalText,
-                created_at: nowTimestamp(),
-                tags: [],
-                views: { minddrop_stage: 'classified', ai_pending: true },
-                labels: [],
-              };
-              return [newItem, ...withoutOriginal];
-            });
-
-            // Phase 1.5a: fetch smart_title and confirmation_message
-            try {
-              const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-              const sessionToken = await getSessionToken();
-              const ctrl = new AbortController();
-              const t = setTimeout(() => ctrl.abort(), 10000);
-              const p15aRes = await fetch(cortexUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${sessionToken}`,
-                },
-                body: JSON.stringify({
-                  type: 'enrich-phase1-5a',
-                  text: originalText,
-                  bucket: 'todo',
-                  subtype: null,
-                }),
-                signal: ctrl.signal,
-              });
-              clearTimeout(t);
-              if (p15aRes.ok) {
-                const p15aData = await p15aRes.json();
-                const smartTitle = p15aData?.smart_title;
-                const confirmMsg = p15aData?.confirmation_message;
-                if (
-                  (smartTitle && typeof smartTitle === 'string') ||
-                  (confirmMsg && typeof confirmMsg === 'string')
-                ) {
-                  setItems((prev) =>
-                    prev.map((item) =>
-                      item.id === newTodo.id
-                        ? {
-                            ...item,
-                            ...(smartTitle ? { title: smartTitle } : {}),
-                            views: {
-                              ...item.views,
-                              ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
-                            },
-                          }
-                        : item,
-                    ),
-                  );
-                  // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
-                  if (smartTitle && typeof smartTitle === 'string') {
-                    try {
-                      await repo.update({
-                        id: newTodo.id,
-                        patch: { name: smartTitle, title: smartTitle } as any,
-                      });
-                    } catch (dbErr) {
-                      console.warn(
-                        '[RecentDrops:Phase1.5a] DB write failed for todo, continuing',
-                        dbErr,
-                      );
-                    }
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn('[RecentDrops:Phase1.5a] Failed for todo, continuing', e);
-            }
-
-            // Run Phase 2 enrichment (non-streaming)
-            runPhase2(newTodo.id, originalText, 'todo', null, repo)
-              .then((result) => {
-                console.log(`[RecentDrops:Phase2:${newTodo.id}] Complete`, result);
-                // Update local state with ALL enrichment fields so chips animate together
-                if (result) {
-                  setItems((prev) =>
-                    prev.map((item) =>
-                      item.id === newTodo.id ? applyEnrichmentToItem(item, result) : item,
-                    ),
-                  );
-                }
-              })
-              .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
-
-            console.log('[RecentDrops] Converted multi-drop to todo:', newTodo.id);
-          }
-          return;
-        }
-
-        if (dominantBucket === 'habit') {
-          // Create a habit from this note
-          const newHabit = await createHabit({
-            name: noteToUpdate.title || originalText,
-            title: noteToUpdate.title || originalText,
-            notes: originalText,
-            frequency: 'daily',
-            subtype: 'start_habit',
-            space_id: spaceId,
-            origin: 'catchall',
-            views: {
-              minddrop_stage: 'classified',
-              ai_pending: true,
-              origin: 'multi_kept_together',
-            },
-          } as any);
-
-          if (newHabit?.id) {
-            // Archive the original note
-            await archiveNote(noteId, 'converted_to_habit');
-
-            // Update local state: remove note, add habit
-            setItems((prev) => {
-              const withoutOriginal = prev.filter((item) => item.id !== noteId);
-              const newItem: UnifiedDrop = {
-                id: newHabit.id,
-                kind: 'habit',
-                title: noteToUpdate.title || originalText,
-                text: originalText,
-                created_at: nowTimestamp(),
-                tags: [],
-                views: { minddrop_stage: 'classified', ai_pending: true },
-                labels: [],
-              };
-              return [newItem, ...withoutOriginal];
-            });
-
-            // Phase 1.5a: fetch smart_title and confirmation_message
-            try {
-              const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-              const sessionToken = await getSessionToken();
-              const ctrl = new AbortController();
-              const t = setTimeout(() => ctrl.abort(), 10000);
-              const p15aRes = await fetch(cortexUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${sessionToken}`,
-                },
-                body: JSON.stringify({
-                  type: 'enrich-phase1-5a',
-                  text: originalText,
-                  bucket: 'habit',
-                  subtype: null,
-                }),
-                signal: ctrl.signal,
-              });
-              clearTimeout(t);
-              if (p15aRes.ok) {
-                const p15aData = await p15aRes.json();
-                const smartTitle = p15aData?.smart_title;
-                const confirmMsg = p15aData?.confirmation_message;
-                if (
-                  (smartTitle && typeof smartTitle === 'string') ||
-                  (confirmMsg && typeof confirmMsg === 'string')
-                ) {
-                  setItems((prev) =>
-                    prev.map((item) =>
-                      item.id === newHabit.id
-                        ? {
-                            ...item,
-                            ...(smartTitle ? { title: smartTitle } : {}),
-                            views: {
-                              ...item.views,
-                              ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
-                            },
-                          }
-                        : item,
-                    ),
-                  );
-                  // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
-                  if (smartTitle && typeof smartTitle === 'string') {
-                    try {
-                      await repo.update({
-                        id: newHabit.id,
-                        patch: { name: smartTitle, title: smartTitle } as any,
-                      });
-                    } catch (dbErr) {
-                      console.warn(
-                        '[RecentDrops:Phase1.5a] DB write failed for habit, continuing',
-                        dbErr,
-                      );
-                    }
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn('[RecentDrops:Phase1.5a] Failed for habit, continuing', e);
-            }
-
-            // Run Phase 2 enrichment (non-streaming)
-            runPhase2(newHabit.id, originalText, 'habit', null, repo)
-              .then((result) => {
-                console.log(`[RecentDrops:Phase2:${newHabit.id}] Complete`, result);
-                // Update local state with ALL enrichment fields so chips animate together
-                if (result) {
-                  setItems((prev) =>
-                    prev.map((item) =>
-                      item.id === newHabit.id ? applyEnrichmentToItem(item, result) : item,
-                    ),
-                  );
-                }
-              })
-              .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
-
-            console.log('[RecentDrops] Converted multi-drop to habit:', newHabit.id);
-          }
-          return;
-        }
-
-        // Default: keep as note (log bucket)
-        const noteSubtype =
-          dominantSubtype === 'journal'
-            ? 'journal'
-            : dominantSubtype === 'idea'
-              ? 'idea'
-              : 'catchall';
-
-        await updateNote(noteId, {
-          subtype: noteSubtype,
-          views: {
-            ...noteToUpdate.views,
-            is_multi: false,
-            minddrop_stage: 'classified',
-            ai_pending: true,
-            multi_items: undefined,
-            multi_summary_title: undefined,
-          },
-        } as any);
-
-        // Update local state
-        setItems((prev) =>
-          prev.map((item) =>
-            item.id === noteId
-              ? {
-                  ...item,
-                  is_multi: false,
-                  noteSubtype: noteSubtype,
-                  views: {
-                    ...item.views,
-                    is_multi: false,
-                    minddrop_stage: 'classified',
-                    ai_pending: true,
-                  },
-                }
-              : item,
-          ),
-        );
-
-        // Phase 1.5a: fetch smart_title and confirmation_message
-        try {
-          const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-          const sessionToken = await getSessionToken();
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 10000);
-          const p15aRes = await fetch(cortexUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${sessionToken}`,
-            },
-            body: JSON.stringify({
-              type: 'enrich-phase1-5a',
-              text: originalText,
-              bucket: 'log',
-              subtype: noteSubtype,
-            }),
-            signal: ctrl.signal,
-          });
-          clearTimeout(t);
-          if (p15aRes.ok) {
-            const p15aData = await p15aRes.json();
-            const smartTitle = p15aData?.smart_title;
-            const confirmMsg = p15aData?.confirmation_message;
-            if (
-              (smartTitle && typeof smartTitle === 'string') ||
-              (confirmMsg && typeof confirmMsg === 'string')
-            ) {
-              setItems((prev) =>
-                prev.map((item) =>
-                  item.id === noteId
-                    ? {
-                        ...item,
-                        ...(smartTitle ? { title: smartTitle } : {}),
-                        views: {
-                          ...item.views,
-                          ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
-                        },
-                      }
-                    : item,
-                ),
-              );
-              // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
-              if (smartTitle && typeof smartTitle === 'string') {
-                try {
-                  await repo.update({ id: noteId, patch: { title: smartTitle } as any });
-                } catch (dbErr) {
-                  console.warn(
-                    '[RecentDrops:Phase1.5a] DB write failed for log, continuing',
-                    dbErr,
-                  );
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[RecentDrops:Phase1.5a] Failed for log, continuing', e);
-        }
-
-        // Run Phase 2 enrichment for the note (non-streaming)
-        runPhase2(noteId, originalText, 'log', dominantSubtype || 'general', repo)
-          .then((result) => {
-            console.log(`[RecentDrops:Phase2:${noteId}] Complete`, result);
-            // Update local state with ALL enrichment fields so chips animate together
-            if (result) {
-              setItems((prev) =>
-                prev.map((item) =>
-                  item.id === noteId ? applyEnrichmentToItem(item, result) : item,
-                ),
-              );
-            }
-          })
-          .catch((err) => console.warn('[RecentDrops:Phase2] Enrichment failed', err));
-
-        console.log('[RecentDrops] Kept multi-drop as note with subtype:', noteSubtype);
-      } catch (err) {
-        console.error('[RecentDrops] Failed to keep as note:', err);
-      }
-    },
-    [
-      canCreate,
-      recentDropsNavigation,
-      items,
-      updateNote,
-      createTodo,
-      createHabit,
-      archiveNote,
-      repo,
-    ],
-  );
-
-  // Multi-entity: Split selected items handler
-  const handleSplitSelected = React.useCallback(
-    async (noteId: string, selectedItems: MultiDropItem[]) => {
-      if (!canCreate) {
-        recentDropsNavigation.navigate('TrialEndPaywall', { source: 'expiry' });
-        return;
-      }
-      // Close modal first (modal is at RecentDrops level now)
-      setActiveModalItem(null);
-
-      // console.log('[RecentDrops] Splitting multi-drop into', selectedItems.length, 'items');
-      // console.log(
-      //   '[RecentDrops] Split items detail:',
-      //   selectedItems.map((item) => ({
-      //     text: item.text.substring(0, 30),
-      //     bucket: item.bucket,
-      //     subtype: item.subtype,
-      //     habitSubtype: item.habitSubtype,
-      //     smart_title: item.smart_title,
-      //     confirmation_message: item.confirmation_message,
-      //   })),
-      // );
-      const noteToSplit = items.find((item) => item.id === noteId);
-      const spaceId = noteToSplit?.views?.space_id ?? null;
-      const now = getDateService().now().getTime();
-
-      // 1. Create optimistic items immediately for instant visual feedback
-      const optimisticItems: UnifiedDrop[] = selectedItems.map((splitItem, index) => {
-        const tempId = `temp-split-${now}-${index}`;
-        const kind: 'todo' | 'habit' | 'note' =
-          splitItem.bucket === 'todo' ? 'todo' : splitItem.bucket === 'habit' ? 'habit' : 'note';
-
-        // Use smart_title from Phase 1 if available, fall back to preview_title or raw text
-        const displayTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
-
-        return {
-          id: tempId,
-          kind,
-          title: displayTitle,
-          text: splitItem.text,
-          created_at: nowTimestamp(),
-          drop_id: `split-${noteId}-${index}`,
-          tags: [],
-          views: {
-            minddrop_stage: 'classified',
-            ai_pending: true,
-            origin: 'multi_split',
-            // Store confirmation_message for display
-            confirmation_message: splitItem.confirmation_message ?? null,
-          },
-          labels: [],
-          noteSubtype:
-            kind === 'note'
-              ? splitItem.subtype === 'journal'
-                ? 'journal'
-                : splitItem.subtype === 'idea'
-                  ? 'idea'
-                  : 'catchall'
-              : undefined,
-        };
-      });
-
-      // 2. Update UI immediately: remove original, add optimistic items
-      setItems((prev) => {
-        const withoutOriginal = prev.filter((item) => item.id !== noteId);
-        return [...optimisticItems, ...withoutOriginal];
-      });
-
-      console.log(
-        '[RecentDrops] Added optimistic items:',
-        optimisticItems.map((o) => ({
-          id: o.id,
-          title: o.title,
-          kind: o.kind,
-        })),
-      );
-
-      // 3. Create actual entities in database (async, in background)
-      try {
-        for (let i = 0; i < selectedItems.length; i++) {
-          const splitItem = selectedItems[i];
-          const optimisticId = optimisticItems[i].id;
-          const bucket: MindDropBucket = splitItem.bucket;
-          const subtype: MindDropLogSubtype | null = splitItem.subtype;
-          let newEntity: { id: string } | null = null;
-
-          // Use smart_title from Phase 1 if available
-          const entityTitle = splitItem.smart_title || splitItem.preview_title || splitItem.text;
-
-          if (splitItem.bucket === 'todo') {
-            newEntity = await createTodo({
-              name: entityTitle,
-              body: splitItem.text,
-              space_id: spaceId,
-              origin: 'catchall',
-              views: {
-                minddrop_stage: 'classified',
-                ai_pending: true,
-                origin: 'multi_split',
-                source_drop_id: noteId,
-                confirmation_message: splitItem.confirmation_message ?? null,
-              },
-            } as any);
-          } else if (splitItem.bucket === 'habit') {
-            newEntity = await createHabit({
-              name: entityTitle,
-              title: entityTitle,
-              notes: splitItem.text,
-              frequency: 'daily',
-              subtype: splitItem.habitSubtype || 'start_habit',
-              space_id: spaceId,
-              origin: 'catchall',
-              views: {
-                minddrop_stage: 'classified',
-                ai_pending: true,
-                origin: 'multi_split',
-                source_drop_id: noteId,
-                confirmation_message: splitItem.confirmation_message ?? null,
-              },
-            } as any);
-          } else {
-            // log bucket -> note
-            const noteSubtype =
-              splitItem.subtype === 'journal'
-                ? 'journal'
-                : splitItem.subtype === 'idea'
-                  ? 'idea'
-                  : 'catchall';
-            newEntity = await createNote({
-              title: entityTitle,
-              body: splitItem.text,
-              subtype: noteSubtype,
-              space_id: spaceId,
-              origin: 'catchall',
-              views: {
-                minddrop_stage: 'classified',
-                ai_pending: true,
-                origin: 'multi_split',
-                source_drop_id: noteId,
-                confirmation_message: splitItem.confirmation_message ?? null,
-              },
-            } as any);
-          }
-
-          // Replace optimistic item with real item
-          if (newEntity?.id) {
-            setItems((prev) =>
-              prev.map((item) =>
-                item.id === optimisticId
-                  ? { ...item, id: newEntity!.id, drop_id: item.drop_id }
-                  : item,
-              ),
-            );
-
-            // Trigger Phase 2 enrichment for the new entity (non-streaming)
-            const entityIdForPhase2 = newEntity.id;
-            runPhase2(entityIdForPhase2, splitItem.text, bucket, subtype, repo)
-              .then((result) => {
-                console.log(`[RecentDrops:Phase2:${entityIdForPhase2}] Complete`, result);
-                // Update local state with ALL enrichment fields so chips animate together
-                if (result) {
-                  setItems((prev) =>
-                    prev.map((item) =>
-                      item.id === entityIdForPhase2 ? applyEnrichmentToItem(item, result) : item,
-                    ),
-                  );
-                }
-              })
-              .catch((err) => {
-                console.warn('[RecentDrops:Phase2] Enrichment failed', err);
-                // Reset card state so it doesn't stay stuck in enriching
-                setItems((prev) =>
-                  prev.map((item) =>
-                    item.id === entityIdForPhase2
-                      ? {
-                          ...item,
-                          views: {
-                            ...item.views,
-                            minddrop_stage: 'enriched',
-                            ai_pending: false,
-                          },
-                        }
-                      : item,
-                  ),
-                );
-              });
-          }
-        }
-
-        // Archive the original multi-drop note
-        await archiveNote(noteId, 'split_completed');
-
-        console.log('[RecentDrops] Split complete, archived original:', noteId);
-      } catch (err) {
-        console.error('[RecentDrops] Failed to split multi-drop:', err);
-        // On error, remove optimistic items (they weren't created)
-        setItems((prev) => prev.filter((item) => !item.id.startsWith('temp-split-')));
-      }
-    },
-    [
-      canCreate,
-      recentDropsNavigation,
-      items,
-      createTodo,
-      createHabit,
-      createNote,
-      archiveNote,
-      repo,
-    ],
-  );
-
   // Derive hasTodayDrops from reactive items state (not todayCount which can be stale)
   const hasTodayDrops = React.useMemo(() => {
     if (pendingItems.length > 0) return true;
@@ -4396,62 +3899,65 @@ const RecentDrops: React.FC<{
 
                 // Use UnifiedCardWrapper for BOTH pending and real items
                 // This prevents remounting when transitioning (preserves modal state)
+                // A piece of a split comes out of the card it was; a split kept as
+                // one comes in where the pieces fold (stage 7)
+                const place = splitPlaceOf(item);
+                const parentTop = place && place.index >= 0 ? cardTops.get(place.group) : undefined;
+                const enterAs: CardEnterAs | undefined = itemIsPending
+                  ? { as: 'drop' }
+                  : place && place.index < 0 && keptGroupsNow.has(place.group)
+                    ? { as: 'kept' }
+                    : place && parentTop !== undefined
+                      ? { as: 'piece', index: place.index, fromTop: parentTop }
+                      : undefined;
+
                 return (
-                  <UnifiedCardWrapper
-                    key={stableKey}
-                    itemId={item.id}
-                    dropId={item.drop_id}
-                    isPending={itemIsPending}
-                    leaving={leavingIds.has(item.id)}
-                    onLeft={handleCardLeft}
-                    returning={returningIds.has(item.id)}
-                    onReturned={handleCardReturned}
-                  >
-                    <AnimatedMindDropCard
-                      item={item}
-                      isPending={isPending}
-                      effectiveKind={effectiveKind}
-                      displayKind={displayKind}
-                      showLegacyUnsortedBadge={itemIsPending ? undefined : showLegacyUnsortedBadge}
-                      badgeStyleKey={badgeStyleKey}
-                      c={c}
-                      styles={styles}
-                      mode={themeMode}
-                      handleEdit={itemIsPending ? NOOP_EDIT : handleEdit}
-                      handleDelete={itemIsPending ? NOOP_DELETE : handleDelete}
-                      onKeepAsNote={handleKeepAsNote}
-                      onSplitSelected={handleSplitSelected}
-                      onOpenModal={handleOpenModal}
-                      onTalk={item.id === talkItemId ? handleTalk : undefined}
-                    />
-                  </UnifiedCardWrapper>
+                  <React.Fragment key={stableKey}>
+                    <UnifiedCardWrapper
+                      itemId={item.id}
+                      dropId={item.drop_id}
+                      isPending={itemIsPending}
+                      leaving={leavingIds.has(item.id)}
+                      leaveAs={leaveAsRef.current.get(item.id)}
+                      onLeft={handleCardLeft}
+                      returning={returningIds.has(item.id)}
+                      onReturned={handleCardReturned}
+                      enterAs={enterAs}
+                      unzips={itemIsPending && item.views?.unzips === true}
+                    >
+                      <AnimatedMindDropCard
+                        item={item}
+                        isPending={isPending}
+                        effectiveKind={effectiveKind}
+                        displayKind={displayKind}
+                        showLegacyUnsortedBadge={
+                          itemIsPending ? undefined : showLegacyUnsortedBadge
+                        }
+                        badgeStyleKey={badgeStyleKey}
+                        c={c}
+                        styles={styles}
+                        mode={themeMode}
+                        handleEdit={itemIsPending ? NOOP_EDIT : handleEdit}
+                        handleDelete={itemIsPending ? NOOP_DELETE : handleDelete}
+                        onTalk={item.id === talkItemId ? handleTalk : undefined}
+                      />
+                    </UnifiedCardWrapper>
+                    {splitBar && item.id === splitBar.lastId ? (
+                      <Reanimated.View exiting={FadeOut.duration(150)} layout={CARD_LAYOUT}>
+                        <SplitBar
+                          groupId={splitBar.groupId}
+                          count={splitBar.count}
+                          testID={`minddrop-splitbar-${splitBar.groupId}`}
+                        />
+                      </Reanimated.View>
+                    ) : null}
+                  </React.Fragment>
                 );
               })}
             </AppScrollView>
           )}
         </View>
       ) : null}
-
-      {/* Multi-entity modal lifted to RecentDrops level - survives card remounts */}
-      {currentModalItem && (
-        <MultiSplitModal
-          visible={!!currentModalItem}
-          items={currentModalItem.multi_items || currentModalItem.views?.multi_items || []}
-          summaryTitle={
-            currentModalItem.multi_summary_title ||
-            currentModalItem.views?.multi_summary_title ||
-            'Multiple Items'
-          }
-          originalText={currentModalItem.text || currentModalItem.title || ''}
-          dominantBucket={currentModalItem.views?.dominant_bucket || null}
-          dominantSubtype={currentModalItem.views?.dominant_subtype || null}
-          onClose={() => setActiveModalItem(null)}
-          onKeepAsNote={() => handleKeepAsNote(currentModalItem.id)}
-          onSplitSelected={(selectedItems) =>
-            handleSplitSelected(currentModalItem.id, selectedItems)
-          }
-        />
-      )}
     </View>
   );
 };

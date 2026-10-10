@@ -145,6 +145,27 @@ describe('a lapse writes the plain outcome', () => {
     });
   });
 
+  it('an older build’s note waiting to be split stays one note', async () => {
+    setStore(
+      [],
+      [],
+      [
+        {
+          id: 'n1',
+          created_at: '2026-03-01T09:00:00Z',
+          views: { is_multi: true, minddrop_stage: 'multi_pending', multi_items: [{ text: 'a' }] },
+        },
+      ],
+    );
+    await expect(lapseStaleAsks()).resolves.toBe(1);
+    expect(mockState.notes[0].views).toEqual({
+      is_multi: false,
+      minddrop_stage: 'enriched',
+      multi_items: [{ text: 'a' }],
+      split: { status: 'kept', lapsed: true },
+    });
+  });
+
   it('a relation or a same becomes lapsed, and both items stay', async () => {
     setStore([], [{ id: 'h1', views: { relation: relation('sweep') } }]);
     await lapseAsk('h1');

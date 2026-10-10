@@ -800,11 +800,22 @@ describe('saving at the sort and updating the saved row', () => {
       body: 'buy milk',
       needs_clarification: false,
     });
+    // a piece's details and title come after (splitActions' fillPieces), so it is saved
+    // waiting for them; a piece that asks is saved settled with its question
     expect(first.views).toMatchObject({
-      minddrop_stage: 'settled',
-      split_group: { id: 'drop-9', index: 0, count: 2, text: 'buy milk, gym' },
+      minddrop_stage: 'saved',
+      split_group: {
+        id: 'drop-9',
+        index: 0,
+        count: 2,
+        text: 'buy milk, gym',
+        said: 'clear',
+      },
       confirmation_message: null,
     });
+    expect(second.views.minddrop_stage).toBe('settled');
+    expect(pieces[1].asks).toBe(true);
+    expect(pieces[0].asks).toBeFalsy();
     expect(second).toMatchObject({
       drop_id: 'split-drop-9-1',
       title: 'Gym',
