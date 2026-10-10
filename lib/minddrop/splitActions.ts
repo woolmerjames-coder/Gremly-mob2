@@ -66,14 +66,26 @@ export function numberWord(n: number): string {
 export type SplitSaid = 'clear' | 'unsure';
 export type SplitTapped = 'split' | 'keep_as_one' | 'not_now';
 
-/** One row per split answered: what the classifier said and what was tapped, no words. */
+/**
+ * One row per split answered, with no words: what the classifier itself said
+ * (`said`: clear, unsure, or null when it gave none), what the card showed
+ * (`shown`: the pieces for clear, the question for unsure, which
+ * CLASSIFY_SPLIT_AUTO decides), what was tapped and the number of pieces
+ * (final check item 7: the model's call whatever the switch says).
+ */
 export function logSplitAnswer(
-  said: SplitSaid,
+  shown: SplitSaid,
   tapped: SplitTapped,
   pieces: number,
   target: { type: DropEntityType; id: string },
+  said: SplitSaid | null = null,
 ): void {
-  void logAppEvent('split_answer', target, { said, tapped, pieces });
+  void logAppEvent('split_answer', target, { said, shown, tapped, pieces });
+}
+
+/** The classifier's own call kept on a split, or null. */
+export function classifierSaidOf(kept: unknown): SplitSaid | null {
+  return kept === 'clear' || kept === 'unsure' ? kept : null;
 }
 
 const now = () => getDateService().now().getTime();
@@ -311,6 +323,7 @@ function parentOf(kind: Kind, item: Item, segments: MultiSegment[]): QueuedDrop 
     multiSegments: segmentsOf(segments as unknown as Array<Record<string, any>>),
     isMulti: true,
     split: 'unsure',
+    splitSaid: classifierSaidOf(views.split?.classifier_said),
     // the one item's kind is the drop's kind as one; a remind me carries over to the pieces
     asOne: kindOfItem(kind, item),
     reminderIntent: views.reminder_intent === true,
@@ -332,7 +345,12 @@ export async function splitDropNow(id: string): Promise<SavedPieceRow[]> {
   if (!found) throw new PlainError('That one is no longer on your list.');
   const { kind, item } = found;
   const split = ((item.views || {}) as Record<string, any>).split as
-    | { status?: string; pieces?: Array<Record<string, any>>; related?: boolean }
+    | {
+        status?: string;
+        pieces?: Array<Record<string, any>>;
+        related?: boolean;
+        classifier_said?: string | null;
+      }
     | undefined;
   const pieces = Array.isArray(split?.pieces) ? split!.pieces : [];
   if (pieces.length < 2) throw new PlainError('There is nothing to split here.');
@@ -368,7 +386,13 @@ export async function splitDropNow(id: string): Promise<SavedPieceRow[]> {
     }).catch(() => false);
     throw err;
   }
-  logSplitAnswer('unsure', 'split', saved.length, { type: kind, id: item.id });
+  logSplitAnswer(
+    'unsure',
+    'split',
+    saved.length,
+    { type: kind, id: item.id },
+    classifierSaidOf(split?.classifier_said),
+  );
   // each piece is filled and filed as it would be from a drop
   void fillPieces(parent, saved, {
     deadline: now() + SPLIT_SETTLE_MS,
@@ -405,14 +429,16 @@ export async function keepSplitAsOne(id: string): Promise<boolean> {
   const found = findItem(id);
   if (!found) return false;
   let count = 0;
+  let said: SplitSaid | null = null;
   const wrote = await updateDropRow(found.kind, found.item.id, 'keep_as_one', (row) => {
     const views = (row.views as Record<string, any>) || {};
     if (views.split?.status !== 'pending') return null;
     count = Array.isArray(views.split.pieces) ? views.split.pieces.length : 0;
+    said = classifierSaidOf(views.split.classifier_said);
     return { views: { ...views, split: { ...views.split, status: 'kept' } } };
   });
   if (wrote)
-    logSplitAnswer('unsure', 'keep_as_one', count, { type: found.kind, id: found.item.id });
+    logSplitAnswer('unsure', 'keep_as_one', count, { type: found.kind, id: found.item.id }, said);
   return wrote;
 }
 
@@ -461,6 +487,7 @@ export async function keepPiecesAsOne(groupId: string): Promise<{
     text?: string;
     count?: number;
     said?: SplitSaid;
+    classifier_said?: string | null;
     at?: string;
     as_one?: DropKind | null;
   };
@@ -530,10 +557,13 @@ export async function keepPiecesAsOne(groupId: string): Promise<{
       stayed.push(p.item.id);
     }
   }
-  logSplitAnswer(group.said ?? 'clear', 'keep_as_one', pieces.length, {
-    type: saved.entityType,
-    id: saved.id,
-  });
+  logSplitAnswer(
+    group.said ?? 'clear',
+    'keep_as_one',
+    pieces.length,
+    { type: saved.entityType, id: saved.id },
+    classifierSaidOf(group.classifier_said),
+  );
   return {
     itemId: saved.id,
     kindWord: kindWordOf(kind.bucket, kind.subtype),

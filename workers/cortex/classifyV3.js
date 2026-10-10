@@ -853,11 +853,15 @@ function readOutcome(obj, { allowAmbiguous = true } = {}) {
 // rethink) get an unclear piece back with its own question, saved like a whole
 // unclear drop: a general note carrying the question. Builds already out get it
 // as a general note with no question, as before.
-function normSegment(seg, { pieceQuestions = false } = {}) {
+function normSegment(
+  seg,
+  { pieceQuestions = false, version = PROMPT_VERSION, quiet = false } = {},
+) {
   if (!seg || typeof seg !== 'object' || typeof seg.text !== 'string' || !seg.text.trim())
     return null;
   const text = seg.text.trim();
-  if (pieceQuestions && readOutcome(seg)?.bucket === 'ambiguous') {
+  const unclear = readOutcome(seg)?.bucket === 'ambiguous';
+  if (pieceQuestions && unclear) {
     const clar = buildClarification(
       seg.ambiguity_type,
       seg.question,
@@ -879,7 +883,17 @@ function normSegment(seg, { pieceQuestions = false } = {}) {
       clarification_source: { question: clar.question_source, labels: clar.labels_source },
     };
   }
-  const o = readOutcome(seg, { allowAmbiguous: false }) || {
+  const read = readOutcome(seg, { allowAmbiguous: false });
+  // An unclear piece for a build already out (it cannot show a piece's own
+  // question), or a piece with no kind it can be read as, is flattened to a
+  // general note: logged, with no words (final check item 8)
+  if ((unclear || !read) && !quiet) {
+    console.warn('[ClassifyV3] a piece was saved as a general note', {
+      reason: unclear ? 'unclear piece, build cannot ask' : 'no kind for the piece',
+      version,
+    });
+  }
+  const o = read || {
     bucket: 'log',
     subtype: 'general',
     habitSubtype: null,
@@ -944,7 +958,7 @@ export function normalizeClassifyV3(parsed, text = '', opts = {}) {
 
   const segments = Array.isArray(parsed.segments)
     ? parsed.segments
-        .map((seg) => normSegment(seg, { pieceQuestions }))
+        .map((seg) => normSegment(seg, { pieceQuestions, version, quiet }))
         .filter(Boolean)
         .slice(0, 8)
     : [];
@@ -982,6 +996,9 @@ export function normalizeClassifyV3(parsed, text = '', opts = {}) {
     reminder_intent: parsed.reminder_intent === true,
     // v3.8: how sure a multi split is, and the drop's outcome kept as one entry
     split: null,
+    // the classifier's own call (clear, unsure, or null when it gave none),
+    // whatever CLASSIFY_SPLIT_AUTO makes of it, for the split telemetry
+    split_said: null,
     as_one: null,
   };
 
@@ -1025,6 +1042,7 @@ export function normalizeClassifyV3(parsed, text = '', opts = {}) {
     // The classifier decides both; code only saves what it said. A missing split
     // asks the person (unsure), and a missing drop as one stays missing.
     let split = parsed.split === 'clear' || parsed.split === 'unsure' ? parsed.split : null;
+    result.split_said = split;
     if (!split) {
       // only v3.8 says how sure a split is; an older version never does
       if (!quiet && version === 'v3.8')

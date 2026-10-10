@@ -296,6 +296,12 @@ export interface ClassifyV3Multi {
   dominant_subtype?: string | null;
   /** v3.8: clear splits are saved as their pieces, unsure ones as one item that asks */
   split?: 'clear' | 'unsure' | null;
+  /**
+   * The classifier's own call, whatever CLASSIFY_SPLIT_AUTO made of it (null
+   * when it gave none, or from a Worker before the final check), for the
+   * split telemetry
+   */
+  split_said?: 'clear' | 'unsure' | null;
   /** v3.8: the drop's kind kept as one item (null when the classifier gave none) */
   as_one?: {
     bucket: MindDropBucket;
@@ -452,6 +458,8 @@ export async function runClassifyV3(
             // The classifier decides; a missing split asks (unsure), and a
             // missing kind as one stays missing (saved as a note, logged by the caller)
             split: json.split === 'clear' ? 'clear' : 'unsure',
+            split_said:
+              json.split_said === 'clear' || json.split_said === 'unsure' ? json.split_said : null,
             as_one: readKind(json.as_one),
           }
         : { is_multi: false };

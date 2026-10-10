@@ -532,6 +532,7 @@ describe('handleSorted', () => {
       smartTitle: 'Buy milk, walk daily',
       isMulti: true,
       split: 'unsure',
+      splitSaid: 'unsure',
       asOne: { bucket: 'todo', subtype: null, habitSubtype: null },
       multiSegments: [
         { text: 'buy milk', bucket: 'todo', subtype: null },
@@ -547,6 +548,8 @@ describe('handleSorted', () => {
         expect.objectContaining({ text: 'buy milk', kind: 'todo' }),
         expect.objectContaining({ text: 'walk daily', kind: 'habit' }),
       ],
+      // the classifier's own call, for the split telemetry (final check item 7)
+      classifier_said: 'unsure',
     });
     expect(out.bucket).toBe('todo');
   });

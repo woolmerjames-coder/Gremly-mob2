@@ -83,6 +83,7 @@ import { TOAST_AFTER_CARDS_MS } from '../../lib/minddrop/popupTiming';
 import { weekAround, weeklyTarget } from '../../lib/week/habitWeek';
 import {
   keepSplitAsOne,
+  classifierSaidOf,
   logSplitAnswer,
   numberWord,
   splitDropNow,
@@ -710,7 +711,15 @@ export function CardAsk({
       hint: 'Keep as one is the safe choice',
       onNotNow: () => {
         letGo()
-          .then(() => logSplitAnswer('unsure', 'not_now', pieces.length, target))
+          .then(() =>
+            logSplitAnswer(
+              'unsure',
+              'not_now',
+              pieces.length,
+              target,
+              classifierSaidOf(views.split?.classifier_said),
+            ),
+          )
           .catch((err) => {
             console.warn('[CardAsk] Not now did not save', { id, error: String(err) });
             setError(DIDNT_GO);

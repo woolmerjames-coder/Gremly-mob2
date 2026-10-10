@@ -517,6 +517,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
       ...base,
       isMulti: true,
       split,
+      splitSaid: multiResult.split_said ?? null,
       asOne,
       multiSegments: multiResult.segments.map(toSegment),
       multiSummary: multiResult.summary || drop.text.substring(0, 60),
@@ -668,7 +669,11 @@ export async function handleSorted(drop: QueuedDrop): Promise<QueuedDrop> {
   else if (relation) extraViews.relation = { ...relation, surface: 'card' };
   // An unsure split is one item that asks whether to split (stage 7 draws the strip)
   if (drop.isMulti) {
-    extraViews.split = { status: 'pending', pieces: splitPiecesView(drop.multiSegments || []) };
+    extraViews.split = {
+      status: 'pending',
+      pieces: splitPiecesView(drop.multiSegments || []),
+      classifier_said: drop.splitSaid ?? null,
+    };
   }
 
   const result = await syncDropToSupabase(toSave, null, {
@@ -766,7 +771,11 @@ async function saveOlderDrop(drop: QueuedDrop): Promise<QueuedDrop> {
   // a drop an older build held as a note while it asked "already have it"
   if (drop.relation) extraViews.relation = drop.relation;
   if (drop.isMulti && !isClearSplit(drop)) {
-    extraViews.split = { status: 'pending', pieces: splitPiecesView(drop.multiSegments || []) };
+    extraViews.split = {
+      status: 'pending',
+      pieces: splitPiecesView(drop.multiSegments || []),
+      classifier_said: drop.splitSaid ?? null,
+    };
   }
   const result = await syncDropToSupabase(
     { ...drop, ...(isUnclear(drop) ? questionToSave(drop) : {}) },

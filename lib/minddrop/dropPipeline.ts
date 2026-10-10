@@ -118,6 +118,7 @@ export function dropTimingMeta(drop: QueuedDrop): Record<string, unknown> {
     engine: drop.classifyEngine ?? null,
     kind: drop.needsClarification && !drop.isMulti ? 'question' : kind,
     split: drop.isMulti ? (drop.split ?? 'unsure') : null,
+    split_said: drop.isMulti ? (drop.splitSaid ?? null) : null,
     pieces: drop.pieceRows?.length ?? null,
     resumed: drop.resumed === true,
     source: drop.source,

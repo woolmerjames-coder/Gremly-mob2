@@ -49,6 +49,7 @@ jest.mock('../../../lib/minddrop/splitActions', () => ({
   splitDropNow: jest.fn(),
   keepSplitAsOne: jest.fn(),
   logSplitAnswer: jest.fn(),
+  classifierSaidOf: jest.requireActual('../../../lib/minddrop/splitActions').classifierSaidOf,
   numberWord: (n: number) => ['zero', 'one', 'two', 'three', 'four'][n] ?? String(n),
 }));
 const mockGone: { value: string | null } = { value: null };
@@ -700,12 +701,28 @@ describe('an unsure split asks on its card', () => {
   });
 
   it('Not now keeps it as one, and logs what the classifier said and what was tapped', async () => {
-    const item = unsure();
+    const item = unsure({
+      split: {
+        status: 'pending',
+        classifier_said: 'clear',
+        pieces: [
+          { text: 'clean out the garage', kind: 'todo' },
+          { text: 'sort the donations pile', kind: 'todo' },
+        ],
+      },
+    });
     const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
     fireEvent.press(r.getByText('Not now'));
     await tick(0);
     expect(notNow).toHaveBeenCalledWith('s1');
-    expect(logSplitAnswer).toHaveBeenCalledWith('unsure', 'not_now', 2, { type: 'todo', id: 's1' });
+    // shown as a question, and the classifier's own call (final check item 7)
+    expect(logSplitAnswer).toHaveBeenCalledWith(
+      'unsure',
+      'not_now',
+      2,
+      { type: 'todo', id: 's1' },
+      'clear',
+    );
   });
 
   it('says three when there are three', () => {

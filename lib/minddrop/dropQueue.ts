@@ -275,6 +275,9 @@ export interface QueuedDrop {
    */
   split?: 'clear' | 'unsure' | null;
 
+  /** The classifier's own call on the split, whatever the switch made of it (telemetry) */
+  splitSaid?: 'clear' | 'unsure' | null;
+
   /** The drop's kind kept as one item, for an unsure split (null: saved as a note) */
   asOne?: {
     bucket: MindDropBucket;

@@ -8213,6 +8213,7 @@ Segment rules:
           is_multi: normalized.is_multi,
           segments: normalized.segments?.length || 0,
           split: normalized.split,
+          split_said: normalized.split_said ?? null,
           piece_questions: classifyOpts.pieceQuestions,
           prompt_version: promptVersion,
           confidence: normalized.confidence,

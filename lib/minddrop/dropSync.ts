@@ -531,6 +531,8 @@ export async function insertSplitPieces(
           count: pieces.length,
           text: drop.text,
           said: opts.said,
+          // the classifier's own call, whatever the switch made of it (telemetry)
+          classifier_said: drop.splitSaid ?? null,
           // the drop's kind as one item, for Keep as one (null when the classifier gave none)
           as_one: drop.asOne ?? null,
           // a Split on a card later: where the card was, so the pieces take its place

@@ -170,12 +170,19 @@ describe('the words', () => {
     expect(numberWord(12)).toBe('12');
   });
 
-  it('logs what the classifier said and what was tapped, and no words', () => {
-    logSplitAnswer('unsure', 'not_now', 2, { type: 'todo', id: 't1' });
+  it('logs what the classifier said, what the card showed and what was tapped, and no words', () => {
+    logSplitAnswer('unsure', 'not_now', 2, { type: 'todo', id: 't1' }, 'clear');
     expect(logAppEvent).toHaveBeenCalledWith(
       'split_answer',
       { type: 'todo', id: 't1' },
-      { said: 'unsure', tapped: 'not_now', pieces: 2 },
+      { said: 'clear', shown: 'unsure', tapped: 'not_now', pieces: 2 },
+    );
+    // a classifier that gave no call is recorded as none, not as what was shown
+    logSplitAnswer('clear', 'keep_as_one', 3, { type: 'note', id: 'n1' });
+    expect(logAppEvent).toHaveBeenLastCalledWith(
+      'split_answer',
+      { type: 'note', id: 'n1' },
+      { said: null, shown: 'clear', tapped: 'keep_as_one', pieces: 3 },
     );
   });
 });
@@ -340,7 +347,7 @@ describe('Split, on an unsure split’s card', () => {
     expect(logAppEvent).toHaveBeenCalledWith(
       'split_answer',
       { type: 'todo', id: 't9' },
-      { said: 'unsure', tapped: 'split', pieces: 2 },
+      { said: null, shown: 'unsure', tapped: 'split', pieces: 2 },
     );
     await flush();
     expect((updateDropDetails as jest.Mock).mock.calls.map((c) => c[0].id).sort()).toEqual([
@@ -413,14 +420,15 @@ describe('Split, on an unsure split’s card', () => {
     ]);
   });
 
-  it('Keep as one keeps the one item and logs it', async () => {
+  it('Keep as one keeps the one item and logs it, with the classifier’s own call', async () => {
+    rows.t9 = { ...item, views: { split: { ...item.views.split, classifier_said: 'clear' } } };
     await expect(keepSplitAsOne('t9')).resolves.toBe(true);
     expect(rows.t9.views.split.status).toBe('kept');
     expect(mockState.archiveTodo).not.toHaveBeenCalled();
     expect(logAppEvent).toHaveBeenCalledWith(
       'split_answer',
       { type: 'todo', id: 't9' },
-      { said: 'unsure', tapped: 'keep_as_one', pieces: 2 },
+      { said: 'clear', shown: 'unsure', tapped: 'keep_as_one', pieces: 2 },
     );
   });
 });
@@ -482,7 +490,7 @@ describe('Keep as one, under a clear split’s pieces', () => {
     expect(logAppEvent).toHaveBeenCalledWith(
       'split_answer',
       { type: 'todo', id: 'k1' },
-      { said: 'clear', tapped: 'keep_as_one', pieces: 2 },
+      { said: null, shown: 'clear', tapped: 'keep_as_one', pieces: 2 },
     );
   });
 

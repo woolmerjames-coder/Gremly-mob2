@@ -692,14 +692,17 @@ describe('normalizeClassifyV3: splits and pieces (v3.8)', () => {
     expect(r.as_one).toEqual({ bucket: 'log', subtype: 'journal', habitSubtype: null });
   });
 
-  it('makes every split ask when CLASSIFY_SPLIT_AUTO is false', () => {
+  it('makes every split ask when CLASSIFY_SPLIT_AUTO is false, and keeps the classifier’s own call apart', () => {
     const r = normalizeClassifyV3(multi(), 'x and y', { splitAuto: false });
     expect(r.split).toBe('unsure');
+    // final check item 7: the model's call, whatever the switch makes of it
+    expect(r.split_said).toBe('clear');
   });
 
   it('asks rather than guesses when the classifier gives no split, and logs it', () => {
     const r = normalizeClassifyV3(multi({ split: undefined }), 'x and y');
     expect(r.split).toBe('unsure');
+    expect(r.split_said).toBeNull();
     expect(warn).toHaveBeenCalled();
   });
 
@@ -748,11 +751,23 @@ describe('normalizeClassifyV3: splits and pieces (v3.8)', () => {
     expect(r.segments[0].is_ambiguous).toBe(false);
   });
 
-  it('keeps an unclear piece as a general note with no question for builds already out', () => {
+  it('keeps an unclear piece as a general note with no question for builds already out, and logs it with no words', () => {
     const r = normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym');
     expect(r.segments[1]).toMatchObject({ bucket: 'log', subtype: 'general' });
     expect(r.segments[1].clarification_question).toBeUndefined();
     expect(r.segments[1].is_ambiguous).toBeUndefined();
+    // final check item 8
+    const flattened = warn.mock.calls.find((c) => String(c[0]).includes('saved as a general note'));
+    expect(flattened).toBeTruthy();
+    expect(JSON.stringify(flattened)).not.toContain('gym');
+  });
+
+  it('logs nothing about pieces when a piece can ask, or for a quiet shape check', () => {
+    normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym', { pieceQuestions: true });
+    normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym', { quiet: true });
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('saved as a general note'))).toBe(
+      false,
+    );
   });
 });
 
