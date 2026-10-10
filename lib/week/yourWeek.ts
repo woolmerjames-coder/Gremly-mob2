@@ -16,6 +16,8 @@
 import type { WeekReviewRow } from '../repo/weekReviewRepo';
 import { addDays, isDay, spanDays } from './model';
 import { pausedOn } from './habitWeek';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, plannedDayOf } from '../../workers/shared/todoDay';
 
 type Item = Record<string, any>;
 
@@ -126,9 +128,10 @@ export function yourWeekOf(p: YourWeekInput): YourWeek {
       if (t.archived || home.get(t.id) === day) continue;
       const row = { id: t.id, title: titleOf(t, 'Untitled'), planned: false, to: null };
       if (!t.completed_at) {
-        if (dayPart(t.due_day) === day) todos.push({ ...row, state: 'open' });
+        // on the day: its planned day, or with none its deadline
+        if (isTodoOn(t, day)) todos.push({ ...row, state: 'open' });
         // put off until this day: it comes back to them on it (today or still ahead)
-        else if (!dayPart(t.due_day) && day >= p.today && dayPart(t.resurface_at) === day) {
+        else if (!plannedDayOf(t) && day >= p.today && dayPart(t.resurface_at) === day) {
           todos.push({ ...row, state: 'back' });
         }
       } else if (!home.has(t.id) && doneDay(t) === day) besides.push({ ...row, state: 'done' });

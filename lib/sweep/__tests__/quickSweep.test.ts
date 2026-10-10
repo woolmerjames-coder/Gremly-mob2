@@ -109,3 +109,55 @@ describe('needsDecision: notes', () => {
     expect(needsDecision(back.candidate, today)).toBe(true);
   });
 });
+
+describe('needsDecision: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('needs a day, as a deadline is not a day to do it', () => {
+    const c = card('d', 'todo', { due_day: null, target_date: '2026-10-05' });
+    expect(needsDecision(c.candidate, today)).toBe(true);
+  });
+
+  it('once decided it waits, until its deadline passes and it is overdue', () => {
+    const decided = {
+      due_day: null,
+      target_date: '2026-10-02',
+      decided_at: '2026-10-01T20:00:00Z',
+    };
+    expect(needsDecision(card('on', 'todo', decided, false).candidate, today)).toBe(false);
+    const passed = { ...decided, target_date: '2026-10-01' };
+    expect(needsDecision(card('over', 'todo', passed, true).candidate, today)).toBe(true);
+  });
+
+  it('a todo with only scheduled_date has a day', () => {
+    const c = card('s', 'todo', { due_day: null, scheduled_date: '2026-10-04' });
+    expect(needsDecision(c.candidate, today)).toBe(false);
+  });
+});
+
+describe('needsDecision: questions (stage 8)', () => {
+  const swept = { swept_at: '2026-09-01T10:00:00Z', subtype: 'catchall' };
+
+  it('a question made today or yesterday is in; an older one has lapsed', () => {
+    const asked = (day: string) =>
+      card(day, 'note', { ...swept, views: { needs_clarification: true, ask_since: day } });
+    expect(needsDecision(asked(today).candidate, today)).toBe(true);
+    expect(needsDecision(asked('2026-10-01').candidate, today)).toBe(true);
+    expect(needsDecision(asked('2026-09-30').candidate, today)).toBe(false);
+  });
+
+  it('a habit with a question is in, and one without is not', () => {
+    const habit = (views: Record<string, unknown>) =>
+      ({
+        id: 'h',
+        kind: 'habit',
+        createdAt: '2026-10-02T04:00:00Z',
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: true,
+        raw: { id: 'h', views },
+      }) as unknown as SweepCandidate;
+    expect(
+      needsDecision(habit({ split: { status: 'pending', pieces: [] }, ask_since: today }), today),
+    ).toBe(true);
+    expect(needsDecision(habit({}), today)).toBe(false);
+  });
+});

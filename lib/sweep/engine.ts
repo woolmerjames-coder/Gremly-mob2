@@ -15,6 +15,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 import type { SweepCandidate, SweepEntityKind, SweepAttachment } from './types';
 import { buildSweepTodoOrClause, getEffectiveDueDay } from './todoFilters';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, isTodoOverdue } from '../../workers/shared/todoDay';
 import { getDateService, nowTimestamp } from '../date';
 import { fetchAllPaginated } from '../supabase/fetchAllPaginated';
 
@@ -112,8 +114,8 @@ export async function getLastSweepCompletedAt(
  * - Habits: NOT included in sweep candidates
  *
  * **Computed metadata:**
- * - isOverdue: due_day < today (todos only)
- * - isDueToday: due_day == today (todos only)
+ * - isOverdue: its day < today (todos only): the do date, else the deadline
+ * - isDueToday: its day == today (todos only)
  * - isCreatedToday: createdAt is today (all items)
  *
  * @param ownerId - The user's ID
@@ -186,10 +188,11 @@ export async function fetchSweepCandidatesForUser(
       }
 
       for (const row of todos) {
-        // Compute isOverdue and isDueToday using shared helper
+        // Compute isOverdue and isDueToday: its day is the do date, else the
+        // deadline (workers/shared/todoDay.js)
         const dueDay = getEffectiveDueDay(row);
-        const isOverdue = dueDay !== null && dueDay < todayDay;
-        const isDueToday = dueDay !== null && dueDay === todayDay;
+        const isOverdue = isTodoOverdue(row, todayDay, dueDay);
+        const isDueToday = isTodoOn(row, todayDay, dueDay);
 
         // Compute isCreatedToday: createdAt is on today's date
         const createdDay = getDateService().dayOf(row.created_at);

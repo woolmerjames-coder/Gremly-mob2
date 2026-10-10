@@ -395,3 +395,24 @@ describe('filter alignment with sweepSelectors', () => {
     expect(needsSweepAttention(carryForwardTodo, todayDay)).toBe(true);
   });
 });
+
+describe('a todo with a deadline and no do date (stage 2c)', () => {
+  const deadline = (target_date: string): FilterableTodo => ({
+    due_day: null,
+    scheduled_date: null,
+    target_date,
+  });
+
+  it('is due today on its deadline, and overdue after', () => {
+    expect(isDueToday(deadline(todayDay), todayDay)).toBe(true);
+    expect(isOverdue(deadline(todayDay), todayDay)).toBe(false);
+    expect(isDueToday(deadline(yesterdayDay), todayDay)).toBe(false);
+    expect(isOverdue(deadline(yesterdayDay), todayDay)).toBe(true);
+    expect(isDueToday(deadline(tomorrowDay), todayDay)).toBe(false);
+  });
+
+  it('a do date wins over the deadline', () => {
+    const planned = { ...deadline(yesterdayDay), scheduled_date: tomorrowDay };
+    expect(isOverdue(planned, todayDay)).toBe(false);
+  });
+});

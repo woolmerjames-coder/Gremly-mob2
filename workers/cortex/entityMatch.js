@@ -29,6 +29,8 @@
 import { helperFetch } from './helperClient.js';
 import { models } from './models.js';
 import { weekAround } from '../shared/habitWeek.js';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { deadlineOf, hasUnscheduledDeadline } from '../shared/todoDay.js';
 
 // The matcher sees every live item the fetch returns; this only bounds the prompt.
 export const MATCH_ITEMS_MAX = 700;
@@ -54,7 +56,7 @@ const TABLES = {
   todo: {
     table: 'todos',
     live: 'completed_at=is.null&archived=not.is.true',
-    select: 'id,name,title,due_day,due_time,space_id,updated_at',
+    select: 'id,name,title,due_day,scheduled_date,target_date,due_time,space_id,updated_at',
   },
   habit: {
     table: 'habits',
@@ -76,6 +78,9 @@ function toItem(row, type, loggedDays = []) {
       type: 'todo',
       title: row.name || row.title || '',
       due_day: row.due_day || null,
+      // no day planned: the deadline it is due on (shared/todoDay.js); the
+      // matcher and the card go on reading due_day
+      deadline: hasUnscheduledDeadline(row) ? deadlineOf(row) : null,
       due_time: clockTime(row.due_time),
       space_id: row.space_id || null,
     };
@@ -614,8 +619,10 @@ export function attentionItems(items, todayIso) {
   const upcoming = [];
   const overdue = [];
   for (const it of items || []) {
-    if (!it?.title || !it.due_day || it.type === 'habit') continue;
-    const d = daysBetween(todayIso, it.due_day);
+    // a todo's day is its planned day, or with none its deadline
+    const day = it?.due_day || (it?.type === 'todo' ? it.deadline : null);
+    if (!it?.title || !day || it.type === 'habit') continue;
+    const d = daysBetween(todayIso, day);
     if (it.type === 'todo' && d < 0 && -d <= ATTENTION_OVERDUE_WINDOW)
       overdue.push({ ...it, overdue: true, days: d });
     else if (d >= 0 && d < ATTENTION_DAYS) upcoming.push({ ...it, overdue: false, days: d });
@@ -697,9 +704,11 @@ function itemLine(c, todayIso, weeklyDay) {
     when = `${c.frequency ? `, ${c.frequency}` : ''}${progress ? `, ${progress}` : ''}`;
   } else if (c.due_day && c.type === 'note') {
     when = `, ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` at ${c.due_time}` : ''}`;
-  } else if (c.due_day) {
-    const overdue = todayIso && c.due_day < todayIso;
-    when = `, ${overdue ? 'was due' : 'due'} ${dayInWords(c.due_day, todayIso)}${c.due_time ? ` at ${c.due_time}` : ''}${overdue ? ' (overdue)' : ''}`;
+  } else if (c.due_day || c.deadline) {
+    // a todo's day is its planned day, or with none its deadline
+    const day = c.due_day || c.deadline;
+    const overdue = todayIso && day < todayIso;
+    when = `, ${overdue ? 'was due' : 'due'} ${dayInWords(day, todayIso)}${c.due_time ? ` at ${c.due_time}` : ''}${overdue ? ' (overdue)' : ''}${c.due_day ? '' : ', its deadline, no day set'}`;
   } else when = c.type === 'todo' ? ', no day set' : '';
   return `- ${c.type} "${c.title}"${when}`;
 }

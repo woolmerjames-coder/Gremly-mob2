@@ -64,22 +64,22 @@ describe('entity card wording', () => {
       /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) \d{1,2} [A-Z][a-z]{2}$/,
     );
     expect(formatDay(ds.tomorrow(), { relative: false })).not.toBe('Tomorrow');
-    expect(formatTime('14:00')).toBe('2:00pm');
-    expect(formatTime('14:00:00')).toBe('2:00pm');
+    expect(formatTime('14:00')).toBe('2pm');
+    expect(formatTime('14:00:00')).toBe('2pm');
     expect(formatTime('09:05')).toBe('9:05am');
     expect(formatTime('00:30')).toBe('12:30am');
     expect(formatTime(null)).toBe('');
   });
 
   test('subtitle per type, short on an edit card', () => {
-    expect(entitySubtitle(dentist)).toBe('Todo · Wed 1 Oct, 2:00pm');
+    expect(entitySubtitle(dentist)).toBe('Todo · Wed 1 Oct, 2pm');
     expect(entitySubtitle(dentist, { withWhen: false })).toBe('Todo');
     expect(entitySubtitle({ id: 'h', type: 'habit', title: 'Run', frequency: 'weekdays' })).toBe(
       'Habit · weekdays',
     );
     expect(entitySubtitle({ id: 'n', type: 'note', title: 'Packing' })).toBe('Note');
     expect(entitySubtitle({ ...vet, due_day: '2031-10-03', due_time: '15:00' })).toBe(
-      'Note · Fri 3 Oct, 3:00pm',
+      'Note · Fri 3 Oct, 3pm',
     );
     expect(entityWhen(vet)).toBe('');
   });
@@ -87,7 +87,7 @@ describe('entity card wording', () => {
   test('describeChange keeps the day and time together in the change row', () => {
     expect(
       describeChange(dentist, { field: 'due_day', from: '2031-10-01', to: '2031-10-02' }),
-    ).toEqual({ from: 'Wed 1 Oct, 2:00pm', to: 'Thu 2 Oct, 2:00pm', label: 'Change to' });
+    ).toEqual({ from: 'Wed 1 Oct, 2pm', to: 'Thu 2 Oct, 2pm', label: 'Change to' });
     expect(describeChange(dentist, { field: 'due_time', from: null, to: '15:30' })).toEqual({
       from: 'No time',
       to: 'Wed 1 Oct, 3:30pm',

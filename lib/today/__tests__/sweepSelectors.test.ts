@@ -8,6 +8,7 @@
  */
 
 import {
+  candidateDays,
   isSweepEligible,
   selectSweepCandidates,
   getSweepCandidateCount,
@@ -359,6 +360,43 @@ describe('sweepSelectors - Two-Date System', () => {
     it('returns 0 for empty array', () => {
       const count = getSweepCandidateCount([], TODAY);
       expect(count).toBe(0);
+    });
+  });
+});
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  const deadline = (id: string, target_date: string): SweepEligibleTodo => ({
+    id,
+    name: id,
+    due_day: null,
+    scheduled_date: null,
+    target_date,
+  });
+
+  it('is not overdue on its deadline day, and overdue after', () => {
+    expect(candidateDays(deadline('d', TODAY), TODAY)).toMatchObject({
+      isOverdue: false,
+      hasUnscheduledDeadline: true,
+      daysUntilDeadline: 0,
+      target_date: TODAY,
+    });
+    expect(candidateDays(deadline('d', '2025-12-04'), TODAY)).toMatchObject({
+      isOverdue: true,
+      hasUnscheduledDeadline: true,
+      daysUntilDeadline: -1,
+    });
+  });
+
+  it('is a Sweep candidate, overdue once its deadline has passed', () => {
+    const [passed] = selectSweepCandidates([deadline('passed', '2025-12-04')], TODAY);
+    expect(passed).toMatchObject({ id: 'passed', isOverdue: true, hasUnscheduledDeadline: true });
+  });
+
+  it('a planned day wins over the deadline', () => {
+    const planned = { ...deadline('p', '2025-12-04'), due_day: '2025-12-08' };
+    expect(candidateDays(planned, TODAY)).toMatchObject({
+      isOverdue: false,
+      hasUnscheduledDeadline: false,
     });
   });
 });

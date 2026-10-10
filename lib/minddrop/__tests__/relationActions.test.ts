@@ -1,12 +1,11 @@
 /**
- * relationActions: holding a drop, the yes (with Undo), and keeping it as new.
+ * relationActions: the yes (with Undo), and keeping a drop as new.
  * The store and the chat card's applyEntityChange are mocked; what they do
  * is tested where they live.
  */
 import {
   applyDropRelation,
   fetchDropRelation,
-  holdDropForRelation,
   keepDropAsNew,
   leavingCardIds,
   outcomeWords,
@@ -16,6 +15,26 @@ import {
 import type { DropRelation, HeldRelation, RelationEntity } from '../dropRelation';
 import type { QueuedDrop } from '../dropQueue';
 import { applyEntityChange } from '../../chat/entityCards';
+
+/**
+ * The relation an older build saved on a drop it held as a note (its
+ * holdDropForRelation, removed in stage 11): pending, with how it was classified.
+ */
+function heldRelationOf(drop: QueuedDrop, rel: DropRelation): HeldRelation {
+  return {
+    ...rel,
+    status: 'pending',
+    classified: {
+      bucket: (drop.bucket as any) || 'log',
+      subtype: drop.subtype ?? null,
+      habitSubtype: drop.habitSubtype ?? null,
+      needsClarification: !!drop.needsClarification,
+      ambiguityType: drop.ambiguityType ?? null,
+      clarificationQuestion: drop.clarificationQuestion ?? null,
+      clarificationOptions: (drop.clarificationOptions as unknown[] | null | undefined) ?? null,
+    },
+  } as HeldRelation;
+}
 
 const mockState: any = {};
 jest.mock('../../store/useGremlyStore', () => ({
@@ -34,6 +53,28 @@ jest.mock('../../env', () => ({
   getEnv: () => undefined,
 }));
 jest.mock('../../date/DateService', () => ({ dateService: { today: () => '2026-09-30' } }));
+jest.mock('../dropSync', () => ({
+  updateDropRow: jest.fn(),
+  kindWordOf: jest.requireActual('../dropSync').kindWordOf,
+}));
+import { updateDropRow } from '../dropSync';
+
+/** dropSync's per-row update, as it behaves: the change built on the item, written through the store */
+function rowUpdatesThroughStore() {
+  (updateDropRow as jest.Mock).mockImplementation(
+    async (kind: string, id: string, _what: string, build: (row: any) => any) => {
+      const key = kind === 'todo' ? 'todos' : kind === 'habit' ? 'habits' : 'notes';
+      const item = (mockState[key] || []).find((x: any) => x.id === id);
+      if (!item) return false;
+      const patch = build(item);
+      if (!patch) return false;
+      const write =
+        kind === 'todo' ? 'updateTodo' : kind === 'habit' ? 'updateHabit' : 'updateNote';
+      await mockState[write](id, patch);
+      return true;
+    },
+  );
+}
 
 const todo: RelationEntity = {
   id: 't1',
@@ -75,7 +116,7 @@ const complete: DropRelation = {
 };
 
 function heldNote(rel: DropRelation, classified: Partial<HeldRelation['classified']> = {}) {
-  const held = holdDropForRelation(baseDrop(), rel).relation as HeldRelation;
+  const held = heldRelationOf(baseDrop(), rel);
   return {
     id: 'note-1',
     type: 'note',
@@ -125,6 +166,7 @@ function resetStore(notes: any[]) {
 const relationOfNote = () => mockState.notes[0].views.relation as HeldRelation;
 
 beforeEach(() => {
+  rowUpdatesThroughStore();
   (applyEntityChange as jest.Mock).mockImplementation(async (entity: RelationEntity) => ({
     summary: `${entity.title} is done.`,
     revert: mockRevert,
@@ -157,38 +199,6 @@ describe('shouldRelate', () => {
     expect(shouldRelate(baseDrop({ needsClarification: true, ambiguityType: 'bucket' }))).toBe(
       true,
     );
-  });
-});
-
-describe('holdDropForRelation', () => {
-  it('holds a todo as a plain note and remembers how it was classified', () => {
-    const held = holdDropForRelation(
-      baseDrop({
-        needsClarification: true,
-        ambiguityType: 'bucket',
-        clarificationQuestion: 'Q?',
-        clarificationOptions: [] as any,
-      }),
-      complete,
-    );
-    expect(held.bucket).toBe('log');
-    expect(held.subtype).toBe('general');
-    expect(held.needsClarification).toBe(false);
-    expect(held.relation).toMatchObject({
-      status: 'pending',
-      kind: 'edit',
-      classified: {
-        bucket: 'todo',
-        needsClarification: true,
-        ambiguityType: 'bucket',
-        clarificationQuestion: 'Q?',
-      },
-    });
-  });
-
-  it('keeps a note drop its own kind', () => {
-    const held = holdDropForRelation(baseDrop({ bucket: 'log', subtype: 'event' }), complete);
-    expect(held.subtype).toBe('event');
   });
 });
 
@@ -345,7 +355,13 @@ describe('applyDropRelation', () => {
     const logged: DropRelation = {
       kind: 'edit',
       intent: 'logged',
-      entity: { id: 'h1', type: 'habit', title: 'Walk Pepper', frequency: 'daily', logged_days: [] },
+      entity: {
+        id: 'h1',
+        type: 'habit',
+        title: 'Walk Pepper',
+        frequency: 'daily',
+        logged_days: [],
+      },
       others: [],
       confidence: 95,
       change: { field: 'logged', from: null, to: '2026-09-30' },
@@ -426,10 +442,14 @@ describe('what the toast says', () => {
       confidence: 95,
       extra: null,
     });
+    // the prototype's toast: Kept one · Drop archived
     expect(outcomeWords(same, todo, null, false, false)).toMatchObject({
       confirm: 'Kept one',
-      toast: { icon: 'kept', title: 'Kept “Send Q3 deck to Priya”' },
+      toast: { icon: 'kept', title: 'Kept one', detail: 'Drop archived' },
     });
+    expect(outcomeWords(same, todo, null, true, false).toast.title).toBe(
+      'Kept one, with the new detail',
+    );
     const habit: RelationEntity = { id: 'h1', type: 'habit', title: 'Walk Pepper' };
     const journal = {
       ...held(complete),
@@ -444,6 +464,15 @@ describe('what the toast says', () => {
         true,
       ).toast.detail,
     ).toBe('Your drop stays as a note');
+    // the kind it was saved as, as its card names it (final check item 19)
+    const event = {
+      ...held(complete),
+      classified: { ...held(complete).classified, bucket: 'log' as const, subtype: 'event' },
+    };
+    expect(
+      outcomeWords(event, habit, { field: 'logged', from: null, to: '2026-09-30' }, false, true)
+        .toast.detail,
+    ).toBe('Your drop stays as an event');
     expect(
       outcomeWords(journal, habit, { field: 'logged', from: null, to: '2026-09-30' }, false, true)
         .toast,
@@ -531,5 +560,156 @@ describe('keepDropAsNew', () => {
       clarification_question: 'Is this a job?',
     });
     expect(mockState.resolveEntityClarification).not.toHaveBeenCalled();
+  });
+});
+
+describe('a drop saved as its own kind (Mind Drop rethink stage 6)', () => {
+  // stage 4 saves the drop as its kind and attaches the answer with a surface
+  const attached = (
+    rel: DropRelation,
+    bucket: 'todo' | 'habit' | 'log',
+    subtype: string | null = null,
+  ) => ({
+    ...heldRelationOf(baseDrop(), rel),
+    surface: 'card' as const,
+    classified: { ...classifiedOf(bucket, subtype) },
+  });
+  const classifiedOf = (bucket: 'todo' | 'habit' | 'log', subtype: string | null) => ({
+    bucket,
+    subtype,
+    habitSubtype: null,
+    needsClarification: false,
+    ambiguityType: null,
+    clarificationQuestion: null,
+    clarificationOptions: null,
+  });
+  const same: DropRelation = {
+    kind: 'same',
+    intent: 'same',
+    entity: todo,
+    others: [],
+    confidence: 95,
+    extra: null,
+  };
+
+  function withDrop(kind: 'todo' | 'habit' | 'event', rel: DropRelation) {
+    resetStore([]);
+    const bucket = kind === 'event' ? 'log' : kind;
+    const views = {
+      minddrop_stage: 'settled',
+      relation: attached(rel, bucket, kind === 'event' ? 'event' : null),
+    };
+    const drop = {
+      id: 'drop-x',
+      drop_id: 'local-x',
+      name: 'Send the deck',
+      views,
+      archived: false,
+    };
+    if (kind === 'todo') mockState.todos = [...mockState.todos, drop];
+    else if (kind === 'habit') mockState.habits = [{ ...drop, name: 'Stretch' }];
+    else mockState.notes = [{ ...drop, title: 'Dinner with Sam', subtype: 'event' }];
+    const update = (list: 'todos' | 'habits' | 'notes') =>
+      jest.fn(async (id: string, updates: any) => {
+        mockState[list] = mockState[list].map((x: any) => (x.id === id ? { ...x, ...updates } : x));
+      });
+    mockState.updateTodo = update('todos');
+    mockState.updateHabit = update('habits');
+    mockState.updateNote = update('notes');
+    mockState.archiveHabit = jest.fn(async () => {});
+    mockState.restoreHabit = jest.fn(async () => {});
+  }
+  const dropNow = (kind: 'todo' | 'habit' | 'event') => {
+    const list =
+      kind === 'todo' ? mockState.todos : kind === 'habit' ? mockState.habits : mockState.notes;
+    return list.find((x: any) => x.id === 'drop-x');
+  };
+
+  it.each([
+    ['todo', 'archiveTodo', 'restoreTodo'],
+    ['habit', 'archiveHabit', 'restoreHabit'],
+    ['event', 'archiveNote', 'restoreNote'],
+  ] as const)(
+    'a %s drop: the yes archives it as its kind, and Undo restores it',
+    async (kind, archive, restore) => {
+      withDrop(kind, same);
+      const outcome = await applyDropRelation('drop-x');
+      expect(mockState[archive]).toHaveBeenCalledWith('drop-x', 'minddrop_relation');
+      expect(dropNow(kind).views.relation.status).toBe('applied');
+      expect(outcome.toast.detail).toBe('Drop archived');
+      await outcome.undo();
+      expect(mockState[restore]).toHaveBeenCalledWith('drop-x');
+      expect(dropNow(kind).views.relation.status).toBe('pending');
+    },
+  );
+
+  it('records the item a yes changed, the one picked from a which one included, and Undo clears it', async () => {
+    withDrop('todo', same);
+    const outcome = await applyDropRelation('drop-x', other);
+    expect(dropNow('todo').views.relation.applied_to).toEqual({
+      id: 't2',
+      type: 'todo',
+      title: 'Send Q4 plan to Priya',
+    });
+    await outcome.undo();
+    expect(dropNow('todo').views.relation.applied_to).toBeNull();
+  });
+
+  it('is found by its drop id too', async () => {
+    withDrop('todo', same);
+    expect(leavingCardIds('local-x')).toEqual(['drop-x']);
+  });
+
+  it('a todo drop that says it is done stays as a todo when it says more', async () => {
+    withDrop('todo', { ...complete, own_entry: true });
+    const outcome = await applyDropRelation('drop-x');
+    expect(mockState.archiveTodo).not.toHaveBeenCalledWith('drop-x', 'minddrop_relation');
+    expect(outcome.toast.detail).toBe('Your drop stays as a todo');
+  });
+
+  it.each(['todo', 'habit', 'event'] as const)(
+    'a %s drop kept as new only marks the answer: it is already its kind',
+    async (kind) => {
+      withDrop(kind, complete);
+      await expect(keepDropAsNew('drop-x')).resolves.toBe('kept');
+      expect(dropNow(kind).views.relation.status).toBe('kept');
+      expect(mockState.resolveEntityClarification).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a lapse marks it lapsed, and both items stay', async () => {
+    withDrop('todo', same);
+    await keepDropAsNew('drop-x', 'lapsed');
+    expect(dropNow('todo').views.relation.status).toBe('lapsed');
+    expect(mockState.archiveTodo).not.toHaveBeenCalled();
+  });
+
+  it('says when the drop still has a question of its own to ask', async () => {
+    withDrop('todo', complete);
+    mockState.todos = mockState.todos.map((t: any) =>
+      t.id === 'drop-x' ? { ...t, views: { ...t.views, needs_clarification: true } } : t,
+    );
+    await expect(keepDropAsNew('drop-x')).resolves.toBe('clarify');
+  });
+});
+
+describe('answers are written in turn with the pipeline (stage 6)', () => {
+  it('marks the answer through the per-row update, on the row as it is then', async () => {
+    resetStore([heldNote(complete)]);
+    await applyDropRelation('note-1');
+    expect(updateDropRow).toHaveBeenCalledWith(
+      'note',
+      'note-1',
+      'relation_answer',
+      expect.any(Function),
+    );
+  });
+
+  it('puts the change back when the drop has gone before its answer could be marked', async () => {
+    resetStore([heldNote(complete)]);
+    (updateDropRow as jest.Mock).mockResolvedValue(false);
+    await expect(applyDropRelation('note-1')).rejects.toThrow('did not go through');
+    expect(mockRevert).toHaveBeenCalled();
+    expect(mockState.archiveNote).not.toHaveBeenCalled();
   });
 });

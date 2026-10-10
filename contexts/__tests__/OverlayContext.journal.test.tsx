@@ -28,7 +28,6 @@ jest.mock('../../lib/store/useGremlyStore', () => {
 jest.mock('../../components/minddrop/ClarificationPopup', () => ({
   ClarificationPopup: () => null,
 }));
-jest.mock('../../components/minddrop/RelationPopup', () => ({ RelationPopup: () => null }));
 jest.mock('../../components/minddrop/RelationToast', () => ({ RelationToastHost: () => null }));
 
 import { OverlayProvider, useGlobalOverlay } from '../OverlayContext';

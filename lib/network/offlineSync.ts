@@ -1,11 +1,18 @@
 import { networkStatus } from './NetworkStatus';
-import { triggerProcessing, reclassifyDegradedEntities } from '../minddrop/dropPipeline';
+import {
+  triggerProcessing,
+  reclassifyDegradedEntities,
+  retryFailedDrops,
+} from '../minddrop/dropPipeline';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { AppState } from 'react-native';
 
 async function flushOfflineQueue(): Promise<void> {
   if (!networkStatus.isConnected) return;
 
+  // a drop that failed gets three more tries each time the app comes back or
+  // the network does (its card shows Retry meanwhile)
+  await retryFailedDrops();
   console.log('[OfflineSync] Triggering pipeline processing for queued drops');
   void triggerProcessing();
 

@@ -58,6 +58,8 @@
  */
 
 import { getDateService } from '../date/DateService';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, isTodoOverdue } from '../../workers/shared/todoDay';
 
 /**
  * Minimal todo interface for filter functions.
@@ -183,30 +185,27 @@ export function isCompletedToday(todo: FilterableTodo, todayDay: string): boolea
 }
 
 /**
- * Check if a todo is scheduled for today (do date is today).
+ * Check if a todo is on today: its do date is today, or with no do date its
+ * deadline is (workers/shared/todoDay.js).
  *
  * @param todo - The todo to check
  * @param todayDay - Today's date as YYYY-MM-DD string
  * @returns true if effective do date equals today
  */
 export function isDueToday(todo: FilterableTodo, todayDay: string): boolean {
-  const doDate = getEffectiveDoDate(todo);
-  return doDate === todayDay;
+  return isTodoOn(todo, todayDay, getEffectiveDoDate(todo));
 }
 
 /**
- * Check if a todo is overdue (past its scheduled do date).
+ * Check if a todo is overdue: its do date has passed, or with no do date its
+ * deadline has (workers/shared/todoDay.js).
  *
  * @param todo - The todo to check
  * @param todayDay - Today's date as YYYY-MM-DD string
  * @returns true if effective do date is before today
  */
 export function isOverdue(todo: FilterableTodo, todayDay: string): boolean {
-  const doDate = getEffectiveDoDate(todo);
-  if (doDate === null) {
-    return false;
-  }
-  return doDate < todayDay;
+  return isTodoOverdue(todo, todayDay, getEffectiveDoDate(todo));
 }
 
 /**

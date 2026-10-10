@@ -10,7 +10,9 @@ import {
   buildDayTurnRequest,
   buildBriefTurnRequest,
   cardOutcomeWords,
+  DAY_NOTES,
   DAY_TURN_COPY,
+  todoStanding,
 } from '../useDayTurn';
 import { callBriefTurn } from '../../cortex/CortexClient';
 import { applyCardChanges, applyDayChanges } from '../applyChanges';
@@ -1155,5 +1157,26 @@ describe('their week, and the weekly review', () => {
       await hook.result.current.undo(cardMessage);
     });
     expect(onUndone.mock.calls[0][0]).toEqual(kept);
+  });
+});
+
+describe('todoStanding: a todo with a deadline and no day planned (stage 2c)', () => {
+  const p = { date: '2026-10-07', soon: '2026-10-21', recent: '2026-09-23', inPlan: false };
+
+  it('is due today on its deadline, and past its day after', () => {
+    expect(todoStanding({ due_day: null, target_date: '2026-10-07' }, p)?.note).toBe(
+      DAY_NOTES.dueToday,
+    );
+    expect(todoStanding({ due_day: null, target_date: '2026-10-06' }, p)?.note).toBe(
+      DAY_NOTES.pastDay,
+    );
+    expect(todoStanding({ due_day: null, target_date: '2026-10-09' }, p)?.note).toBe(
+      DAY_NOTES.upcoming,
+    );
+  });
+
+  it('a Later still says when it comes back', () => {
+    const t = { due_day: null, target_date: '2026-10-15', resurface_at: '2026-10-09' };
+    expect(todoStanding(t, p)?.note).toBe(`${DAY_NOTES.putOff} 2026-10-09`);
   });
 });

@@ -432,19 +432,16 @@ export async function runPhase2(
         // Date Intelligence: Use targetDate/scheduledDate for proper date columns
         // targetDate = deadline (when something is DUE)
         // scheduledDate = when user will DO it
+        // A deadline is the deadline, never the day to do it (9 Oct 2026): only a
+        // day they said they would do it sets due_day; the morning quick sweep asks
+        // about a todo with no day.
         if (result.targetDate) {
           updatePayload.target_date = result.targetDate;
-          // Also set due_day for Today page visibility
-          updatePayload.due_day = result.targetDate;
-          updatePayload.due_date = result.targetDate;
         }
         if (result.scheduledDate) {
           updatePayload.scheduled_date = result.scheduledDate;
-          // If no target_date, use scheduled_date for due_day (it's when they'll do it)
-          if (!result.targetDate) {
-            updatePayload.due_day = result.scheduledDate;
-            updatePayload.due_date = result.scheduledDate;
-          }
+          updatePayload.due_day = result.scheduledDate;
+          updatePayload.due_date = result.scheduledDate;
         }
         // DEPRECATED: Legacy fallback for extractedDate. Phase 2 prompt now returns
         // target_date and scheduled_date directly. This path only fires if the AI
@@ -754,17 +751,14 @@ export async function runPhase2Streaming(
               }
 
               // Date Intelligence: use target_date/scheduled_date (preferred) with extracted_date fallback
+              // A deadline is the deadline, never the day to do it (9 Oct 2026).
               if (result.target_date) {
                 updatePayload.target_date = result.target_date;
-                updatePayload.due_day = result.target_date;
-                updatePayload.due_date = result.target_date;
               }
               if (result.scheduled_date) {
                 updatePayload.scheduled_date = result.scheduled_date;
-                if (!result.target_date) {
-                  updatePayload.due_day = result.scheduled_date;
-                  updatePayload.due_date = result.scheduled_date;
-                }
+                updatePayload.due_day = result.scheduled_date;
+                updatePayload.due_date = result.scheduled_date;
               }
               // DEPRECATED: Legacy fallback — only fires if AI returns extracted_date without target_date/scheduled_date
               if (result.extracted_date && !result.target_date && !result.scheduled_date) {

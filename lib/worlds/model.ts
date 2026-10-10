@@ -16,6 +16,8 @@ import { nextDateOf, upNext, OPEN_CHAPTER_PHASES } from '../../workers/shared/up
 import { DEFAULT_MASCOT_SLUG } from '../store/mascotRegistry';
 import type { Chapter, DropChapterLink, DropWorldLink, World } from '../supabase/types';
 import type { Habit, Note, Todo } from '../types';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { todoDayOf } from '../../workers/shared/todoDay';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -275,14 +277,17 @@ export function filedIndex(worldLinks: DropWorldLink[], chapterLinks: DropChapte
 export const isDone = (t: Pick<Todo, 'completed_at'>) => !!t.completed_at;
 const liveItem = (i: { archived?: boolean }) => !i.archived;
 
-/** Open steps by their due day, undated last, then done ones, newest first. */
+/**
+ * Open steps by their day (planned, or with none their deadline), undated
+ * last, then done ones, newest first.
+ */
 function byStep(a: Todo, b: Todo): number {
   const da = isDone(a);
   const dbn = isDone(b);
   if (da !== dbn) return da ? 1 : -1;
   if (da) return String(b.completed_at).localeCompare(String(a.completed_at));
-  const xa = dayOf(a.due_day) || '9999-12-31';
-  const xb = dayOf(b.due_day) || '9999-12-31';
+  const xa = todoDayOf(a) || '9999-12-31';
+  const xb = todoDayOf(b) || '9999-12-31';
   if (xa !== xb) return xa < xb ? -1 : 1;
   return String(a.created_at).localeCompare(String(b.created_at));
 }
@@ -389,9 +394,12 @@ export function stepsOnClosedChapters(chapters: Chapter[], filed: Filed): Set<st
   return out;
 }
 
-/** When a step is due, in words. */
-export function dueWords(t: Pick<Todo, 'due_day'>, today: string): string {
-  const d = dayOf(t.due_day);
+/** When a step is due, in words: its planned day, or with none its deadline. */
+export function dueWords(
+  t: Pick<Todo, 'due_day' | 'scheduled_date' | 'target_date'>,
+  today: string,
+): string {
+  const d = todoDayOf(t);
   if (!d) return '';
   const n = daysFrom(today, d);
   if (n < 0) return `Was due ${dayShort(d)}`;

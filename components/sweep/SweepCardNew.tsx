@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Pressable, Modal, ScrollView, Switch, Platform, StyleSheet } from 'react-native';
+import {
+  Keyboard,
+  View,
+  Pressable,
+  Modal,
+  ScrollView,
+  Switch,
+  Platform,
+  StyleSheet,
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, addDays, subDays, setHours, setMinutes } from 'date-fns';
 import {
@@ -108,6 +117,15 @@ type SweepCardNewProps = {
   dayLoad?: (day: string) => number;
   /** The day this card's todo comes back on when put off for Later; null when Later has no day to offer */
   laterDay?: string | null;
+  /**
+   * The card's question (Mind Drop rethink stage 8): the strip sits where the
+   * card's choices go; while it is open (`askOpen`) they wait, and once it is
+   * answered or let go, they come back.
+   */
+  askStrip?: React.ReactNode;
+  askOpen?: boolean;
+  /** Above the choices: a split's Keep as one, on its pieces made that day */
+  splitBar?: React.ReactNode;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,7 +152,21 @@ export function SweepCardNew({
   sweepIntent = 'tomorrow',
   dayLoad,
   laterDay = null,
+  askStrip = null,
+  askOpen = false,
+  splitBar = null,
 }: SweepCardNewProps) {
+  // The question's own scroll: with the keyboard up for Something else, it
+  // scrolls to the field so it is never under the keyboard (final check item 21)
+  const askScroll = React.useRef<ScrollView>(null);
+  useEffect(() => {
+    if (!askOpen) return;
+    const sub = Keyboard.addListener('keyboardDidShow', () =>
+      askScroll.current?.scrollToEnd({ animated: true }),
+    );
+    return () => sub.remove();
+  }, [askOpen]);
+
   // ── Action zone state ──
   const [selectedAction, setSelectedAction] = useState<TodoAction>(
     sweepIntent === 'today' ? 'today' : 'tomorrow',
@@ -452,8 +484,30 @@ export function SweepCardNew({
           onRequestPhotoPreview={onRequestPhotoPreview}
           onWorldPress={() => setShowWorldPicker(true)}
           keepOpens={asking ? () => setKeepOpened(true) : undefined}
+          canLetGo={candidate.kind !== 'habit'}
         >
-          {candidate.kind === 'todo' && (
+          {askStrip ? (
+            askOpen ? (
+              // the question scrolls inside the card when it is taller than the
+              // room it has (Pick a date's calendar on a small phone, or the
+              // keyboard up for Something else), so the buttons stay on screen
+              // (final check item 21)
+              <ScrollView
+                ref={askScroll}
+                style={styles.askScroll}
+                contentContainerStyle={styles.askSlot}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                testID="sweep-ask-scroll"
+              >
+                {askStrip}
+              </ScrollView>
+            ) : (
+              <View>{askStrip}</View>
+            )
+          ) : null}
+          {!askOpen && splitBar ? splitBar : null}
+          {!askOpen && candidate.kind === 'todo' && (
             <TodoActionZone
               candidate={candidate}
               meta={meta}
@@ -487,7 +541,7 @@ export function SweepCardNew({
               asking={asking}
             />
           )}
-          {candidate.kind === 'note' && meta.noteCardType === 'idea' && (
+          {!askOpen && candidate.kind === 'note' && meta.noteCardType === 'idea' && (
             <IdeaActionZone
               candidate={candidate}
               meta={meta}
@@ -509,7 +563,7 @@ export function SweepCardNew({
               }}
             />
           )}
-          {candidate.kind === 'note' && meta.noteCardType === 'general' && (
+          {!askOpen && candidate.kind === 'note' && meta.noteCardType === 'general' && (
             <GeneralNoteActionZone
               candidate={candidate}
               meta={meta}
@@ -531,7 +585,7 @@ export function SweepCardNew({
               }}
             />
           )}
-          {candidate.kind === 'note' && meta.noteCardType === 'event' && (
+          {!askOpen && candidate.kind === 'note' && meta.noteCardType === 'event' && (
             <EventActionZone
               candidate={candidate}
               meta={meta}
@@ -564,7 +618,7 @@ export function SweepCardNew({
               onTogglePrepTodo={() => setShowPrepTodoInput((v) => !v)}
             />
           )}
-          {candidate.kind === 'note' && !meta.noteCardType && (
+          {!askOpen && candidate.kind === 'note' && !meta.noteCardType && (
             <GeneralNoteActionZone
               candidate={candidate}
               meta={meta}
@@ -871,6 +925,8 @@ function getTypeConfig(candidate: SweepCandidate, meta?: SweepCardMeta) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  askSlot: { marginTop: 4 },
+  askScroll: { flexGrow: 0, flexShrink: 1 },
   cardOverlayContainer: {
     flex: 1,
     position: 'relative',

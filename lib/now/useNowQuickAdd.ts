@@ -10,7 +10,6 @@
 import { useCallback, useRef } from 'react';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import type { SubmitResult } from '../../hooks/useMindDropSubmit';
-import { getDateService } from '../date';
 
 /** Result object passed to onComplete callback */
 export interface NowQuickAddCompleteResult {
@@ -41,50 +40,12 @@ export interface UseNowQuickAddResult {
 }
 
 /**
- * Map useMindDropSubmit result to NowQuickAddCompleteResult
+ * Map useMindDropSubmit result to NowQuickAddCompleteResult. The kind is not
+ * known at the tap: the classifier sorts the drop after it (the Mind Drop
+ * rethink, stage 11, removed the word list guess the kind used to come from).
  */
-function mapSubmitResult(
-  result: SubmitResult,
-  targetDate?: string | null,
-): NowQuickAddCompleteResult {
-  const today = getDateService().today();
-  const effectiveDate = targetDate || today;
-
-  if (!result.success || !result.bucket) {
-    return {
-      kind: 'unknown',
-      dropId: result.dropId,
-    };
-  }
-
-  switch (result.bucket) {
-    case 'todo':
-      return {
-        kind: 'todo',
-        todoId: result.entityId,
-        dropId: result.dropId,
-        dueDay: effectiveDate,
-        isToday: effectiveDate === today,
-      };
-    case 'habit':
-      return {
-        kind: 'habit',
-        habitId: result.entityId,
-        dropId: result.dropId,
-        isToday: effectiveDate === today,
-      };
-    case 'log':
-      return {
-        kind: 'note',
-        noteId: result.entityId,
-        dropId: result.dropId,
-      };
-    default:
-      return {
-        kind: 'unknown',
-        dropId: result.dropId,
-      };
-  }
+function mapSubmitResult(result: SubmitResult): NowQuickAddCompleteResult {
+  return { kind: 'unknown', dropId: result.dropId };
 }
 
 /**
@@ -135,9 +96,8 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
             console.log('[NowQuickAdd] Pipeline complete', {
               dropId: result.dropId,
               entityId: result.entityId,
-              bucket: result.bucket,
             });
-            options?.onComplete?.(mapSubmitResult(result, options?.targetDate));
+            options?.onComplete?.(mapSubmitResult(result));
           } else {
             console.error('[NowQuickAdd] Pipeline failed:', result.error);
             options?.onError?.(result.error ?? new Error('Unknown error'));

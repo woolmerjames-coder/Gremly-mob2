@@ -152,11 +152,7 @@
 // import { getSessionContext } from './context/sessionContext.js';
 // import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
 // import { getDcoContext } from './context/dcoContext.js';
-import {
-  buildChatContext,
-  getLifeMapForChat,
-  lastUserText,
-} from './context/chatProjection.js';
+import { buildChatContext, getLifeMapForChat, lastUserText } from './context/chatProjection.js';
 import { checkTurn } from './context/corrections.js';
 import { fetchPageDetail, pageAnchorFrom } from './context/pageDetail.js';
 import { rememberChapterNo } from './context/saidNo.js';
@@ -173,6 +169,7 @@ import {
   detailsPrompt,
   runningSummaryPrompt,
 } from './minddropPrompts.js';
+import { sentenceCase, fallbackTitle, dashBackstop, lengthBackstop } from '../shared/titles.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
 import { weekReadResponse } from './weekRead.js';
@@ -201,9 +198,9 @@ import {
   formatDropMessage,
   normalizeClassifyV3,
   parseModelJson,
+  wantsQuestionWriter,
   AMBIGUITY_TYPES,
-  PROMPT_VERSION,
-  PROMPT_VERSIONS,
+  classifyPromptFor,
 } from './classifyV3.js';
 
 import { handleHabitRead } from './habitRead.js';
@@ -3499,231 +3496,9 @@ const cortexHandler = {
         'calm',
       ];
 
-      // --- Day name to number mapping (0=Sunday, 1=Monday, ..., 6=Saturday) ---
-      const DAY_NAME_TO_NUMBER = {
-        sunday: 0,
-        sun: 0,
-        monday: 1,
-        mon: 1,
-        tuesday: 2,
-        tue: 2,
-        tues: 2,
-        wednesday: 3,
-        wed: 3,
-        thursday: 4,
-        thu: 4,
-        thur: 4,
-        thurs: 4,
-        friday: 5,
-        fri: 5,
-        saturday: 6,
-        sat: 6,
-      };
-
       // --- Clarification confidence threshold ---
       // Below this confidence, AI should ask a clarifying question instead of guessing
       const BUCKET_CONFIDENCE_THRESHOLD = 0.7;
-
-      // Parse day names from text and return array of day numbers
-      function parseDaysFromText(text) {
-        if (!text) return null;
-        const lower = text.toLowerCase();
-        const days = new Set();
-
-        // Match day names (including plurals like "Tuesdays")
-        const dayPattern =
-          /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\b/gi;
-        const matches = lower.match(dayPattern);
-
-        if (matches && matches.length > 0) {
-          for (const match of matches) {
-            // Remove trailing 's' for plurals
-            const singular = match.replace(/s$/, '');
-            const dayNum = DAY_NAME_TO_NUMBER[singular];
-            if (dayNum !== undefined) {
-              days.add(dayNum);
-            }
-          }
-        }
-
-        // Also check for "weekends" / "weekdays"
-        if (/\bweekends?\b/i.test(lower)) {
-          days.add(0); // Sunday
-          days.add(6); // Saturday
-        }
-        if (/\bweekdays?\b/i.test(lower)) {
-          days.add(1);
-          days.add(2);
-          days.add(3);
-          days.add(4);
-          days.add(5);
-        }
-
-        if (days.size === 0) return null;
-
-        // Return sorted array
-        return Array.from(days).sort((a, b) => a - b);
-      }
-
-      // --- Title utilities (Phase 2) ---
-      const META_STARTERS = [
-        'reflect',
-        'reflection',
-        'journal',
-        'consider',
-        'track',
-        'manage',
-        'review',
-        'attend',
-        'think about',
-        'thoughts on',
-        'thoughts about',
-      ];
-
-      function titleCase(s) {
-        const t = String(s || '').trim();
-        if (!t) return '';
-        const lowercaseWords = new Set([
-          'a',
-          'an',
-          'the',
-          'and',
-          'or',
-          'but',
-          'in',
-          'on',
-          'at',
-          'to',
-          'for',
-          'of',
-          'with',
-          'by',
-        ]);
-        return t
-          .split(/\s+/)
-          .map((w, i) => {
-            if (!w.length) return w;
-            const lower = w.toLowerCase();
-            // Always capitalize first word, otherwise skip articles/prepositions
-            if (i === 0 || !lowercaseWords.has(lower)) {
-              return w[0].toUpperCase() + w.slice(1).toLowerCase();
-            }
-            return lower;
-          })
-          .join(' ');
-      }
-
-      function sentenceCase(s) {
-        const t = String(s || '').trim();
-        if (!t) return '';
-        return t[0].toUpperCase() + t.slice(1);
-      }
-
-      function stripLeadingMeta(title) {
-        let t = String(title || '').trim();
-        if (!t) return '';
-
-        const low = t.toLowerCase();
-
-        if (['journal', 'reflect', 'reflection', 'feelings', 'stress'].includes(low)) return '';
-
-        /** @type {Array<[RegExp, string]>} */
-        const patterns = [
-          [/^reflect\s+on\s+/i, ''],
-          [/^reflect\s+/i, ''],
-          [/^journal\s+about\s+/i, ''],
-          [/^journal\s+/i, ''],
-          [/^consider\s+/i, ''],
-          [/^track\s+/i, ''],
-          [/^manage\s+/i, ''],
-          [/^review\s+/i, ''],
-          [/^attend\s+/i, ''],
-          [/^thoughts\s+on\s+/i, ''],
-          [/^thoughts\s+about\s+/i, ''],
-          [/^think\s+about\s+/i, ''],
-        ];
-
-        for (const [re, rep] of patterns) {
-          t = t.replace(re, rep).trim();
-        }
-
-        const low2 = t.toLowerCase();
-        if (META_STARTERS.some((m) => low2.startsWith(m + ' '))) return '';
-
-        return t;
-      }
-
-      function sanitizeTitle({ rawTitle, text, bucket }) {
-        let t = String(rawTitle || '').trim();
-
-        if (t.length > 60) t = t.substring(0, 57) + '...';
-
-        const stripped = stripLeadingMeta(t);
-        if (stripped) t = stripped;
-
-        if (t.length < 3) {
-          const src = String(text || '').trim();
-          if (!src) return '';
-
-          let candidate = src
-            .replace(/\s+/g, ' ')
-            .replace(/[.?!].*$/, '')
-            .trim();
-
-          if (bucket === 'todo') {
-            candidate = candidate.split(/\s+/).slice(0, 7).join(' ');
-          } else {
-            candidate = candidate.replace(/^i\s+(feel|felt|am|'m|im|was|have|'ve)\s+/i, '');
-            candidate = candidate.split(/\s+/).slice(0, 6).join(' ');
-          }
-
-          t = candidate;
-        }
-
-        t = t.replace(/^(today|tonight|this\s+morning|this\s+evening|this\s+week)\s+/i, '').trim();
-
-        // Strip frequency words (these are tracked as metadata, not in titles)
-        t = t
-          .replace(
-            /\b(daily|weekly|every\s+(day|morning|evening|night|week)|(\d+x?\s*(per|a|\/)\s*week))\b/gi,
-            '',
-          )
-          .trim();
-        t = t.replace(/\s+/g, ' ').trim(); // clean up any double spaces
-
-        const words = t.split(/\s+/);
-        if (words.length > 7) t = words.slice(0, 7).join(' ');
-
-        t = titleCase(t);
-        return t;
-      }
-
-      function dedupeTitle({ title, bucket, subtype, recentTitles }) {
-        const t = String(title || '').trim();
-        if (!t) return t;
-
-        const norm = (s) =>
-          String(s || '')
-            .trim()
-            .toLowerCase();
-        const recent = Array.isArray(recentTitles) ? recentTitles : [];
-        const exists = recent.some((rt) => norm(rt) === norm(t));
-        if (!exists) return t;
-
-        const suffixesTodo = ['(Follow Up)', '(Quick)', '(Today)'];
-        const suffixesIdea = ['(Idea)', '(Concept)', '(Option)'];
-        const suffixesLog = ['(Today)', '(This Week)', '(Note)', '(Moment)'];
-
-        const suffixes =
-          bucket === 'todo' ? suffixesTodo : subtype === 'idea' ? suffixesIdea : suffixesLog;
-
-        for (const sfx of suffixes) {
-          const candidate = `${t} ${sfx}`;
-          if (!recent.some((rt) => norm(rt) === norm(candidate))) return candidate;
-        }
-
-        return `${t} (2)`;
-      }
 
       function isSenseMakingJournal(text) {
         const t = String(text || '').trim();
@@ -3777,212 +3552,6 @@ const cortexHandler = {
           if (st === 'general' && isSenseMakingJournal(text)) st = 'journal';
         }
         return { bucket: b, subtype: st };
-      }
-
-      // =========================
-      // Tag quality filter (Phase 2)
-      // =========================
-      const STOP_TAGS = new Set([
-        'a',
-        'an',
-        'the',
-        'and',
-        'or',
-        'but',
-        'to',
-        'of',
-        'for',
-        'in',
-        'on',
-        'at',
-        'with',
-        'from',
-        'into',
-        'over',
-        'under',
-        'than',
-        'then',
-        'expected',
-        'expect',
-        'expecting',
-        'more',
-        'less',
-        'very',
-        'just',
-        'really',
-        'pretty',
-        'kind',
-        'this',
-        'that',
-        'these',
-        'those',
-        'today',
-        'tonight',
-        'yesterday',
-        'tomorrow',
-        'week',
-        'month',
-        'morning',
-        'evening',
-        'thing',
-        'things',
-        'stuff',
-        'place',
-        'places',
-        'good',
-        'great',
-        'nice',
-        'ok',
-        'okay',
-        'fine',
-        'note',
-        'notes',
-        'meeting',
-        'meetings',
-        'thought',
-        'thoughts',
-        'journal',
-        'reflection',
-        'reflect',
-        'track',
-        'review',
-        'manage',
-      ]);
-
-      function isStopTag(t) {
-        const s = String(t || '')
-          .trim()
-          .toLowerCase();
-        return STOP_TAGS.has(s);
-      }
-
-      // =========================
-      // Phase 2 post-processing helpers
-      // =========================
-      function processPhase2Response(parsed, text, bucket, subtype, recentTitles) {
-        // Normalize tags
-        let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-        tags = tags
-          .map((t) =>
-            String(t)
-              .toLowerCase()
-              .replace(/\s+/g, '-')
-              .replace(/[^a-z0-9-]/g, ''),
-          )
-          .filter((t) => t.length >= 2 && t.length <= 30)
-          .filter((t) => !isStopTag(t))
-          .slice(0, 7);
-
-        // People
-        const people = Array.isArray(parsed.people) ? parsed.people.slice(0, 10) : [];
-
-        // Filter out people names from tags
-        if (people.length > 0) {
-          const peopleNamesLower = people.map((p) => String(p).toLowerCase().replace(/\s+/g, '-'));
-          tags = tags.filter((t) => !peopleNamesLower.includes(t));
-        }
-
-        // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
-        let timeEstimate = parsed.time_estimate_minutes;
-        if (timeEstimate !== undefined && timeEstimate !== null) {
-          const num = Number(timeEstimate);
-          if (Number.isFinite(num) && num > 0) {
-            timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
-          } else {
-            timeEstimate = null;
-          }
-        } else {
-          timeEstimate = null;
-        }
-
-        // Validate time_window
-        let timeWindow = parsed.time_window;
-        if (timeWindow) {
-          const validWindows = ['morning', 'day', 'evening'];
-          const normalized = String(timeWindow).toLowerCase().trim();
-          timeWindow = validWindows.includes(normalized) ? normalized : null;
-        } else {
-          timeWindow = null;
-        }
-
-        // Title sanitization
-        let smartTitle = sanitizeTitle({ rawTitle: parsed.smart_title, text, bucket });
-        smartTitle = dedupeTitle({ title: smartTitle, bucket, subtype, recentTitles });
-
-        if (!smartTitle || smartTitle.length < 3)
-          smartTitle = titleCase(text.substring(0, 60).trim());
-
-        // Confirmation message
-        const confirmationMessage =
-          typeof parsed.confirmation_message === 'string' &&
-          parsed.confirmation_message.trim().length > 0
-            ? parsed.confirmation_message.trim()
-            : null;
-
-        // Validate extracted_date format
-        let extractedDate = parsed.extracted_date || null;
-        if (extractedDate) {
-          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-          if (!dateRegex.test(extractedDate)) {
-            extractedDate = null;
-          }
-        }
-
-        // Validate extracted_start_date for habits
-        let extractedStartDate = null;
-        if (bucket === 'habit' && parsed.extracted_start_date) {
-          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-          if (dateRegex.test(parsed.extracted_start_date)) {
-            extractedStartDate = parsed.extracted_start_date;
-          }
-        }
-
-        // Validate and process extracted_days for habits
-        let extractedDays = null;
-        if (bucket === 'habit') {
-          // First try to use what AI returned
-          if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
-            // Validate each day is 0-6
-            const validDays = parsed.extracted_days
-              .map((d) => Number(d))
-              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
-            if (validDays.length > 0) {
-              // Remove duplicates and sort
-              extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
-            }
-          }
-
-          // Fallback: parse days from original text if AI didn't extract them
-          if (!extractedDays) {
-            extractedDays = parseDaysFromText(text);
-          }
-        }
-
-        // Validate mood for journals (v3.0)
-        let mood = null;
-        if (bucket === 'log' && subtype === 'journal') {
-          if (Array.isArray(parsed.mood) && parsed.mood.length > 0) {
-            mood = parsed.mood
-              .map((m) => String(m).toLowerCase().trim())
-              .filter((m) => VALID_MOODS.includes(m))
-              .slice(0, 3);
-            if (mood.length === 0) mood = null;
-          }
-        }
-
-        return {
-          smart_title: smartTitle,
-          confirmation_message: confirmationMessage,
-          tags,
-          time_estimate_minutes: timeEstimate,
-          time_window: timeWindow,
-          extracted_date: extractedDate,
-          extracted_start_date: extractedStartDate,
-          extracted_frequency: parsed.extracted_frequency || null,
-          extracted_days: extractedDays,
-          people,
-          mood,
-        };
       }
 
       // =========================
@@ -7303,7 +6872,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             kind: ['wrong', 'changed', 'done', 'private'].includes(body.kind) ? body.kind : null,
             // Some of them on a tidy up: the facts they ticked, by id (data fabric stage 4f)
             pick: Array.isArray(body.pick)
-              ? body.pick.filter((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 50)
+              ? body.pick
+                  .filter((id) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))
+                  .slice(0, 50)
               : undefined,
           }),
         }).catch(() => null);
@@ -7366,9 +6937,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           return j(
             {
               error:
-                type === 'person-merge'
-                  ? 'merge_id and act are required'
-                  : 'person_id is required',
+                type === 'person-merge' ? 'merge_id and act are required' : 'person_id is required',
             },
             400,
           );
@@ -8432,7 +8001,16 @@ Segment rules:
           ? String(body.currentDate)
           : todayIsoIn(userTimezone);
         // Never throws; any failure or doubt comes back as no relation
-        const { relation } = await relateDrop({ env, userId: authenticatedUserId, text, todayIso });
+        // a build that understands a todo's deadline says so (deadlines: true,
+        // the Mind Drop rethink's final check); every other build is answered
+        // exactly as before
+        const { relation } = await relateDrop({
+          env,
+          userId: authenticatedUserId,
+          text,
+          todayIso,
+          deadlines: body.deadlines === true,
+        });
         return j({ enabled: true, relation });
       }
 
@@ -8440,7 +8018,10 @@ Segment rules:
       // Replaces detect-multi + preparse (8 calls) + Phase 1 + clarify-ambiguity
       // for a drop with one structured call. Response is a superset of the
       // classify-phase1-v2 shape. Off unless the Worker var
-      // CLASSIFY_V3_ENABLED = "true"; clients fall back to the v2 path.
+      // CLASSIFY_V3_ENABLED = "true". Builds from the Mind Drop rethink have no
+      // other classifier: a failed call is tried again by the drop's runner,
+      // and after three tries the drop's card shows its words and Retry.
+      // Builds already out fall back to their v2 path.
       // Corpus results: docs/minddrop-classify-v3.md
       // =========================
       if (type === 'classify-v3') {
@@ -8459,12 +8040,23 @@ Segment rules:
         }
 
         const t0 = Date.now();
-        // CLASSIFY_PROMPT picks a prompt version; anything else (including the
-        // older "v3.5") runs the default.
-        const promptVersion = PROMPT_VERSIONS.includes(env.CLASSIFY_PROMPT)
-          ? env.CLASSIFY_PROMPT
-          : PROMPT_VERSION;
+        // The prompt version: CLASSIFY_PROMPT_NEW_BUILDS for builds from the Mind
+        // Drop rethink (they send piece_questions), CLASSIFY_PROMPT for builds
+        // already out; anything unknown runs the default (classifyPromptFor)
+        const promptVersion = classifyPromptFor(env, body);
         const systemPrompt = buildClassifyV3Prompt({ version: promptVersion });
+        // Builds from the Mind Drop rethink send piece_questions, so a piece of a
+        // multi drop can ask its own question; builds already out never do.
+        // CLASSIFY_SPLIT_AUTO "false" makes every multi drop ask (stage 3); "true"
+        // from 10 Oct 2026 lets a clear split come apart on its own.
+        const classifyOpts = {
+          pieceQuestions: body.piece_questions === true,
+          splitAuto: String(env.CLASSIFY_SPLIT_AUTO ?? 'true') !== 'false',
+          version: promptVersion,
+        };
+        // Builds from stage 4 ask for the question's words after the sort
+        // (clarify-ambiguity), so the writer never holds up the kind
+        const writeQuestion = wantsQuestionWriter(body);
 
         let result;
         try {
@@ -8493,7 +8085,7 @@ Segment rules:
             // the fallback from this point instead of holding the user for 5s.
             hedgeAfterMs: Number(env.CLASSIFY_HEDGE_MS) || 3000,
             validate: (parsed) =>
-              normalizeClassifyV3(parsed, text)
+              normalizeClassifyV3(parsed, text, { ...classifyOpts, quiet: true })
                 ? { valid: true }
                 : { valid: false, reason: 'classify_v3_shape' },
           });
@@ -8502,7 +8094,9 @@ Segment rules:
           result = { parsed: null };
         }
 
-        let normalized = result?.parsed ? normalizeClassifyV3(result.parsed, text) : null;
+        let normalized = result?.parsed
+          ? normalizeClassifyV3(result.parsed, text, classifyOpts)
+          : null;
         const dropMessage = formatDropMessage(text, {
           currentDate: typeof body.currentDate === 'string' ? body.currentDate : null,
           dayOfWeek: typeof body.dayOfWeek === 'string' ? body.dayOfWeek : null,
@@ -8536,11 +8130,11 @@ Segment rules:
               endpoint: 'classify-v3-second-opinion',
               ...deadlines(3000, 2500),
               validate: (parsed) =>
-                normalizeClassifyV3(parsed, text)
+                normalizeClassifyV3(parsed, text, { ...classifyOpts, quiet: true })
                   ? { valid: true }
                   : { valid: false, reason: 'shape' },
             });
-            const n2 = so?.parsed ? normalizeClassifyV3(so.parsed, text) : null;
+            const n2 = so?.parsed ? normalizeClassifyV3(so.parsed, text, classifyOpts) : null;
             if (n2) {
               normalized = n2;
               steps.second_opinion = { model: so.model, asked: n2.is_ambiguous };
@@ -8555,6 +8149,7 @@ Segment rules:
         // or its words fail the checks, the classifier's own words stay.
         if (
           normalized?.is_ambiguous &&
+          writeQuestion &&
           String(env.CLARIFY_WRITER_ENABLED || 'true') !== 'false' &&
           timeLeft() >= 1500
         ) {
@@ -8629,13 +8224,17 @@ Segment rules:
           ambiguity_type: normalized.ambiguity_type,
           is_multi: normalized.is_multi,
           segments: normalized.segments?.length || 0,
+          split: normalized.split,
+          split_said: normalized.split_said ?? null,
+          piece_questions: classifyOpts.pieceQuestions,
+          prompt_version: promptVersion,
           confidence: normalized.confidence,
           provider: result.provider,
           model: result.model,
           wasFallback: result.wasFallback,
           gate: normalized.gate || null,
           second_opinion: steps.second_opinion,
-          writer: steps.writer,
+          writer: writeQuestion ? steps.writer : 'not_asked',
           cache_read_tokens: result.usage?.cache_read_input_tokens ?? null,
           latency_ms: latency,
         });
@@ -8722,6 +8321,11 @@ Segment rules:
           ambiguity_type: clar.ambiguity_type,
           clarification_question: clar.clarification_question,
           options: clar.clarification_options,
+          // Where the words came from (stage 4): the app puts the writer's own
+          // words in place of the classifier's, and keeps the classifier's
+          // over the fixed copy. Builds already out ignore these.
+          question_source: clar.question_source,
+          labels_source: clar.labels_source,
           latency_ms: latency,
         });
       }
@@ -8789,8 +8393,9 @@ CURRENT DATE: ${currentDate}`;
                   ? 'break_habit'
                   : 'start_habit'
                 : null,
-            smart_title: titleCase(text.substring(0, 50)),
-            confirmation_message: 'Saved for later.',
+            smart_title: fallbackTitle(text, 'reclassify-after-clarification'),
+            // the answer is kept as they gave it; the line never speaks of saving
+            confirmation_message: 'Got it.',
             target_date: null,
             scheduled_date: null,
             latency_ms: latency,
@@ -8846,14 +8451,15 @@ CURRENT DATE: ${currentDate}`;
         const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
 
         // Extract confirmation message (same as Phase 1)
-        let confirmationMessage = parsed.confirmation_message || null;
+        // Only the two backstops James agreed act on it, and both log (titles.js).
+        let confirmationMessage = String(parsed.confirmation_message || '').trim() || null;
         if (confirmationMessage) {
-          confirmationMessage = String(confirmationMessage).trim();
-          if (confirmationMessage.length < 3) {
-            confirmationMessage = null;
-          } else if (confirmationMessage.length > 50) {
-            confirmationMessage = confirmationMessage.substring(0, 47) + '...';
-          }
+          confirmationMessage = dashBackstop(confirmationMessage, 'reclassify-after-clarification');
+          confirmationMessage = lengthBackstop(
+            confirmationMessage,
+            50,
+            'reclassify-after-clarification',
+          );
         }
 
         console.log('[Reclassify] Success', {
@@ -8874,7 +8480,9 @@ CURRENT DATE: ${currentDate}`;
           bucket,
           subtype,
           habit_subtype: habitSubtype,
-          smart_title: titleCase(parsed.smart_title || text.substring(0, 50)),
+          smart_title: String(parsed.smart_title || '').trim()
+            ? sentenceCase(String(parsed.smart_title).trim())
+            : fallbackTitle(text, 'reclassify-after-clarification'),
           confirmation_message: confirmationMessage,
           target_date: targetDate,
           scheduled_date: scheduledDate,
@@ -9464,7 +9072,10 @@ Rules:
         if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
 
         const text = body.text || '';
-        const bucket = body.bucket || 'log';
+        // The app calls this at the tap, before the classifier has answered, so the
+        // kind is often missing: the prompt then works it out from the words. Builds
+        // already out always send one.
+        const bucket = body.bucket || null;
         const subtype = body.subtype || null;
         const recentReactions = Array.isArray(body.recentReactions)
           ? body.recentReactions
@@ -9500,10 +9111,11 @@ Rules:
 
         const latency = Date.now() - t0;
 
+        // No card note any more (Mind Drop rethink, 9 Oct 2026): builds already out
+        // show no second line when it is missing.
         if (!result.parsed) {
           return j({
-            smart_title: titleCase(text.substring(0, 50)),
-            card_note: null,
+            smart_title: fallbackTitle(text, 'enrich-phase1-5a'),
             confirmation_message: null,
             speech_message: null,
             latency_ms: latency,
@@ -9512,161 +9124,35 @@ Rules:
 
         const parsed = result.parsed;
 
-        // Extract and validate smart_title
-        let smartTitle = parsed.smart_title || null;
-        if (smartTitle) {
-          smartTitle = String(smartTitle).trim();
-          if (smartTitle.length < 3 || smartTitle.length > 60) {
-            smartTitle = text.substring(0, 50).trim();
-          }
-          smartTitle = titleCase(smartTitle);
-        }
+        // The title as the model wrote it, with a capital first. A long one is kept:
+        // the card wraps, and the words replay counts long titles.
+        const modelTitle = String(parsed.smart_title || '').trim();
+        const smartTitle = modelTitle
+          ? sentenceCase(modelTitle)
+          : fallbackTitle(text, 'enrich-phase1-5a');
 
-        // Extract and validate card_note
-        let cardNote = parsed.card_note || null;
-        if (cardNote) {
-          cardNote = String(cardNote).trim();
-          // Strip em dashes
-          cardNote = cardNote
-            .replace(/\u2014/g, ', ')
-            .replace(/\u2013/g, ', ')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-          if (cardNote.length < 3 || cardNote.length > 60) {
-            cardNote = null;
-          }
-          if (cardNote) {
-            cardNote = sentenceCase(cardNote);
-          }
-        }
-
-        // Extract confirmation message
-        let confirmationMessage = parsed.confirmation_message || null;
+        // Gremly's reaction as the model wrote it. Only the two backstops James
+        // agreed act on it, and both log when they fire (titles.js).
+        let confirmationMessage = String(parsed.confirmation_message || '').trim() || null;
         if (confirmationMessage) {
-          confirmationMessage = String(confirmationMessage).trim();
-
-          // Post-process: strip banned trailing filler words
-          confirmationMessage = confirmationMessage
-            .replace(/[,\s]+(?:huh|right|yeah|no|eh|tho|though)[.?!]?\s*$/i, '')
-            .trim();
-
-          // Strip leading "Ooh" / "Oh" openers
-          confirmationMessage = confirmationMessage.replace(/^(?:Ooh|Oh)[,!]?\s*/i, '').trim();
-
-          // Strip em dashes (replace with comma or period)
-          confirmationMessage = confirmationMessage
-            .replace(/\u2014/g, ', ')
-            .replace(/\u2013/g, ', ')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-
-          // Validate length
-          if (confirmationMessage.length < 3) {
-            confirmationMessage = null;
-          } else if (confirmationMessage.length > 70) {
-            confirmationMessage = confirmationMessage.substring(0, 67) + '...';
-          }
+          confirmationMessage = dashBackstop(confirmationMessage, 'enrich-phase1-5a');
+          confirmationMessage = lengthBackstop(confirmationMessage, 70, 'enrich-phase1-5a');
         }
 
         console.log('[Phase1.5a] Success', {
           title: smartTitle?.substring(0, 30),
           has_message: !!confirmationMessage,
+          had_kind: !!bucket,
           wasFallback: result.wasFallback,
           fallbackReason: result.fallbackReason,
           latency_ms: latency,
         });
 
-        // Add natural confirmation signal, bucket-aware
-        const rawReaction = confirmationMessage;
-        let speechMessage = confirmationMessage;
-        if (confirmationMessage) {
-          const OPENERS = {
-            todo: [
-              'Got it.',
-              'On it.',
-              "I've got this.",
-              "I'm on it.",
-              "Won't forget.",
-              "It's on my list.",
-            ],
-            habit: ['Got it.', "I'll be watching.", "I'm on it.", 'Tracking.', "I've got this."],
-            log_journal: [
-              'Safe with me.',
-              'I hear you.',
-              'Got it.',
-              'Yours is safe.',
-              "I've got this.",
-              "That's between us.",
-            ],
-            log_idea: [
-              'Got it.',
-              'Stored away.',
-              'Holding onto this.',
-              "I've got this.",
-              'Tucked away.',
-            ],
-            log_event: ['Got it.', "Won't miss it.", "I'm on it.", "I've got this."],
-            general: ['Got it.', 'Safe with me.', "I've got this.", 'On it.'],
-          };
-
-          // Pick the right pool
-          const poolKey =
-            bucket === 'todo'
-              ? 'todo'
-              : bucket === 'habit'
-                ? 'habit'
-                : bucket === 'log' && subtype === 'journal'
-                  ? 'log_journal'
-                  : bucket === 'log' && subtype === 'idea'
-                    ? 'log_idea'
-                    : bucket === 'log' && subtype === 'event'
-                      ? 'log_event'
-                      : 'general';
-
-          const pool = OPENERS[poolKey] || OPENERS.general;
-
-          // Avoid repeating recent openers
-          const recentOpenerWords = (recentReactions || [])
-            .map((r) => {
-              const firstSentence = r.split(/[.!]/)[0]?.trim();
-              return firstSentence && firstSentence.split(' ').length <= 4 ? firstSentence : null;
-            })
-            .filter(Boolean);
-
-          const available = pool.filter((o) => !recentOpenerWords.includes(o.replace(/[.!]$/, '')));
-          const opener =
-            available.length > 0
-              ? available[Math.floor(Math.random() * available.length)]
-              : pool[Math.floor(Math.random() * pool.length)];
-
-          // Randomly place at start or end for variety
-          if (Math.random() < 0.45) {
-            confirmationMessage = confirmationMessage + ' ' + opener;
-          } else {
-            confirmationMessage = opener + ' ' + confirmationMessage;
-          }
-
-          // Re-check length
-          if (confirmationMessage.length > 70) {
-            confirmationMessage = confirmationMessage.substring(0, 67) + '...';
-          }
-          speechMessage = confirmationMessage;
-        }
-
-        console.log('[Phase1.5a] Final output', {
-          title: smartTitle?.substring(0, 30),
-          cardNote: cardNote?.substring(0, 30),
-          rawReaction: rawReaction?.substring(0, 30),
-          speechMessage: speechMessage?.substring(0, 40),
-          bucket,
-          subtype,
-        });
-
+        // The bubble shows the reaction itself: no fixed opener is added any more.
         return j({
           smart_title: smartTitle,
-          card_note: cardNote,
-          confirmation_message: rawReaction,
-          speech_message: speechMessage,
+          confirmation_message: confirmationMessage,
+          speech_message: confirmationMessage,
           latency_ms: latency,
         });
       }
@@ -9707,7 +9193,14 @@ Rules:
           userSelectedDate: body.userSelectedDate || null,
         });
 
-        const phase2Prompt = detailsPrompt({ currentDate, dayOfWeek, timezone, userSelectedDate, bucket, subtype });
+        const phase2Prompt = detailsPrompt({
+          currentDate,
+          dayOfWeek,
+          timezone,
+          userSelectedDate,
+          bucket,
+          subtype,
+        });
 
         console.log('[Phase2:PromptCheck]', {
           hasUserSelectedDateBlock: Boolean(userSelectedDate),
@@ -9759,7 +9252,6 @@ Rules:
               .replace(/[^a-z0-9-]/g, ''),
           )
           .filter((t) => t.length >= 2 && t.length <= 30)
-          .filter((t) => !isStopTag(t))
           .slice(0, 7);
 
         // Validate time estimate (not for break habits)
@@ -9837,6 +9329,11 @@ Rules:
         let eventTime = null;
         let endDate = null;
         let eventSmartTitle = null;
+        // A todo's clock time comes back as event_time too; the app saves it as the
+        // todo's due_time (dropSync), so a time left out of the title is kept.
+        if (bucket === 'todo' && parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
+          eventTime = parsed.event_time;
+        }
         if (bucket === 'log') {
           if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
             noteTargetDate = parsed.target_date;
@@ -9877,10 +9374,6 @@ Rules:
               extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
             }
           }
-          // Fallback: parse from text
-          if (!extractedDays) {
-            extractedDays = parseDaysFromText(text);
-          }
         }
 
         // Validate people
@@ -9892,9 +9385,9 @@ Rules:
             .slice(0, 10);
         }
 
-        // Validate mood (journals only)
+        // Validate mood: any note that says how they feel keeps it (every note has a mood)
         let mood = null;
-        if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
+        if (bucket === 'log' && Array.isArray(parsed.mood)) {
           mood = parsed.mood
             .map((m) => String(m).toLowerCase().trim())
             .filter((m) => VALID_MOODS.includes(m))
@@ -10140,11 +9633,14 @@ Return ONLY valid JSON, no explanation:
           text: rawText.substring(0, 4000),
           title: typeof body.smart_title === 'string' ? body.smart_title.slice(0, 200) : null,
           date:
-            typeof body.extracted_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.extracted_date)
+            typeof body.extracted_date === 'string' &&
+            /^\d{4}-\d{2}-\d{2}/.test(body.extracted_date)
               ? body.extracted_date.slice(0, 10)
               : null,
           tags: Array.isArray(body.tags) ? body.tags.filter((t) => typeof t === 'string') : [],
-          people: Array.isArray(body.people) ? body.people.filter((t) => typeof t === 'string') : [],
+          people: Array.isArray(body.people)
+            ? body.people.filter((t) => typeof t === 'string')
+            : [],
         };
 
         const t0 = Date.now();

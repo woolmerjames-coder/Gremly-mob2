@@ -26,6 +26,7 @@
 import { env, getEnv } from '../env';
 import { dateService } from '../date/DateService';
 import { getSessionToken } from '../cortex/getSessionToken';
+import { keyedCalls, type StartedCall } from './dropCalls';
 
 export type ClarifyBucket = 'todo' | 'habit' | 'log';
 
@@ -65,6 +66,12 @@ export interface ClarificationPayload {
   /** 'worker' when the model wrote it, 'fallback' when we used the fixed copy */
   source: 'worker' | 'fallback';
   ambiguityType: string;
+  /**
+   * The writer's own words came back (the Worker's question_source is model,
+   * or its labels_source model or mixed), so they can stand in for the
+   * classifier's. False for the fixed copy, and for a Worker that does not say.
+   */
+  writerWords?: boolean;
 }
 
 type FallbackOption = {
@@ -386,7 +393,11 @@ export async function fetchClarification(
         console.log('[Clarification] worker output unusable, using fallback');
         return fallback;
       }
-      return { question, options, source: 'worker', ambiguityType: type };
+      const writerWords =
+        json?.question_source === 'model' ||
+        json?.labels_source === 'model' ||
+        json?.labels_source === 'mixed';
+      return { question, options, source: 'worker', ambiguityType: type, writerWords };
     } catch (err) {
       console.log('[Clarification] request failed, using fallback', { error: String(err) });
       return fallback;
@@ -406,4 +417,36 @@ export async function fetchClarification(
   const result = await Promise.race([request, timeout]);
   if (timer) clearTimeout(timer);
   return result;
+}
+
+/**
+ * The writer's words for an unclear drop, asked for the moment it is sorted
+ * (Mind Drop rethink stage 4): the classifier no longer waits for them, and
+ * they reach the card by the settle or not at all. Kept in memory by the
+ * drop's local id (dropCalls.ts).
+ */
+const dropQuestions = keyedCalls<ClarificationPayload>('question words');
+
+export function startDropClarification(drop: {
+  localId: string;
+  text: string;
+  ambiguityType?: string | null;
+  ambiguityReason?: string | null;
+  bucket?: string | null;
+}): StartedCall<ClarificationPayload> {
+  return dropQuestions.start(drop.localId, () =>
+    fetchClarification({
+      text: drop.text,
+      ambiguityType: drop.ambiguityType,
+      ambiguityReason: drop.ambiguityReason,
+      bucket: (['todo', 'habit', 'log'].includes(drop.bucket || '') ? drop.bucket : undefined) as
+        | ClarifyBucket
+        | undefined,
+      timeoutMs: CLARIFY_TIMEOUT_MS,
+    }),
+  );
+}
+
+export function forgetDropClarification(localId: string): void {
+  dropQuestions.forget(localId);
 }

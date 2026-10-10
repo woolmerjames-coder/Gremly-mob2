@@ -9,7 +9,6 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import type { AppRecord, CanonicalType, LogSubtype } from '../lib/types';
 import { persistedNoteSubtypeToLogSubtype } from '../lib/logSubtypes';
 import { ClarificationPopup } from '../components/minddrop/ClarificationPopup';
-import { RelationPopup } from '../components/minddrop/RelationPopup';
 import { RelationToastHost } from '../components/minddrop/RelationToast';
 import type { ClarificationWhen } from '../lib/minddrop/clarification';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
@@ -103,8 +102,6 @@ interface OverlayContextValue {
   // Clarification popup methods
   openClarificationPopup: (options: ClarificationPopupOptions) => void;
   closeClarificationPopup: () => void;
-  /** "Is this one you already have?" for a held drop (lib/minddrop/dropRelation.ts) */
-  openRelationPopup: (options: { entityId: string }) => void;
   /**
    * Open one of the user's items in the overlay, then call onReturn once the
    * overlay has closed (a question popup that stepped aside comes back).
@@ -148,8 +145,6 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     originalText: null,
   });
   const [clarificationLoading, setClarificationLoading] = useState(false);
-  // The held drop whose relation question is open, if any
-  const [relationNoteId, setRelationNoteId] = useState<string | null>(null);
   const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
 
   const isOpeningRef = useRef(false);
@@ -323,11 +318,6 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     },
     [],
   );
-
-  const openRelationPopup = useCallback(({ entityId }: { entityId: string }) => {
-    setRelationNoteId(entityId);
-  }, []);
-  const closeRelationPopup = useCallback(() => setRelationNoteId(null), []);
 
   const closeClarificationPopup = useCallback(() => {
     setClarificationPopup({
@@ -646,41 +636,6 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     [openStoreItem],
   );
 
-  // Kept as new, and the drop was unclear: its own question opens next (the
-  // relation popup calls this once it has faded), so one tap on the card
-  // answers both
-  const openNextQuestion = useCallback(
-    (id: string) => {
-      const note = useGremlyStore.getState().notes.find((n) => n.id === id);
-      if (!note || note.archived) return;
-      type Held = {
-        clarification_question?: string | null;
-        clarification_options?: ClarificationPopupOptions['options'];
-        text?: string | null;
-      };
-      const views = (note.views || {}) as Held;
-      const raw = note as unknown as Held;
-      openClarificationPopup({
-        entityId: id,
-        entityType: 'note',
-        question: raw.clarification_question || views.clarification_question || null,
-        options: raw.clarification_options || views.clarification_options || null,
-        originalText: raw.text || views.text || note.body || note.title || null,
-      });
-    },
-    [openClarificationPopup],
-  );
-
-  const openRelationItem = useCallback(
-    (entity: { id: string; type: 'todo' | 'habit' | 'note' }) => {
-      const noteId = relationNoteId;
-      if (!noteId) return;
-      setRelationNoteId(null);
-      openItemThenReturn({ id: entity.id, type: entity.type }, () => setRelationNoteId(noteId));
-    },
-    [relationNoteId, openItemThenReturn],
-  );
-
   const close = useCallback(() => {
     setState({
       visible: false,
@@ -710,7 +665,6 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         close,
         openClarificationPopup,
         closeClarificationPopup,
-        openRelationPopup,
         openItemThenReturn,
       }}
     >
@@ -726,15 +680,6 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
         onClose={closeClarificationPopup}
         isSubmitting={clarificationLoading}
         successMessage={clarificationSuccess}
-      />
-      {/* "Is this one you already have?", opened from a held drop's card */}
-      <RelationPopup
-        key={relationNoteId ?? 'none'}
-        visible={!!relationNoteId}
-        noteId={relationNoteId}
-        onClose={closeRelationPopup}
-        onNextQuestion={openNextQuestion}
-        onOpenItem={openRelationItem}
       />
       {/* What a yes did, with Undo; tapping its words opens the item (over Mind Drop and Sweep) */}
       <RelationToastHost onOpen={openStoreItem} />

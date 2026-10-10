@@ -24,6 +24,15 @@ jest.mock('../dropQueue', () => ({
 }));
 jest.mock('../dropPhases', () => ({
   getPhaseHandler: jest.fn().mockReturnValue(null),
+  forgetDropCalls: jest.fn(),
+}));
+jest.mock('../../appEvents', () => ({ logAppEvent: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('../../env', () => ({
+  env: { cortexUrl: 'https://test.cortex' },
+  getEnv: () => undefined,
+}));
+jest.mock('../../cortex/getSessionToken', () => ({
+  getSessionToken: () => Promise.resolve('tok'),
 }));
 jest.mock('../../store/useGremlyStore', () => ({
   useGremlyStore: Object.assign(
@@ -48,6 +57,8 @@ jest.mock('../../store/useGremlyStore', () => ({
         updatePendingDropEnrichment: jest.fn(),
         promotePendingDrop: jest.fn(),
         removePendingDrop: jest.fn(),
+        incrementDropCount: jest.fn().mockResolvedValue({ didAgeUp: false }),
+        setDropFiling: jest.fn(),
       }),
     },
   ),
@@ -90,9 +101,17 @@ jest.mock('../../notifications/ask', () => ({
   maybeAsk: jest.fn().mockResolvedValue(false),
 }));
 
-import { startQueueRunner, stopQueueRunner, triggerProcessing, retryDrop } from '../dropPipeline';
-import { getQueue, saveDrop, migrateDropPhases } from '../dropQueue';
-import { getPhaseHandler } from '../dropPhases';
+import { startDropFiling } from '../fileDrop';
+import {
+  dropTimingMeta,
+  startQueueRunner,
+  stopQueueRunner,
+  triggerProcessing,
+  retryDrop,
+} from '../dropPipeline';
+import { getQueue, saveDrop, migrateDropPhases, dequeue } from '../dropQueue';
+import { forgetDropCalls, getPhaseHandler } from '../dropPhases';
+import { logAppEvent } from '../../appEvents';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -163,9 +182,11 @@ describe('dropPipeline', () => {
 
       // Now add a drop and trigger
       const drop = makeDrop();
-      const handler = jest.fn().mockResolvedValue({ ...drop, phase: 'classified' });
+      const handler = jest.fn().mockResolvedValue({ ...drop, phase: 'sorted' });
       (getQueue as jest.Mock).mockResolvedValue([drop]);
-      (getPhaseHandler as jest.Mock).mockReturnValue(handler);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'queued' ? handler : null,
+      );
       mockPendingDrops.set('test-drop-1', { id: 'test-drop-1' });
 
       await triggerProcessing();
@@ -182,7 +203,7 @@ describe('dropPipeline', () => {
       const failedDrop = makeDrop({
         localId: 'retry-me',
         phase: 'failed',
-        failedAtPhase: 'titled',
+        failedAtPhase: 'saved',
         retryCount: 3,
         lastError: 'Timeout',
       });
@@ -197,7 +218,7 @@ describe('dropPipeline', () => {
       expect(saveDrop).toHaveBeenCalledWith(
         'retry-me',
         expect.objectContaining({
-          phase: 'titled',
+          phase: 'saved',
           retryCount: 0,
           lastError: null,
         }),
@@ -207,7 +228,7 @@ describe('dropPipeline', () => {
     it('ignores non-failed drops', async () => {
       const activeDrop = makeDrop({
         localId: 'active-one',
-        phase: 'classified',
+        phase: 'sorted',
       });
       (getQueue as jest.Mock).mockResolvedValue([activeDrop]);
 
@@ -255,9 +276,11 @@ describe('dropPipeline', () => {
 
       // Now set up the drop and handler
       const drop = makeDrop({ localId: 'adv-1', phase: 'queued' });
-      const handler = jest.fn().mockResolvedValue({ ...drop, phase: 'classified' });
+      const handler = jest.fn().mockResolvedValue({ ...drop, phase: 'sorted' });
       (getQueue as jest.Mock).mockResolvedValue([drop]);
-      (getPhaseHandler as jest.Mock).mockReturnValue(handler);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'queued' ? handler : null,
+      );
       mockPendingDrops.set('adv-1', { id: 'adv-1' });
 
       // Use triggerProcessing which forces a queue read
@@ -266,14 +289,14 @@ describe('dropPipeline', () => {
       expect(handler).toHaveBeenCalledWith(expect.objectContaining({ localId: 'adv-1' }));
       expect(saveDrop).toHaveBeenCalledWith(
         'adv-1',
-        expect.objectContaining({ phase: 'classified', retryCount: 0 }),
+        expect.objectContaining({ phase: 'sorted', retryCount: 0 }),
       );
     });
 
     it('moves to failed phase after MAX_RETRIES_PER_PHASE failures', async () => {
       await startQueueRunner();
 
-      const drop = makeDrop({ localId: 'fail-1', phase: 'titled', retryCount: 2 });
+      const drop = makeDrop({ localId: 'fail-1', phase: 'saved', retryCount: 2 });
       const handler = jest.fn().mockRejectedValue(new Error('Network timeout'));
       (getQueue as jest.Mock).mockResolvedValue([drop]);
       (getPhaseHandler as jest.Mock).mockReturnValue(handler);
@@ -285,9 +308,60 @@ describe('dropPipeline', () => {
         'fail-1',
         expect.objectContaining({
           phase: 'failed',
-          failedAtPhase: 'titled',
+          failedAtPhase: 'saved',
         }),
       );
+    });
+
+    it('a saved drop gives its slot back, so a burst of drops each starts at the tap (final check item 13)', async () => {
+      // started with an empty queue: its first sweep would wait on these drops
+      await startQueueRunner();
+      const drops = ['b1', 'b2', 'b3', 'b4'].map((id) =>
+        makeDrop({ localId: id, phase: 'queued' }),
+      );
+      // the queue as saveDrop leaves it
+      const queue = new Map(drops.map((d) => [d.localId, d]));
+      (getQueue as jest.Mock).mockImplementation(async () => [...queue.values()]);
+      (saveDrop as jest.Mock).mockImplementation(async (id: string, d: QueuedDrop) => {
+        queue.set(id, d);
+      });
+      const sortGates = new Map<string, () => void>();
+      const queued = jest.fn(
+        (d: QueuedDrop) =>
+          new Promise<QueuedDrop>((resolve) =>
+            sortGates.set(d.localId, () => resolve({ ...d, phase: 'saved' })),
+          ),
+      );
+      // the saved phase waits for its details until the end of this test
+      const settleGates: Array<() => void> = [];
+      const saved = jest.fn(
+        (d: QueuedDrop) =>
+          new Promise<QueuedDrop>((resolve) =>
+            settleGates.push(() => resolve({ ...d, phase: 'complete' })),
+          ),
+      );
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'queued' ? queued : p === 'saved' ? saved : null,
+      );
+      // not awaited: each run waits on its gate
+      void triggerProcessing();
+      for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+      // three slots: the fourth waits
+      expect(queued.mock.calls.map((c) => c[0].localId)).toEqual(['b1', 'b2', 'b3']);
+      sortGates.get('b1')!();
+      for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+      // b1 is saved and waits for its details without its slot: b4 starts now
+      const started = queued.mock.calls.map((c) => c[0].localId);
+      const savedIds = saved.mock.calls.map((c) => c[0].localId);
+      // let every drop finish, so no run is left holding a slot for the next test
+      for (let round = 0; round < 3; round += 1) {
+        sortGates.forEach((open) => open());
+        settleGates.forEach((open) => open());
+        for (let i = 0; i < 10; i += 1) await new Promise((r) => setTimeout(r, 0));
+      }
+      stopQueueRunner();
+      expect(savedIds).toEqual(['b1']);
+      expect(started).toEqual(['b1', 'b2', 'b3', 'b4']);
     });
 
     it('skips terminal-phase drops', async () => {
@@ -305,5 +379,193 @@ describe('dropPipeline', () => {
       // Should not attempt to save or process
       expect(saveDrop).not.toHaveBeenCalled();
     });
+  });
+
+  // ── The new order (Mind Drop rethink stage 4) ────────────────────
+
+  describe('queued, sorted, saved, complete', () => {
+    const realFetch = global.fetch;
+    beforeEach(() => {
+      global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({}) })) as any;
+    });
+    afterEach(() => {
+      global.fetch = realFetch;
+    });
+
+    const tap = Date.parse('2026-03-30T12:00:00Z');
+    const handlersFor = (localId: string) => ({
+      queued: jest.fn(async (d: QueuedDrop) => ({ ...d, phase: 'sorted', sortedAt: tap + 2000 })),
+      sorted: jest.fn(async (d: QueuedDrop) => ({
+        ...d,
+        phase: 'saved',
+        savedAt: tap + 2300,
+        supabaseId: `row-${localId}`,
+        entityType: 'todo',
+        bucket: 'todo',
+      })),
+      saved: jest.fn(async (d: QueuedDrop) => ({
+        ...d,
+        phase: 'complete',
+        settledAt: tap + 4000,
+        detailsIn: 'in_time',
+      })),
+    });
+
+    it('runs a drop through every phase, dequeues it, files it and logs its timing with no words', async () => {
+      await startQueueRunner();
+      const drop = makeDrop({ localId: 'new-1', phase: 'queued', text: 'call mum on sunday' });
+      const h = handlersFor('new-1');
+      (getQueue as jest.Mock).mockResolvedValue([drop]);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) => (h as any)[p] ?? null);
+      mockPendingDrops.set('new-1', { id: 'new-1' });
+
+      await triggerProcessing();
+
+      expect(h.queued).toHaveBeenCalled();
+      expect(h.sorted).toHaveBeenCalled();
+      expect(h.saved).toHaveBeenCalled();
+      const phases = (saveDrop as jest.Mock).mock.calls
+        .filter((c) => c[0] === 'new-1')
+        .map((c) => c[1].phase);
+      expect(phases).toEqual(['sorted', 'saved', 'complete']);
+      expect(dequeue).toHaveBeenCalledWith('new-1');
+      expect(forgetDropCalls).toHaveBeenCalledWith('new-1');
+      await new Promise((r) => setTimeout(r, 0));
+      const filed = (global.fetch as jest.Mock).mock.calls.map((c) => JSON.parse(c[1].body));
+      expect(filed).toEqual([
+        expect.objectContaining({ type: 'assign-worlds', entity_id: 'row-new-1' }),
+      ]);
+      expect(logAppEvent).toHaveBeenCalledWith(
+        'drop_timing',
+        { type: 'drop', id: 'new-1' },
+        expect.objectContaining({
+          sorted_ms: 2000,
+          saved_ms: 2300,
+          settled_ms: 4000,
+          details: 'in_time',
+          kind: 'todo',
+        }),
+      );
+      const meta = (logAppEvent as jest.Mock).mock.calls[0][2];
+      expect(JSON.stringify(meta)).not.toContain('mum');
+    });
+
+    it('picks up a drop the app was stopped at, from its saved phase', async () => {
+      const drop = makeDrop({
+        localId: 'killed-1',
+        phase: 'saved',
+        supabaseId: 'row-killed-1',
+        entityType: 'todo',
+      });
+      const h = handlersFor('killed-1');
+      (getQueue as jest.Mock).mockResolvedValue([drop]);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) => (h as any)[p] ?? null);
+      mockPendingDrops.set('killed-1', { id: 'killed-1' });
+
+      await startQueueRunner();
+
+      expect(migrateDropPhases).toHaveBeenCalled();
+      expect(h.queued).not.toHaveBeenCalled();
+      expect(h.sorted).not.toHaveBeenCalled();
+      expect(h.saved).toHaveBeenCalledWith(expect.objectContaining({ localId: 'killed-1' }));
+      expect(dequeue).toHaveBeenCalledWith('killed-1');
+    });
+
+    it('a clear split’s pieces are filed as they are filled, not again at the end (stage 9)', async () => {
+      await startQueueRunner();
+      const drop = makeDrop({ localId: 'split-parent', phase: 'saved' });
+      const done = {
+        ...drop,
+        phase: 'complete',
+        isMulti: true,
+        split: 'clear',
+        pieceRows: [
+          {
+            entityType: 'todo',
+            id: 'p0',
+            dropId: 'split-split-parent-0',
+            index: 0,
+            text: 'buy milk',
+            title: 'Buy milk',
+            bucket: 'todo',
+            subtype: null,
+          },
+          {
+            entityType: 'habit',
+            id: 'p1',
+            dropId: 'split-split-parent-1',
+            index: 1,
+            text: 'walk daily',
+            title: 'Walk daily',
+            bucket: 'habit',
+            subtype: null,
+          },
+        ],
+      };
+      (getQueue as jest.Mock).mockResolvedValue([drop]);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'saved' ? jest.fn().mockResolvedValue(done) : null,
+      );
+      mockPendingDrops.set('split-parent', { id: 'split-parent' });
+
+      await triggerProcessing();
+      await new Promise((r) => setTimeout(r, 0));
+
+      const filed = (global.fetch as jest.Mock).mock.calls.map((c) => JSON.parse(c[1].body));
+      expect(filed.filter((b) => b.type === 'assign-worlds')).toEqual([]);
+      expect(logAppEvent).toHaveBeenCalledWith(
+        'drop_timing',
+        { type: 'drop', id: 'split-parent' },
+        expect.objectContaining({ kind: 'split', split: 'clear', pieces: 2 }),
+      );
+    });
+
+    it('a drop whose filing started at the save is not filed again when it completes (stage 9)', async () => {
+      await startQueueRunner();
+      const drop = makeDrop({
+        localId: 'filed-1',
+        phase: 'saved',
+        supabaseId: 'row-filed-1',
+        entityType: 'todo',
+      });
+      startDropFiling(drop);
+      (getQueue as jest.Mock).mockResolvedValue([drop]);
+      (getPhaseHandler as jest.Mock).mockImplementation((p: string) =>
+        p === 'saved' ? jest.fn().mockResolvedValue({ ...drop, phase: 'complete' }) : null,
+      );
+      mockPendingDrops.set('filed-1', { id: 'filed-1' });
+      await triggerProcessing();
+      await new Promise((r) => setTimeout(r, 0));
+      const filed = (global.fetch as jest.Mock).mock.calls
+        .map((c) => JSON.parse(c[1].body))
+        .filter((b) => b.type === 'assign-worlds');
+      expect(filed).toEqual([expect.objectContaining({ entity_id: 'row-filed-1' })]);
+    });
+  });
+});
+
+describe('dropTimingMeta', () => {
+  it('says what happened to a drop in numbers and kinds only', () => {
+    const meta = dropTimingMeta(
+      makeDrop({
+        text: 'something private',
+        createdAt: '2026-03-30T12:00:00Z',
+        sortedAt: Date.parse('2026-03-30T12:00:01.900Z'),
+        bucket: 'log',
+        subtype: 'event',
+        detailsIn: 'after_settle',
+        classifyEngine: 'v3',
+      }),
+    );
+    expect(meta).toMatchObject({
+      sorted_ms: 1900,
+      saved_ms: null,
+      settled_ms: null,
+      details: 'after_settle',
+      engine: 'v3',
+      kind: 'event',
+      split: null,
+    });
+    expect(JSON.stringify(meta)).not.toContain('private');
   });
 });

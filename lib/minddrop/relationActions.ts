@@ -3,15 +3,21 @@
  * you already have?" (types and words in dropRelation.ts).
  *
  * - fetchDropRelation: the Worker's answer, or null (off, slow, unsure, failed).
- * - holdDropForRelation: the drop is filed as a note that carries the question,
- *   so no new todo or habit appears before the user decides.
+ * - heldRelationFor: the answer as the saved item carries it (from stage 4 the
+ *   drop is saved as its own kind and the answer attaches to it whenever it
+ *   lands). An older build filed the drop as a note carrying the question;
+ *   such notes are still answered and lapsed here (keepsHeldNote).
  * - applyDropRelation: the user said yes. The change goes through the chat
  *   card's own applyEntityChange (lib/chat/entityCards.ts), so sync, rollback
- *   and Undo behave the same in both places.
- * - keepDropAsNew: the user said no, or skipped. The drop is filed exactly as
- *   it was classified, through the same step a clarification answer uses.
+ *   and Undo behave the same in both places. The drop is found among todos,
+ *   habits and notes (Mind Drop rethink stage 6), and archived as its kind.
+ * - keepDropAsNew: the user said no. A drop saved by the rethink is already
+ *   its own kind, so only the answer is marked. A drop an older build held as
+ *   a note is filed exactly as it was classified, through the same step a
+ *   clarification answer uses.
  *
- * Nothing here runs without a tap except the fetch and the hold.
+ * Nothing here runs without a tap except the fetch, and a lapse
+ * (lib/minddrop/askActions.ts).
  */
 import { useGremlyStore } from '../store/useGremlyStore';
 import {
@@ -25,9 +31,14 @@ import { dateService } from '../date/DateService';
 import { env, getEnv } from '../env';
 import type { QueuedDrop } from './dropQueue';
 import { hasUsableClarification } from './clarification';
+import { keyedCalls, type StartedCall } from './dropCalls';
+import { kindWordOf, updateDropRow } from './dropSync';
+import { DIDNT_GO, PlainError } from './plainError';
+import { dayOnly } from '../../workers/shared/todoDay';
 import {
   changeForEntity,
   keepsDropAfterYes,
+  keepsHeldNote,
   parseRelation,
   rawChangeOf,
   relationOf,
@@ -36,6 +47,7 @@ import {
   type RelationChange,
   type RelationClassified,
   type RelationEntity,
+  type RelationStatus,
 } from './dropRelation';
 
 /** The Worker gives the model 6s; this covers that plus reading the list. */
@@ -71,30 +83,66 @@ export function shouldRelate(drop: QueuedDrop): boolean {
 }
 
 /**
- * The check only needs the drop's words, so it starts alongside
- * classification and is usually back before the drop needs it. Kept in memory
- * by the drop's local id; after an app restart the drop simply asks again.
+ * The check only needs the drop's words, so it starts at the tap, beside the
+ * classifier and the title call, and attaches to the saved item whenever it
+ * lands (Mind Drop rethink stage 4). Kept in memory by the drop's local id
+ * (dropCalls.ts); after an app restart the drop simply asks again.
  */
-const early = new Map<string, Promise<DropRelation | null>>();
+const early = keyedCalls<DropRelation>('already have it');
 
 /** Start the check as soon as a Mind Drop box drop is queued. */
 export function startDropRelation(drop: QueuedDrop): void {
   if (drop.source !== 'minddrop' || drop.dueDayOverride || drop.prefillDate) return;
-  if (!drop.text?.trim() || early.has(drop.localId)) return;
-  if (early.size > 50) early.clear();
-  early.set(drop.localId, fetchDropRelation(drop.text));
+  if (!drop.text?.trim()) return;
+  early.start(drop.localId, () => fetchDropRelation(drop.text));
+}
+
+/** The check started at the tap, or one started now (after an app restart). */
+export function dropRelationFor(drop: QueuedDrop): StartedCall<DropRelation> {
+  return early.get(drop.localId) ?? early.start(drop.localId, () => fetchDropRelation(drop.text));
+}
+
+/** The check started for this drop, if it is still in memory (none after an app restart). */
+export function startedDropRelation(localId: string): StartedCall<DropRelation> | null {
+  return early.get(localId);
 }
 
 /** The answer started early, or a fresh ask when there is none. */
 export function takeDropRelation(drop: QueuedDrop): Promise<DropRelation | null> {
   const started = early.get(drop.localId);
-  early.delete(drop.localId);
-  return started ?? fetchDropRelation(drop.text);
+  early.forget(drop.localId);
+  return started ? started.promise : fetchDropRelation(drop.text);
 }
 
 /** The drop turned out not to need the check (several items, or addressed to Gremly). */
 export function forgetDropRelation(localId: string): void {
-  early.delete(localId);
+  early.forget(localId);
+}
+
+/**
+ * The answer as the saved item carries it in views.relation: pending, with how
+ * the drop was saved (its kind and any question), so the answers in stage 6
+ * and an older build's keep both work. The surface is added at the attach.
+ */
+export function heldRelationFor(
+  drop: QueuedDrop,
+  relation: DropRelation,
+  kind: {
+    bucket: RelationClassified['bucket'];
+    subtype: string | null;
+    habitSubtype: string | null;
+  },
+): Omit<HeldRelation, 'surface'> {
+  const classified: RelationClassified = {
+    bucket: kind.bucket,
+    subtype: kind.subtype ?? null,
+    habitSubtype: kind.habitSubtype ?? null,
+    needsClarification: !!drop.needsClarification,
+    ambiguityType: drop.ambiguityType ?? null,
+    clarificationQuestion: drop.clarificationQuestion ?? null,
+    clarificationOptions: (drop.clarificationOptions as unknown[] | null | undefined) ?? null,
+  };
+  return { ...relation, status: 'pending', classified } as Omit<HeldRelation, 'surface'>;
 }
 
 function deviceTimezone(): string | undefined {
@@ -104,6 +152,18 @@ function deviceTimezone(): string | undefined {
     return undefined;
   }
 }
+
+/**
+ * Whether this build asks the already have it check to tell a todo's deadline
+ * from the day they plan to do it (deadlines: true, final check item 6). The
+ * app handles a deadline change in full (dropRelation, applyDropRelation and
+ * its Undo, the card's words), and the Worker answers only a request that
+ * says so. On from 10 October: the relate replay gate came out outside the
+ * band from runs 1 and 2, within the run to run noise shown by the extra runs,
+ * and James read it and said ship (final check item 6 in
+ * docs/2026-10-minddrop-rethink.md).
+ */
+export const RELATE_SENDS_DEADLINES = true;
 
 /** Never rejects: null means file the drop as usual. */
 export async function fetchDropRelation(
@@ -127,6 +187,7 @@ export async function fetchDropRelation(
           text,
           currentDate: dateService.today(),
           timezone: deviceTimezone(),
+          ...(RELATE_SENDS_DEADLINES ? { deadlines: true } : {}),
         }),
         ...(controller ? { signal: controller.signal } : {}),
       });
@@ -150,52 +211,62 @@ export async function fetchDropRelation(
   return result;
 }
 
+/** The kind of item a drop was saved as. */
+export type DropItemKind = 'todo' | 'habit' | 'note';
+
+type HeldItem = {
+  kind: DropItemKind;
+  item: { id: string; views?: unknown; archived?: boolean | null } & Record<string, unknown>;
+  rel: HeldRelation;
+};
+
+/** The drop carrying the relation, among todos, habits and notes (by id or drop id). */
+export function heldItem(id: string): HeldItem | null {
+  const s = useGremlyStore.getState();
+  const match = (x: { id: string; drop_id?: string | null }) => x.id === id || x.drop_id === id;
+  const lists: Array<[DropItemKind, ReadonlyArray<any>]> = [
+    ['todo', s.todos || []],
+    ['habit', s.habits || []],
+    ['note', s.notes || []],
+  ];
+  for (const [kind, list] of lists) {
+    const item = list.find(match);
+    if (!item) continue;
+    const rel = relationOf(item.views);
+    return rel ? { kind, item, rel } : null;
+  }
+  return null;
+}
+
 /**
- * Hold the drop while it waits: it syncs as a note carrying the question and
- * how it was classified. A note drop keeps its kind (an event stays an event);
- * a todo or habit waits as a plain note, so nothing new appears in their lists
- * before they answer.
+ * Change the drop's answer, on its row as the database holds it and in turn
+ * with the pipeline's own updates to it (dropSync.updateDropRow), so a settle
+ * that read the row a moment before cannot put the question back. Resolves to
+ * whether it was written.
  */
-export function holdDropForRelation(drop: QueuedDrop, relation: DropRelation): QueuedDrop {
-  const classified: RelationClassified = {
-    bucket: (drop.bucket as RelationClassified['bucket']) || 'log',
-    subtype: drop.subtype ?? null,
-    habitSubtype: drop.habitSubtype ?? null,
-    needsClarification: !!drop.needsClarification,
-    ambiguityType: drop.ambiguityType ?? null,
-    clarificationQuestion: drop.clarificationQuestion ?? null,
-    clarificationOptions: (drop.clarificationOptions as unknown[] | null | undefined) ?? null,
-  };
-  return {
-    ...drop,
-    bucket: 'log',
-    subtype: drop.bucket === 'log' ? (drop.subtype ?? 'general') : 'general',
-    habitSubtype: null,
-    needsClarification: false,
-    ambiguityType: null,
-    clarificationQuestion: null,
-    clarificationOptions: null,
-    relation: { ...relation, status: 'pending', classified } as HeldRelation,
-  };
+async function setRelation(id: string, patch: Partial<HeldRelation>): Promise<boolean> {
+  const held = heldItem(id);
+  if (!held) return false;
+  return updateDropRow(held.kind, held.item.id, 'relation_answer', (row) => {
+    const views = (row.views as Record<string, unknown>) || {};
+    const rel = relationOf(views);
+    if (!rel) return null;
+    return { views: { ...views, relation: { ...rel, ...patch } } };
+  });
 }
 
-function heldNote(noteId: string) {
-  const note = useGremlyStore
-    .getState()
-    .notes.find((n) => n.id === noteId || (n as { drop_id?: string }).drop_id === noteId);
-  const rel = note ? relationOf(note.views) : null;
-  return note && rel ? { note, rel } : null;
+async function archiveDrop(kind: DropItemKind, id: string): Promise<void> {
+  const s = useGremlyStore.getState();
+  if (kind === 'todo') await s.archiveTodo(id, 'minddrop_relation');
+  else if (kind === 'habit') await s.archiveHabit(id, 'minddrop_relation');
+  else await s.archiveNote(id, 'minddrop_relation');
 }
 
-async function setRelation(noteId: string, patch: Partial<HeldRelation>): Promise<void> {
-  const store = useGremlyStore.getState();
-  const note = store.notes.find((n) => n.id === noteId);
-  const rel = note ? relationOf(note.views) : null;
-  if (!note || !rel) return;
-  const views = { ...((note.views as Record<string, unknown>) || {}) };
-  await store.updateNote(note.id, {
-    views: { ...views, relation: { ...rel, ...patch } },
-  } as Parameters<typeof store.updateNote>[1]);
+async function restoreDrop(kind: DropItemKind, id: string): Promise<void> {
+  const s = useGremlyStore.getState();
+  if (kind === 'todo') await s.restoreTodo(id);
+  else if (kind === 'habit') await s.restoreHabit(id);
+  else await s.restoreNote(id);
 }
 
 /**
@@ -217,6 +288,8 @@ export function currentEntity(e: RelationEntity): {
         title: t.name || t.title || e.title,
         due_day: t.due_day ?? null,
         due_time: t.due_time ? String(t.due_time).slice(0, 5) : null,
+        // the deadline as it is now, so a yes and its Undo start from it
+        target_date: dayOnly(t.target_date),
         space_id: t.space_id ?? e.space_id ?? null,
       },
       gone: null,
@@ -310,19 +383,23 @@ export function outcomeWords(
   change: RelationChange | null,
   extraAdded: boolean,
   keptDrop: boolean,
+  dropKind: DropItemKind = 'note',
 ): { confirm: string; toast: RelationToastWords } {
   const t = named(entity.title);
+  // the kind the drop was saved as, as its card names it (final check item 19)
+  const keptAs = dropKind === 'note' ? kindWordOf('log', rel.classified.subtype) : dropKind;
   const detail = !keptDrop
     ? 'Drop archived'
-    : rel.classified.subtype === 'journal'
+    : keptAs === 'journal'
       ? 'Your journal entry stays'
-      : 'Your drop stays as a note';
+      : `Your drop stays as ${keptAs === 'event' || keptAs === 'idea' ? 'an' : 'a'} ${keptAs}`;
   if (rel.intent === 'same') {
+    // the prototype's toast: Kept one · Drop archived
     return {
       confirm: 'Kept one',
       toast: {
         icon: 'kept',
-        title: extraAdded ? `Kept ${t}, with the new detail` : `Kept ${t}`,
+        title: extraAdded ? 'Kept one, with the new detail' : 'Kept one',
         detail,
       },
     };
@@ -340,6 +417,15 @@ export function outcomeWords(
       return {
         confirm: 'Moved',
         toast: { icon: 'moved', title: `Moved ${t} to ${formatTime(change.to)}`, detail },
+      };
+    case 'target_date':
+      return {
+        confirm: 'Deadline moved',
+        toast: {
+          icon: 'moved',
+          title: `Moved the deadline for ${t} to ${dayWords(change.to)}`,
+          detail,
+        },
       };
     case 'name':
       return {
@@ -370,11 +456,11 @@ export function outcomeWords(
  * the list can let them slide away rather than vanish: the drop (unless it is
  * a journal entry that stays), and the item when it was ticked off or removed.
  */
-export function leavingCardIds(noteId: string, picked?: RelationEntity): string[] {
-  const held = heldNote(noteId);
+export function leavingCardIds(dropId: string, picked?: RelationEntity): string[] {
+  const held = heldItem(dropId);
   if (!held) return [];
-  const { note, rel } = held;
-  const ids = keepsDropAfterYes(rel) ? [] : [note.id];
+  const { item, rel } = held;
+  const ids = keepsDropAfterYes(rel) ? [] : [item.id];
   const target = picked ?? (rel.kind === 'choose' ? null : rel.entity);
   if (target && (rel.intent === 'remove' || rel.intent === 'complete')) ids.push(target.id);
   return ids;
@@ -413,26 +499,27 @@ export function changeNow(rel: HeldRelation, entity: RelationEntity): RelationCh
  * left half done.
  */
 export async function applyDropRelation(
-  noteId: string,
+  dropId: string,
   picked?: RelationEntity,
 ): Promise<RelationOutcome> {
-  if (inFlight.has(noteId)) throw new Error('Already on it.');
-  inFlight.add(noteId);
+  if (inFlight.has(dropId)) throw new PlainError('Already on it.');
+  inFlight.add(dropId);
   try {
-    return await applyOnce(noteId, picked);
+    return await applyOnce(dropId, picked);
   } finally {
-    inFlight.delete(noteId);
+    inFlight.delete(dropId);
   }
 }
 
-async function applyOnce(noteId: string, picked?: RelationEntity): Promise<RelationOutcome> {
-  const held = heldNote(noteId);
-  if (!held || held.rel.status !== 'pending') throw new Error('This one has already been sorted.');
-  const { note, rel } = held;
+async function applyOnce(dropId: string, picked?: RelationEntity): Promise<RelationOutcome> {
+  const held = heldItem(dropId);
+  if (!held || held.rel.status !== 'pending')
+    throw new PlainError('This one has already been sorted.');
+  const { item: drop, rel, kind: dropKind } = held;
   const target = picked ?? (rel.kind === 'choose' ? null : rel.entity);
-  if (!target) throw new Error('Pick the one you meant.');
+  if (!target) throw new PlainError('Pick the one you meant.');
   const now = currentEntity(target);
-  if (!now.entity) throw new Error(now.gone || 'That one is no longer on your list.');
+  if (!now.entity) throw new PlainError(now.gone || 'That one is no longer on your list.');
   const entity = now.entity;
 
   let summary: string;
@@ -461,7 +548,7 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
   } else {
     const change = changeNow(rel, entity);
     if (!change) {
-      throw new Error(
+      throw new PlainError(
         rel.intent === 'logged'
           ? 'That day is already logged.'
           : 'There is nothing to change on that one.',
@@ -497,26 +584,31 @@ async function applyOnce(noteId: string, picked?: RelationEntity): Promise<Relat
   // so a second yes cannot apply it twice.
   const keepDrop = keepsDropAfterYes(rel);
   try {
-    await setRelation(note.id, { status: 'applied', summary });
-    if (!keepDrop) await useGremlyStore.getState().archiveNote(note.id, 'minddrop_relation');
+    const appliedTo = { id: entity.id, type: entity.type, title: entity.title };
+    if (!(await setRelation(drop.id, { status: 'applied', summary, applied_to: appliedTo }))) {
+      throw new Error('the drop is no longer there');
+    }
+    if (!keepDrop) await archiveDrop(dropKind, drop.id);
   } catch (err) {
     console.warn('[DropRelation] could not clear the drop, putting the change back', {
       error: String(err),
     });
     await revert().catch(() => {});
-    await setRelation(note.id, { status: 'pending', summary: null }).catch(() => {});
-    throw new Error('That did not go through. Try again in a moment.');
+    await setRelation(drop.id, { status: 'pending', summary: null, applied_to: null }).catch(
+      () => {},
+    );
+    throw new PlainError(DIDNT_GO);
   }
 
   return {
     summary,
-    ...outcomeWords(rel, entity, madeChange, extraAdded, keepDrop),
+    ...outcomeWords(rel, entity, madeChange, extraAdded, keepDrop, dropKind),
     targetId: entity.id,
     targetType: entity.type,
     undo: async () => {
       await revert();
-      if (!keepDrop) await useGremlyStore.getState().restoreNote(note.id);
-      await setRelation(note.id, { status: 'pending', summary: null });
+      if (!keepDrop) await restoreDrop(dropKind, drop.id);
+      await setRelation(drop.id, { status: 'pending', summary: null, applied_to: null });
     },
   };
 }
@@ -531,19 +623,40 @@ function keepLabel(c: RelationClassified): string {
 }
 
 /**
- * Not the same, not that one, or skipped: file the drop exactly as it was
- * classified and leave their items alone. A drop that was unclear gets its
- * question back instead. Returns what happened, for Sweep.
+ * Not the same, not that one, or let go: leave their items alone. A drop saved
+ * by the rethink is already its own kind, so only the answer is marked
+ * (`status`: kept, or lapsed when it was never answered). A drop an older
+ * build held as a note is filed exactly as it was classified, and one that was
+ * unclear gets its question back instead. Returns what happened, for Sweep:
+ * 'clarify' when the drop now has a question of its own to ask.
  */
-export async function keepDropAsNew(noteId: string): Promise<'kept' | 'clarify'> {
-  const held = heldNote(noteId);
+export async function keepDropAsNew(
+  dropId: string,
+  status: Extract<RelationStatus, 'kept' | 'lapsed'> = 'kept',
+): Promise<'kept' | 'clarify'> {
+  const held = heldItem(dropId);
   if (!held || held.rel.status !== 'pending') return 'kept';
-  const { note, rel } = held;
+  if (!keepsHeldNote(held.rel) || held.kind !== 'note') {
+    // already its own kind: only the answer is marked, on the row as it is now
+    let asks = false;
+    await updateDropRow(held.kind, held.item.id, `relation_${status}`, (row) => {
+      const views = (row.views as Record<string, unknown>) || {};
+      const rel = relationOf(views);
+      asks =
+        (row.needs_clarification === true || views.needs_clarification === true) &&
+        row.clarification_resolved !== true &&
+        views.clarification_resolved !== true;
+      if (!rel || rel.status !== 'pending') return null;
+      return { views: { ...views, relation: { ...rel, status } } };
+    });
+    return asks ? 'clarify' : 'kept';
+  }
+  const { item: note, rel } = held;
   const c = rel.classified;
   const store = useGremlyStore.getState();
   const views = {
     ...((note.views as Record<string, unknown>) || {}),
-    relation: { ...rel, status: 'kept' },
+    relation: { ...rel, status },
   };
   type NoteUpdate = Parameters<typeof store.updateNote>[1];
 

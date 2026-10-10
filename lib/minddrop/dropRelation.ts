@@ -4,11 +4,12 @@
  * After a drop is classified, the Worker (route minddrop-relate, in
  * workers/cortex/minddropRelate.js) may say the drop is the same as one of
  * their items, a change to one, a detail for one, a todo now done, a habit
- * they did, or an item no longer needed. The drop is then held as a note with
- * that proposal in views.relation, like a split waiting to be decided. Its card
- * shows one quiet line, and a tap opens the question popup. Nothing changes
- * until the user taps (Mind Drop "drops about things you already have"
- * canvas, September 2026).
+ * they did, or an item no longer needed. From the Mind Drop rethink (stages 4
+ * and 6) the drop is saved as its own kind and the proposal attaches to it in
+ * views.relation; the card asks with its strip, or shows the quiet duplicate
+ * line for a same, and Sweep asks the rest (lib/minddrop/asks.ts). An older
+ * build held the drop as a note until answered; those still work. Nothing
+ * changes until the user taps.
  *
  * This file is pure (types, words and checks), so the store selectors, the
  * card and the tests can use it without the store. What changes things is in
@@ -77,23 +78,40 @@ export interface RelationClassified {
   clarificationOptions: unknown[] | null;
 }
 
-/** pending: waiting for a tap. applied: the user said yes. kept: filed as its own item. */
-export type RelationStatus = 'pending' | 'applied' | 'kept';
+/**
+ * pending: waiting for a tap. applied: the user said yes. kept: filed as its
+ * own item. lapsed: never answered, so let go with both items as they were
+ * (Mind Drop rethink stage 6, lib/minddrop/asks.ts).
+ */
+export type RelationStatus = 'pending' | 'applied' | 'kept' | 'lapsed';
 
 export type HeldRelation = DropRelation & {
   status: RelationStatus;
   classified: RelationClassified;
   /** the closing line once the user said yes */
   summary?: string | null;
+  /** the item a yes changed: the one shown, or the one picked from a which one */
+  applied_to?: { id: string; type: RelationEntity['type']; title: string } | null;
+  /**
+   * Where it is asked (Mind Drop rethink stage 4): 'card' when the answer
+   * reached the saved item before its card settled, 'sweep' after. Missing on
+   * a drop an older build held as a note.
+   */
+  surface?: 'card' | 'sweep';
 };
 
 const INTENTS = new Set(['same', 'edit', 'add', 'complete', 'logged', 'remove']);
 const ENTITY_TYPES = new Set(['todo', 'habit', 'note']);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-/** What a drop may change on each kind of item; mirrors the Worker. */
+/**
+ * What a drop may change on each kind of item; mirrors the Worker. A todo's
+ * deadline (target_date) is apart from the day they plan to do it (due_day):
+ * this build sends deadlines: true, so the Worker may propose it (final check
+ * item 6).
+ */
 const EDIT_FIELDS: Record<string, string[]> = {
-  todo: ['due_day', 'due_time', 'name'],
+  todo: ['due_day', 'due_time', 'target_date', 'name'],
   note: ['due_day', 'due_time', 'name'],
   habit: ['name', 'frequency'],
 };
@@ -155,9 +173,18 @@ export function relationOf(views: unknown): HeldRelation | null {
   return rel && typeof rel === 'object' && rel.classified ? rel : null;
 }
 
-/** Waiting for the user: the card shows the line, Sweep asks. */
+/** Waiting for the user: the card asks, or Sweep does. */
 export function isRelationPending(views: unknown): boolean {
   return relationOf(views)?.status === 'pending';
+}
+
+/**
+ * An older build held the drop as a note until it was answered (no surface on
+ * its relation): keeping it files it as it was classified. A drop saved by
+ * the rethink is already its own kind, so keeping it only marks the answer.
+ */
+export function keepsHeldNote(rel: HeldRelation): boolean {
+  return !rel.surface;
 }
 
 /** What the drop would have been, for the chip on its card while it waits. */
@@ -196,6 +223,8 @@ export function relationLine(rel: DropRelation): string {
   const t = quoted(rel.entity.title);
   if (rel.kind === 'same') return 'Looks like one you already have. Tap to check';
   if (rel.kind === 'remove') return `Remove ${t}? Tap to check`;
+  if (rel.intent === 'edit' && rel.change.field === 'target_date')
+    return `Move the deadline for ${t}? Tap to check`;
   switch (rel.intent) {
     case 'complete':
       return `Mark ${t} done? Tap to check`;
@@ -208,16 +237,43 @@ export function relationLine(rel: DropRelation): string {
   }
 }
 
-/** The popup's question. */
-export function relationQuestion(rel: DropRelation): string {
+/** "today’s", "yesterday’s", or the weekday’s, for the day a habit is logged. */
+function dayOwn(day: string | null | undefined, today: string | undefined): string {
+  if (!day || !today) return 'today’s';
+  if (day === today) return 'today’s';
+  if (day === addDays(today, -1)) return 'yesterday’s';
+  const d = new Date(`${day}T12:00:00Z`);
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return `${names[d.getUTCDay()]}’s`;
+}
+
+/**
+ * The card's question. A yes or no about one item names it, from the item's
+ * own title as it is now (`title`), as the prototype does: Log today’s Run?
+ * (final check item 23). `day` puts a day in the card's words (Fri), for a
+ * deadline moved: Move the deadline for Report to Fri? (final check item 6).
+ */
+export function relationQuestion(
+  rel: DropRelation,
+  opts: { title?: string; today?: string; day?: (day: string) => string } = {},
+): string {
   if (rel.kind === 'choose') return 'Which one did you mean?';
   if (rel.kind === 'same') return 'Same as this one?';
   if (rel.kind === 'remove') return 'Remove this from your list?';
+  const title = (opts.title ?? rel.entity.title ?? '').trim();
+  if (rel.intent === 'edit' && rel.change.field === 'target_date') {
+    const day = opts.day ? opts.day(rel.change.to) : '';
+    const to = day === 'Today' || day === 'Tomorrow' ? day.toLowerCase() : day;
+    const what = title || 'this one';
+    return to ? `Move the deadline for ${what} to ${to}?` : `Move the deadline for ${what}?`;
+  }
   switch (rel.intent) {
     case 'complete':
-      return 'Mark this one done?';
+      return title ? `Mark ${title} done?` : 'Mark this one done?';
     case 'logged':
-      return 'Log this for your habit?';
+      return title
+        ? `Log ${dayOwn(rel.change.field === 'logged' ? rel.change.to : null, opts.today)} ${title}?`
+        : 'Log this for your habit?';
     case 'add':
       return rel.entity.type === 'todo' ? 'Add this to its notes?' : 'Add this to your note?';
     default:
@@ -252,12 +308,15 @@ export function relationButtons(rel: DropRelation): {
       return { primary: 'Yes, move it', secondary: 'Not that one', hint: null };
     case 'due_time':
       return { primary: 'Yes, change the time', secondary: 'Not that one', hint: null };
+    case 'target_date':
+      return { primary: 'Move the deadline', secondary: 'Not that one', hint: null };
     case 'name':
       return { primary: 'Yes, rename it', secondary: 'Not that one', hint: null };
     case 'completed':
       return { primary: 'Yes, mark it done', secondary: 'Not that one', hint: null };
     case 'logged':
-      return { primary: 'Yes, log it', secondary: 'Not that one', hint: null };
+      // the prototype's Log it
+      return { primary: 'Log it', secondary: 'Not that one', hint: null };
     case 'body_add':
       return {
         primary: rel.entity.type === 'todo' ? 'Add to its notes' : 'Add to note',
@@ -304,7 +363,7 @@ export function changeForEntity(
   const value = typeof raw?.value === 'string' ? raw.value.trim() : null;
   if (intent === 'edit') {
     if (!field || !EDIT_FIELDS[entity.type]?.includes(field) || !value) return null;
-    if (field === 'due_day' && !DAY.test(value)) return null;
+    if ((field === 'due_day' || field === 'target_date') && !DAY.test(value)) return null;
     if (field === 'due_time' && !TIME.test(value)) return null;
     const from =
       field === 'name'

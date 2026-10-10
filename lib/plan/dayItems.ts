@@ -6,11 +6,15 @@
 import type { HabitAdaptationRow } from '../store/useGremlyStore';
 import { pausedOn } from '../week/habitWeek';
 import { weekdayOf } from '../wrapup/day';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, plannedDayOf } from '../../workers/shared/todoDay';
 
 type TodoRow = {
   archived?: boolean | null;
   completed_at?: string | null;
   due_day?: string | null;
+  scheduled_date?: string | null;
+  target_date?: string | null;
   resurface_at?: string | null;
   views?: Record<string, any> | null;
 };
@@ -24,7 +28,8 @@ type HabitRow = {
 };
 
 /**
- * Open todos on the day: the ones due on it, and the ones put off (Later)
+ * Open todos on the day: the ones due on it (their planned day, or with none
+ * their deadline: workers/shared/todoDay.js), and the ones put off (Later)
  * that come back on it, which have no day of their own. The same rule Today
  * reads by (lib/store/selectors.ts selectTodosDueToday).
  */
@@ -33,7 +38,7 @@ export function todosDueOn<T extends TodoRow>(todos: T[], day: string): T[] {
     (t) =>
       !t.archived &&
       !t.completed_at &&
-      (t.due_day === day || (!t.due_day && t.resurface_at === day)),
+      (isTodoOn(t, day) || (!plannedDayOf(t) && t.resurface_at === day)),
   );
 }
 
@@ -78,6 +83,8 @@ export function stepGoal(t: TodoRow | null | undefined): string | null {
 export function todoDayWords(t: TodoRow | null | undefined, day: string, today: string): string {
   const goal = stepGoal(t);
   if (goal) return `A step towards ${goal}`;
-  if (t && !t.due_day && t.resurface_at === day) return 'Back from Later';
+  // a deadline on the day says Due today, before Back from Later
+  if (t && !plannedDayOf(t) && !isTodoOn(t, day) && t.resurface_at === day)
+    return 'Back from Later';
   return dueWords(day, today);
 }

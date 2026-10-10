@@ -110,12 +110,20 @@ describe('countSweep: notes', () => {
     expect(countSweep({ notes, today, tz })).toBe(1);
   });
 
-  it('leaves out swept notes and journals, unless a question waits on them', () => {
+  it('leaves out swept notes and journals, unless a question Sweep asks waits on them', () => {
     const pending = { status: 'pending', classified: { bucket: 'note' } };
     const notes = [
       note({ swept_at: '2026-10-01T19:00:00Z' }),
       note({ subtype: 'journal' }),
+      // made today: asked
       note({ subtype: 'journal', relation: pending }),
+      note({
+        subtype: 'catchall',
+        created_at: '2026-09-01T18:00:00Z',
+        swept_at: '2026-09-02T03:00:00Z',
+        views: { relation: pending, ask_since: today },
+      }),
+      // asked a month ago and never answered: it has lapsed (stage 8)
       note({
         subtype: 'catchall',
         created_at: '2026-09-01T18:00:00Z',
@@ -209,6 +217,14 @@ describe('the quick sweep: what still needs a decision', () => {
         created_at: '2026-09-01T18:00:00Z',
         swept_at: '2026-09-02T03:00:00Z',
         relation: { classified: { bucket: 'log' }, status: 'pending' },
+        ask_since: morning,
+      }),
+      // a question from a month ago has lapsed: not asked (stage 8)
+      note({
+        subtype: 'catchall',
+        created_at: '2026-09-01T18:00:00Z',
+        swept_at: '2026-09-02T03:00:00Z',
+        relation: { classified: { bucket: 'log' }, status: 'pending' },
       }),
     ];
     const q = quickSweepItems({ notes, today: morning, tz, since: lastSweepAt });
@@ -250,5 +266,35 @@ describe("the evening wrap up's cards", () => {
     expect(c.evening).toBe(1);
     // counted from the calendar date both would be cards
     expect(countBoth({ todos, notes: [], today: '2026-10-01', tz }).evening).toBe(2);
+  });
+});
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is a Sweep card before, on and after its deadline, as Sweep asks for a day', () => {
+    const todos = ['2026-10-05', today, '2026-09-30'].map((target_date) => todo({ target_date }));
+    expect(countSweep({ todos, today, tz })).toBe(3);
+  });
+
+  it('is past its day in the quick sweep once its deadline has passed', () => {
+    const decided = { decided_at: '2026-09-20T18:00:00Z' };
+    const q = quickSweepItems({
+      todos: [
+        todo({ target_date: '2026-09-30', ...decided }),
+        todo({ target_date: today, ...decided }),
+        todo({ target_date: '2026-10-05' }),
+      ],
+      today,
+      tz,
+    });
+    expect([q.pastDay.length, q.noDay.length, q.other.length]).toEqual([1, 1, 0]);
+  });
+
+  it('a planned day wins over the deadline', () => {
+    const q = quickSweepItems({
+      todos: [todo({ due_day: '2026-10-03', target_date: '2026-09-30' })],
+      today,
+      tz,
+    });
+    expect(q.pastDay).toHaveLength(0);
   });
 });

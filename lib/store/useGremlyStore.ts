@@ -85,6 +85,8 @@ import {
   type ClarificationWhen,
 } from '../minddrop/clarification';
 import type { TimeBlockPreferences } from '../capacity';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn } from '../../workers/shared/todoDay';
 
 // In-flight ensureEntityClarification calls, keyed by `${type}:${id}`
 const ensureClarificationInflight = new Map<
@@ -167,6 +169,18 @@ function tellGremlyChanged(table: 'worlds' | 'chapters', id: string) {
       if (!r.ok) console.warn('[GremlyStore] Gremly was not told of the change:', r.error);
     })
     .catch((err) => console.warn('[GremlyStore] Gremly was not told of the change:', err));
+}
+
+/**
+ * Questions about a drop that were never answered by the day after they were
+ * asked are let go, with their plain outcome written (Mind Drop rethink stage
+ * 6, lib/minddrop/asks.ts). Runs as the store loads; never waits, and a
+ * failure is only logged.
+ */
+function letOldAsksGo() {
+  import('../minddrop/askActions')
+    .then(({ lapseStaleAsks }) => lapseStaleAsks())
+    .catch((err) => console.warn('[GremlyStore] could not let old questions go:', err));
 }
 
 /**
@@ -1004,8 +1018,6 @@ export interface GremlyState extends WorldsActions {
   // ═══════════════════════════════════════════════════════════════════
   // MULTI-DROP + CLARIFICATION ACTIONS
   // ═══════════════════════════════════════════════════════════════════
-  /** Split a multi-drop into separate pending drops for each selected segment */
-  splitMultiDrop: (localId: string, items: import('../minddrop/types').MultiDropItem[]) => void;
   /** Resolve a multi-drop as a single entity (keep as-is) */
   resolveMultiDropAsSingle: (localId: string) => void;
   /** Update clarification fields on a synced entity by its drop_id (for Phase 1.5 race condition) */
@@ -1030,6 +1042,7 @@ export interface GremlyState extends WorldsActions {
     optionId: string,
     isFreeText?: boolean,
     when?: ClarificationWhen | null,
+    fallbackOption?: ClarificationOption,
   ) => Promise<void>;
   resolveSkippedClarification: (entityId: string) => Promise<void>;
 
@@ -1331,6 +1344,24 @@ const initialState = {
   currentDate: getDateService().today(),
 };
 
+/**
+ * The reminder a drop asked for, once its question is answered (the planning
+ * chat's final check, item 5): an unclear drop has none until then. Only when
+ * the classifier heard a remind me on it (views.reminder_intent). Loaded when
+ * it runs, as lib/minddrop/dropReminder.ts reads this store.
+ */
+function remindOnceAnswered(
+  views: Record<string, unknown> | null | undefined,
+  saved: { entityType: 'todo' | 'habit' | 'note'; id: string },
+  text: string,
+  kind: { bucket: 'todo' | 'habit' | 'log'; subtype: string | null },
+): void {
+  if (views?.reminder_intent !== true) return;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { remindAfterAnswer } = require('../minddrop/dropReminder');
+  void remindAfterAnswer(saved, text, kind);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORE IMPLEMENTATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1393,9 +1424,11 @@ export const useGremlyStore = create<GremlyState>()(
               console.log('[GremlyStore] ✅ Rendering from cached data, syncing in background');
               set({ isInitialized: true, userId });
 
-              // Background sync — non-blocking, don't throw
+              // Background sync: non-blocking, don't throw. Old questions are let
+              // go once the items are as the server has them, never from the cache.
               get()
                 .refreshFromServer()
+                .then(() => letOldAsksGo())
                 .catch((err) => {
                   console.warn(
                     '[GremlyStore] Background sync failed (cached data still usable):',
@@ -1936,6 +1969,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Recover any stuck MindDrop items from previous crashes
             get().recoverStuckMindDrops();
+            letOldAsksGo();
 
             // Fetch today's DCO (fire-and-forget, non-blocking)
             get().fetchTodayDco();
@@ -5192,7 +5226,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           for (const todo of get().todos) {
             if (todo.archived || todo.completed_at) continue;
-            if (todo.due_day !== today) continue;
+            if (!isTodoOn(todo, today)) continue;
             const eb = todo.daily_block ?? todo.time_window;
             if (eb && eb !== 'any' && !todo.scheduled_start_iso) {
               unpositioned.push({
@@ -7367,238 +7401,116 @@ export const useGremlyStore = create<GremlyState>()(
           const STUCK_THRESHOLD_MS = 30000; // 30 seconds
           const now = getDateService().now().getTime();
           const cutoffTime = new Date(now - STUCK_THRESHOLD_MS).toISOString();
+          // Each change goes through updateDropRow (final check item 14): on the
+          // row as the database holds it now, in turn with the pipeline's own
+          // writes, and through the store. Loaded when it runs, as dropSync
+          // reads this store.
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { updateDropRow } = require('../minddrop/dropSync') as {
+            updateDropRow: (
+              entityType: 'todo' | 'habit' | 'note',
+              id: string,
+              what: string,
+              build: (item: Record<string, any>) => Record<string, unknown> | null,
+            ) => Promise<boolean>;
+          };
+          const kinds = [
+            ['todos', 'todo'],
+            ['habits', 'habit'],
+            ['notes', 'note'],
+          ] as const;
 
           try {
-            // Find todos stuck in enrichment (views->minddrop_stage is streaming, enriching, or pending)
-            const { data: stuckTodos } = await supabase
-              .from('todos')
-              .select('id, views, updated_at')
-              .eq('owner_id', userId)
-              .or(
-                'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
-              )
-              .lt('updated_at', cutoffTime);
-
-            // Find habits stuck in enrichment
-            const { data: stuckHabits } = await supabase
-              .from('habits')
-              .select('id, views, updated_at')
-              .eq('owner_id', userId)
-              .or(
-                'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
-              )
-              .lt('updated_at', cutoffTime);
-
-            // Find notes stuck in enrichment
-            const { data: stuckNotes } = await supabase
-              .from('notes')
-              .select('id, views, updated_at')
-              .eq('owner_id', userId)
-              .or(
-                'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
-              )
-              .lt('updated_at', cutoffTime);
-
-            const totalStuck =
-              (stuckTodos?.length ?? 0) + (stuckHabits?.length ?? 0) + (stuckNotes?.length ?? 0);
-
-            if (totalStuck === 0) {
-              return; // Nothing stuck, no log needed
-            }
-
-            console.log(
-              `[GremlyStore] 🔧 Found ${totalStuck} stuck MindDrop items, recovering...`,
-              {
-                todos: stuckTodos?.length ?? 0,
-                habits: stuckHabits?.length ?? 0,
-                notes: stuckNotes?.length ?? 0,
-              },
-            );
-
-            // Reset stuck todos - mark as classified (ready for manual editing)
-            for (const todo of stuckTodos ?? []) {
-              const updatedViews = {
-                ...(todo.views as Record<string, unknown>),
-                ai_pending: false,
-                ai_failed: true,
-                minddrop_stage: 'classified',
-              };
-              await supabase.from('todos').update({ views: updatedViews }).eq('id', todo.id);
-            }
-
-            // Reset stuck habits
-            for (const habit of stuckHabits ?? []) {
-              const updatedViews = {
-                ...(habit.views as Record<string, unknown>),
-                ai_pending: false,
-                ai_failed: true,
-                minddrop_stage: 'classified',
-              };
-              await supabase.from('habits').update({ views: updatedViews }).eq('id', habit.id);
-            }
-
-            // Reset stuck notes
-            for (const note of stuckNotes ?? []) {
-              const updatedViews = {
-                ...(note.views as Record<string, unknown>),
-                ai_pending: false,
-                ai_failed: true,
-                minddrop_stage: 'classified',
-              };
-              await supabase.from('notes').update({ views: updatedViews }).eq('id', note.id);
-            }
-
-            // Update local store state
-            const state = get();
-            set({
-              todos: state.todos.map((t) => {
-                const stuck = stuckTodos?.find((s) => s.id === t.id);
-                if (stuck) {
-                  return {
-                    ...t,
-                    views: {
-                      ...(t.views as Record<string, unknown>),
-                      ai_pending: false,
-                      ai_failed: true,
-                      minddrop_stage: 'classified',
-                    },
-                  };
-                }
-                return t;
-              }),
-              habits: state.habits.map((h) => {
-                const stuck = stuckHabits?.find((s) => s.id === h.id);
-                if (stuck) {
-                  return {
-                    ...h,
-                    views: {
-                      ...(h.views as Record<string, unknown>),
-                      ai_pending: false,
-                      ai_failed: true,
-                      minddrop_stage: 'classified',
-                    },
-                  };
-                }
-                return h;
-              }),
-              notes: state.notes.map((n) => {
-                const stuck = stuckNotes?.find((s) => s.id === n.id);
-                if (stuck) {
-                  return {
-                    ...n,
-                    views: {
-                      ...(n.views as Record<string, unknown>),
-                      ai_pending: false,
-                      ai_failed: true,
-                      minddrop_stage: 'classified',
-                    },
-                  };
-                }
-                return n;
-              }),
-            });
-
-            console.log(`[GremlyStore] ✅ Recovered ${totalStuck} stuck MindDrop items`);
-          } catch (error) {
-            console.error('[GremlyStore] ❌ Failed to recover stuck MindDrop items:', error);
-          }
-        },
-
-        /**
-         * Split a multi-drop note into separate entities for each selected segment.
-         * The original multi-drop note is archived and individual entities are created.
-         * Works with notes that have views.is_multi=true (already synced to Supabase).
-         */
-        splitMultiDrop: (noteId: string, items: import('../minddrop/types').MultiDropItem[]) => {
-          set((state) => {
-            // Find the note by ID
-            const note = state.notes.find((n) => n.id === noteId);
-            if (!note) {
-              console.warn('[GremlyStore] splitMultiDrop: note not found', { noteId });
-              return state;
-            }
-
-            // Archive the original multi-drop note
-            const now = nowTimestamp();
-            const updatedNotes = state.notes.map((n) =>
-              n.id === noteId
-                ? {
-                    ...n,
-                    archived: true,
-                    archived_at: now,
-                    archived_reason: 'split' as const,
-                    views: { ...n.views, minddrop_stage: 'enriched' as const },
-                    updated_at: now,
-                  }
-                : n,
-            );
-
-            // Create new notes for each selected item
-            const newNotes: typeof state.notes = [];
-            items.forEach((item, index) => {
-              const newNote = {
-                id: `${noteId}-split-${index}-${getDateService().now().getTime()}`,
-                type: 'note' as const,
-                owner_id: note.owner_id,
-                title: item.smart_title ?? item.preview_title ?? item.text.substring(0, 50),
-                body: item.text,
-                subtype: 'catchall' as const,
-                space_id: note.space_id,
-                ai_placed: true,
-                origin: note.origin,
-                views: {
-                  minddrop_stage: 'enriched',
-                  ai_pending: false,
-                  bucket: item.bucket,
-                  subtype: item.subtype,
-                },
-                created_at: now,
-                updated_at: now,
-              };
-              newNotes.push(newNote as any);
-            });
-
-            console.log('[GremlyStore] splitMultiDrop: split into', items.length, 'notes');
-
-            // Also update Supabase asynchronously
-            (async () => {
-              try {
-                // Archive the original note
-                await supabase
-                  .from('notes')
-                  .update({
-                    archived: true,
-                    archived_at: now,
-                    archived_reason: 'split',
-                    views: { ...note.views, minddrop_stage: 'resolved' },
-                    updated_at: now,
-                  })
-                  .eq('id', noteId);
-
-                // Insert new notes
-                for (const newNote of newNotes) {
-                  await supabase.from('notes').insert({
-                    owner_id: newNote.owner_id,
-                    title: newNote.title,
-                    body: newNote.body,
-                    subtype: newNote.subtype,
-                    space_id: newNote.space_id,
-                    ai_placed: newNote.ai_placed,
-                    origin: newNote.origin,
-                    views: newNote.views,
-                    updated_at: newNote.updated_at,
+            // A drop saved at the sort settles within seconds (Mind Drop rethink
+            // stage 4). One still at 'saved' after 30s lost its settle (the app
+            // stopped and the drop did not come back, or the write failed): it
+            // settles as it is, with whatever details it has, logged.
+            for (const [table, kind] of kinds) {
+              const { data: unsettled, error: readError } = await supabase
+                .from(table)
+                .select('id')
+                .eq('owner_id', userId)
+                .eq('views->>minddrop_stage', 'saved')
+                .lt('updated_at', cutoffTime);
+              if (readError) {
+                console.warn('[GremlyStore] could not look for Mind Drop items left at saved', {
+                  table,
+                  error: readError.message,
+                });
+                continue;
+              }
+              if (!unsettled?.length) continue;
+              console.warn('[GremlyStore] settling Mind Drop items left at saved', {
+                table,
+                count: unsettled.length,
+              });
+              for (const row of unsettled) {
+                try {
+                  await updateDropRow(kind, row.id, 'recover_settle', (item) => {
+                    const views = (item.views as Record<string, unknown>) || {};
+                    if (views.minddrop_stage !== 'saved') return null;
+                    return { views: { ...views, minddrop_stage: 'settled' } };
+                  });
+                } catch (err) {
+                  console.warn('[GremlyStore] could not settle a Mind Drop item', {
+                    table,
+                    id: row.id,
+                    error: String(err),
                   });
                 }
-                console.log('[GremlyStore] splitMultiDrop: Supabase updated');
-              } catch (error) {
-                console.error('[GremlyStore] splitMultiDrop: Supabase error', error);
               }
-            })();
+            }
 
-            return {
-              notes: [...updatedNotes.filter((n) => n.id !== noteId || n.archived), ...newNotes],
-            };
-          });
+            // An older build's stages (streaming, enriching, pending) left for
+            // 30s: marked failed and classified, ready to edit by hand
+            const OLDER_STUCK = ['streaming', 'enriching', 'pending'];
+            let recovered = 0;
+            for (const [table, kind] of kinds) {
+              const { data: stuck, error: readError } = await supabase
+                .from(table)
+                .select('id')
+                .eq('owner_id', userId)
+                .or(
+                  'views->minddrop_stage.eq.streaming,views->minddrop_stage.eq.enriching,views->minddrop_stage.eq.pending',
+                )
+                .lt('updated_at', cutoffTime);
+              if (readError) {
+                console.warn('[GremlyStore] could not look for stuck Mind Drop items', {
+                  table,
+                  error: readError.message,
+                });
+                continue;
+              }
+              for (const row of stuck ?? []) {
+                try {
+                  const wrote = await updateDropRow(kind, row.id, 'recover_stuck', (item) => {
+                    const views = (item.views as Record<string, unknown>) || {};
+                    if (!OLDER_STUCK.includes(String(views.minddrop_stage))) return null;
+                    return {
+                      views: {
+                        ...views,
+                        ai_pending: false,
+                        ai_failed: true,
+                        minddrop_stage: 'classified',
+                      },
+                    };
+                  });
+                  if (wrote) recovered += 1;
+                } catch (err) {
+                  console.warn('[GremlyStore] could not recover a stuck Mind Drop item', {
+                    table,
+                    id: row.id,
+                    error: String(err),
+                  });
+                }
+              }
+            }
+            if (recovered) {
+              console.log('[GremlyStore] Recovered stuck Mind Drop items', { count: recovered });
+            }
+          } catch (error) {
+            console.error('[GremlyStore] Failed to recover stuck Mind Drop items:', error);
+          }
         },
 
         /**
@@ -7821,7 +7733,13 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        resolveEntityClarification: async (localId, optionId, isFreeText = false, when = null) => {
+        resolveEntityClarification: async (
+          localId,
+          optionId,
+          isFreeText = false,
+          when = null,
+          fallbackOption,
+        ) => {
           const state = get();
 
           // ─────────────────────────────────────────────────────────────────────
@@ -7870,6 +7788,8 @@ export const useGremlyStore = create<GremlyState>()(
             ((entity.views as Record<string, unknown> | undefined)?.clarification_options as
               | Array<{ id: string; label: string; action?: any }>
               | undefined);
+          const selectedFallbackOption =
+            fallbackOption?.id === optionId ? fallbackOption : undefined;
 
           // Determine the selected label based on whether it's free text or a predefined option
           let selectedLabel: string;
@@ -7882,14 +7802,15 @@ export const useGremlyStore = create<GremlyState>()(
             );
           } else {
             // User selected a predefined option - look up the label
-            if (!clarificationOptions) {
+            if (!clarificationOptions && !selectedFallbackOption) {
               console.warn('[GremlyStore] resolveEntityClarification: No clarification options', {
                 entityId,
               });
               return;
             }
 
-            const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
+            const selectedOption =
+              selectedFallbackOption ?? clarificationOptions?.find((opt) => opt.id === optionId);
             if (!selectedOption) {
               console.warn('[GremlyStore] resolveEntityClarification: Option not found', {
                 entityId,
@@ -7906,7 +7827,9 @@ export const useGremlyStore = create<GremlyState>()(
           // the drop leaves Mind Drop, so there is nothing to reclassify.
           const selectedKind = isFreeText
             ? null
-            : optionKind(clarificationOptions?.find((opt) => opt.id === optionId));
+            : optionKind(
+                selectedFallbackOption ?? clarificationOptions?.find((opt) => opt.id === optionId),
+              );
           if (selectedKind) {
             const dropText = String(
               (entity as Note).body || (entity as Note).title || (entity as any).name || '',
@@ -8035,7 +7958,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Get bucket/subtype from the selected option (if not free text)
           const selectedOption = isFreeText
             ? null
-            : clarificationOptions?.find((opt) => opt.id === optionId);
+            : (selectedFallbackOption ?? clarificationOptions?.find((opt) => opt.id === optionId));
           const selectedBucket =
             (selectedOption as { action?: { bucket?: string } } | null)?.action?.bucket || null;
           const selectedSubtype =
@@ -8148,14 +8071,18 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Build date updates from reclassify result
             const dateUpdate: Record<string, unknown> = {};
+            // A deadline is the deadline, never the day to do it (9 Oct 2026): only a
+            // day they said they would do it sets a todo's due_day.
             if (reclassifyResult.target_date) {
-              dateUpdate.due_day = reclassifyResult.target_date;
-              dateUpdate.due_date = reclassifyResult.target_date;
               dateUpdate.target_date = reclassifyResult.target_date;
             }
             if (reclassifyResult.scheduled_date) {
               dateUpdate.scheduled_date = reclassifyResult.scheduled_date;
               dateUpdate.start_date = reclassifyResult.scheduled_date; // For habits
+              if (entityType === 'todo') {
+                dateUpdate.due_day = reclassifyResult.scheduled_date;
+                dateUpdate.due_date = reclassifyResult.scheduled_date;
+              }
             }
 
             const updatedViews: Record<string, unknown> = {
@@ -8394,6 +8321,12 @@ export const useGremlyStore = create<GremlyState>()(
             });
 
             console.log('[GremlyStore] Same bucket clarification resolved:', { entityId });
+            remindOnceAnswered(
+              views,
+              { entityType: entityType as 'todo' | 'habit' | 'note', id: entityId },
+              originalText,
+              { bucket: targetBucket, subtype: newSubtype },
+            );
             return;
           }
 
@@ -8422,6 +8355,8 @@ export const useGremlyStore = create<GremlyState>()(
             // CRITICAL: Set ai_pending: true so the card shows shimmer animation while Phase 2 runs
             const commonFields = {
               owner_id: entity.owner_id,
+              // it keeps the day it was made, so its card keeps its place
+              created_at: (entity as any).created_at,
               tags: entity.tags || [],
               origin: (entity as any).origin || 'catchall',
               drop_id: (entity as any).drop_id,
@@ -8662,6 +8597,16 @@ export const useGremlyStore = create<GremlyState>()(
               type: targetBucket,
               source: 'clarification-bucket-change',
             });
+            remindOnceAnswered(
+              views,
+              {
+                entityType:
+                  targetBucket === 'todo' ? 'todo' : targetBucket === 'habit' ? 'habit' : 'note',
+                id: insertedEntity.id,
+              },
+              originalText,
+              { bucket: targetBucket, subtype: newSubtype },
+            );
 
             // ─────────────────────────────────────────────────────────────────────
             // PHASE 2 ENRICHMENT: Now call Phase 2 with the correct bucket
@@ -9029,10 +8974,18 @@ export const useGremlyStore = create<GremlyState>()(
                 console.log('[GremlyStore] Skipped clarification Phase 2 complete:', { entityId });
               } else {
                 console.warn('[GremlyStore] Phase 2 response not ok:', phase2Response.status);
-                // Still mark as enriched to clear loading state
-                await get().updateNote(entityId, {
-                  views: { ...skippedViews, ai_pending: false, minddrop_stage: 'enriched' },
-                });
+                // Still mark as enriched to clear loading state, on the item's own kind
+                // (this wrote to a note even for a todo or habit until stage 6)
+                const settledViews = {
+                  views: {
+                    ...skippedViews,
+                    ai_pending: false,
+                    minddrop_stage: 'enriched' as const,
+                  },
+                };
+                if (entityType === 'todo') await get().updateTodo(entityId, settledViews);
+                else if (entityType === 'habit') await get().updateHabit(entityId, settledViews);
+                else await get().updateNote(entityId, settledViews);
               }
             }
           } catch (error) {

@@ -124,7 +124,13 @@ test('each line names the values it states, by their place in the counts', () =>
     health: false,
   });
   // a habit marked private or about health carries the mark; one with no name has no line
-  const marked = { ...c, habits: [{ ...c.habits[0], health: true }, { ...c.habits[0], id: 'h2', name: null }] };
+  const marked = {
+    ...c,
+    habits: [
+      { ...c.habits[0], health: true },
+      { ...c.habits[0], id: 'h2', name: null },
+    ],
+  };
   expect(weekCountItems(marked).slice(4)).toEqual([{ ...items[4], health: true }]);
   expect(weekCountItems(null)).toEqual([]);
 });
@@ -169,14 +175,21 @@ test('a journal entry a private fact was read from is marked as the fact is', ()
     tz: 'Europe/London',
     openFacts: [],
     recentHappened: [
-      fact('a', 'Had a procedure.', { private: true, health: true, source_table: 'notes', source_id: 'n-1' }),
+      fact('a', 'Had a procedure.', {
+        private: true,
+        health: true,
+        source_table: 'notes',
+        source_id: 'n-1',
+      }),
       fact('b', 'Went to the market.', { source_table: 'notes', source_id: 'n-2' }),
     ],
     journals: [
       { id: 'n-1', title: 'Tuesday', body: 'A long day.', created_at: '2026-11-03T20:00:00Z' },
       { id: 'n-2', title: 'Wednesday', body: 'Bought apples.', created_at: '2026-11-04T20:00:00Z' },
     ],
-    created: [{ id: 'n-2', title: 'Buy apples', due_day: null, created_at: '2026-11-03T10:00:00Z' }],
+    created: [
+      { id: 'n-2', title: 'Buy apples', due_day: null, created_at: '2026-11-03T10:00:00Z' },
+    ],
     completed: [{ id: 't-9', title: 'Post the card', completed_at: '2026-11-05T10:00:00Z' }],
     links: [],
     progress: [],
@@ -228,5 +241,34 @@ test('an entry is marked by any marked fact read from it or about it, not only i
     'h-1': { private: true, health: true },
   });
   // only facts marked private or health are asked for
-  expect(d.select.mock.calls.filter(([p]) => p.startsWith('life_facts?')).every(([p]) => p.includes('or=(private.is.true,health.is.true)'))).toBe(true);
+  expect(
+    d.select.mock.calls
+      .filter(([p]) => p.startsWith('life_facts?'))
+      .every(([p]) => p.includes('or=(private.is.true,health.is.true)')),
+  ).toBe(true);
+});
+
+test('a todo with a deadline and no day planned is due in the week of its deadline (stage 2c)', () => {
+  const c = countWeek({
+    ...WEEK,
+    dueTodos: [
+      {
+        id: 'r',
+        due_day: null,
+        target_date: '2026-11-05',
+        status: 'active',
+        completed_at: '2026-11-04T10:00:00Z',
+      },
+      { id: 'b', due_day: null, target_date: '2026-11-07', status: 'active', completed_at: null },
+      // a planned day outside the week wins over a deadline inside it
+      {
+        id: 'p',
+        due_day: '2026-11-10',
+        target_date: '2026-11-06',
+        status: 'active',
+        completed_at: null,
+      },
+    ],
+  });
+  expect(c).toMatchObject({ due: 2, due_done: 1 });
 });

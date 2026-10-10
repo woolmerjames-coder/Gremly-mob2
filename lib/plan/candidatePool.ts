@@ -26,6 +26,8 @@ import { isBreakHabit } from '../../workers/shared/habitWeek';
 import type { DcoClaim, DcoReach } from '../brief/dco';
 import { todoDayWords } from './dayItems';
 import { weekdayOf } from '../wrapup/day';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { todoDayOf } from '../../workers/shared/todoDay';
 
 /** Why a habit they planned for a day is in its plan: "Planned for today", or "Planned for Monday". */
 export function plannedWords(day: string, today: string): string {
@@ -95,14 +97,17 @@ export function windowFor(
 }
 
 /**
- * Open todos that are not past their date. One with no day is in only when it
- * is already on Today, or was put off (Later) and comes back on this day: a
- * Later has no day of its own, so its day to come back is what puts it here.
+ * Open todos that are not past their date: their planned day, or with none
+ * their deadline (workers/shared/todoDay.js). One with no day at all is in
+ * only when it is already on Today, or was put off (Later) and comes back on
+ * this day: a Later has no day of its own, so its day to come back is what
+ * puts it here.
  */
 function plannableTodo(t: Todo, input: PoolInput): boolean {
   if (t.archived || t.completed_at) return false;
-  if (t.due_day && t.due_day < input.today) return false;
-  if (!t.due_day) {
+  const day = todoDayOf(t);
+  if (day && day < input.today) return false;
+  if (!day) {
     const backToday = (t as { resurface_at?: string | null }).resurface_at === input.today;
     if (!backToday && !input.placedIds.has(t.id)) return false;
   }

@@ -584,3 +584,23 @@ describe('selectNeedsAttentionItems - stability', () => {
     expect(result2[0].reason).toBe('unorganized_stale');
   });
 });
+
+describe('selectNeedsAttentionItems: a todo with a deadline and no day planned (stage 2c)', () => {
+  const opts: NeedsAttentionOptions = { nowIso: NOW, todayDate: TODAY };
+  const deadline = (target_date: string) =>
+    makeTodo({
+      created_at: '2025-12-01T10:00:00.000Z',
+      due_day: null,
+      due_date: null,
+      target_date,
+    });
+
+  it('is not a todo with no due date', () => {
+    expect(selectNeedsAttentionItems([deadline('2025-12-20')], [], opts)).toHaveLength(0);
+  });
+
+  it('is on Today on its deadline day, so it is left out', () => {
+    const untagged = { ...deadline(TODAY), tags: [] };
+    expect(selectNeedsAttentionItems([untagged], [], opts)).toHaveLength(0);
+  });
+});

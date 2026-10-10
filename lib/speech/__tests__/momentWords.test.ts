@@ -27,8 +27,8 @@ describe('moment words', () => {
   it('his line follows his age without naming a band', () => {
     expect(getAgeLine(1)).toBe('Bigger.');
     expect(getAgeLine(4)).toBe('Four. I feel different.');
-    expect(getAgeLine(7)).toBe('Seven. I feel different. Do I look it?');
-    expect(getAgeLine(12)).toBe('Twelve. What’s next?');
+    expect(getAgeLine(7)).toBe('Seven. I feel different. I think it shows.');
+    expect(getAgeLine(12)).toBe('Twelve. More to come.');
     expect(getAgeLine(50)).toBe('50. You keep showing up. So do I.');
     expect(getAgeLine(600)).toBe('600. From the Sock Palace, thank you.');
     for (const age of [0, 2, 3, 9, 10, 25, 26, 41, 61, 121, 251, 501]) {

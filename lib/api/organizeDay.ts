@@ -14,6 +14,8 @@ import { computeTotalMinutes, validateEnergyType } from '../planning';
 import { computeTimeGaps, getBlockBoundaryIso, type TimeGap } from '../timeGaps';
 import { getDateService } from '../date/DateService';
 import { getSessionToken } from '../cortex/getSessionToken';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn } from '../../workers/shared/todoDay';
 
 // =============================================================================
 // TYPES
@@ -217,8 +219,7 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
   // Convert todos to OrganizeDayTask format
   const todoTasks: OrganizeDayTask[] = todos
     .filter(
-      (t) =>
-        !t.archived && !t.completed_at && t.due_day === today && !hiddenTodayIds.includes(t.id),
+      (t) => !t.archived && !t.completed_at && isTodoOn(t, today) && !hiddenTodayIds.includes(t.id),
     )
     .map((t) => {
       const estimateMinutes = t.time_estimate_minutes ?? 30;

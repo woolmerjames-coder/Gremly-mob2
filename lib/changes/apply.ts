@@ -336,7 +336,11 @@ async function applyOne(change: Change, opts: ApplyOptions): Promise<Outcome> {
       if (!item) return gone(change);
       const to = change.to as ItemType;
       const fields = { ...carried(type, to, item), ...(change.fields ?? {}) };
-      const created = await actions(to).create(createColumns(to, fields));
+      // it keeps the day it was made, so its card keeps its place
+      const created = await actions(to).create({
+        ...createColumns(to, fields),
+        ...(item.created_at ? { created_at: item.created_at } : {}),
+      });
       const newId = created?.id as string | undefined;
       if (!newId) throw new Error('It was not saved.');
       await copyLinks(to, change.id as string, newId);

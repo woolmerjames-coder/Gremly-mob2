@@ -267,10 +267,10 @@ describe('get_day', () => {
       ],
       'notes?': [],
       calendar_events: [],
-      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.eq.`]: [
         { id: TODO, name: 'Call Mum', due_time: '12:00:00', time_estimate_minutes: 15 },
       ],
-      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=lt.`]: [
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.lt.`]: [
         { id: 'old', name: 'Tax form', due_day: '2026-09-29' },
       ],
       'habits?': [{ id: HABIT, name: 'Run', cadence: 'daily', target_per_period: 1 }],
@@ -290,11 +290,11 @@ describe('get_day', () => {
 
   it('leaves out the steps left on a closed Chapter, as Today does', async () => {
     const db = fakeDb({
-      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.eq.`]: [
         { id: TODO, name: 'Call Mum', due_time: null, time_estimate_minutes: 15 },
         { id: 'packed', name: 'Pack the tent', due_time: null, time_estimate_minutes: 20 },
       ],
-      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=lt.`]: [
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.lt.`]: [
         { id: 'old', name: 'Tax form', due_day: '2026-09-29' },
       ],
       [`chapters?owner_id=eq.${USER}&or=`]: [{ id: 'cCamp' }],
@@ -313,10 +313,10 @@ describe('get_day', () => {
 
   it("counts a todo put off until a day among that day's todos", async () => {
     const db = fakeDb({
-      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=eq.`]: [
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.eq.`]: [
         { id: TODO, name: 'Call Mum', due_time: null, time_estimate_minutes: 15 },
       ],
-      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=is.null&resurface_at=eq.`]:
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=is.null&scheduled_date=is.null&resurface_at=eq.`]:
         [{ id: 'back', name: 'Call the plumber', time_estimate_minutes: 10 }],
       'habits?': [],
       habit_progress: [],
@@ -326,7 +326,7 @@ describe('get_day', () => {
       `Todos for the day: Call Mum (id ${TODO}), 15 min; Call the plumber (id back), 10 min, put off earlier and back on this day`,
     );
     expect(db.asked.find((q) => typeof q === 'string' && q.includes('resurface_at=eq.'))).toContain(
-      `due_day=is.null&resurface_at=eq.${TODAY}`,
+      `due_day=is.null&scheduled_date=is.null&resurface_at=eq.${TODAY}`,
     );
   });
 
@@ -814,6 +814,37 @@ describe('running a tool', () => {
   });
 });
 
+describe('get_day: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is among the todos on its deadline day, and past its day after', async () => {
+    const db = fakeDb({
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.eq.`]: [
+        { id: 'r', name: 'Send the report', due_day: null, target_date: TODAY },
+      ],
+      // put off until today too: it is listed once
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&due_day=is.null&scheduled_date=is.null&resurface_at=eq.`]:
+        [{ id: 'r', name: 'Send the report' }],
+      [`todos?owner_id=eq.${USER}&completed_at=is.null&archived=eq.false&or=(due_day.lt.`]: [
+        { id: 'old', name: 'Tax form', due_day: '2026-09-29' },
+        { id: 'bill', name: 'Pay the bill', due_day: null, target_date: '2026-10-01' },
+      ],
+      'habits?': [],
+      habit_progress: [],
+    });
+    const r = await runTool(ctxWith(db), 'get_day', {});
+    expect(r.text).toContain(
+      'Todos for the day: Send the report (id r), due this day by its deadline, no day planned',
+    );
+    expect(r.text).not.toContain('back on this day');
+    expect(r.text).toContain(
+      'Past their day: Pay the bill (id bill, was Thu 1 Oct (yesterday), its deadline); Tax form (id old, was Tue 29 Sep)',
+    );
+    const onDay = db.asked.find((q) => typeof q === 'string' && q.includes('or=(due_day.eq.'));
+    expect(onDay).toContain(
+      `or=(due_day.eq.${TODAY},and(due_day.is.null,scheduled_date.eq.${TODAY}),and(due_day.is.null,scheduled_date.is.null,target_date.eq.${TODAY}))`,
+    );
+  });
+});
+
 describe('get_day over several days', () => {
   it('reads from date through to, a week at most', () => {
     expect(daysToRead({}, TODAY)).toEqual([TODAY]);
@@ -832,7 +863,7 @@ describe('get_day over several days', () => {
   it('answers a week in one call, reading habits once', async () => {
     const db = fakeDb({
       'todos?owner_id': (path) =>
-        path.includes('due_day=eq.2026-10-07')
+        path.includes('or=(due_day.eq.2026-10-07')
           ? [{ id: TODO, name: 'Send the deck', due_time: null, time_estimate_minutes: 30 }]
           : [],
       habits: [],

@@ -326,3 +326,34 @@ describe('TimelineView', () => {
     });
   });
 });
+
+describe('TimelineView: a todo with a deadline and no day planned (stage 2c)', () => {
+  beforeEach(() => {
+    mockHabits = [];
+    mockNotes = [];
+    mockSpaces = [];
+  });
+
+  it('is overdue once its deadline has passed, and not on the day', () => {
+    mockTodos = [
+      {
+        id: 'passed',
+        type: 'todo',
+        name: 'Send the report',
+        created_at: '2026-02-10T09:00:00',
+        due_day: null,
+        target_date: '2026-02-09',
+      },
+      {
+        id: 'today',
+        type: 'todo',
+        name: 'Pay the bill',
+        created_at: '2026-02-10T09:00:00',
+        due_day: null,
+        target_date: '2026-02-10',
+      },
+    ];
+    const { getAllByText } = render(<TimelineView onItemPress={jest.fn()} />);
+    expect(getAllByText('Overdue')).toHaveLength(1);
+  });
+});

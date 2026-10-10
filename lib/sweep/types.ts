@@ -133,6 +133,13 @@ export interface SweepCardMeta {
   /** Status chip for todos: scheduling state */
   todoStatus: 'unscheduled' | 'due_today' | 'due_tomorrow' | 'overdue' | 'reminder' | null;
 
+  /**
+   * A todo with no day planned, on its day by its deadline (workers/shared/
+   * todoDay.js): due today and overdue are worded as a deadline, and the card
+   * schedules it rather than reschedules it.
+   */
+  byDeadline?: boolean;
+
   /** Status chip for logs: subtype */
   logSubtype: 'idea' | 'general' | 'journal' | null;
 

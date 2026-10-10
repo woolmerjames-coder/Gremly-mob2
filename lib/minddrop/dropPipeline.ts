@@ -7,7 +7,10 @@
  *
  * Two trigger modes:
  * - Event-driven: triggerProcessing() called when a new drop is enqueued
- * - Tick fallback: sweeps every 2s for retries, multi_awaiting checks, crash recovery
+ * - Tick fallback: sweeps every 2s for retries and crash recovery
+ *
+ * The phases and what each does are in dropPhases.ts (queued → sorted → saved
+ * → complete, Mind Drop rethink stage 4).
  */
 
 import {
@@ -19,19 +22,17 @@ import {
   migrateDropPhases,
   loadQueueIntoZustand,
 } from './dropQueue';
-import { getPhaseHandler } from './dropPhases';
+import { CLASSIFY_V3_TIMEOUT_MS, forgetDropCalls, getPhaseHandler } from './dropPhases';
+import { kindWordOf } from './dropSync';
+import { fileDropItem, startedDropFiling } from './fileDrop';
 import { useGremlyStore } from '../store/useGremlyStore';
-import { runPhase1 } from './phase1';
+import { runClassifyV3 } from './phase1';
+import { copyLinks } from '../changes/links';
 import { supabase } from '../supabase/client';
 import { nowTimestamp, getDateService } from '../date/DateService';
-import { filingFromReply } from './filing';
 import { eventBus } from '../events/EventBus';
 import { networkStatus } from '../network/NetworkStatus';
-import { maybeAsk } from '../notifications/ask';
-import { hhmm, localDay } from '../reminders/reminders';
-import type { ItemReminder } from '../types';
-import { env } from '../env';
-import { getSessionToken } from '../cortex/getSessionToken';
+import { logAppEvent } from '../appEvents';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -49,6 +50,13 @@ const RETRY_DELAYS = [0, 3000, 8000]; // delays: instant, 3s, 8s
 let isRunning = false;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 const processing = new Set<string>();
+/**
+ * The drops holding one of the MAX_CONCURRENT slots: those not yet saved. A
+ * saved drop only waits for its details (up to five seconds), so it gives its
+ * slot back, and a quick burst of drops still starts each at the tap (final
+ * check item 13). It stays in `processing` until its run ends.
+ */
+const slotted = new Set<string>();
 let lastQueueEmpty = false;
 let lastEnqueueTime = 0;
 
@@ -58,12 +66,12 @@ let lastEnqueueTime = 0;
 
 async function handleComplete(drop: QueuedDrop): Promise<void> {
   // Queue item is removed by dequeue() below, which updates queueItems in Zustand.
-  // The real entity was already added to todos/habits/notes by syncDropToSupabase.
+  // The saved item (or a clear split's pieces) is already in the store (dropSync.ts).
 
   // Remove from AsyncStorage queue (also updates queueItems via syncQueueToZustand)
   await dequeue(drop.localId);
 
-  // 3. Increment drop count for gauge / ritual progress
+  // Increment drop count for gauge / ritual progress
   try {
     const { didAgeUp, newAge } = await useGremlyStore.getState().incrementDropCount();
     if (didAgeUp) {
@@ -73,161 +81,64 @@ async function handleComplete(drop: QueuedDrop): Promise<void> {
     console.warn('[Pipeline] Failed to increment drop count', { error: String(err) });
   }
 
-  // 4. Schedule auto-reminder if Phase 2b detected one (fire-and-forget)
-  // Note: entity:created event is already emitted by syncDropToSupabase with full data
-  if (drop.autoReminder && drop.supabaseId && drop.entityType) {
-    void scheduleAutoReminderForDrop(drop);
+  // The reminder a drop asked for is saved when its details land (dropPhases.ts,
+  // dropReminder.ts), not here.
+
+  // Where it lives: filed straight after the save (stage 9; a clear split's
+  // pieces each as they are filled). A drop that came here another way (an
+  // older build's, saved at the end) is filed now.
+  if (!drop.pieceRows?.length && !startedDropFiling(drop.localId)) {
+    void fileDropItem(drop);
   }
 
-  // Assign drop to worlds/chapters/life contexts (fire-and-forget)
-  void assignDropToGraph(drop);
+  void logDropTiming(drop);
+  forgetDropCalls(drop.localId);
 
   console.log('[Pipeline] Drop complete', {
     localId: drop.localId,
     supabaseId: drop.supabaseId,
     entityType: drop.entityType,
+    pieces: drop.pieceRows?.length ?? 0,
   });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Auto-Reminder Scheduling (fire and forget)
+// Timing (one app_events row per drop, no words), for stage 12's comparison
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function scheduleAutoReminderForDrop(drop: QueuedDrop): Promise<void> {
-  try {
-    const entityType = drop.entityType!;
-    const entityId = drop.supabaseId!;
+export function dropTimingMeta(drop: QueuedDrop): Record<string, unknown> {
+  const tapped = Date.parse(drop.createdAt);
+  const since = (at?: number) =>
+    typeof at === 'number' && Number.isFinite(tapped) ? Math.max(0, at - tapped) : null;
+  const kind = drop.pieceRows?.length
+    ? 'split'
+    : kindWordOf(drop.bucket ?? null, drop.subtype ?? null);
+  return {
+    // from the tap to when the app took it up: long for a drop that waited offline
+    started_ms: since(drop.startedAt),
+    sorted_ms: since(drop.sortedAt),
+    saved_ms: since(drop.savedAt),
+    settled_ms: since(drop.settledAt),
+    details: drop.detailsIn ?? null,
+    relation: drop.relationIn ?? null,
+    filing: drop.filingIn ?? null,
+    engine: drop.classifyEngine ?? null,
+    kind: drop.needsClarification && !drop.isMulti ? 'question' : kind,
+    split: drop.isMulti ? (drop.split ?? 'unsure') : null,
+    split_said: drop.isMulti ? (drop.splitSaid ?? null) : null,
+    pieces: drop.pieceRows?.length ?? null,
+    resumed: drop.resumed === true,
+    source: drop.source,
+  };
+}
 
-    // Skip external calendar events
-    if (entityType === 'note') {
-      const note = useGremlyStore.getState().notes.find((n) => n.id === entityId);
-      if (note?.external_source != null) return;
-    }
-
-    const frequency = drop.reminderFrequency === 'daily' ? ('daily' as const) : ('once' as const);
-    const hasDate = !!drop.reminderDate;
-
-    const reminderToSave: ItemReminder = hasDate
-      ? {
-          id: `auto-${getDateService().now().getTime()}`,
-          time: drop.reminderTime || '09:00',
-          frequency,
-          date: frequency === 'once' ? drop.reminderDate! : undefined,
-        }
-      : (() => {
-          // two hours from now, on the right day even near midnight
-          const at = new Date(getDateService().now().getTime() + 2 * 60 * 60 * 1000);
-          return {
-            id: `auto-quick-${getDateService().now().getTime()}`,
-            time: hhmm(at.getHours(), at.getMinutes()),
-            frequency: 'once' as const,
-            date: localDay(at),
-          };
-        })();
-
-    // Persist to Supabase
-    const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-    await supabase
-      .from(table)
-      .update({ reminders_json: [reminderToSave], updated_at: nowTimestamp() })
-      .eq('id', entityId);
-
-    // Update Zustand
-    const storeKey = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-    useGremlyStore.setState((state) => ({
-      [storeKey]: (state[storeKey] as any[]).map((item: any) =>
-        item.id === entityId ? { ...item, reminders: [reminderToSave] } : item,
-      ),
-    }));
-
-    console.log('[Pipeline] Auto-reminder saved', {
-      entityId,
-      date: reminderToSave.date,
-      time: reminderToSave.time,
-    });
-
-    // The server sends it. If notifications are off, this is the moment to ask.
-    void maybeAsk('bell');
-  } catch (err) {
-    console.warn('[Pipeline] Auto-reminder failed', { error: String(err) });
-  }
+async function logDropTiming(drop: QueuedDrop): Promise<void> {
+  await logAppEvent('drop_timing', { type: 'drop', id: drop.localId }, dropTimingMeta(drop));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Worlds/Chapters/Life Context Assignment (fire and forget)
 // ──────────────────────────────────────────────────────────────────────────────
-
-async function assignDropToGraph(drop: QueuedDrop): Promise<void> {
-  // Guard: must have a saved entity id and a supported entity type
-  if (!drop.supabaseId || !drop.entityType) return;
-  if (!['todo', 'habit', 'note'].includes(drop.entityType)) return;
-
-  // Guard: skip external calendar notes
-  if (drop.entityType === 'note') {
-    const note = useGremlyStore.getState().notes.find((n) => n.id === drop.supabaseId);
-    if (note?.external_source != null) return;
-  }
-
-  const cortexUrl = typeof env.cortexUrl === 'string' ? env.cortexUrl : '';
-  if (!cortexUrl) return;
-
-  const sessionToken = await getSessionToken();
-  if (!sessionToken) return;
-
-  const payload: Record<string, unknown> = {
-    type: 'assign-worlds',
-    entity_id: drop.supabaseId,
-    entity_type: drop.entityType,
-    text: drop.text,
-  };
-  if (drop.smartTitle) payload.smart_title = drop.smartTitle;
-  if (drop.bucket) payload.bucket = drop.bucket;
-  if (drop.subtype) payload.subtype = drop.subtype;
-  if (Array.isArray(drop.tags) && drop.tags.length > 0) payload.tags = drop.tags;
-  if (Array.isArray(drop.people) && drop.people.length > 0) payload.people = drop.people;
-  if (drop.extractedDate) payload.extracted_date = drop.extractedDate;
-
-  try {
-    const res = await fetch(cortexUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const errText = (await res.text().catch(() => '')).substring(0, 200);
-      console.warn('[AssignDropToGraph] non-OK', {
-        localId: drop.localId,
-        status: res.status,
-        body: errText,
-      });
-      return;
-    }
-
-    try {
-      const data = await res.json();
-      // where it went, kept for the drop card's filing chip (lib/minddrop/filing.ts)
-      const filing = filingFromReply(data, getDateService().now().toISOString());
-      if (filing) useGremlyStore.getState().setDropFiling(drop.supabaseId, filing);
-      console.log('[AssignDropToGraph] OK', {
-        localId: drop.localId,
-        by: filing?.by ?? null,
-        world: filing?.world?.name ?? null,
-        chapter: filing?.chapter?.title ?? null,
-        starts_something: filing?.startsSomething ?? false,
-        skipped: data.skipped,
-        skipped_reason: data.skipped_reason,
-      });
-    } catch {
-      console.log('[AssignDropToGraph] OK (unparsed)', { localId: drop.localId });
-    }
-  } catch (err) {
-    console.warn('[AssignDropToGraph] error', { localId: drop.localId, error: String(err) });
-  }
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // processOne — Advance one drop by one phase
@@ -236,6 +147,8 @@ async function assignDropToGraph(drop: QueuedDrop): Promise<void> {
 async function processOne(drop: QueuedDrop): Promise<void> {
   const phase = drop.phase || 'queued';
   processing.add(drop.localId);
+  if (holdsSlot(phase)) slotted.add(drop.localId);
+  else freeSlot(drop.localId);
 
   try {
     const handler = getPhaseHandler(phase);
@@ -269,13 +182,12 @@ async function processOne(drop: QueuedDrop): Promise<void> {
       // Immediately process next phase of same drop — no tick delay.
       // Each phase still has its own timeout and error boundary via the
       // recursive processOne call. The tick interval is now only a fallback
-      // sweep for retries, crash recovery, and multi_awaiting checks.
+      // sweep for retries and crash recovery.
       if (updated.phase !== 'complete' && updated.phase !== 'failed') {
         await processOne(updated);
       }
     } else {
-      // Phase didn't change (e.g. multi_awaiting with children still processing)
-      // Just persist the lastAttemptAt update
+      // Phase didn't change: just persist the lastAttemptAt update
       await saveDrop(updated.localId, updated);
     }
   } catch (error) {
@@ -320,7 +232,19 @@ async function processOne(drop: QueuedDrop): Promise<void> {
     }
   } finally {
     processing.delete(drop.localId);
+    slotted.delete(drop.localId);
   }
+}
+
+/** A drop holds a slot until it is saved (or for an older build's phases, which save at the end). */
+function holdsSlot(phase: DropPhase): boolean {
+  return phase !== 'saved' && phase !== 'complete' && phase !== 'failed';
+}
+
+/** A saved drop gives its slot back, and the next drop waiting starts now. */
+function freeSlot(localId: string): void {
+  if (!slotted.delete(localId)) return;
+  if (isRunning) void tick();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -374,8 +298,9 @@ async function tick(): Promise<void> {
 
     if (actionable.length === 0) return;
 
-    // Process up to MAX_CONCURRENT
-    const slotsAvailable = MAX_CONCURRENT - processing.size;
+    // Process up to MAX_CONCURRENT drops that are not yet saved; a saved drop
+    // waiting for its details does not hold one (`slotted`)
+    const slotsAvailable = MAX_CONCURRENT - slotted.size;
     if (slotsAvailable <= 0) return;
 
     const batch = actionable.slice(0, slotsAvailable);
@@ -405,7 +330,7 @@ export async function startQueueRunner(): Promise<void> {
   // Initial sweep
   await tick();
 
-  // Start tick interval for retries, multi_awaiting, crash recovery
+  // Start tick interval for retries and crash recovery
   tickTimer = setInterval(() => {
     if (isRunning) {
       void tick();
@@ -443,9 +368,23 @@ export async function triggerProcessing(): Promise<void> {
 // retryDrop — User taps retry on a failed card
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** A failed drop back at the phase it failed in, with its tries counted again. */
+async function resumeFailed(drop: QueuedDrop): Promise<DropPhase> {
+  const resumePhase = drop.failedAtPhase || 'queued';
+  await saveDrop(drop.localId, {
+    ...drop,
+    phase: resumePhase,
+    retryCount: 0,
+    lastError: null,
+    lastAttemptAt: undefined,
+  });
+  return resumePhase;
+}
+
 /**
  * Reset a failed drop to its failedAtPhase so it can be reprocessed.
- * Called when the user taps the retry button on a failed card.
+ * Called when the person taps Retry on a failed card (RecentDrops, and the
+ * Today quick add's row).
  */
 export async function retryDrop(localId: string): Promise<void> {
   const queue = await getQueue();
@@ -456,22 +395,28 @@ export async function retryDrop(localId: string): Promise<void> {
     return;
   }
 
-  const resumePhase = drop.failedAtPhase || 'queued';
-
-  const retriedDrop: QueuedDrop = {
-    ...drop,
-    phase: resumePhase,
-    retryCount: 0,
-    lastError: null,
-    lastAttemptAt: undefined,
-  };
-
-  await saveDrop(retriedDrop.localId, retriedDrop);
-
+  const resumePhase = await resumeFailed(drop);
   console.log('[Pipeline] Drop retried', { localId, resumePhase });
 
   // Trigger immediate processing
   void triggerProcessing();
+}
+
+/**
+ * Every failed drop goes back to the phase it failed in, for three more tries,
+ * when the app comes back to the foreground and when the network comes back
+ * (lib/network/offlineSync.ts). Its card shows the person's words and Retry
+ * meanwhile, so a drop is never out of sight.
+ */
+export async function retryFailedDrops(): Promise<number> {
+  const queue = await getQueue();
+  const failed = queue.filter((d) => d.phase === 'failed');
+  for (const drop of failed) {
+    const resumePhase = await resumeFailed(drop);
+    console.log('[Pipeline] Failed drop tried again', { localId: drop.localId, resumePhase });
+  }
+  if (failed.length) void triggerProcessing();
+  return failed.length;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -523,12 +468,16 @@ export async function reclassifyDegradedEntities(): Promise<void> {
         (entity as any).body || (entity as any).notes || (entity as any).name || '';
       if (!originalText.trim()) continue;
 
-      const result = await runPhase1(originalText, { hasAttachments: false });
-
-      if (result.classificationDegraded) {
-        console.log('[Reclassify] Still degraded, skipping entity', { id: entity.id });
+      // the same classifier as a new drop (classify-v3); an older build's
+      // degraded item is read again with it, never with the v2 route
+      const v3 = await runClassifyV3(originalText, {}, CLASSIFY_V3_TIMEOUT_MS);
+      if (!v3) {
+        console.log('[Reclassify] Classifier did not answer, trying again later', {
+          id: entity.id,
+        });
         continue;
       }
+      const result = v3.phase1;
 
       const currentBucket = entity.entityType;
       const newBucket = result.bucket === 'log' ? 'note' : result.bucket;
@@ -611,9 +560,11 @@ export async function reclassifyDegradedEntities(): Promise<void> {
           const tags = (entity as any).tags || [];
           const spaceId = (entity as any).space_id || null;
 
-          // Build base payload for new table
+          // Build base payload for new table; it keeps the day it was made, so
+          // its card keeps its place
           let newPayload: Record<string, any> = {
             owner_id: ownerId,
+            created_at: (entity as any).created_at,
             drop_id: dropId,
             space_id: spaceId,
             tags,
@@ -668,6 +619,14 @@ export async function reclassifyDegradedEntities(): Promise<void> {
             console.error('[Reclassify] Insert failed', { error: insertErr });
             continue;
           }
+
+          // Its Worlds and Chapters go with it: deleting the old row removes its
+          // links (migration 20261021090000)
+          await copyLinks(
+            newBucket === 'todo' ? 'todo' : newBucket === 'habit' ? 'habit' : 'note',
+            entity.id,
+            newEntity.id,
+          );
 
           // Delete from old table
           await supabase.from(entity.table).delete().eq('id', entity.id);

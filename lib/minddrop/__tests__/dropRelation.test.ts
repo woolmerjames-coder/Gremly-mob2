@@ -10,6 +10,7 @@ import {
   keepsDropAfterYes,
   parseRelation,
   rawChangeOf,
+  addDays,
   relationButtons,
   relationLine,
   relationQuestion,
@@ -167,6 +168,19 @@ describe('words', () => {
     });
     expect(relationLine(every[3])).toBe('Mark “Send Q3 deck to Priya” done? Tap to check');
   });
+
+  it('names the item in a yes or no about it, from its title now, and logs with Log it (final check item 23)', () => {
+    expect(relationQuestion(every[4], { title: 'Run', today: TODAY })).toBe('Log today’s Run?');
+    expect(relationButtons(every[4]).primary).toBe('Log it');
+    const yesterday = {
+      ...every[4],
+      change: { field: 'logged', from: null, to: addDays(TODAY, -1) },
+    } as (typeof every)[4];
+    expect(relationQuestion(yesterday, { title: 'Run', today: TODAY })).toBe(
+      'Log yesterday’s Run?',
+    );
+    expect(relationQuestion(every[3], { title: 'Send the deck' })).toBe('Mark Send the deck done?');
+  });
 });
 
 describe('changeForEntity (the item the user picked instead)', () => {
@@ -221,6 +235,93 @@ describe('changeForEntity (the item the user picked instead)', () => {
   it('reads the card back as the raw change for another item', () => {
     expect(rawChangeOf(every[1])).toEqual({ field: 'due_day', value: '2026-10-01', time: '16:00' });
     expect(rawChangeOf(every[6])).toMatchObject({ field: 'due_day', value: '2026-10-02' });
+  });
+});
+
+describe('a todo deadline (final check item 6)', () => {
+  const withDeadline: RelationEntity = { ...todo, target_date: '2026-10-05' };
+  const moveDeadline = {
+    kind: 'edit',
+    intent: 'edit',
+    entity: withDeadline,
+    others: [],
+    confidence: 90,
+    change: { field: 'target_date', from: '2026-10-05', to: '2026-10-09' },
+  } as DropRelation;
+
+  it('parseRelation accepts a deadline change for a todo', () => {
+    expect(parseRelation(JSON.parse(JSON.stringify(moveDeadline)))).toMatchObject({
+      kind: 'edit',
+      intent: 'edit',
+      change: { field: 'target_date', to: '2026-10-09' },
+    });
+  });
+
+  it('moves the deadline and leaves the planned day alone', () => {
+    expect(
+      changeForEntity('edit', withDeadline, { field: 'target_date', value: '2026-10-09' }, TODAY),
+    ).toEqual({ field: 'target_date', from: '2026-10-05', to: '2026-10-09' });
+    // a todo with no deadline yet gets one
+    expect(
+      changeForEntity('edit', todo, { field: 'target_date', value: '2026-10-09' }, TODAY),
+    ).toEqual({ field: 'target_date', from: null, to: '2026-10-09' });
+  });
+
+  it('asks nothing for the deadline it already has, a day it cannot read, or a note', () => {
+    expect(
+      changeForEntity('edit', withDeadline, { field: 'target_date', value: '2026-10-05' }, TODAY),
+    ).toBeNull();
+    expect(
+      changeForEntity('edit', withDeadline, { field: 'target_date', value: 'Friday' }, TODAY),
+    ).toBeNull();
+    // a note's day is its own target_date, moved as due_day as before
+    expect(
+      changeForEntity('edit', note, { field: 'target_date', value: '2026-10-09' }, TODAY),
+    ).toBeNull();
+    expect(fitsRelation('edit', habit, { field: 'target_date', value: '2026-10-09' }, TODAY)).toBe(
+      false,
+    );
+  });
+
+  it('asks in plain deadline words, naming the item and the day', () => {
+    const day = (d: string) => (d === '2026-10-09' ? 'Fri' : d === TODAY ? 'Today' : 'Thu 1 Oct');
+    expect(relationQuestion(moveDeadline, { title: 'Send the deck', today: TODAY, day })).toBe(
+      'Move the deadline for Send the deck to Fri?',
+    );
+    const today = {
+      ...moveDeadline,
+      change: { field: 'target_date', from: null, to: TODAY },
+    } as DropRelation;
+    expect(relationQuestion(today, { title: 'Send the deck', day })).toBe(
+      'Move the deadline for Send the deck to today?',
+    );
+    // no day words given: still a plain question, never a raw date
+    expect(relationQuestion(moveDeadline, { title: 'Send the deck' })).toBe(
+      'Move the deadline for Send the deck?',
+    );
+    expect(relationButtons(moveDeadline)).toEqual({
+      primary: 'Move the deadline',
+      secondary: 'Not that one',
+      hint: null,
+    });
+    expect(relationLine(moveDeadline)).toBe(
+      'Move the deadline for “Send Q3 deck to Priya”? Tap to check',
+    );
+    const all = [
+      relationLine(moveDeadline),
+      relationQuestion(moveDeadline, { day }),
+      relationButtons(moveDeadline).primary,
+    ].join(' ');
+    expect(all).not.toMatch(/[–—]/);
+  });
+
+  it('a planned day moved is still a day change, worded as before', () => {
+    const moveDay = {
+      ...moveDeadline,
+      change: { field: 'due_day', from: '2026-10-01', to: '2026-10-02' },
+    } as DropRelation;
+    expect(relationButtons(moveDay).primary).toBe('Yes, move it');
+    expect(relationQuestion(moveDay, { title: 'Send the deck' })).toBe('Is this the one?');
   });
 });
 

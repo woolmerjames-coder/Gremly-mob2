@@ -5,6 +5,8 @@
  * They cover snapshot computation, date helpers, Life Map merge, and JSON parsing.
  */
 
+import { isTodoOverdue } from '../../shared/todoDay.js';
+
 // ── Re-derive pure functions ────────────────────────────────────────────────
 
 function formatDateOnly(d) {
@@ -88,8 +90,9 @@ function snapshotDeduplicateEvents(events) {
 }
 
 function snapshotComputeTodoStats(todos, targetDate) {
+  // overdue once its day has passed: its planned day, or with none its deadline
   const overdue = todos.filter(
-    (t) => t.target_date && t.target_date < targetDate && t.status !== 'completed' && !t.archived,
+    (t) => isTodoOverdue(t, targetDate) && t.status !== 'completed' && !t.archived,
   ).length;
   const active = todos.filter((t) => t.status === 'active' && !t.archived).length;
   const completedRecently = todos.filter((t) => t.completed_at).length;
@@ -374,6 +377,19 @@ describe('snapshotComputeTodoStats', () => {
   it('handles empty todos', () => {
     const result = snapshotComputeTodoStats([], '2025-12-15');
     expect(result).toEqual({ overdue: 0, active: 0, completedRecently: 0 });
+  });
+
+  it('counts a todo overdue once its day has passed, its planned day or with none its deadline (stage 2c)', () => {
+    const todos = [
+      // a deadline only todo, due today and then past it
+      { due_day: null, target_date: '2025-12-15', status: 'active', archived: false },
+      { due_day: null, target_date: '2025-12-14', status: 'active', archived: false },
+      // a planned day ahead wins over a deadline gone by
+      { due_day: '2025-12-16', target_date: '2025-12-10', status: 'active', archived: false },
+      // a planned day gone by
+      { due_day: '2025-12-12', target_date: null, status: 'active', archived: false },
+    ];
+    expect(snapshotComputeTodoStats(todos, '2025-12-15').overdue).toBe(2);
   });
 });
 

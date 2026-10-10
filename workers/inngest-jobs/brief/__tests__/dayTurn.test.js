@@ -351,3 +351,30 @@ describe('the day turn: no false done', () => {
     expect(claimsDone('Timesheets cannot be moved from here.')).toBe(false);
   });
 });
+
+describe('the day turn: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('shows the deadline it is due on, and only for a todo with no day', () => {
+    const req = readTurnRequest({
+      ...BODY,
+      plan: null,
+      items: [
+        {
+          id: 'r',
+          kind: 'todo',
+          title: 'Send the report',
+          due_day: null,
+          deadline: '2026-10-02',
+          note: 'due today',
+        },
+        { id: 'p', kind: 'todo', title: 'Planned', due_day: '2026-10-03', deadline: '2026-10-02' },
+        { id: 'h', kind: 'habit', title: 'Run', deadline: '2026-10-02' },
+      ],
+    });
+    expect(req.items.map((x) => x.deadline)).toEqual(['2026-10-02', null, null]);
+    const text = renderTurnInput(req, { first_name: 'James' });
+    expect(text).toContain(
+      'i1 | todo | Send the report | no day, due by 2026-10-02 | - | - | due today',
+    );
+    expect(text).toContain('i2 | todo | Planned | 2026-10-03 |');
+  });
+});

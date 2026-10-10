@@ -28,6 +28,8 @@ import { calendarSelects, meetingsFrom } from '../../../shared/calendar.js';
 import { scheduleOf, scheduleLabel } from '../../../shared/changes/check.js';
 import { buildDayRecord } from '../../../inngest-jobs/brief/dayRecord.js';
 import { isDay, weeklyDayOf } from '../../../shared/week.js';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { todoDayFilter, todoDayKind, todoDayOf } from '../../../shared/todoDay.js';
 import { easeOn, isBreakHabit, rowOfEase, weekAround } from '../../../shared/habitWeek.js';
 import { day, obj } from './schema.js';
 import { addDays, clock, dayWords, trim, weekdayOf } from './words.js';
@@ -218,16 +220,18 @@ async function readDay(ctx, date, shared) {
     threads,
   ] = await Promise.all([
     ...calendarSelects(d, u, ctx.timezone, date),
+    // on the day: planned for it, or with no day planned its deadline is that day
     d.select(
-      `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=eq.${date}&select=id,name,title,due_time,time_estimate_minutes&order=due_time.asc.nullslast&limit=50`,
+      `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&or=(${todoDayFilter('eq', date)})&select=id,name,title,due_day,scheduled_date,target_date,due_time,time_estimate_minutes&order=due_time.asc.nullslast&limit=50`,
     ),
     // put off until this day: no day of its own, and this is the day it comes back
     d.select(
-      `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=is.null&resurface_at=eq.${date}&select=id,name,title,time_estimate_minutes&limit=30`,
+      `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=is.null&scheduled_date=is.null&resurface_at=eq.${date}&select=id,name,title,time_estimate_minutes&limit=30`,
     ),
+    // past their day, planned or deadline: the most recent fifteen are kept below
     isToday
       ? d.select(
-          `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&due_day=lt.${date}&select=id,name,title,due_day&order=due_day.desc&limit=15`,
+          `todos?owner_id=eq.${u}&completed_at=is.null&archived=eq.false&or=(${todoDayFilter('lt', date)})&select=id,name,title,due_day,scheduled_date,target_date&order=due_day.desc.nullslast,target_date.desc.nullslast&limit=30`,
         )
       : Promise.resolve([]),
     ...shared,
@@ -246,8 +250,13 @@ async function readDay(ctx, date, shared) {
   ]);
   const left = await leftP;
   const todos = withoutClosedSteps(todosRead, left);
-  const back = withoutClosedSteps(backRead, left);
-  const overdue = withoutClosedSteps(overdueRead, left);
+  // one due on the day by its deadline and back on it too is listed once
+  const onDay = new Set((todos || []).map((t) => t.id));
+  const back = withoutClosedSteps(backRead, left).filter((t) => !onDay.has(t.id));
+  const overdue = withoutClosedSteps(overdueRead, left)
+    .map((t) => ({ ...t, was: todoDayOf(t) }))
+    .sort((a, b) => String(b.was).localeCompare(String(a.was)))
+    .slice(0, 15);
   const dco = dcoRows?.[0]?.dco || null;
   const { meetings, allDay } = meetingsFrom({
     synced,
@@ -354,24 +363,23 @@ function renderDay(r, ctx) {
       ? `Todos for the day: ${r.todos
           .map(
             (t) =>
-              `${trim(t.title, 60)} (id ${t.id})${t.due_time ? ` at ${clock(t.due_time)}` : ''}${t.time_estimate_minutes ? `, ${t.time_estimate_minutes} min` : ''}${t.back ? ', put off earlier and back on this day' : ''}`,
+              `${trim(t.title, 60)} (id ${t.id})${t.due_time ? ` at ${clock(t.due_time)}` : ''}${t.time_estimate_minutes ? `, ${t.time_estimate_minutes} min` : ''}${t.back ? ', put off earlier and back on this day' : ''}${!t.back && todoDayKind(t) === 'deadline' ? ', due this day by its deadline, no day planned' : ''}`,
           )
           .join('; ')}`
       : 'Todos for the day: none',
   );
   if (r.overdue.length) {
     lines.push(
-      `Past their day: ${r.overdue.map((t) => `${trim(t.title, 60)} (id ${t.id}, was ${dayWords(t.due_day, ctx.today)})`).join('; ')}`,
+      `Past their day: ${r.overdue.map((t) => `${trim(t.title, 60)} (id ${t.id}, was ${dayWords(t.was || t.due_day, ctx.today)}${todoDayKind(t) === 'deadline' ? ', its deadline' : ''})`).join('; ')}`,
     );
   }
   if (r.habits.length) {
     lines.push(
       `Habits: ${r.habits
-        .map(
-          (h) =>
-            h.breaking
-              ? `${trim(h.title, 50)} (id ${h.id}) a habit they are breaking, with nothing to do or plan, ${h.done ? 'checked in as kept clear that day' : 'no check in that day'}`
-              : `${trim(h.title, 50)} (id ${h.id}) ${h.schedule}, ${h.done ? 'done that day' : 'not done that day'}${h.progress ? `, ${h.progress}${h.met ? ', already met' : ''}` : ''}${plannedWords(h.planned, ctx.today)}${lighterWords(h.lighter)}`,
+        .map((h) =>
+          h.breaking
+            ? `${trim(h.title, 50)} (id ${h.id}) a habit they are breaking, with nothing to do or plan, ${h.done ? 'checked in as kept clear that day' : 'no check in that day'}`
+            : `${trim(h.title, 50)} (id ${h.id}) ${h.schedule}, ${h.done ? 'done that day' : 'not done that day'}${h.progress ? `, ${h.progress}${h.met ? ', already met' : ''}` : ''}${plannedWords(h.planned, ctx.today)}${lighterWords(h.lighter)}`,
         )
         .join('; ')}`,
     );

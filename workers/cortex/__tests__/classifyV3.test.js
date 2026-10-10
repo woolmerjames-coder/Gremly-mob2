@@ -1,6 +1,9 @@
 /**
  * classifyV3.js: prompt + normalisation for the single-call Mind Drop classifier.
  */
+import { createHash } from 'crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AMBIGUITY_TYPES,
   CLARIFY_TYPE_CONFIGS,
@@ -11,9 +14,11 @@ import {
   gateHabit,
   buildClarifyPrompt,
   buildClarification,
+  classifyPromptFor,
   formatDropMessage,
   normalizeClassifyV3,
   parseModelJson,
+  wantsQuestionWriter,
 } from '../classifyV3.js';
 
 describe('prompts', () => {
@@ -45,6 +50,14 @@ describe('prompts', () => {
       ...AMBIGUITY_TYPES.map((t) => buildClarifyPrompt(t).split('Return one JSON object')[0]),
     ].join('\n');
     expect(rulesOnly).not.toMatch(/\([^)]*,[^)]*,[^)]*\)/);
+  });
+
+  it('tell the question writer to ask in everyday words and never name a kind of item', () => {
+    for (const t of AMBIGUITY_TYPES) {
+      expect(buildClarifyPrompt(t)).toContain(
+        'never name a kind of item, the app, or where or how it will be kept',
+      );
+    }
   });
 
   it('never send the fixed fallback copy to the model', () => {
@@ -501,17 +514,37 @@ describe('normalizeClassifyV3', () => {
 });
 
 describe('buildClarification', () => {
-  it('rejects questions that use app words', () => {
+  let warn;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+  const backstops = () => warn.mock.calls.map((c) => c[0]).filter((m) => /backstop/.test(m));
+
+  it('reads no words: the prompts carry the rule against app words (9 Oct 2026)', () => {
     const r = buildClarification('bucket', 'Should I save this as a note?', [
-      'A thing',
-      'B thing',
-      'C thing',
+      'Track it',
+      'Save it',
+      'Log it',
     ]);
-    expect(r.clarification_question).toBe(CLARIFY_TYPE_CONFIGS.bucket.fallbackQuestion);
-    expect(r.question_source).toBe('fallback');
+    expect(r.clarification_question).toBe('Should I save this as a note?');
+    expect(r.question_source).toBe('model');
+    expect(r.labels_source).toBe('model');
+    expect(backstops()).toEqual([]);
   });
 
-  it('swaps an over long label for its fixed label rather than cutting it mid word', () => {
+  it('swaps an over long question for the fixed one, and logs it', () => {
+    const r = buildClarification(
+      'bucket',
+      'Is this something that you would like to get done at some point soon or later on?',
+      ['Need to do it', 'Thinking about it', 'Just remembering'],
+    );
+    expect(r.question_source).toBe('fallback');
+    expect(r.clarification_question).toBe(CLARIFY_TYPE_CONFIGS.bucket.fallbackQuestion);
+    expect(backstops()).toEqual(['[Clarify] backstop: question too long, fixed question used']);
+  });
+
+  it('swaps an over long label for its fixed label rather than cutting it mid word, and logs it', () => {
     const r = buildClarification('habit_or_todo', 'Is yoga a regular thing?', [
       'Only this weekend',
       'I am committing to a regular yoga practice every single week',
@@ -521,32 +554,18 @@ describe('buildClarification', () => {
       'Only this weekend',
       'A regular thing',
     ]);
-  });
-
-  it('keeps good labels and swaps only the ones using app words', () => {
-    const r = buildClarification(
-      'habit_or_todo',
-      'Is this a one off session or regular practice?',
-      ['Just once for now', 'A regular workout habit'],
-      null,
-      'Do strength exercises',
-    );
-    expect(r.labels_source).toBe('mixed');
-    expect(r.clarification_options.map((o) => o.label)).toEqual([
-      'Just once for now',
-      'A regular thing',
-    ]);
     expect(r.clarification_options[1]).toMatchObject({
       bucket: 'habit',
       habitSubtype: 'start_habit',
     });
+    expect(backstops()).toEqual(['[Clarify] backstop: label length, fixed label used']);
   });
 
-  it('uses the whole fixed set when every label fails', () => {
+  it('uses the whole fixed set when every label fails, and logs it', () => {
     const r = buildClarification('bucket', 'What about the gym?', [
-      'Track it',
-      'Save it',
-      'Log it',
+      'I really need to get to the gym this week',
+      'I keep thinking about going to the gym more',
+      'I just want to remember the gym exists',
     ]);
     expect(r.labels_source).toBe('fallback');
     expect(r.clarification_options.map((o) => o.label)).toEqual(
@@ -554,28 +573,13 @@ describe('buildClarification', () => {
     );
   });
 
-  it('allows a word the user wrote in the drop itself', () => {
-    const labels = ['Make the list', 'Thinking about it', 'Just remembering it'];
-    const own = buildClarification(
-      'bucket',
-      'Want to make the packing list?',
-      labels,
-      null,
-      'packing list',
-    );
-    expect(own.question_source).toBe('model');
-    expect(own.labels_source).toBe('model');
-    const notOwn = buildClarification(
-      'bucket',
-      'Want to make the packing list?',
-      labels,
-      null,
-      'packing',
-    );
-    expect(notOwn.question_source).toBe('fallback');
+  it('uses the fixed set for a wrong number of labels, and logs it', () => {
+    const r = buildClarification('bucket', 'Want to make the packing list?', ['Make it', 'Later']);
+    expect(r.labels_source).toBe('fallback');
+    expect(backstops()).toEqual(['[Clarify] backstop: wrong number of labels, fixed set used']);
   });
 
-  it('removes dashes from model text', () => {
+  it('removes dashes from model text, and logs each swap', () => {
     const r = buildClarification('bucket', 'What about yoga — really?', [
       'Need to do it',
       'Thinking – maybe',
@@ -583,6 +587,7 @@ describe('buildClarification', () => {
     ]);
     expect(r.clarification_question).toBe('What about yoga, really?');
     expect(r.clarification_options[1].label).toBe('Thinking, maybe');
+    expect(backstops()).toEqual(['[Clarify] backstop: dash swap', '[Clarify] backstop: dash swap']);
   });
 
   it('maps a goal option to break_habit when the behaviour is one to cut back', () => {
@@ -614,5 +619,202 @@ describe('buildClarification', () => {
         2,
       );
     }
+  });
+});
+
+// ── v3.8: clear or unsure splits, the drop as one, pieces that can ask ──────
+// (Mind Drop rethink stage 3, 9 Oct 2026)
+describe('v3.8 and the frozen v3.7', () => {
+  const hash = (s) => createHash('sha256').update(s).digest('hex');
+
+  it('puts v3.8 first and keeps v3.7, v4.1 and v4 exactly as they were', () => {
+    expect(PROMPT_VERSION).toBe('v3.8');
+    expect(PROMPT_VERSIONS).toEqual(['v3.8', 'v3.7', 'v4.1', 'v4']);
+    // Hashed on main before stage 3; any change to v3.7 or what is built on it fails here.
+    expect(hash(buildClassifyV3Prompt({ version: 'v3.7' }))).toBe(
+      '349d09994ea56ee35b4ebb85c8eb842c2c026a95650dca3b69441dbb32fb37ed',
+    );
+    expect(hash(buildClassifyV3Prompt({ version: 'v4.1' }))).toBe(
+      'dcc41fb85d74db2a92507694b71b48bfa3f780763948065b76c05bc20298b154',
+    );
+    expect(hash(buildClassifyV3Prompt({ version: 'v4' }))).toBe(
+      '1d83122a5fed326b27c3953ed50dc5254566ebe3a7c3afb6195d846f0af663eb',
+    );
+    expect(hash(buildSecondOpinionPrompt())).toBe(
+      'c4ac79d250a9137529fb167cf9c2b9d7ed14d28f8c89e4e7c91279a82c938f2c',
+    );
+  });
+
+  it('asks v3.8 how sure a split is, for the drop as one, and lets a piece be unclear', () => {
+    const p = buildClassifyV3Prompt({ version: 'v3.8' });
+    const v37 = buildClassifyV3Prompt({ version: 'v3.7' });
+    expect(p).not.toBe(v37);
+    expect(p).toMatch(/split \("clear" or "unsure"/);
+    expect(p).toMatch(/the whole drop would be if it were kept as one entry/);
+    expect(p).toMatch(/A segment may be ambiguous/);
+    expect(v37).not.toMatch(/"unsure"/);
+    expect(p).not.toMatch(/[–—]/);
+    expect(p).not.toMatch(/\bexamples?\b|\be\.g\.|\bsuch as\b|\bfor instance\b/i);
+    expect(p.split('\nOUTPUT\n')[0]).not.toMatch(/\([^)]*,[^)]*,[^)]*\)/);
+  });
+});
+
+describe('normalizeClassifyV3: splits and pieces (v3.8)', () => {
+  let warn;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+
+  const multi = (extra = {}) => ({
+    outcome: 'todo',
+    is_multi: true,
+    split: 'clear',
+    segments: [
+      { text: 'book flights for lisbon', outcome: 'todo' },
+      { text: 'stretch every morning', outcome: 'start_habit' },
+    ],
+    ...extra,
+  });
+
+  it('returns the split the classifier gave and the drop as one', () => {
+    const r = normalizeClassifyV3(multi(), 'book flights for lisbon and stretch every morning');
+    expect(r.is_multi).toBe(true);
+    expect(r.split).toBe('clear');
+    expect(r.as_one).toEqual({ bucket: 'todo', subtype: null, habitSubtype: null });
+    // builds already out still read the first piece as the drop's kind
+    expect(r.bucket).toBe('todo');
+  });
+
+  it('keeps an unsure split unsure', () => {
+    const r = normalizeClassifyV3(multi({ split: 'unsure', outcome: 'journal' }), 'x and y');
+    expect(r.split).toBe('unsure');
+    expect(r.as_one).toEqual({ bucket: 'log', subtype: 'journal', habitSubtype: null });
+  });
+
+  it('makes every split ask when CLASSIFY_SPLIT_AUTO is false, and keeps the classifier’s own call apart', () => {
+    const r = normalizeClassifyV3(multi(), 'x and y', { splitAuto: false });
+    expect(r.split).toBe('unsure');
+    // final check item 7: the model's call, whatever the switch makes of it
+    expect(r.split_said).toBe('clear');
+  });
+
+  it('asks rather than guesses when the classifier gives no split, and logs it', () => {
+    const r = normalizeClassifyV3(multi({ split: undefined }), 'x and y');
+    expect(r.split).toBe('unsure');
+    expect(r.split_said).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('never invents the drop as one: none given, none returned, and it is logged', () => {
+    const r = normalizeClassifyV3(multi({ outcome: 'ambiguous' }), 'x and y');
+    expect(r.as_one).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('gives no split or drop as one for a single drop', () => {
+    const r = normalizeClassifyV3({ outcome: 'todo', confidence: 0.9 }, 'call mum');
+    expect(r.split).toBeNull();
+    expect(r.as_one).toBeNull();
+  });
+
+  const withUnclearPiece = {
+    outcome: 'todo',
+    is_multi: true,
+    split: 'clear',
+    segments: [
+      { text: 'reschedule the dentist', outcome: 'todo' },
+      {
+        text: 'gym',
+        outcome: 'ambiguous',
+        ambiguity_type: 'habit_or_todo',
+        question: 'One gym visit or a regular thing?',
+        option_labels: ['Just once', 'Regularly', 'Keep it as a note'],
+        habit_direction: 'build',
+      },
+    ],
+  };
+
+  it('lets a piece ask its own question for builds that send piece_questions', () => {
+    const r = normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym', {
+      pieceQuestions: true,
+    });
+    const piece = r.segments[1];
+    expect(piece.is_ambiguous).toBe(true);
+    expect(piece.bucket).toBe('log');
+    expect(piece.subtype).toBe('general');
+    expect(piece.ambiguity_type).toBe('habit_or_todo');
+    expect(piece.clarification_question).toBe('One gym visit or a regular thing?');
+    expect(piece.clarification_options).toHaveLength(
+      CLARIFY_TYPE_CONFIGS.habit_or_todo.options.length,
+    );
+    expect(r.segments[0].is_ambiguous).toBe(false);
+  });
+
+  it('keeps an unclear piece as a general note with no question for builds already out, and logs it with no words', () => {
+    const r = normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym');
+    expect(r.segments[1]).toMatchObject({ bucket: 'log', subtype: 'general' });
+    expect(r.segments[1].clarification_question).toBeUndefined();
+    expect(r.segments[1].is_ambiguous).toBeUndefined();
+    // final check item 8
+    const flattened = warn.mock.calls.find((c) => String(c[0]).includes('saved as a general note'));
+    expect(flattened).toBeTruthy();
+    expect(JSON.stringify(flattened)).not.toContain('gym');
+  });
+
+  it('logs nothing about pieces when a piece can ask, or for a quiet shape check', () => {
+    normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym', { pieceQuestions: true });
+    normalizeClassifyV3(withUnclearPiece, 'reschedule the dentist, gym', { quiet: true });
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('saved as a general note'))).toBe(
+      false,
+    );
+  });
+});
+
+describe('classifyPromptFor (10 Oct 2026)', () => {
+  const env = { CLASSIFY_PROMPT: 'v3.7', CLASSIFY_PROMPT_NEW_BUILDS: 'v3.8' };
+
+  it('runs the new builds’ version for a build that sends piece_questions', () => {
+    expect(classifyPromptFor(env, { piece_questions: true })).toBe('v3.8');
+  });
+
+  it('keeps builds already out on CLASSIFY_PROMPT', () => {
+    expect(classifyPromptFor(env, {})).toBe('v3.7');
+    expect(classifyPromptFor(env, { piece_questions: false })).toBe('v3.7');
+  });
+
+  it('falls back to CLASSIFY_PROMPT when the new builds’ version is unset or unknown', () => {
+    expect(classifyPromptFor({ CLASSIFY_PROMPT: 'v3.7' }, { piece_questions: true })).toBe('v3.7');
+    expect(
+      classifyPromptFor(
+        { CLASSIFY_PROMPT: 'v3.7', CLASSIFY_PROMPT_NEW_BUILDS: 'v9' },
+        { piece_questions: true },
+      ),
+    ).toBe('v3.7');
+  });
+
+  it('runs the code’s default when no known version is set', () => {
+    expect(classifyPromptFor({}, {})).toBe(PROMPT_VERSION);
+    expect(classifyPromptFor({ CLASSIFY_PROMPT: 'v3.5' }, {})).toBe(PROMPT_VERSION);
+  });
+
+  it('matches wrangler.toml: the new build on v3.8 with splits that come apart, builds already out on v3.7', () => {
+    const toml = readFileSync(join(__dirname, '../wrangler.toml'), 'utf8');
+    const varOf = (name) => toml.match(new RegExp(`^${name} = "([^"]*)"`, 'm'))?.[1];
+    expect(varOf('CLASSIFY_PROMPT')).toBe('v3.7');
+    expect(varOf('CLASSIFY_PROMPT_NEW_BUILDS')).toBe('v3.8');
+    expect(varOf('CLASSIFY_SPLIT_AUTO')).toBe('true');
+  });
+});
+
+describe('wantsQuestionWriter (stage 4)', () => {
+  it('skips the writer only when the app says write_question: false', () => {
+    expect(wantsQuestionWriter({ write_question: false })).toBe(false);
+  });
+
+  it('keeps the writer for builds already out, which never send it', () => {
+    expect(wantsQuestionWriter({})).toBe(true);
+    expect(wantsQuestionWriter({ write_question: true })).toBe(true);
+    expect(wantsQuestionWriter(null)).toBe(true);
   });
 });

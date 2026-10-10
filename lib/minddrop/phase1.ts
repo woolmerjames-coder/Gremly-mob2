@@ -285,10 +285,46 @@ export interface ClassifyV3Multi {
     habitSubtype: HabitSubtype | null;
     likely_bucket?: string;
     likely_subtype?: string | null;
+    /** a piece the classifier could not settle, with its own question (piece_questions) */
+    is_ambiguous?: boolean;
+    ambiguity_type?: string | null;
+    clarification_question?: string | null;
+    clarification_options?: ReturnType<typeof mapWorkerOptions>;
   }>;
   summary?: string;
   dominant_bucket?: string;
   dominant_subtype?: string | null;
+  /** v3.8: clear splits are saved as their pieces, unsure ones as one item that asks */
+  split?: 'clear' | 'unsure' | null;
+  /**
+   * The classifier's own call, whatever CLASSIFY_SPLIT_AUTO made of it (null
+   * when it gave none, or from a Worker before the final check), for the
+   * split telemetry
+   */
+  split_said?: 'clear' | 'unsure' | null;
+  /** v3.8: the drop's kind kept as one item (null when the classifier gave none) */
+  as_one?: {
+    bucket: MindDropBucket;
+    subtype: LogSubtype | null;
+    habitSubtype: HabitSubtype | null;
+  } | null;
+}
+
+function readKind(raw: unknown): {
+  bucket: MindDropBucket;
+  subtype: LogSubtype | null;
+  habitSubtype: HabitSubtype | null;
+} | null {
+  const k = raw as Record<string, any> | null;
+  if (!k || typeof k !== 'object' || !['todo', 'habit', 'log'].includes(k.bucket)) return null;
+  const bucket = k.bucket as MindDropBucket;
+  return {
+    bucket,
+    subtype: (bucket === 'log' ? (k.subtype ?? 'general') : null) as LogSubtype | null,
+    habitSubtype: (bucket === 'habit'
+      ? (k.habitSubtype ?? 'start_habit')
+      : null) as HabitSubtype | null,
+  };
 }
 
 export interface ClassifyV3Result {
@@ -302,9 +338,10 @@ export interface ClassifyV3Result {
  * classification, the multi split and, when ambiguous, the clarifying
  * question and options.
  *
- * Returns null on ANY failure (disabled, non-OK, bad shape, network) so the
- * caller can fall back to the v2 path (detect-multi + classify-phase1-v2).
- * Timeouts are applied by the caller (dropPhases.ts).
+ * Returns null on ANY failure (disabled, non-OK, bad shape, network): the
+ * drop's runner tries again, then shows the drop's words with Retry; the
+ * degraded reclassify leaves the item for later. There is no v2 path in this
+ * build. Timeouts are applied by the caller (dropPhases.ts).
  */
 export async function runClassifyV3(
   text: string,
@@ -315,7 +352,7 @@ export async function runClassifyV3(
   if (!cortexUrl || !text?.trim()) return null;
 
   // Abort the request itself on timeout so a slow call does not keep running
-  // in the background after the pipeline has moved on to the v2 fallback.
+  // in the background after the runner has given up on this try.
   const controller =
     timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null;
   const abortTimer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -341,19 +378,24 @@ export async function runClassifyV3(
         currentDate: dateService.today(),
         dayOfWeek,
         timezone: ds.getTimezone(),
+        // Mind Drop rethink stage 4: a piece of a split may ask its own question,
+        // and the question writer runs after the sort (clarify-ambiguity), so it
+        // never holds up the kind
+        piece_questions: true,
+        write_question: false,
       }),
       ...(controller ? { signal: controller.signal } : {}),
     });
 
     if (!res.ok) {
-      console.log('[ClassifyV3] non-OK, falling back to v2', { status: res.status });
+      console.log('[ClassifyV3] non-OK; the runner tries again', { status: res.status });
       return null;
     }
 
     const json = await res.json();
     const validBuckets = ['todo', 'habit', 'log'];
     if (!json || !validBuckets.includes(json.bucket)) {
-      console.log('[ClassifyV3] bad shape, falling back to v2');
+      console.log('[ClassifyV3] bad shape; the runner tries again');
       return null;
     }
 
@@ -391,17 +433,35 @@ export async function runClassifyV3(
       json.is_multi === true && segments.length > 1
         ? {
             is_multi: true,
-            segments: segments.map((seg: any) => ({
-              text: String(seg.text || ''),
-              bucket: (validBuckets.includes(seg.bucket) ? seg.bucket : 'log') as MindDropBucket,
-              subtype: seg.subtype ?? null,
-              habitSubtype: seg.habitSubtype ?? null,
-              likely_bucket: seg.likely_bucket ?? seg.bucket,
-              likely_subtype: seg.likely_subtype ?? seg.subtype ?? null,
-            })),
+            segments: segments.map((seg: any) => {
+              const pieceAsks = seg.is_ambiguous === true;
+              return {
+                text: String(seg.text || ''),
+                bucket: (validBuckets.includes(seg.bucket) ? seg.bucket : 'log') as MindDropBucket,
+                subtype: seg.subtype ?? null,
+                habitSubtype: seg.habitSubtype ?? null,
+                likely_bucket: seg.likely_bucket ?? seg.bucket,
+                likely_subtype: seg.likely_subtype ?? seg.subtype ?? null,
+                is_ambiguous: pieceAsks,
+                ambiguity_type: pieceAsks ? normalizeAmbiguityType(seg.ambiguity_type) : null,
+                clarification_question:
+                  pieceAsks && typeof seg.clarification_question === 'string'
+                    ? seg.clarification_question
+                    : null,
+                clarification_options: pieceAsks
+                  ? mapWorkerOptions(seg.clarification_options, 'log')
+                  : null,
+              };
+            }),
             summary: json.summary || text.substring(0, 60),
             dominant_bucket: json.dominant_bucket || 'log',
             dominant_subtype: json.dominant_subtype ?? null,
+            // The classifier decides; a missing split asks (unsure), and a
+            // missing kind as one stays missing (saved as a note, logged by the caller)
+            split: json.split === 'clear' ? 'clear' : 'unsure',
+            split_said:
+              json.split_said === 'clear' || json.split_said === 'unsure' ? json.split_said : null,
+            as_one: readKind(json.as_one),
           }
         : { is_multi: false };
 
@@ -411,6 +471,7 @@ export async function runClassifyV3(
       is_ambiguous: isAmbiguous,
       ambiguity_type: phase1.ambiguity_type,
       is_multi: multi.is_multi,
+      split: multi.split ?? null,
       model: json.model,
       latency_ms: json.latency_ms,
     });
@@ -421,7 +482,7 @@ export async function runClassifyV3(
       latencyMs: typeof json.latency_ms === 'number' ? json.latency_ms : null,
     };
   } catch (err) {
-    console.log('[ClassifyV3] request failed, falling back to v2', { error: String(err) });
+    console.log('[ClassifyV3] request failed; the runner tries again', { error: String(err) });
     return null;
   } finally {
     if (abortTimer) clearTimeout(abortTimer);

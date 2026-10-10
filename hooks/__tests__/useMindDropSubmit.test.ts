@@ -45,18 +45,9 @@ jest.mock('../../lib/minddrop/dropPipeline', () => ({
   triggerProcessing: (...args: any[]) => mockTriggerProcessing(...args),
 }));
 
-const mockHeuristicClassify = jest.fn();
-jest.mock('../../lib/minddrop/heuristicClassify', () => ({
-  heuristicClassify: (...args: any[]) => mockHeuristicClassify(...args),
-}));
-
 const mockPreparePhotoDropText = jest.fn();
-const mockIsPhotoOnlyDrop = jest.fn();
-const mockGetPhotoDropDefaults = jest.fn();
 jest.mock('../../lib/minddrop/photoDrop', () => ({
   preparePhotoDropText: (...args: any[]) => mockPreparePhotoDropText(...args),
-  isPhotoOnlyDrop: (...args: any[]) => mockIsPhotoOnlyDrop(...args),
-  getPhotoDropDefaults: (...args: any[]) => mockGetPhotoDropDefaults(...args),
 }));
 
 jest.mock('../../lib/minddrop/ids', () => ({
@@ -97,13 +88,7 @@ beforeEach(() => {
   });
   mockTriggerProcessing.mockResolvedValue(undefined);
   mockIncrementDropCount.mockResolvedValue({ didAgeUp: false, newAge: 1 });
-  mockHeuristicClassify.mockReturnValue({
-    bucket: 'todo',
-    subtypeHint: null,
-  });
   mockPreparePhotoDropText.mockImplementation(({ text }: any) => text);
-  mockIsPhotoOnlyDrop.mockReturnValue(false);
-  mockGetPhotoDropDefaults.mockReturnValue({ bucket: 'note', subtype: null });
   mockPreviewGaugeDrop.mockReturnValue({ justCrossedFed: false });
 
   // Re-bind storeState methods (resetMocks replaces the mock fn instances)
@@ -174,7 +159,8 @@ describe('useMindDropSubmit — current architecture', () => {
 
     expect(submitResult.success).toBe(true);
     expect(submitResult.dropId).toBe('drop-123');
-    expect(submitResult.bucket).toBe('todo');
+    // no kind is guessed at the tap: the classifier sorts the drop
+    expect(submitResult).not.toHaveProperty('bucket');
   });
 
   it('rejects empty text', async () => {

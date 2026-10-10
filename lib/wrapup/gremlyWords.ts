@@ -25,6 +25,8 @@ import { weekdayOf } from './day';
 import { getDateService } from '../date/DateService';
 import type { WrapQuestion } from './questions';
 import { keptFor } from './state';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn } from '../../workers/shared/todoDay';
 
 /** Habits checked in during the wrap up, by name. */
 export interface HabitsTonight {
@@ -122,10 +124,13 @@ export function cardTitles(cards: { candidate: { raw?: Row } }[]): string[] {
   return cards.map((c) => titleOf(c.candidate.raw)).filter(Boolean);
 }
 
-/** Every todo planned for a day (open, due that day), by title, timed ones first in time order. */
+/**
+ * Every todo on a day (open, due that day: its planned day, or with none its
+ * deadline), by title, timed ones first in time order.
+ */
 export function todosPlannedFor(todos: Row[], day: string): string[] {
   return todos
-    .filter((t) => !t.archived && !t.completed_at && t.due_day === day)
+    .filter((t) => !t.archived && !t.completed_at && isTodoOn(t, day))
     .map((t, i) => ({ t, i }))
     .sort((a, b) => {
       const at = a.t.due_time ? String(a.t.due_time) : null;

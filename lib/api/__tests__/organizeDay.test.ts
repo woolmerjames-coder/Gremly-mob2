@@ -772,3 +772,22 @@ describe('organizeDay API', () => {
     it.todo('sets error field when API returns error');
   });
 });
+
+describe('buildOrganizeDayRequest: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is organised on its deadline day, and not on another', () => {
+    const today = '2025-01-25';
+    const todos = [
+      makeTodo({ id: 'due', due_day: null, target_date: today } as any),
+      makeTodo({ id: 'ahead', due_day: null, target_date: '2025-01-26' } as any),
+    ];
+    const result = buildOrganizeDayRequest({
+      todos,
+      habits: [],
+      calendarEvents: [],
+      capacity: makeDayCapacity(),
+      today,
+      currentHour: 9,
+    });
+    expect(result.tasks.map((t) => t.id)).toEqual(['due']);
+  });
+});

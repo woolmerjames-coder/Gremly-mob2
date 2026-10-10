@@ -330,3 +330,33 @@ describe('getSweepPrediction', () => {
     expect(result).toEqual({ type: 'none', label: '-' });
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  const deadline = (target_date: string) =>
+    ({
+      id: 'd',
+      type: 'todo',
+      name: 'Send the report',
+      due_day: null,
+      scheduled_date: null,
+      target_date,
+      created_at: `${WEEK_AGO}T10:00:00Z`,
+    }) as unknown as Todo;
+
+  it('is in the next Sweep before, on and after its deadline, as Sweep asks for a day', () => {
+    expect(getTodoSweepPrediction(deadline(TOMORROW))).toEqual({
+      type: 'next',
+      label: 'Next Sweep',
+    });
+    expect(getTodoSweepPrediction(deadline(TODAY))).toEqual({ type: 'next', label: 'Next Sweep' });
+    expect(getTodoSweepPrediction(deadline(YESTERDAY))).toEqual({
+      type: 'next',
+      label: 'Next Sweep',
+    });
+  });
+
+  it('a planned day ahead shows that day, whatever the deadline', () => {
+    const planned = { ...deadline(YESTERDAY), due_day: TOMORROW } as Todo;
+    expect(getTodoSweepPrediction(planned)).toMatchObject({ type: 'date', date: TOMORROW });
+  });
+});

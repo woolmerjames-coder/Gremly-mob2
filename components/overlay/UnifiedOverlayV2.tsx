@@ -157,6 +157,8 @@ import {
   originalLabelWords,
   showsOriginalLabel,
 } from '../../lib/chat/changeHistory';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOnOrBefore, plannedDayOf } from '../../workers/shared/todoDay';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
 
@@ -374,10 +376,9 @@ function computeSweepStatus(entity: any, baseType: BaseType): SweepStatus {
 
   // TODOS
   if (baseType === 'todo') {
-    const dueDay = entity.due_day;
-
-    // In tonight's sweep: overdue, due today, or undated
-    if (!dueDay || dueDay <= today) {
+    // In tonight's sweep: overdue, due today (its planned day, or with none
+    // its deadline), or no day planned
+    if (!plannedDayOf(entity) || isTodoOnOrBefore(entity, today)) {
       return { label: "In tonight's Sweep", type: 'in-sweep' };
     }
 

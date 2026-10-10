@@ -1,5 +1,4 @@
 import type { Mood } from '../lib/shared/moods';
-import type { MultiDropItem } from '../lib/minddrop/types';
 
 export type UnifiedDrop = {
   id: string;
@@ -30,13 +29,12 @@ export type UnifiedDrop = {
   hasPhotos?: boolean; // True if note has photo attachments
   time_estimate_minutes?: number | null; // Time estimate for todos from Phase 2 enrichment
   start_date?: string | null; // ISO date string for habit start date
+  time_window?: string | null; // part of the day (habits: Every morning on the drop card)
   days_active?: number[] | null; // Day numbers (0=Sunday, 1=Monday, etc.) for habit scheduling
   mood?: Mood[] | null; // Multi-select moods for journal entries
   priority_kind?: string | null; // Classifier-assigned structural role for todos
   // Multi-entity support
   is_multi?: boolean; // True if this drop contains multiple items
-  multi_items?: MultiDropItem[]; // The parsed items array
-  multi_summary_title?: string; // Summary title for display (e.g., "Groceries + Running Habit")
   // Phase 2: Clarification fields
   needs_clarification?: boolean; // True if AI needs user to disambiguate
   clarification_resolved?: boolean; // True once user responds to clarification

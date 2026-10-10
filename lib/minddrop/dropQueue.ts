@@ -68,6 +68,8 @@ function syncQueueToZustand(queue: QueuedDrop[]): void {
       // If none changed, return the OLD reference so React skips re-render.
       const fieldsMatch =
         old.phase === drop.phase &&
+        old.supabaseId === drop.supabaseId &&
+        old.split === drop.split &&
         old.bucket === drop.bucket &&
         old.subtype === drop.subtype &&
         old.smartTitle === drop.smartTitle &&
@@ -150,19 +152,39 @@ export type DropStatus =
   | 'failed'; // Failed, needs retry
 
 /**
- * Pipeline phase — the single source of truth for where a drop is in processing.
- * Each phase represents exactly one processing step with its own timeout and error boundary.
+ * Pipeline phase: the single source of truth for where a drop is in processing.
+ * From the Mind Drop rethink (stage 4, 9 Oct 2026) the order is
+ * queued → sorted → saved → complete (dropPhases.ts says what each does).
+ * The other names are an older build's; `migrateDropPhases` moves them on.
  */
 export type DropPhase =
-  | 'queued' // Initial — needs detect-multi + Phase 1 classification
-  | 'classified' // Phase 1 done — needs Phase 1.5a title
-  | 'titled' // Phase 1.5a done — needs Phase 2 enrichment
-  | 'enriched' // Phase 2 done — needs Supabase sync
-  | 'syncing' // Supabase write in progress
-  | 'complete' // Done — promoted to entity, dequeued
-  | 'failed' // Max retries exceeded — shows retry button
-  | 'multi_detected' // Multi-entity detected — needs to spawn children
-  | 'multi_awaiting'; // Parent waiting for all children to complete
+  | 'queued' // the tap: the title call, the already have it check and the classifier start
+  | 'sorted' // the kind is known: the details start and the drop is saved as its kind
+  | 'saved' // saved: waits for the details (at most 5s after the sort), then settles
+  | 'complete' // settled and dequeued
+  | 'failed' // Max retries exceeded: shows retry button
+  // An older build's phases, moved on by migrateDropPhases
+  | 'classified'
+  | 'titled'
+  | 'enriched'
+  | 'syncing'
+  | 'multi_detected'
+  | 'multi_awaiting';
+
+/** An older build's phase, and the phase it resumes at (the insert is safe to repeat by drop id). */
+export const LEGACY_PHASES: Partial<Record<DropPhase, DropPhase>> = {
+  classified: 'sorted',
+  titled: 'sorted',
+  multi_detected: 'sorted',
+  multi_awaiting: 'sorted',
+  enriched: 'saved',
+  syncing: 'saved',
+};
+
+/** The drop is saved: its own row (or its pieces') now stands for it on screen. */
+export function isDropSaved(drop: Pick<QueuedDrop, 'supabaseId' | 'pieceRows'>): boolean {
+  return !!drop.supabaseId || !!drop.pieceRows?.length;
+}
 
 export type DropSource = 'minddrop' | 'today' | 'space' | 'photo';
 
@@ -175,6 +197,28 @@ export interface MultiSegment {
   smart_title?: string | null;
   /** Confirmation message from Phase 1 classification */
   confirmation_message?: string | null;
+  /** A piece the classifier could not settle asks its own question (v3.8 with piece_questions) */
+  needsClarification?: boolean;
+  ambiguityType?: string | null;
+  clarificationQuestion?: string | null;
+  clarificationOptions?: unknown[] | null;
+}
+
+/** A piece of a clear split, once saved as its own item. */
+export interface SavedPieceRow {
+  entityType: 'todo' | 'habit' | 'note';
+  id: string;
+  dropId: string;
+  index: number;
+  text: string;
+  title: string;
+  bucket: MindDropBucket;
+  subtype: LogSubtype | null;
+  habitSubtype?: string | null;
+  /** the piece asks its own question (stage 7) */
+  asks?: boolean;
+  /** the row as saved, to tell a person's edit apart from the details (stage 7) */
+  base?: Record<string, unknown> & { views: Record<string, unknown> };
 }
 
 export interface QueuedDrop {
@@ -223,6 +267,26 @@ export interface QueuedDrop {
 
   /** Dominant subtype for multi-item drops */
   dominantSubtype?: LogSubtype | null;
+
+  /**
+   * How sure the classifier is that the pieces are separate (v3.8): clear
+   * splits are saved as their pieces, unsure ones as one item that asks.
+   * An older classifier says nothing, which is unsure.
+   */
+  split?: 'clear' | 'unsure' | null;
+
+  /** The classifier's own call on the split, whatever the switch made of it (telemetry) */
+  splitSaid?: 'clear' | 'unsure' | null;
+
+  /** The drop's kind kept as one item, for an unsure split (null: saved as a note) */
+  asOne?: {
+    bucket: MindDropBucket;
+    subtype: LogSubtype | null;
+    habitSubtype: HabitSubtype | null;
+  } | null;
+
+  /** A clear split's pieces, once saved */
+  pieceRows?: SavedPieceRow[];
 
   // ──────────────────────────────────────────────────────────────────────────
   // Single-item classification results
@@ -273,12 +337,6 @@ export interface QueuedDrop {
 
   /** Confirmation message to show user */
   confirmationMessage?: string | null;
-
-  /** AI-generated card note (warm subtitle) */
-  cardNote?: string | null;
-
-  /** Follow-up signal for speech bubble (multi-detect or clarify) */
-  followUpSignal?: 'multi' | 'clarify' | null;
 
   /** Extracted mood(s) for journal entries */
   mood?: string[] | null;
@@ -350,9 +408,10 @@ export interface QueuedDrop {
   clarificationQuestion?: string | null;
 
   /**
-   * Set when the drop is about something the user already has (a repeat, a
-   * change, a done todo, a habit they did). The drop then syncs as a note
-   * carrying this in views.relation until the user decides (dropRelation.ts).
+   * Set by an older build when the drop is about something the user already
+   * has: it then synced as a note carrying this in views.relation. From stage 4
+   * the answer is attached to the saved item of any kind instead (dropSync.ts
+   * attachDropRelation), and this stays unset.
    */
   relation?: import('./dropRelation').HeldRelation | null;
 
@@ -412,6 +471,40 @@ export interface QueuedDrop {
   reminderDate?: string | null;
   reminderTime?: string | null;
   reminderFrequency?: 'once' | 'daily' | null;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // The new order (Mind Drop rethink stage 4)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** The classifier heard a remind me: the reminder call runs with the details */
+  reminderIntent?: boolean;
+
+  /** When this run of the app first took the drop up (an offline drop waits first) */
+  startedAt?: number;
+
+  /** When the drop was sorted, saved and settled (ms since 1970, DateService) */
+  sortedAt?: number;
+  savedAt?: number;
+  settledAt?: number;
+
+  /** Whether the details were in by the settle, came after it, or were not asked for */
+  detailsIn?: 'in_time' | 'none' | 'after_settle' | 'not_asked';
+  /** the already have it answer: in by the settle (on the card), after it (Sweep), or not asked */
+  relationIn?: 'in_time' | 'after_settle' | 'not_asked';
+  /** where it lives (stage 9): in by the settle, after it (it fades in alone), or not asked */
+  filingIn?: 'in_time' | 'after_settle' | 'not_asked';
+
+  /** The detail fields as saved, to tell a person's edit apart when the details land */
+  savedBase?: import('./dropSync').DropDetailBase | null;
+
+  /** Saved with its own words as the title while the title call is still out */
+  wordsPending?: boolean;
+
+  /** Saved before the already have it check answered */
+  relationPending?: boolean;
+
+  /** Picked up again after the app stopped mid drop */
+  resumed?: boolean;
 }
 
 // ============================================================================
@@ -543,9 +636,14 @@ export async function saveDrop(localId: string, drop: QueuedDrop): Promise<void>
 }
 
 /**
- * Migrate existing drops to include the `phase` field.
- * Called once on app start. Drops without a phase get one derived from their status.
- * Safe to call multiple times — already-migrated drops are skipped.
+ * Move drops an older build left in the queue onto the phases this build runs.
+ * Called once on app start. Safe to call any number of times.
+ *
+ * - A drop with no phase gets one from its status.
+ * - An older build's phase moves on (LEGACY_PHASES): classified, titled and
+ *   both multi phases become sorted; enriched and syncing become saved, whose
+ *   handler saves the drop first when it has no row yet (the insert is safe to
+ *   repeat by drop id). A failed drop's resume phase moves the same way.
  */
 export async function migrateDropPhases(): Promise<number> {
   return withQueueLock(async () => {
@@ -553,7 +651,15 @@ export async function migrateDropPhases(): Promise<number> {
     let migrated = 0;
 
     for (const drop of queue) {
-      if (drop.phase) continue; // Already has phase — skip
+      if (drop.phase) {
+        const moved = LEGACY_PHASES[drop.phase];
+        const movedFailed = drop.failedAtPhase ? LEGACY_PHASES[drop.failedAtPhase] : undefined;
+        if (!moved && !movedFailed) continue;
+        if (moved) drop.phase = moved;
+        if (movedFailed) drop.failedAtPhase = movedFailed;
+        migrated++;
+        continue;
+      }
 
       // Derive phase from existing status
       switch (drop.status) {
@@ -561,14 +667,14 @@ export async function migrateDropPhases(): Promise<number> {
           drop.phase = 'queued';
           break;
         case 'classified':
-          drop.phase = 'classified';
+          drop.phase = 'sorted';
           break;
         case 'enriched':
-          drop.phase = 'enriched';
+          drop.phase = 'saved';
           break;
         case 'enrichment_failed':
-          // Treat as enriched with degraded data — let sync proceed
-          drop.phase = 'enriched';
+          // Treat as saved with degraded data: the save goes ahead
+          drop.phase = 'saved';
           break;
         case 'synced':
           drop.phase = 'complete';
@@ -723,8 +829,8 @@ export async function resolveClarification(
       needsClarification: false,
       clarificationQuestion: null,
       clarificationOptions: null,
-      // Reset to 'classified' phase so Phase 1.5a and Phase 2 re-run with new bucket
-      phase: 'classified',
+      // Back to sorted, so the drop is saved with its new kind (nothing calls this today)
+      phase: 'sorted',
       retryCount: 0,
       lastError: null,
     };

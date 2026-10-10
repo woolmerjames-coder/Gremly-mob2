@@ -7,6 +7,8 @@
 
 import { getDateService } from '../date';
 import type { Todo, Habit, Note } from '../types';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, isTodoOverdue, plannedDayOf } from '../../workers/shared/todoDay';
 
 export type SweepPrediction =
   | { type: 'next'; label: 'Next Sweep' }
@@ -25,18 +27,19 @@ export function getTodoSweepPrediction(todo: Todo): SweepPrediction {
     return { type: 'none', label: '-' };
   }
 
-  // Overdue = next sweep
-  if (todo.due_day && todo.due_day < today) {
+  // Overdue = next sweep (its planned day, else its deadline, has passed)
+  if (isTodoOverdue(todo, today)) {
     return { type: 'next', label: 'Next Sweep' };
   }
 
   // Due today = next sweep
-  if (todo.due_day === today) {
+  if (isTodoOn(todo, today)) {
     return { type: 'next', label: 'Next Sweep' };
   }
 
-  // Undated = next sweep
-  if (!todo.due_day) {
+  // No day planned = next sweep (a deadline is not a day to do it)
+  const planned = plannedDayOf(todo);
+  if (!planned) {
     return { type: 'next', label: 'Next Sweep' };
   }
 
@@ -46,9 +49,9 @@ export function getTodoSweepPrediction(todo: Todo): SweepPrediction {
   }
 
   // Future dated = show the due date
-  if (todo.due_day > today) {
-    const label = dateService.formatForChip(todo.due_day);
-    return { type: 'date', label, date: todo.due_day };
+  if (planned > today) {
+    const label = dateService.formatForChip(planned);
+    return { type: 'date', label, date: planned };
   }
 
   return { type: 'none', label: '-' };

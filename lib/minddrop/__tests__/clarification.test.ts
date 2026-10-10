@@ -153,6 +153,35 @@ describe('fetchClarification', () => {
   });
 });
 
+describe("the writer's own words (stage 4)", () => {
+  const reply = (extra: Record<string, unknown>) =>
+    (global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        clarification_question: 'Booked, or still to book?',
+        options: [
+          { id: 'opt_1', label: 'Booked', bucket: 'log', subtype: 'event' },
+          { id: 'opt_2', label: 'To book', bucket: 'todo' },
+        ],
+        ...extra,
+      }),
+    }) as any);
+
+  it("says so when the Worker says the question or labels are the model's", async () => {
+    reply({ question_source: 'model', labels_source: 'fallback' });
+    expect((await fetchClarification({ text: 'dentist' })).writerWords).toBe(true);
+    reply({ question_source: 'fallback', labels_source: 'mixed' });
+    expect((await fetchClarification({ text: 'dentist' })).writerWords).toBe(true);
+  });
+
+  it('does not when the Worker used its fixed copy, or does not say', async () => {
+    reply({ question_source: 'fallback', labels_source: 'fallback' });
+    expect((await fetchClarification({ text: 'dentist' })).writerWords).toBe(false);
+    reply({});
+    expect((await fetchClarification({ text: 'dentist' })).writerWords).toBe(false);
+  });
+});
+
 describe('parity with the Worker', () => {
   it('has fixed copy for every Worker question type', () => {
     for (const t of AMBIGUITY_TYPES) expect(CLARIFY_FALLBACKS[t]).toBeDefined();

@@ -282,3 +282,19 @@ describe('the candidate pool', () => {
     expect(asTodo[0]).toMatchObject({ id: 'car', kind: 'todo', source: 'reach' });
   });
 });
+
+describe('the candidate pool: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('holds one due today by its deadline, and never one whose deadline has passed', () => {
+    const dueToday = todo('due', { due_day: null, target_date: TODAY } as Partial<Todo>);
+    const passed = todo('passed', { due_day: null, target_date: '2026-09-29' } as Partial<Todo>);
+    const pool = buildCandidatePool(
+      input({
+        todos: [dueToday, passed],
+        todosDueToday: [dueToday],
+        claims: [{ type: 'todo', id: 'passed', why: 'It matters' }],
+      }),
+    );
+    expect(pool.map((c) => c.id)).toEqual(['due']);
+    expect(pool[0].why).toBe('Due today');
+  });
+});

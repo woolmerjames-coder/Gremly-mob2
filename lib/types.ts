@@ -117,7 +117,10 @@ export interface Habit {
       | 'prefilled'
       | 'multi_pending'
       | 'enriched'
-      | 'enrichment_failed';
+      | 'enrichment_failed'
+      // Mind Drop rethink stage 4: saved as its kind, then settled
+      | 'saved'
+      | 'settled';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -254,7 +257,10 @@ export interface Todo {
       | 'prefilled'
       | 'multi_pending'
       | 'enriched'
-      | 'enrichment_failed';
+      | 'enrichment_failed'
+      // Mind Drop rethink stage 4: saved as its kind, then settled
+      | 'saved'
+      | 'settled';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -368,7 +374,10 @@ export interface Note {
       | 'prefilled'
       | 'multi_pending'
       | 'enriched'
-      | 'enrichment_failed';
+      | 'enrichment_failed'
+      // Mind Drop rethink stage 4: saved as its kind, then settled
+      | 'saved'
+      | 'settled';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -686,7 +695,13 @@ export type EntityCardField =
   | 'body_add'
   | 'completed'
   /** habits: log a day they did it (the day as YYYY-MM-DD) */
-  | 'logged';
+  | 'logged'
+  /**
+   * todos: the deadline it must be done by (YYYY-MM-DD), apart from the day
+   * they plan to do it (due_day). Only Mind Drop's already have it check
+   * proposes it, for a build that sends deadlines: true (final check item 6).
+   */
+  | 'target_date';
 export interface EntityCardEntity {
   id: ID;
   type: EntityCardEntityType;

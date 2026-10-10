@@ -142,6 +142,8 @@ import {
   partWords,
 } from './words';
 import { briefWeekFacts, moveHabitDay } from '../brief/checkIn';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { todoDayOf } from '../../workers/shared/todoDay';
 
 const STEP_PAUSE_MS = 350;
 
@@ -355,7 +357,7 @@ function linkedItem(q: WrapQuestion | null) {
   const list = kind === 'todo' ? st.todos : kind === 'habit' ? st.habits : st.notes;
   const item = (list as Record<string, any>[]).find((x) => x.id === q.record_id);
   if (!item || item.archived) return null;
-  const day = kind === 'todo' ? item.due_day : kind === 'note' ? item.target_date : null;
+  const day = kind === 'todo' ? todoDayOf(item) : kind === 'note' ? item.target_date : null;
   return {
     id: item.id as string,
     kind,

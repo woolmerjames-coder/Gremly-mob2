@@ -287,3 +287,14 @@ describe('CalendarService', () => {
     });
   });
 });
+
+describe('CalendarService: a todo with a deadline and no day planned (stage 2c)', () => {
+  it('is on its deadline day when todos are asked for, and on no other', () => {
+    mockState = makeBaseState({
+      todos: [{ id: 't1', name: 'Send the report', due_day: null, target_date: '2025-12-16' }],
+    });
+    const on = getEventsForDate('2025-12-16', { includeTodos: true });
+    expect(on.map((i: CalendarItem) => i.title)).toEqual(['Send the report']);
+    expect(getEventsForDate('2025-12-15', { includeTodos: true })).toHaveLength(0);
+  });
+});

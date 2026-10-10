@@ -13,9 +13,11 @@ import {
   selectTodosDueToday,
   selectTodayCompletedItems,
   selectSweepCandidatesUnified,
+  selectQuickSweepCandidates,
   selectOverdueTodos,
   selectUnscheduledTodosForMiniSweep,
   selectRecentDrops,
+  selectUndatedTodos,
   selectHabitsUpToDateCount,
   selectItemsLinkedToEvent,
   selectEventsForDate,
@@ -2237,7 +2239,7 @@ describe('selectSweepCandidatesUnified: held drops', () => {
     },
   });
 
-  it('asks about a held drop whatever its kind or day, like a split', () => {
+  it('asks about a held drop whatever its kind, while the question is live (stage 8)', () => {
     const old = '2025-12-10T09:00:00Z';
     const state = makeState({
       notes: [
@@ -2245,6 +2247,14 @@ describe('selectSweepCandidatesUnified: held drops', () => {
           id: 'held',
           subtype: 'journal',
           created_at: old,
+          // asked yesterday: the quick sweep still asks it
+          views: { relation: relation('pending'), ask_since: '2025-12-14' },
+        } as any),
+        makeNote({
+          id: 'lapsed',
+          subtype: 'journal',
+          created_at: old,
+          // asked on its own day, five days ago: no longer asked
           views: { relation: relation('pending') },
         } as any),
         makeNote({ id: 'plain-journal', subtype: 'journal', created_at: old } as any),
@@ -2252,14 +2262,59 @@ describe('selectSweepCandidatesUnified: held drops', () => {
           id: 'answered',
           subtype: 'catchall',
           created_at: old,
-          views: { relation: relation('kept') },
+          views: { relation: relation('kept'), ask_since: '2025-12-15' },
         } as any),
       ],
     });
     const ids = selectSweepCandidatesUnified(state as any).map((i) => i.candidate.id);
     expect(ids).toContain('held');
+    expect(ids).not.toContain('lapsed');
     expect(ids).not.toContain('plain-journal');
     expect(ids).not.toContain('answered');
+  });
+
+  it('brings in a habit with a question Sweep asks, as a plain card', () => {
+    const state = makeState({
+      habits: [
+        {
+          id: 'h1',
+          name: 'Run',
+          created_at: '2025-12-15T09:00:00Z',
+          views: { relation: relation('pending'), ask_since: '2025-12-15' },
+        },
+        { id: 'h2', name: 'Read', created_at: '2025-12-15T09:00:00Z', views: {} },
+      ],
+    } as any);
+    const cards = selectSweepCandidatesUnified(state as any);
+    expect(cards.map((i) => i.candidate.id)).toEqual(['h1']);
+    expect(cards[0].candidate.kind).toBe('habit');
+  });
+
+  it('the wrap up asks the questions made today, and the quick sweep those from yesterday too', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'today',
+          subtype: 'catchall',
+          created_at: '2025-12-01T09:00:00Z',
+          swept_at: '2025-12-02T09:00:00Z',
+          views: { needs_clarification: true, ask_since: '2025-12-15' },
+        } as any),
+        makeNote({
+          id: 'yesterday',
+          subtype: 'catchall',
+          created_at: '2025-12-01T09:00:00Z',
+          swept_at: '2025-12-02T09:00:00Z',
+          views: { needs_clarification: true, ask_since: '2025-12-14' },
+        } as any),
+      ],
+    });
+    expect(selectWrapUp(state as any).cards.map((i) => i.candidate.id)).toEqual(['today']);
+    expect(
+      selectQuickSweepCandidates(state as any)
+        .map((i) => i.candidate.id)
+        .sort(),
+    ).toEqual(['today', 'yesterday']);
   });
 
   it('puts cards with a question ahead of everything, even an overdue todo', () => {
@@ -2273,6 +2328,12 @@ describe('selectSweepCandidatesUnified: held drops', () => {
           views: { needs_clarification: true },
         } as any),
         makeNote({
+          id: 'split',
+          subtype: 'catchall',
+          created_at: '2025-12-15T11:00:00Z',
+          views: { split: { status: 'pending', pieces: [] } },
+        } as any),
+        makeNote({
           id: 'held',
           subtype: 'catchall',
           created_at: '2025-12-15T10:00:00Z',
@@ -2281,7 +2342,8 @@ describe('selectSweepCandidatesUnified: held drops', () => {
       ],
     });
     const ids = selectSweepCandidatesUnified(state as any).map((i) => i.candidate.id);
-    expect(ids.slice(0, 3)).toEqual(['held', 'unclear', 'overdue']);
+    // is this one you already have? first, then a split, then a question
+    expect(ids.slice(0, 4)).toEqual(['held', 'split', 'unclear', 'overdue']);
   });
 });
 
@@ -2435,5 +2497,136 @@ describe("the wrap up's cards", () => {
       .cards.map((c) => c.candidate.id)
       .sort();
     expect(ids).toEqual(['back-earlier', 'back-today']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// A todo with only a deadline (stage 2c): due on its deadline day, overdue after
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a todo with a deadline and no day planned', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const deadline = (id: string, target_date: string) =>
+    makeTodo({ id, due_day: null, scheduled_date: null, target_date } as Partial<Todo>);
+
+  it('is on Today on its deadline day, and not before', () => {
+    const state = makeState({
+      todos: [deadline('due-today', '2025-12-15'), deadline('due-tomorrow', '2025-12-16')],
+    });
+    expect(selectTodosDueToday(state as any).map((t) => t.id)).toEqual(['due-today']);
+  });
+
+  it('is overdue once its deadline has passed, and not on the day', () => {
+    const state = makeState({
+      todos: [deadline('passed', '2025-12-14'), deadline('due-today', '2025-12-15')],
+    });
+    expect(selectOverdueTodos(state as any).map((t) => t.id)).toEqual(['passed']);
+  });
+
+  it('waits with the undated todos until its deadline, then leaves them', () => {
+    const state = makeState({
+      todos: [
+        deadline('ahead', '2025-12-18'),
+        deadline('due-today', '2025-12-15'),
+        deadline('passed', '2025-12-14'),
+      ],
+    });
+    expect(selectUndatedTodos(state as any).map((t) => t.id)).toEqual(['ahead']);
+    expect(selectRecentDrops(state as any).map((t) => t.id)).toEqual(['ahead']);
+  });
+
+  it('a planned day wins over the deadline', () => {
+    const state = makeState({
+      todos: [makeTodo({ id: 'planned', due_day: '2025-12-16', target_date: '2025-12-15' } as any)],
+    });
+    expect(selectTodosDueToday(state as any)).toEqual([]);
+    expect(selectOverdueTodos(state as any)).toEqual([]);
+  });
+
+  it('is due today in Sweep on its deadline, overdue after, worded as a deadline', () => {
+    const state = makeState({
+      todos: [deadline('due-today', '2025-12-15'), deadline('passed', '2025-12-14')],
+    });
+    const cards = selectSweepCandidatesUnified(state as any);
+    const today = cards.find((c) => c.candidate.id === 'due-today')!;
+    const passed = cards.find((c) => c.candidate.id === 'passed')!;
+    expect(today.candidate).toMatchObject({ isDueToday: true, isOverdue: false });
+    expect(today.meta).toMatchObject({ todoStatus: 'due_today', byDeadline: true });
+    expect(passed.candidate).toMatchObject({ isDueToday: false, isOverdue: true });
+    expect(passed.meta).toMatchObject({ todoStatus: 'overdue', byDeadline: true });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// A todo with only a deadline is never lost before its deadline (James, 10 Oct):
+// every evening's wrap up brings it back until it has a day to do it
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('a todo with only a deadline, before its deadline', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const at = (iso: string) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(iso));
+  };
+  // dropped on the 10th, due by Friday the 19th, no day to do it yet
+  const report = (over: Record<string, unknown> = {}) =>
+    makeTodo({
+      id: 'report',
+      due_day: null,
+      scheduled_date: null,
+      target_date: '2025-12-19',
+      created_at: '2025-12-10T09:00:00Z',
+      ...over,
+    } as Partial<Todo>);
+  const wrapUpIds = (todos: Todo[]) =>
+    selectWrapUp(makeState({ todos }) as any).cards.map((c) => c.candidate.id);
+
+  it('is a card in every evening wrap up until its deadline, and after it', () => {
+    for (const day of ['2025-12-12', '2025-12-15', '2025-12-18', '2025-12-19', '2025-12-22']) {
+      at(`${day}T20:00:00Z`);
+      expect(wrapUpIds([report()])).toEqual(['report']);
+    }
+  });
+
+  it('once it has a day to do it, it waits for that day, then comes back', () => {
+    at('2025-12-15T20:00:00Z');
+    expect(wrapUpIds([report({ due_day: '2025-12-17' })])).toEqual([]);
+    at('2025-12-17T20:00:00Z');
+    expect(wrapUpIds([report({ due_day: '2025-12-17' })])).toEqual(['report']);
+  });
+
+  it('the morning quick sweep asks it until it is decided, and the evening keeps it either way', () => {
+    at('2025-12-15T16:00:00Z');
+    const ids = (todos: Todo[]) =>
+      selectQuickSweepCandidates(makeState({ todos }) as any).map((c) => c.candidate.id);
+    expect(ids([report()])).toEqual(['report']);
+    expect(ids([report({ decided_at: '2025-12-14T21:00:00Z' })])).toEqual([]);
+    at('2025-12-15T20:00:00Z');
+    expect(wrapUpIds([report({ decided_at: '2025-12-14T21:00:00Z' })])).toEqual(['report']);
+  });
+
+  it('Later holds it until the day it comes back; a Later past the deadline still shows on Today on the day', () => {
+    at('2025-12-16T20:00:00Z');
+    expect(wrapUpIds([report({ resurface_at: '2025-12-17' })])).toEqual([]);
+    at('2025-12-17T20:00:00Z');
+    expect(wrapUpIds([report({ resurface_at: '2025-12-17' })])).toEqual(['report']);
+    // put off to after the deadline: Today still has it on the deadline day, and overdue after
+    at('2025-12-19T16:00:00Z');
+    const late = makeState({ todos: [report({ resurface_at: '2025-12-23' })] });
+    expect(selectTodosDueToday(late as any).map((t) => t.id)).toEqual(['report']);
+    at('2025-12-20T16:00:00Z');
+    const after = makeState({ todos: [report({ resurface_at: '2025-12-23' })] });
+    expect(selectOverdueTodos(after as any).map((t) => t.id)).toEqual(['report']);
   });
 });

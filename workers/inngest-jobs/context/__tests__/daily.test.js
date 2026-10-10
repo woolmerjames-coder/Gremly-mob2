@@ -190,3 +190,39 @@ describe('gathering the day', () => {
     warn.mockRestore();
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  const todo = (id, title, over) => ({ id, title, created_at: '2026-10-01T09:00:00Z', ...over });
+  // the lines under a heading, up to the next heading
+  const block = (g, head) => {
+    const text = renderDay(g, 'UTC').text;
+    const rest = text.slice(text.indexOf(`\n${head}`) + 1);
+    const next = rest.slice(1).search(/\n[A-Z]{2,}/);
+    return next === -1 ? rest : rest.slice(0, next + 1);
+  };
+
+  it('is due today on its deadline, past its date after, and coming up before', () => {
+    const g = day({
+      openTodos: [
+        todo('t1', 'Send the report', { due_day: null, target_date: TODAY }),
+        todo('t2', 'Pay the bill', { due_day: null, target_date: '2026-10-06' }),
+        todo('t3', 'Book the hall', { due_day: null, target_date: '2026-10-09' }),
+      ],
+    });
+    expect(block(g, 'ON TODAY OR DUE TODAY')).toContain(
+      'Send the report | due today, its deadline, no day planned',
+    );
+    expect(block(g, 'PAST THEIR DATE')).toContain('Pay the bill | was due 2026-10-06');
+    expect(block(g, 'PAST THEIR DATE')).toContain(', its deadline, no day planned');
+    expect(block(g, 'COMING UP')).toContain('Book the hall | deadline 2026-10-09');
+    expect(block(g, 'UNDATED')).not.toContain('Send the report');
+  });
+
+  it('a planned day wins over the deadline', () => {
+    const g = day({
+      openTodos: [todo('t1', 'Send the report', { due_day: '2026-10-09', target_date: TODAY })],
+    });
+    expect(block(g, 'ON TODAY OR DUE TODAY')).not.toContain('Send the report');
+    expect(block(g, 'COMING UP')).toContain('Send the report | due 2026-10-09');
+  });
+});

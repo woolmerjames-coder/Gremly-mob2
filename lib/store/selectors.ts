@@ -15,11 +15,18 @@ import { computeWorldsForEntity } from './worldsSelectors';
 import type { NowWeeklyHabitSummary, HabitWeeklyStatus } from '../now/nowTypes';
 import { getDateService } from '../date';
 import { summaryForDay } from '../weeklySummary/currentSummary';
-import { isRelationPending } from '../minddrop/dropRelation';
+import { sweepShowsAsk, type SweepWindow } from '../minddrop/asks';
 import { sweepCardAsks } from '../sweep/sweepOrder';
 import { quickSweepCards } from '../sweep/quickSweep';
 import { dayOfWeek, pausedOn, weekAround } from '../week/habitWeek';
 import { filedIndex, stepsOnClosedChapters } from '../worlds/model';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import {
+  isTodoOn,
+  isTodoOnOrBefore,
+  isTodoOverdue,
+  plannedDayOf,
+} from '../../workers/shared/todoDay';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DATE HELPERS
@@ -547,17 +554,20 @@ export const selectTodosDueToday = createSelector(
     const today = getTodayDayString();
     return todos.filter(
       (t) =>
-        (t.due_day === today || (!t.due_day && (t as any).resurface_at === today)) &&
+        (isTodoOn(t, today) || (!plannedDayOf(t) && (t as any).resurface_at === today)) &&
         !hiddenIds.includes(t.id),
     );
   },
 );
 
-/** Overdue todos (due_day < today, not completed, not archived) */
+/**
+ * Overdue todos: their day has passed, the planned day or, with none, the
+ * deadline (workers/shared/todoDay.js). Not completed, not archived.
+ */
 export const selectOverdueTodos = createSelector([selectDayTodos], (todos): Todo[] => {
   const today = getTodayDayString();
   const result = todos.filter((t) => {
-    if (!t.due_day || t.due_day >= today) return false;
+    if (!isTodoOverdue(t, today)) return false;
     // Check if skipped today
     const skippedDay = ds().dayOf(t.skipped_in_sweep_at);
     if (skippedDay === today) {
@@ -578,14 +588,18 @@ export const selectOverdueTodos = createSelector([selectDayTodos], (todos): Todo
 /** Rolled over todos - alias for overdue (for Mini-Sweep clarity) */
 export const selectRolledOverTodos = selectOverdueTodos;
 
-/** Unscheduled todos for Mini-Sweep: no due_day, created in last 3 days, not skipped today */
+/**
+ * Unscheduled todos for Mini-Sweep: no planned day and not yet due (a deadline
+ * only todo joins Today on its deadline), created in the last 3 days, not
+ * skipped today
+ */
 export const selectUnscheduledTodosForMiniSweep = createSelector(
   [selectDayTodos],
   (todos): Todo[] => {
     const today = getTodayDayString();
     const threeDaysAgo = getDaysAgoDayString(3);
     const result = todos.filter((t) => {
-      if (t.due_day) return false; // Must be unscheduled
+      if (plannedDayOf(t) || isTodoOnOrBefore(t, today)) return false; // Must be unscheduled and not yet due
       const createdDay = ds().dayOf(t.created_at);
       if (!createdDay || createdDay < threeDaysAgo) return false;
       // Check if skipped today
@@ -616,10 +630,15 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
   return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
-/** Undated todos (no due_day, for triage) */
-export const selectUndatedTodos = createSelector([selectDayTodos], (todos): Todo[] =>
-  todos.filter((t) => !t.due_day),
-);
+/**
+ * Undated todos, for triage: no planned day, and not yet due. A deadline only
+ * todo is here until its deadline, then on Today, then overdue
+ * (workers/shared/todoDay.js).
+ */
+export const selectUndatedTodos = createSelector([selectDayTodos], (todos): Todo[] => {
+  const today = getTodayDayString();
+  return todos.filter((t) => !plannedDayOf(t) && !isTodoOnOrBefore(t, today));
+});
 
 /** Recent drops: undated todos created in last 3 days */
 export const selectRecentDrops = createSelector([selectUndatedTodos], (todos): Todo[] => {
@@ -736,8 +755,9 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
 
 /**
  * Unified sweep candidates with pre-computed display metadata.
- * Includes todos (overdue, due today, undated), notes (ideas, general),
- * and habits that need start date confirmation.
+ * Includes todos (overdue, due today, undated), notes (ideas, general), and
+ * any todo, note or habit with a question Sweep asks: here, the quick sweep's
+ * window (made today or yesterday), as this list is the quick sweep's base.
  *
  * Sort order:
  * 1. Cards with a question
@@ -747,15 +767,26 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectWorlds, selectDropWorldLinks, selectStepsOnClosedChapters],
+  [
+    selectTodos,
+    selectNotes,
+    selectWorlds,
+    selectDropWorldLinks,
+    selectStepsOnClosedChapters,
+    selectHabits,
+  ],
   (
     todos,
     notes,
     worlds,
     dropWorldLinks,
     left,
+    habits,
   ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> =>
-    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString(), left),
+    sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, getTodayDayString(), left, {
+      habits,
+      asks: 'quick',
+    }),
 );
 
 /**
@@ -771,7 +802,16 @@ export function sweepCandidatesAsOf(
   today: string,
   /** Steps left on a closed Chapter, which stay with it (selectStepsOnClosedChapters) */
   left: Set<string> = new Set(),
+  /**
+   * Habits (a habit with a question Sweep asks joins as a plain card), and
+   * which Sweep's question window counts (lib/minddrop/asks.ts): the wrap up
+   * asks those made that day, the quick sweep that day or the day before.
+   */
+  more: { habits?: ReadonlyArray<Habit>; asks?: SweepWindow } = {},
 ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> {
+  const window: SweepWindow = more.asks ?? 'wrapup';
+  const asking = (item: unknown) =>
+    sweepShowsAsk(item as Parameters<typeof sweepShowsAsk>[0], today, window);
   {
     const sevenDaysAgo = ds().addDays(today, -7);
     const candidates: SweepCandidate[] = [];
@@ -781,25 +821,28 @@ export function sweepCandidatesAsOf(
       if (todo.archived || todo.completed_at || left.has(todo.id)) {
         continue;
       }
+      // a question Sweep asks brings it in whatever its day (stage 8)
+      const asks = asking(todo);
 
       // Check resurface date first - if set for the future, skip entirely
       const resurfaceAt = (todo as any).resurface_at;
       const hasFutureResurface = resurfaceAt && resurfaceAt > today;
-      if (hasFutureResurface) {
+      if (hasFutureResurface && !asks) {
         continue;
       }
 
-      const dueDay = todo.due_day;
-      const isOverdue = dueDay ? dueDay < today : false;
-      const isDueToday = dueDay === today;
-      const isUndated = !dueDay;
+      // On its planned day, else its deadline (workers/shared/todoDay.js). With
+      // no planned day it still needs one, so Sweep keeps asking.
+      const isOverdue = isTodoOverdue(todo, today);
+      const isDueToday = isTodoOn(todo, today);
+      const isUndated = !plannedDayOf(todo);
       const isCreatedToday = ds().isTimestampToday(todo.created_at);
       const wasSkipped = !!todo.skipped_in_sweep_at;
 
       // Check if todo should resurface today (remind me later)
       const shouldResurface = resurfaceAt && resurfaceAt <= today;
 
-      if (isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
+      if (asks || isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
         candidates.push({
           id: todo.id,
           kind: 'todo',
@@ -817,16 +860,16 @@ export function sweepCandidatesAsOf(
     // Process notes
     for (const note of notes) {
       if (note.archived) continue;
-      // A drop waiting on "is this one you already have?" is asked in Sweep
-      // whatever its kind or day, like a split (lib/minddrop/dropRelation.ts)
-      const relationPending = isRelationPending(note.views);
+      // A question Sweep asks (is this one you already have? one job or two?
+      // what is this?) brings it in whatever its kind or day (stage 8)
+      const relationPending = asking(note);
       if (note.subtype === 'journal' && !relationPending) continue;
 
       const resurfaceAt = (note as any).resurface_at;
       const sweptAt = (note as any).swept_at;
 
       // Skip notes with FUTURE resurface date (not time yet)
-      if (resurfaceAt && resurfaceAt > today) {
+      if (resurfaceAt && resurfaceAt > today && !relationPending) {
         continue;
       }
 
@@ -900,6 +943,23 @@ export function sweepCandidatesAsOf(
       }
     }
 
+    // A habit with a question Sweep asks: a plain card with the question
+    for (const habit of more.habits ?? []) {
+      if (habit.archived || !asking(habit)) continue;
+      const createdAt = habit.created_at ?? '';
+      candidates.push({
+        id: habit.id,
+        kind: 'habit',
+        createdAt,
+        dropId: (habit as any).drop_id ?? null,
+        skippedInSweepAt: null,
+        isOverdue: false,
+        isDueToday: false,
+        isCreatedToday: ds().dayOf(createdAt) === today,
+        raw: habit as any,
+      } satisfies SweepCandidateHabit);
+    }
+
     // Compute meta for each candidate
     const withMeta = candidates.map((candidate) => ({
       candidate,
@@ -917,9 +977,9 @@ export function sweepCandidatesAsOf(
 
       // 0. Cards with a question first: the answers can change other cards
       //    (lib/sweep/sweepOrder.ts)
-      const asks = { relation: 0, clarify: 1 } as const;
-      const aAsks = sweepCardAsks(a.candidate);
-      const bAsks = sweepCardAsks(b.candidate);
+      const asks = { relation: 0, split: 1, clarify: 2 } as const;
+      const aAsks = sweepCardAsks(a.candidate, today, window);
+      const bAsks = sweepCardAsks(b.candidate, today, window);
       if (aAsks || bAsks) {
         if (!bAsks) return -1;
         if (!aAsks) return 1;
@@ -934,8 +994,8 @@ export function sweepCandidatesAsOf(
       if (a.candidate.isDueToday && !b.candidate.isDueToday) return -1;
       if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
 
-      // 4. Group by kind: todos → notes
-      const kindOrder: Record<string, number> = { todo: 0, note: 1 };
+      // 4. Group by kind: todos → notes → habits
+      const kindOrder: Record<string, number> = { todo: 0, note: 1, habit: 2 };
       const aOrder = kindOrder[aKind] ?? 2;
       const bOrder = kindOrder[bKind] ?? 2;
       if (aOrder !== bOrder) return aOrder - bOrder;
@@ -962,10 +1022,17 @@ export const selectWrapUp = createSelector(
     // the person's day as the store has it, so the cards are worked out again when it rolls over
     (state: GremlyState) => state.currentDate,
     selectStepsOnClosedChapters,
+    selectHabits,
   ],
-  (todos, notes, worlds, dropWorldLinks, _day, left) => {
+  (todos, notes, worlds, dropWorldLinks, _day, left, habits) => {
     const day = ds().ritualDay();
-    return { cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day, left) };
+    // tonight's wrap up asks the questions made today (lib/minddrop/asks.ts)
+    return {
+      cards: sweepCandidatesAsOf(todos, notes, worlds, dropWorldLinks, day, left, {
+        habits,
+        asks: 'wrapup',
+      }),
+    };
   },
 );
 
@@ -1618,8 +1685,12 @@ import type { QueuedDrop } from '../minddrop/dropQueue';
 export function useTodayPendingDrops(): QueuedDrop[] {
   return useGremlyStore(
     useShallow((state) => {
+      // Once saved, the todo itself is on Today (Mind Drop rethink stage 4), so
+      // the pending row goes rather than show twice (isDropSaved in dropQueue.ts).
+      // One that failed stays, with its words and Retry.
       return state.queueItems.filter(
-        (d) => d.source === 'today' && d.phase !== 'complete' && d.phase !== 'failed',
+        (d) =>
+          d.source === 'today' && d.phase !== 'complete' && !d.supabaseId && !d.pieceRows?.length,
       );
     }),
   );

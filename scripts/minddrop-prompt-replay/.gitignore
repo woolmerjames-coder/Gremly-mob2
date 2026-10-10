@@ -1,2 +1,4 @@
 .bundle*.mjs
 out/
+# real drops for the --real replay: kept out of the repo
+real/

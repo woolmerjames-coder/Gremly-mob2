@@ -3,6 +3,9 @@
 // Confirms the production code path (aiProvider request shapes, timeouts,
 // fallback, normaliser) matches the audit harness.
 // Usage: node run-v3-worker.mjs <split> <tag> KEY=VALUE ...   (Worker vars)
+// Sends piece_questions as the Mind Drop rethink's app builds do (PIECE_QUESTIONS=false
+// to send it as builds already out do), and records the split, the drop as one and
+// any piece's question (stage 3, 9 Oct 2026).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { MODELS, callCost } from './models.mjs';
@@ -48,13 +51,13 @@ async function w() {
     const store = { calls: [] };
     await als.run(store, async () => {
       const t0 = Date.now();
-      const req = new Request('https://worker.local/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '10.0.0.1' }, body: JSON.stringify({ type: 'classify-v3', text: it.raw, currentDate: '2026-09-29', dayOfWeek: 'Tuesday' }) });
+      const req = new Request('https://worker.local/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '10.0.0.1' }, body: JSON.stringify({ type: 'classify-v3', text: it.raw, currentDate: '2026-09-29', dayOfWeek: 'Tuesday', ...(process.env.PIECE_QUESTIONS === 'false' ? {} : { piece_questions: true }) }) });
       const res = await worker.fetch(req, env, { waitUntil() {} });
       const json = await res.json().catch(() => null);
       const ms = Date.now() - t0;
       const ok = res.status === 200 && json && json.bucket;
       const lab = (o) => (o.bucket === 'habit' ? `habit/${o.habitSubtype || 'start_habit'}` : o.bucket === 'todo' ? 'todo' : `log/${o.subtype || 'general'}`);
-      rows.push({ id: it.id, raw: it.raw, label: ok ? labelOf(json) : 'FAIL', options: json?.clarification_options ? json.clarification_options.map((o) => ({ label: lab(o), text: o.label })) : null, segments: json?.is_multi && json.segments ? json.segments.map((x) => ({ text: x.text, label: lab(x) })) : null, gate: json?.gate || null, ms: ok ? ms : null, status: res.status, provider: json?.provider, model: json?.model, wasFallback: json?.was_fallback, question: json?.clarification_question || null, labels: json?.clarification_options?.map((o) => o.label) || null, ambiguity_type: json?.ambiguity_type || null, clar_source: json?.clarification_source || null, calls: store.calls, cost: store.calls.reduce((a, c) => a + (c.cost || 0), 0) });
+      rows.push({ id: it.id, raw: it.raw, label: ok ? labelOf(json) : 'FAIL', options: json?.clarification_options ? json.clarification_options.map((o) => ({ label: lab(o), text: o.label })) : null, segments: json?.is_multi && json.segments ? json.segments.map((x) => ({ text: x.text, label: x.is_ambiguous ? 'ambiguous' : lab(x), ...(x.is_ambiguous ? { ambiguity_type: x.ambiguity_type, question: x.clarification_question } : {}) })) : null, split: json?.split ?? null, as_one: json?.as_one ? lab(json.as_one) : null, prompt_version: json?.prompt_version ?? null, gate: json?.gate || null, ms: ok ? ms : null, status: res.status, provider: json?.provider, model: json?.model, wasFallback: json?.was_fallback, question: json?.clarification_question || null, labels: json?.clarification_options?.map((o) => o.label) || null, ambiguity_type: json?.ambiguity_type || null, clar_source: json?.clarification_source || null, calls: store.calls, cost: store.calls.reduce((a, c) => a + (c.cost || 0), 0) });
     });
   }
 }

@@ -243,12 +243,15 @@ describe('turning an item into another kind', () => {
       to: 'todo',
       fields: { day: '2026-10-04' },
     });
+    note().created_at = '2026-10-01T08:00:00Z';
     const o = await applyChange(c, { source: 'chat' });
     expect(o).toMatchObject({ ok: true, createdId: 'todo-new', summary: 'Packing is now a todo.' });
     expect(mockState.createTodo).toHaveBeenCalledWith({
       name: 'Packing',
       body: 'For the trip',
       due_day: '2026-10-04',
+      // it keeps the day it was made, so its card keeps its place (final check item 4)
+      created_at: '2026-10-01T08:00:00Z',
     });
     expect(upsertDropWorldLinks).toHaveBeenCalledWith([
       expect.objectContaining({ drop_id: 'todo-new', world_id: 'w1', drop_type: 'todo' }),
@@ -381,7 +384,7 @@ describe('the words', () => {
     ).toBe('Plan the rest of today');
     // a moved item's row says where it was as well as where it goes
     expect(rowWords(move, { relative: false })).toBe(
-      'Move Dentist from Fri 2 Oct, 10:00am to Mon 5 Oct, 3:00pm',
+      'Move Dentist from Fri 2 Oct, 10am to Mon 5 Oct, 3pm',
     );
     expect(
       rowWords(
@@ -390,9 +393,9 @@ describe('the words', () => {
       ),
     ).toBe('Move Dentist from Sat 3 Oct to Mon 5 Oct');
     expect(rowWords({ ...move, before: {} }, { relative: false })).toBe(
-      'Move Dentist to Mon 5 Oct, 3:00pm',
+      'Move Dentist to Mon 5 Oct, 3pm',
     );
-    expect(doneWords(move)).toBe('Dentist is now Mon 5 Oct, 3:00pm.');
+    expect(doneWords(move)).toBe('Dentist is now Mon 5 Oct, 3pm.');
     expect(rowWords(checked({ op: 'convert', type: 'note', id: 'n1', to: 'habit' }))).toBe(
       'Turn Packing into a habit',
     );

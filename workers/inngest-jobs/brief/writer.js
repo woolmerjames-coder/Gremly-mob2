@@ -414,6 +414,7 @@ export function renderBriefInput(g, offer) {
           s.noDay,
           s.other,
           s.notes,
+          s.habits,
           s.newSince,
           g.overdue,
           g.unsorted,
@@ -538,6 +539,7 @@ export function sweepLine(g) {
   if (s.noDay) parts.push(`${s.noDay} todos with no day yet`);
   if (s.other) parts.push(`${s.other} skipped in an earlier Sweep or back today`);
   if (s.notes) parts.push(`${s.notes} notes not sorted yet`);
+  if (s.habits) parts.push(`${s.habits} habits with a question`);
   const when = s.lastSweepAt ? sweptWhen(s.lastSweepAt, g.tz, g.today) : null;
   let fresh = '';
   if (when && Number.isFinite(s.newSince)) {

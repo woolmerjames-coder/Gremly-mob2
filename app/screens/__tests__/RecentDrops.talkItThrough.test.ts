@@ -41,6 +41,20 @@ describe('talkItemIdFor', () => {
     expect(talkItemIdFor(items, { ...base, used: new Set(['newest']) })).toBeNull();
   });
 
+  it('offers nothing on a split’s pieces or the note a split was kept as (stage 7)', () => {
+    const piece = [
+      {
+        id: 'p0',
+        drop_id: 'split-d1-0',
+        created_at: ago(1000),
+        views: { split_group: { id: 'd1' } },
+      },
+    ];
+    expect(talkItemIdFor(piece, base)).toBeNull();
+    const kept = [{ id: 'k', created_at: ago(1000), views: { kept_as_one: { group: 'd1' } } }];
+    expect(talkItemIdFor(kept, base)).toBeNull();
+  });
+
   it('offers nothing for an empty list', () => {
     expect(talkItemIdFor([], base)).toBeNull();
   });

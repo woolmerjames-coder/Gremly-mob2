@@ -2,13 +2,14 @@
  * Card Deck Screen: the decision cards on their own.
  *
  * Opened from today's thread by the wrap up (cards: 'wrap') or by the brief's
- * quick sweep (cards: 'quick'). A drop with several things in it is split
- * first (step 0.25), then come the cards (step 1). Each decision is saved as
- * it is made. The result goes back to the thread through lib/wrapup/session
+ * quick sweep (cards: 'quick'). A card with a question asks it on the card,
+ * with the same strip as Mind Drop (Mind Drop rethink stage 8): the wrap up
+ * asks the questions made that day, the quick sweep those made that day or
+ * the day before, each once. Each decision is saved as it is made. The result goes back to the thread through lib/wrapup/session
  * (wrap) or is read on focus by the thread (quick).
  */
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -19,6 +20,8 @@ import {
   Modal,
   Dimensions,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -30,12 +33,8 @@ import { BRAND } from '../../design/brand';
 import { getDateService } from '../../lib/date';
 // Zustand store: used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import type { ClarificationWhen } from '../../lib/minddrop/clarification';
-import { useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useIsLoading, useSweepCandidatesUnified } from '../../lib/store/selectors';
 
-import { env, getEnv } from '../../lib/env';
-import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import {
   entityNow,
@@ -52,7 +51,6 @@ import type {
 } from '../../lib/sweep/types';
 import { SweepCardNew } from '../../components/sweep/SweepCardNew';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import celebrationController from '../../app/features/celebration/CelebrationController';
@@ -69,9 +67,12 @@ import type { AppRecord } from '../../lib/types';
 
 import { selectWrapUp } from '../../lib/store/selectors';
 
-import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
-import { RelationPopup, type RelationResolution } from '../../components/minddrop/RelationPopup';
-import { relationOf } from '../../lib/minddrop/dropRelation';
+import { CardAsk } from '../../components/minddrop/CardAsk';
+import { SplitBar } from '../../components/minddrop/SplitBar';
+import { piecesOf } from '../../lib/minddrop/splitActions';
+import { sweepAskOf, type Ask, type AskItem, type SweepWindow } from '../../lib/minddrop/asks';
+import { lapseAsk } from '../../lib/minddrop/askActions';
+import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import { sweepLog } from '../../lib/debug/sweepLogger';
 import { quickSweepCards } from '../../lib/sweep/quickSweep';
 import { useCardDays } from '../../lib/sweep/cardDays';
@@ -88,17 +89,6 @@ import { PrivateImage } from '../../components/PrivateImage';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cortex URL helpers
-// ─────────────────────────────────────────────────────────────────────────────
-const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
-
-const readCortexUrl = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
-  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -125,6 +115,42 @@ type SweepIntent = 'today' | 'tomorrow';
 
 /** How long All sorted stays up before the cards close back to the thread. */
 const ALL_SORTED_MS = 900;
+/** After an answer clears a card's item: the strip closes, then the next card. */
+const GONE_MOVE_ON_MS = 700;
+
+/** A Sweep card's item, as the question strip reads a drop. */
+function asDrop(c: SweepCandidate): UnifiedDrop {
+  const raw = (c.raw ?? {}) as Record<string, any>;
+  return {
+    ...raw,
+    id: c.id,
+    kind: c.kind,
+    title: raw.title ?? raw.name ?? '',
+    text: raw.body ?? raw.text ?? raw.title ?? raw.name ?? '',
+    created_at: raw.created_at ?? c.createdAt,
+    drop_id: raw.drop_id ?? c.dropId ?? null,
+    views: raw.views ?? {},
+  } as UnifiedDrop;
+}
+
+/**
+ * Keep as one on a piece of a clear split made that day (stage 8): it runs
+ * Mind Drop's Keep as one for the whole group, and the other pieces drop out
+ * of the deck as they are archived.
+ */
+function keepAsOneFor(c: SweepCandidate, decided: ReadonlySet<string>): React.ReactNode {
+  const group = ((c.raw ?? {}) as Record<string, any>).views?.split_group as
+    | { id?: string; count?: number; said?: string }
+    | undefined;
+  if (!group?.id || (group.said && group.said !== 'clear')) return null;
+  const ds = getDateService();
+  if (ds.dayOf(c.createdAt) !== ds.today()) return null;
+  // a piece already sorted in this Sweep keeps its decision: no Keep as one now
+  if (piecesOf(group.id).some((p) => decided.has(p.item.id))) return null;
+  return (
+    <SplitBar groupId={group.id} count={group.count ?? 0} testID={`sweep-splitbar-${group.id}`} />
+  );
+}
 
 interface CardDeckProps {
   onFinished: () => void;
@@ -197,18 +223,20 @@ function CardDeck({
     storeIsLoading,
   );
 
+  // Which questions this Sweep asks: the wrap up those made that day, the
+  // quick sweep those made that day or the day before (lib/minddrop/asks.ts)
+  const sweepWindow: SweepWindow = cards === 'quick' ? 'quick' : 'wrapup';
+
   // Cards with a question first (their answers can change other cards), then
   // todos, events and notes (lib/sweep/sweepOrder.ts)
   const candidatesWithMeta = useMemo(
-    () => orderSweepCards(unsortedCandidatesWithMeta),
-    [unsortedCandidatesWithMeta],
+    () => orderSweepCards(unsortedCandidatesWithMeta, getDateService().today(), sweepWindow),
+    [unsortedCandidatesWithMeta, sweepWindow],
   );
 
   // Store mutations for sweep actions
   const updateNote = useGremlyStore((state) => state.updateNote);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
-  const resolveEntityClarification = useGremlyStore((state) => state.resolveEntityClarification);
-  const ensureEntityClarification = useGremlyStore((state) => state.ensureEntityClarification);
 
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
@@ -237,31 +265,33 @@ function CardDeck({
   const saveFailedRef = useRef(false);
   const finishedRef = useRef(false);
   const onSavedRef = useRef(onSaved);
-  onSavedRef.current = onSaved;
   const currentIndexRef = useRef(currentIndex);
-  currentIndexRef.current = currentIndex;
+  // kept current for the handlers, once each render is in
+  useLayoutEffect(() => {
+    onSavedRef.current = onSaved;
+    currentIndexRef.current = currentIndex;
+  });
 
   // Entity chat state (for chat button on sweep cards)
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [chatPresetHint, setChatPresetHint] = useState<string | undefined>();
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
 
-  // Clarification state for items that need it
-  const [showClarification, setShowClarification] = useState(false);
-  const [clarificationQuestion, setClarificationQuestion] = useState<string | null>(null);
-  const [clarificationOptions, setClarificationOptions] = useState<any[] | null>(null);
-  const [isSubmittingClarification, setIsSubmittingClarification] = useState(false);
-  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
-  const [cardFlipKey, setCardFlipKey] = useState(0); // Used to trigger card re-render after clarification
-  const [isClarified, setIsClarified] = useState(false); // Triggers flip animation after clarification
-  // Held drops ("is this one you already have?") already asked on this sweep
-  const [relationHandledIds, setRelationHandledIds] = useState<Set<string>>(() => new Set());
-  // The popup steps aside while its item is open in the overlay, then comes back
-  const [relationParked, setRelationParked] = useState(false);
-  const { openItemThenReturn } = useGlobalOverlay();
+  const [cardFlipKey] = useState(0); // the card's key, so a fresh card mounts for each index
+  const [isClarified, setIsClarified] = useState(false); // the card turns over once its question is answered
+  // The question strip is showing on the current card (its choices wait under it)
+  const [askOpen, setAskOpen] = useState(false);
 
   // Helper to record a decision: it is saved now.
+  // questions answered on their card in this Sweep: an answer still saving is never let go
+  const answeredRef = useRef<Set<string>>(new Set());
+  // a decision that did not save brought its card back (not a moving on)
+  const jumpBackRef = useRef(false);
+  // what was decided in this Sweep, so Keep as one never undoes a piece already sorted
+  const [decidedIds, setDecidedIds] = useState<ReadonlySet<string>>(() => new Set());
+
   const recordDecision = useCallback((given: SweepDecision) => {
+    setDecidedIds((had) => new Set(had).add(given.candidateId));
     // A card that was turned into another kind of item: the decision is
     // about the new item (the old one was put away when it was converted)
     const converted = convertedRef.current;
@@ -285,12 +315,27 @@ function CardDeck({
         // it could not be saved: say so, and bring the card back to decide again
         saveFailedRef.current = true;
         Alert.alert('That did not save', 'Check your connection, then try that card again.');
+        // back to that card: not a moving on, so the next card's question is not let go
+        jumpBackRef.current = true;
         setCurrentIndex(index);
       })
       .finally(() => {
         pendingSavesRef.current.delete(save);
       });
     pendingSavesRef.current.add(save);
+  }, []);
+
+  // The question on the card now, if Sweep is asking one (set as the card
+  // renders). Moving on without an answer lets it go: it is asked once.
+  const deckAskRef = useRef<{ id: string; ask: Ask } | null>(null);
+  const letAskGo = useCallback(() => {
+    const now = deckAskRef.current;
+    if (!now) return;
+    deckAskRef.current = null;
+    if (answeredRef.current.has(now.id)) return;
+    lapseAsk(now.id, now.ask).catch((err) =>
+      sweepLog.warn('[Sweep] the question could not be let go', { id: now.id, error: String(err) }),
+    );
   }, []);
 
   // The X. Every decision is already saved, so it waits for the last one and
@@ -304,6 +349,8 @@ function CardDeck({
    * Handle completing all cards: waits for the saves, then calls onFinished.
    */
   const handleAllCardsComplete = useCallback(async () => {
+    // the last card's question, if it was still asked, is let go as the cards finish
+    letAskGo();
     // saved as they were made: wait for the ones still on their way
     await Promise.all([...pendingSavesRef.current]);
     // a card that could not be saved is back on screen: not finished yet
@@ -318,7 +365,7 @@ function CardDeck({
     setAllSorted(true);
     await new Promise((resolve) => setTimeout(resolve, ALL_SORTED_MS));
     onFinished();
-  }, [onFinished]);
+  }, [onFinished, letAskGo]);
 
   // Track the candidate ID currently being edited (for detecting overlay saves)
   const editingCandidateIdRef = useRef<string | null>(null);
@@ -342,7 +389,9 @@ function CardDeck({
     animating: boolean;
   } | null>(null);
 
-  convertedRef.current = convertedCandidate;
+  useLayoutEffect(() => {
+    convertedRef.current = convertedCandidate;
+  });
 
   // Clear conversion animation state after animation completes
   useEffect(() => {
@@ -370,50 +419,6 @@ function CardDeck({
     }
   }, [isLoading, candidatesWithMeta]);
 
-  // Check if current candidate needs clarification when index changes
-  useEffect(() => {
-    const candidate = candidatesWithMeta[currentIndex]?.candidate;
-    const views = candidate?.raw?.views as Record<string, any> | undefined;
-    const rawAny = candidate?.raw as Record<string, any> | undefined;
-
-    // Check both views and raw for needs_clarification (different entity types store it differently)
-    const needsClarificationFlag =
-      views?.needs_clarification === true || rawAny?.needs_clarification === true;
-    const storedQuestion = views?.clarification_question || rawAny?.clarification_question;
-    const storedOptions = views?.clarification_options || rawAny?.clarification_options;
-
-    let cancelled = false;
-    if (needsClarificationFlag && storedQuestion && storedOptions) {
-      setClarificationQuestion(storedQuestion);
-      setClarificationOptions(storedOptions);
-      setShowClarification(true);
-    } else if (needsClarificationFlag && candidate?.id) {
-      // Saved without options (older drops): fetch them now so the question
-      // can be answered during Sweep instead of being silently skipped.
-      setShowClarification(false);
-      setClarificationQuestion(null);
-      setClarificationOptions(null);
-      ensureEntityClarification(candidate.id)
-        .then((res) => {
-          if (cancelled || !res) return;
-          setClarificationQuestion(res.question);
-          setClarificationOptions(res.options);
-          setShowClarification(true);
-        })
-        .catch(() => {});
-    } else {
-      setShowClarification(false);
-      setClarificationQuestion(null);
-      setClarificationOptions(null);
-    }
-
-    // Reset success state when moving to new card
-    setClarificationSuccess(null);
-    return () => {
-      cancelled = true;
-    };
-  }, [currentIndex, candidatesWithMeta, ensureEntityClarification]);
-
   // ─────────────────────────────────────────────────────────────────────────
   // Unified Outcome Handler
   // ─────────────────────────────────────────────────────────────────────────
@@ -436,6 +441,12 @@ function CardDeck({
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const candidate = candidateWithMeta.candidate;
+      if (outcome !== 'stay') letAskGo();
+      // a habit is on the deck only for its question: moving on decides nothing
+      if (candidate.kind === 'habit' && outcome !== 'stay') {
+        setCurrentIndex((prev) => prev + 1);
+        return;
+      }
 
       switch (outcome) {
         case 'skip': {
@@ -473,7 +484,7 @@ function CardDeck({
           return;
       }
     },
-    [candidatesWithMeta, currentIndex, recordDecision],
+    [candidatesWithMeta, currentIndex, recordDecision, letAskGo],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -607,11 +618,16 @@ function CardDeck({
     if (!candidateWithMeta) return;
     const { candidate } = candidateWithMeta;
 
-    recordDecision({
-      candidateId: candidate.id,
-      candidateKind: candidate.kind as 'todo' | 'note',
-      action: 'keep',
-    });
+    // moving on without answering lets the card's question go
+    letAskGo();
+    // a habit is on the deck only for its question: moving on decides nothing
+    if (candidate.kind !== 'habit') {
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind as 'todo' | 'note',
+        action: 'keep',
+      });
+    }
 
     // Move to next card (or finish if last)
     if (currentIndex < candidatesWithMeta.length - 1) {
@@ -619,7 +635,7 @@ function CardDeck({
     } else {
       handleAllCardsComplete();
     }
-  }, [candidatesWithMeta, currentIndex, recordDecision, handleAllCardsComplete]);
+  }, [candidatesWithMeta, currentIndex, recordDecision, handleAllCardsComplete, letAskGo]);
 
   const handleClear = useCallback(() => {
     // Increment sweep count for ritual progress
@@ -639,11 +655,16 @@ function CardDeck({
     if (!candidateWithMeta) return;
     const { candidate } = candidateWithMeta;
 
-    recordDecision({
-      candidateId: candidate.id,
-      candidateKind: candidate.kind as 'todo' | 'note',
-      action: 'clear',
-    });
+    // moving on without answering lets the card's question go
+    letAskGo();
+    // a habit is on the deck only for its question: a swipe never clears it
+    if (candidate.kind !== 'habit') {
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: candidate.kind as 'todo' | 'note',
+        action: 'clear',
+      });
+    }
 
     // Move to next card
     if (currentIndex < candidatesWithMeta.length - 1) {
@@ -651,7 +672,7 @@ function CardDeck({
     } else {
       handleAllCardsComplete();
     }
-  }, [candidatesWithMeta, currentIndex, recordDecision, handleAllCardsComplete]);
+  }, [candidatesWithMeta, currentIndex, recordDecision, handleAllCardsComplete, letAskGo]);
 
   const handleOpenEdit = useCallback(() => {
     const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -976,94 +997,6 @@ function CardDeck({
     setShowEntityChat(true);
   }, []);
 
-  /**
-   * Clarification Selection Handler: user picks an option to clarify ambiguous item
-   */
-  const handleClarificationSelect = useCallback(
-    async (optionId: string, when?: ClarificationWhen) => {
-      const candidate = candidatesWithMeta[currentIndex]?.candidate;
-      if (!candidate) return;
-
-      setIsSubmittingClarification(true);
-      try {
-        // Call the store function to resolve clarification
-        await resolveEntityClarification(candidate.id, optionId, false, when ?? null);
-
-        // Show success briefly
-        setClarificationSuccess('Got it!');
-
-        // After success animation, hide popup and trigger card refresh with flip animation
-        setTimeout(() => {
-          setShowClarification(false);
-          setClarificationSuccess(null);
-          // Increment key to force card re-render with updated data
-          setCardFlipKey((prev) => prev + 1);
-          // Trigger flip animation
-          setIsClarified(true);
-          // Reset animation flag after animation duration
-          setTimeout(() => setIsClarified(false), 850);
-        }, 1000);
-      } catch (error) {
-        sweepLog.error('[Sweep] Clarification resolution failed:', error);
-        // Still close popup on error: user can retry via edit
-        setShowClarification(false);
-      } finally {
-        setIsSubmittingClarification(false);
-      }
-    },
-    [candidatesWithMeta, currentIndex, resolveEntityClarification],
-  );
-
-  /**
-   * Clarification Skip Handler: user skips clarification, proceeds with card as-is
-   */
-  const handleClarificationSkip = useCallback(() => {
-    // User skips: close popup, proceed with card as-is
-    setShowClarification(false);
-  }, []);
-
-  // A held drop on the current card asks "is this one you already have?",
-  // like a question or a split. The candidates are a snapshot, so what was
-  // asked is tracked here rather than read back from the card.
-  const relationCandidate = candidatesWithMeta[currentIndex]?.candidate;
-  const relationHeld =
-    relationCandidate?.kind === 'note' ? relationOf(relationCandidate.raw?.views) : null;
-  const relationNoteId =
-    relationCandidate &&
-    relationHeld?.status === 'pending' &&
-    !relationHandledIds.has(relationCandidate.id)
-      ? relationCandidate.id
-      : null;
-
-  const markRelationHandled = useCallback((id: string | null) => {
-    if (!id) return;
-    setRelationHandledIds((prev) => new Set(prev).add(id));
-  }, []);
-
-  const handleRelationResolved = useCallback(
-    (outcome: RelationResolution) => {
-      markRelationHandled(relationNoteId);
-      if (outcome === 'applied') {
-        // the drop was only the ask (or a journal entry that stays): next card
-        handleOutcome('changed');
-        return;
-      }
-      const c = relationHeld?.classified;
-      if (outcome === 'clarify' && c?.clarificationQuestion && c.clarificationOptions) {
-        // it was unclear before it was held: its question comes back now
-        setClarificationQuestion(c.clarificationQuestion);
-        setClarificationOptions(c.clarificationOptions as any[]);
-        setShowClarification(true);
-        return;
-      }
-      // filed as it was classified: refresh the card the way an answered question does
-      setCardFlipKey((prev) => prev + 1);
-      setIsClarified(true);
-      setTimeout(() => setIsClarified(false), 850);
-    },
-    [markRelationHandled, relationNoteId, relationHeld, handleOutcome],
-  );
-
   // A card whose item an earlier answer cleared (removed, merged away, ticked
   // off) is passed over, in the direction the user was going
   const lastIndexRef = useRef(currentIndex);
@@ -1181,6 +1114,69 @@ function CardDeck({
     return base;
   }, [currentIndex, candidatesWithMeta, convertedCandidate, todos, habits, notes, allCandidates]);
 
+  // The question Sweep asks on this card, from the item as it is now: once it
+  // is answered or let go, the card carries on as a normal Sweep card
+  const deckCard = effectiveCandidateWithMeta?.candidate ?? null;
+  // read from the store only: a card whose item has gone asks nothing more
+  const deckItem = deckCard ? entityNow(deckCard, { todos, notes, habits }) : null;
+  const deckViews = (deckItem?.views ?? {}) as Record<string, unknown>;
+  // an answer being filed (as the card's strip waits, asks.cardStripAsk): nothing to ask
+  const deckFiling = deckViews.clarification_processing === true || deckViews.ai_pending === true;
+  const deckAsk: Ask | null =
+    deckItem && !deckFiling
+      ? sweepAskOf(deckItem as AskItem, getDateService().today(), sweepWindow)
+      : null;
+  // On to another card, however it went: the question the last card was still
+  // asking is let go (deckAskRef still holds it here, as it is set below)
+  const askedIndexRef = useRef(currentIndex);
+  useEffect(() => {
+    if (askedIndexRef.current === currentIndex) return;
+    askedIndexRef.current = currentIndex;
+    if (jumpBackRef.current) {
+      jumpBackRef.current = false;
+      return;
+    }
+    letAskGo();
+  }, [currentIndex, letAskGo]);
+  useEffect(() => {
+    deckAskRef.current = deckCard && deckAsk ? { id: deckCard.id, ask: deckAsk } : null;
+  });
+
+  // An answer cleared this card's item (a yes, Keep just one, a split, Keep as
+  // one): on to the next card once the strip has closed
+  // (a card's item seen in the store and missing now was deleted by an answer, or
+  // replaced: a conversion shows its new item, so only one still missing counts)
+  const [seenIds, setSeenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const deckSeenId = deckCard && deckItem ? deckCard.id : null;
+  useEffect(() => {
+    if (!deckSeenId) return;
+    setSeenIds((had) => (had.has(deckSeenId) ? had : new Set(had).add(deckSeenId)));
+  }, [deckSeenId]);
+  const deckGone =
+    !!deckCard &&
+    (goneSinceStart(deckCard, { todos, notes, habits }) ||
+      (!deckItem && !convertedCandidate && seenIds.has(deckCard.id)));
+  useEffect(() => {
+    if (!deckGone || isLoading) return undefined;
+    const timer = setTimeout(() => setCurrentIndex((i) => i + 1), GONE_MOVE_ON_MS);
+    return () => clearTimeout(timer);
+  }, [deckGone, isLoading, currentIndex]);
+
+  // An answered question turns the card over, as an answered popup did
+  const askKeyNow = deckCard && deckAsk ? `${deckCard.id}:${deckAsk.kind}` : null;
+  const lastAsk = useRef<{ index: number; key: string | null }>({ index: -1, key: null });
+  useEffect(() => {
+    const before = lastAsk.current;
+    lastAsk.current = { index: currentIndex, key: askKeyNow };
+    if (before.index !== currentIndex || !before.key || askKeyNow || deckGone) return undefined;
+    setIsClarified(true);
+    const timer = setTimeout(() => setIsClarified(false), 850);
+    return () => {
+      clearTimeout(timer);
+      setIsClarified(false);
+    };
+  }, [askKeyNow, currentIndex, deckGone]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -1279,8 +1275,12 @@ function CardDeck({
         )}
       </View>
 
-      {/* Full-screen Card Area */}
-      <View style={styles.decisionCardArea}>
+      {/* Full-screen Card Area: it makes room for the keyboard, so a card's
+          Something else field stays above it (final check item 21) */}
+      <KeyboardAvoidingView
+        style={styles.decisionCardArea}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <SweepCardNew
           key={`${currentCandidate.id}-${currentIndex}-${cardFlipKey}`}
           candidate={currentCandidate}
@@ -1307,39 +1307,21 @@ function CardDeck({
           laterDay={
             currentCandidate.kind === 'todo' ? cardDays.laterDay(currentCandidate.id) : null
           }
-        />
-
-        {/* Clarification Popup: shown when current card needs clarification */}
-        <ClarificationPopup
-          visible={showClarification}
-          question={clarificationQuestion ?? null}
-          options={clarificationOptions ?? null}
-          onSelectOption={handleClarificationSelect}
-          onSkip={handleClarificationSkip}
-          onClose={handleClarificationSkip}
-          isSubmitting={isSubmittingClarification}
-          successMessage={clarificationSuccess}
-        />
-
-        {/* "Is this one you already have?", shown when the current card is a held drop */}
-        <RelationPopup
-          key={relationNoteId ?? 'none'}
-          visible={!!relationNoteId && !relationParked}
-          noteId={relationNoteId}
-          onClose={() => markRelationHandled(relationNoteId)}
-          onResolved={handleRelationResolved}
-          onOpenItem={
-            openItemThenReturn
-              ? (entity) => {
-                  setRelationParked(true);
-                  openItemThenReturn({ id: entity.id, type: entity.type }, () =>
-                    setRelationParked(false),
-                  );
-                }
-              : undefined
+          askStrip={
+            <CardAsk
+              key={`${candidatesWithMeta[currentIndex]?.candidate.id}-${currentIndex}`}
+              item={asDrop(currentCandidate)}
+              ask={deckAsk}
+              place="sweep"
+              onShowing={setAskOpen}
+              onAnswer={() => answeredRef.current.add(currentCandidate.id)}
+              testID={`sweep-ask-${currentCandidate.id}`}
+            />
           }
+          askOpen={askOpen}
+          splitBar={keepAsOneFor(currentCandidate, decidedIds)}
         />
-      </View>
+      </KeyboardAvoidingView>
 
       {/* Bottom section: how many are saved already */}
       <View style={styles.bottomSection}>
@@ -1417,17 +1399,16 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
 
   const route = useRoute<RouteProp<RootStackParamList, 'Cards'>>();
   // The cards on their own, opened from today's thread: tonight's wrap up, or
-  // the brief's quick sweep in the morning. Only the decision cards (and
-  // splitting a drop with several things in it), each decision saved as it is
-  // made, then straight back to the thread.
+  // the brief's quick sweep in the morning. Only the decision cards, each
+  // decision saved as it is made, then straight back to the thread. (The split
+  // step left in the Mind Drop rethink, stage 8: an unsure split asks on its
+  // card, and a clear split's pieces offer Keep as one.)
   const cardsMode = route.params.cards;
   useEffect(() => {
     if (cardsMode !== 'wrap') return undefined;
     cardsOpened();
     return () => cardsClosed();
   }, [cardsMode]);
-
-  const canCreate = useCanCreate();
 
   // The age up waits while the cards are on screen. One earned while they are
   // open plays once they close. A fed day still rises over the cards and falls.
@@ -1436,91 +1417,12 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
     return () => celebrationController.holdAgeUp(false);
   }, []);
 
-  const [step, setStep] = useState<number>(1);
   // The morning's quick sweep sorts for today. Tonight's wrap up sorts for the
   // next day, unless it is before the evening, when today still has room.
   const sweepIntent: SweepIntent = useMemo(() => {
     if (cardsMode === 'wrap') return wrapNow().evening ? 'tomorrow' : 'today';
     return 'today';
   }, [cardsMode]);
-
-  // Get unresolved multi-drops from NOTES (not queueItems: they're promoted before sweep starts)
-  // Multi-drops are stored as notes with views.is_multi=true and views.minddrop_stage='multi_pending'
-  const notes = useGremlyStore((state) => state.notes);
-  const unresolvedMultiDrops = useMemo(() => {
-    const multiNotes = notes.filter((note) => {
-      const views = note.views as {
-        is_multi?: boolean;
-        multi_items?: Array<{ text: string; bucket?: string; smartTitle?: string }>;
-        minddrop_stage?: string;
-      } | null;
-      return (
-        views?.is_multi === true &&
-        views?.minddrop_stage === 'multi_pending' &&
-        Array.isArray(views?.multi_items) &&
-        views.multi_items.length > 1 &&
-        !note.archived
-      );
-    });
-    sweepLog.debug('[CardDeck] notes count:', notes.length);
-    sweepLog.debug('[CardDeck] unresolvedMultiDrops count:', multiNotes.length);
-    if (multiNotes.length > 0) {
-      multiNotes.forEach((note) => {
-        const views = note.views as any;
-        sweepLog.debug('[CardDeck] multi-note:', {
-          id: note.id,
-          title: note.title,
-          multiItemsCount: views?.multi_items?.length ?? 0,
-          minddropStage: views?.minddrop_stage,
-        });
-      });
-    }
-    return multiNotes;
-  }, [notes]);
-
-  // a drop with several things in it is split first
-  useEffect(() => {
-    if (unresolvedMultiDrops.length > 0) setStep(0.25);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Map notes to UnresolvedMultiDrop format for SweepMultiSplitStep component
-  const unresolvedMultiDropsForStep = useMemo(() => {
-    return unresolvedMultiDrops.map((note) => {
-      const views = note.views as {
-        multi_items?: Array<{
-          text: string;
-          bucket?: string;
-          subtype?: string | null;
-          habitSubtype?: string | null;
-          preview_title?: string;
-          smart_title?: string | null;
-          confirmation_message?: string | null;
-        }>;
-        multi_summary_title?: string;
-        dominant_bucket?: string;
-        dominant_subtype?: string;
-      } | null;
-
-      return {
-        localId: note.id, // Use note.id as localId for handlers
-        originalText: note.body ?? '',
-        items:
-          views?.multi_items?.map((item) => ({
-            text: item.text,
-            bucket: (item.bucket as 'todo' | 'habit' | 'log') ?? 'log',
-            subtype: (item.subtype as 'journal' | 'idea' | 'general' | null) ?? null,
-            habitSubtype: (item.habitSubtype as 'start_habit' | 'break_habit' | null) ?? null,
-            preview_title: item.preview_title ?? item.text.substring(0, 50),
-            smart_title: item.smart_title ?? null,
-            confirmation_message: item.confirmation_message ?? null,
-          })) ?? [],
-        summaryTitle: views?.multi_summary_title ?? note.title ?? '',
-        dominantBucket: views?.dominant_bucket ?? null,
-        dominantSubtype: views?.dominant_subtype ?? null,
-      };
-    });
-  }, [unresolvedMultiDrops]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Global overlay state: the item sheet is drawn on top of the cards
@@ -1573,265 +1475,6 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
     [overlayClose],
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Multi-Split Step Handlers
-  // ─────────────────────────────────────────────────────────────────────────
-
-  // Handle splitting a multi-drop into separate entities
-  const handleMultiSplit = useCallback(
-    async (dropId: string, selectedItems: import('../../lib/minddrop/types').MultiDropItem[]) => {
-      if (!canCreate) {
-        navigation.navigate('TrialEndPaywall', { source: 'expiry' });
-        return;
-      }
-      const { createTodo, createHabit, createNote, archiveNote } = useGremlyStore.getState();
-
-      // Create each item as proper entity: they'll appear in sweep automatically
-      for (const item of selectedItems) {
-        const title = item.smart_title || item.preview_title || item.text;
-
-        if (item.bucket === 'todo') {
-          createTodo?.({ name: title });
-        } else if (item.bucket === 'habit') {
-          createHabit?.({
-            name: title,
-            frequency: 'daily',
-            subtype: item.habitSubtype === 'break_habit' ? 'break_habit' : 'start_habit',
-          });
-        } else {
-          // Log bucket: create as note
-          createNote?.({
-            title,
-            body: item.text,
-            subtype:
-              item.subtype === 'journal' || item.subtype === 'idea' ? item.subtype : 'catchall',
-          });
-        }
-      }
-
-      // Archive the original multi-drop note
-      archiveNote?.(dropId, 'split');
-    },
-    [canCreate, navigation],
-  );
-
-  // Handle keeping a multi-drop as a single entity
-  const handleMultiKeepAsOne = useCallback(
-    (dropId: string) => {
-      if (!canCreate) {
-        navigation.navigate('TrialEndPaywall', { source: 'expiry' });
-        return;
-      }
-      const state = useGremlyStore.getState();
-      const { resolveMultiDropAsSingle, createTodo, createHabit, archiveNote } = state;
-      const note = state.notes.find((n) => n.id === dropId);
-
-      if (!note) {
-        sweepLog.warn('[CardDeck] handleMultiKeepAsOne: note not found', { dropId });
-        return;
-      }
-
-      const views = note.views as {
-        dominant_bucket?: string;
-        dominant_subtype?: string;
-        multi_items?: Array<{ text: string }>;
-      } | null;
-
-      const dominantBucket = views?.dominant_bucket;
-      const dominantSubtype = views?.dominant_subtype;
-      const originalText = note.body || note.title || '';
-
-      // Determine target bucket and subtype
-      const targetBucket =
-        dominantBucket === 'todo' ? 'todo' : dominantBucket === 'habit' ? 'habit' : 'log';
-      const targetSubtype =
-        dominantSubtype === 'journal' || dominantSubtype === 'idea'
-          ? dominantSubtype
-          : targetBucket === 'log'
-            ? 'catchall'
-            : null;
-
-      // Fire-and-forget: convert entity type if needed, then enrich
-      (async () => {
-        try {
-          let entityId = dropId;
-          let entityBucket = targetBucket;
-
-          if (dominantBucket === 'todo') {
-            // Convert note → todo
-            const newTodo = await createTodo?.({
-              name: note.title || originalText,
-              body: originalText,
-              origin: 'sweep',
-              views: {
-                minddrop_stage: 'classified',
-                ai_pending: true,
-                origin: 'multi_kept_together',
-              },
-            } as any);
-
-            if (newTodo?.id) {
-              await archiveNote?.(dropId, 'converted_to_todo');
-              entityId = newTodo.id;
-              entityBucket = 'todo';
-              sweepLog.debug('[CardDeck] Converted multi-drop to todo:', entityId);
-            }
-          } else if (dominantBucket === 'habit') {
-            // Convert note → habit
-            const newHabit = await createHabit?.({
-              name: note.title || originalText,
-              title: note.title || originalText,
-              notes: originalText,
-              frequency: 'daily',
-              subtype: 'start_habit',
-              origin: 'sweep',
-              views: {
-                minddrop_stage: 'classified',
-                ai_pending: true,
-                origin: 'multi_kept_together',
-              },
-            } as any);
-
-            if (newHabit?.id) {
-              await archiveNote?.(dropId, 'converted_to_habit');
-              entityId = newHabit.id;
-              entityBucket = 'habit';
-              sweepLog.debug('[CardDeck] Converted multi-drop to habit:', entityId);
-            }
-          } else {
-            // Keep as note: clear multi flag, set up for enrichment
-            resolveMultiDropAsSingle?.(dropId);
-          }
-
-          // Run Phase 1.5a + Phase 2 enrichment
-          const cortexUrl = readCortexUrl();
-          if (!cortexUrl) {
-            sweepLog.warn('[CardDeck] Missing cortex URL, skipping enrichment');
-            return;
-          }
-          const sessionToken = await getSessionToken();
-
-          const ds = getDateService();
-          const currentDateStr = ds.today();
-          const dayOfWeek = ds.getDayOfWeek();
-          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
-          sweepLog.debug('[CardDeck] Running Phase 1.5a + Phase 2 for kept-as-single:', entityId);
-
-          const [phase15aResult, phase2Result] = await Promise.all([
-            // Phase 1.5a: Smart title + confirmation message
-            (async () => {
-              try {
-                const res = await fetch(cortexUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${sessionToken}`,
-                  },
-                  body: JSON.stringify({
-                    type: 'enrich-phase1-5a',
-                    text: originalText,
-                    bucket: entityBucket,
-                    subtype: targetSubtype,
-                  }),
-                });
-                if (!res.ok) return null;
-                return await res.json();
-              } catch (err) {
-                sweepLog.warn('[CardDeck] Phase 1.5a failed:', err);
-                return null;
-              }
-            })(),
-            // Phase 2: Tags, energy type, etc.
-            (async () => {
-              try {
-                const res = await fetch(cortexUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${sessionToken}`,
-                  },
-                  body: JSON.stringify({
-                    type: 'enrich-phase2',
-                    text: originalText,
-                    bucket: entityBucket,
-                    subtype: targetSubtype,
-                    currentDate: currentDateStr,
-                    dayOfWeek,
-                    timezone,
-                  }),
-                });
-                if (!res.ok) return null;
-                return await res.json();
-              } catch (err) {
-                sweepLog.warn('[CardDeck] Phase 2 failed:', err);
-                return null;
-              }
-            })(),
-          ]);
-
-          sweepLog.debug('[CardDeck] Phase 1.5a result:', JSON.stringify(phase15aResult));
-          sweepLog.debug('[CardDeck] Phase 2 result:', JSON.stringify(phase2Result));
-
-          // Build update payload
-          const updatePayload: Record<string, unknown> = {};
-
-          if (phase15aResult?.smart_title) {
-            updatePayload.title = phase15aResult.smart_title;
-            updatePayload.name = phase15aResult.smart_title;
-          }
-
-          const aiTags = Array.isArray(phase2Result?.tags) ? phase2Result.tags : [];
-          if (aiTags.length > 0) {
-            updatePayload.tags = aiTags;
-          }
-
-          if (phase2Result?.energy_type) {
-            updatePayload.energy_type = phase2Result.energy_type;
-          }
-
-          if (phase2Result?.time_estimate_minutes) {
-            updatePayload.time_estimate_minutes = phase2Result.time_estimate_minutes;
-          }
-
-          // Views update with confirmation message and enriched stage
-          const viewsUpdate: Record<string, unknown> = {
-            minddrop_stage: 'enriched',
-            is_multi: false,
-            ai_pending: false,
-            ...(phase15aResult?.confirmation_message && {
-              confirmation_message: phase15aResult.confirmation_message,
-            }),
-            ...(phase2Result?.mood && { ai_mood: phase2Result.mood }),
-          };
-          updatePayload.views = viewsUpdate;
-
-          // Apply updates to the correct entity type
-          if (Object.keys(updatePayload).length > 0) {
-            const store = useGremlyStore.getState();
-            if (entityBucket === 'todo') {
-              await store.updateTodo?.(entityId, updatePayload as any);
-            } else if (entityBucket === 'habit') {
-              await store.updateHabit?.(entityId, updatePayload as any);
-            } else {
-              await store.updateNote?.(entityId, updatePayload as any);
-            }
-            sweepLog.debug('[CardDeck] Enrichment applied for:', entityId);
-          }
-        } catch (error) {
-          sweepLog.error('[CardDeck] Keep-as-single enrichment failed:', error);
-          // Silent failure: the entity is already saved, just without enrichment
-        }
-      })();
-    },
-    [canCreate, navigation],
-  );
-
-  // Splitting is done: on to the cards
-  const handleMultiSplitComplete = useCallback(() => {
-    setStep(1);
-  }, []);
-
   // the deck ends with the cards: straight back to the thread
   const handleDecisionFinished = useCallback(() => {
     navigation.goBack();
@@ -1842,72 +1485,18 @@ export default function CardDeckScreen({ navigation: navProp }: Props) {
     navigation.goBack();
   }, [navigation]);
 
-  // Handler for back chevron: nothing comes before the cards, so it closes
-  const handleGoBack = useCallback(() => {
-    navigation.goBack();
-  }, [navigation]);
-
   return (
     <>
-      <Screen
-        edges={['top', 'bottom']}
-        padded={false}
-        style={step === 1 ? styles.screenBackgroundDecision : styles.screenBackground}
-      >
-        {/* The cards carry their own header */}
-        {step !== 1 ? (
-          <View style={styles.header}>
-            {/* Left: back chevron */}
-            <TouchableOpacity
-              style={styles.headerBackButton}
-              onPress={handleGoBack}
-              activeOpacity={0.7}
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-            >
-              <Icon name="ChevronLeft" size="md" color={BRAND.colors.charcoalInk} strokeWidth={2} />
-            </TouchableOpacity>
-
-            {/* Center: subtle title */}
-            <View style={styles.headerCenter}>
-              <View style={styles.headerModeIndicator}>
-                <Icon name="Sparkles" size="xs" color="rgba(46, 85, 64, 0.50)" strokeWidth={1.5} />
-                <Text style={styles.headerModeLabel}>Sweep</Text>
-              </View>
-            </View>
-
-            {/* Right close button */}
-            <TouchableOpacity
-              style={styles.headerCloseButton}
-              onPress={handleClose}
-              activeOpacity={0.7}
-              accessibilityLabel="Close Sweep"
-              accessibilityRole="button"
-            >
-              <Icon name="X" size="sm" color={BRAND.colors.charcoalInk} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        {/* Step Content: full-bleed for decision step */}
-        <View style={step === 1 ? styles.contentDecision : styles.content}>
-          {step === 0.25 && (
-            <SweepMultiSplitStep
-              multiDrops={unresolvedMultiDropsForStep}
-              onSplit={handleMultiSplit}
-              onKeepAsOne={handleMultiKeepAsOne}
-              onComplete={handleMultiSplitComplete}
-            />
-          )}
-          {step === 1 && (
-            <CardDeck
-              onFinished={handleDecisionFinished}
-              onClose={handleClose}
-              sweepIntent={sweepIntent}
-              cards={cardsMode}
-              onSaved={cardsMode === 'wrap' ? recordWrapDecision : undefined}
-            />
-          )}
+      <Screen edges={['top', 'bottom']} padded={false} style={styles.screenBackgroundDecision}>
+        {/* The cards carry their own header, full-bleed */}
+        <View style={styles.contentDecision}>
+          <CardDeck
+            onFinished={handleDecisionFinished}
+            onClose={handleClose}
+            sweepIntent={sweepIntent}
+            cards={cardsMode}
+            onSaved={cardsMode === 'wrap' ? recordWrapDecision : undefined}
+          />
         </View>
       </Screen>
 

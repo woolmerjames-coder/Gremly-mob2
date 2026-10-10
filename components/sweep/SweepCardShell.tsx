@@ -141,6 +141,12 @@ type SweepCardShellProps = {
    * it and the card stays where it is.
    */
   keepOpens?: () => void;
+  /**
+   * Whether this card can be let go. A habit is on the deck only for its
+   * question and a swipe never clears it (stage 8), so its card hides LET GO
+   * and a swipe to the left comes back to rest (final check item 20).
+   */
+  canLetGo?: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -162,6 +168,7 @@ export function SweepCardShell({
   onRequestPhotoPreview,
   onWorldPress,
   keepOpens,
+  canLetGo = true,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -298,6 +305,9 @@ export function SweepCardShell({
           },
         );
         cardOpacity.value = withTiming(0, { duration: 300 });
+      } else if (swipedLeft && !canLetGo) {
+        // nothing to let go: the card comes back to rest
+        translateX.value = withSpring(0, { damping: 15, stiffness: 150 });
       } else if (swipedLeft) {
         runOnJS(triggerHaptic)('medium');
         translateX.value = withSpring(
@@ -575,33 +585,35 @@ export function SweepCardShell({
 
       {/* Buttons sit BELOW the card, not inside it — never clipped by borderRadius */}
       <View style={styles.buttonsContainer}>
-        {/* Let go button */}
-        <View style={styles.buttonColumn}>
-          <Animated.View style={letGoAnimatedStyle}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Let go of this item"
-              onPressIn={() => {
-                letGoScale.value = withTiming(1.08, { duration: 120 });
-              }}
-              onPressOut={() => {
-                letGoScale.value = withTiming(1.0, { duration: 120 });
-              }}
-              onPress={handleLetGoPress}
-            >
-              <View style={styles.letGoCircle}>
-                <LinearGradient
-                  colors={['rgba(224,196,122,0.15)', 'rgba(224,196,122,0.06)']}
-                  start={{ x: 0.25, y: 0 }}
-                  end={{ x: 0.75, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-                <ArrowLeft size={22} strokeWidth={2.5} color="#E0C47A" />
-              </View>
-            </Pressable>
-          </Animated.View>
-          <Text style={styles.letGoLabel}>LET GO</Text>
-        </View>
+        {/* Let go button (none on a card that cannot be let go) */}
+        {canLetGo ? (
+          <View style={styles.buttonColumn}>
+            <Animated.View style={letGoAnimatedStyle}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Let go of this item"
+                onPressIn={() => {
+                  letGoScale.value = withTiming(1.08, { duration: 120 });
+                }}
+                onPressOut={() => {
+                  letGoScale.value = withTiming(1.0, { duration: 120 });
+                }}
+                onPress={handleLetGoPress}
+              >
+                <View style={styles.letGoCircle}>
+                  <LinearGradient
+                    colors={['rgba(224,196,122,0.15)', 'rgba(224,196,122,0.06)']}
+                    start={{ x: 0.25, y: 0 }}
+                    end={{ x: 0.75, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <ArrowLeft size={22} strokeWidth={2.5} color="#E0C47A" />
+                </View>
+              </Pressable>
+            </Animated.View>
+            <Text style={styles.letGoLabel}>LET GO</Text>
+          </View>
+        ) : null}
 
         {/* Keep button */}
         <View style={styles.buttonColumn}>
@@ -694,6 +706,9 @@ const styles = StyleSheet.create({
   swipeCardContainer: {
     width: CARD_WIDTH,
     maxWidth: 400,
+    // never taller than the room it has, so the buttons under it stay on a
+    // small phone; what does not fit scrolls inside the card (final check item 21)
+    maxHeight: '100%',
     borderRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -720,6 +735,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 22,
     position: 'relative',
+    flexShrink: 1,
   },
   gremlyButtonPosition: {
     position: 'absolute',

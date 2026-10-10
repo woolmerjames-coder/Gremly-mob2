@@ -16,6 +16,8 @@ import { getDateService } from '../date/DateService';
 import type { CalendarEvent as SyncedCalendarEvent } from './CalendarClient';
 import type { Habit } from '../types';
 import { isBreakHabit } from '../../workers/shared/habitWeek';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn } from '../../workers/shared/todoDay';
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -324,11 +326,11 @@ function collectItemsForDate(
     });
   }
 
-  // ── 4. Todos with due_day (opt-in) ──
+  // ── 4. Todos on the day (opt-in): planned for it, or with no day planned due on it ──
   if (options?.includeTodos) {
     for (const todo of state.todos) {
       if (todo.archived || todo.completed_at) continue;
-      if (todo.due_day !== dateStr) continue;
+      if (!isTodoOn(todo, dateStr)) continue;
 
       const todoDurationMin = todo.duration_minutes ?? todo.time_estimate_minutes ?? 30;
 

@@ -30,6 +30,8 @@ import {
 } from '../../shared/habitWeek.js';
 import { weekSettings } from '../week/settings';
 import { loadLifePack, personWordsOn } from '../../shared/lifePack.js';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOn, isTodoOnOrBefore, isTodoOverdue, plannedDayOf } from '../../shared/todoDay.js';
 
 export const PLAN_DAY_START = 8 * 60;
 export const PLAN_DAY_END = 22 * 60;
@@ -152,7 +154,7 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
     personIdentity(env, userId),
     ...calendarSelects(d, userId, tz, today),
     d.select(
-      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
+      `todos?owner_id=eq.${userId}&completed_at=is.null&archived=eq.false&select=id,name,title,due_day,scheduled_date,target_date,time_estimate_minutes,created_at,skipped_in_sweep_at,resurface_at,scheduled_start_iso&limit=1000`,
     ),
     d.select(
       `notes?owner_id=eq.${userId}&archived=eq.false&external_source=is.null&swept_at=is.null&subtype=in.(idea,catchall,list,reference)&created_at=gte.${encodeURIComponent(localStartIso(tz, addDays(today, -6)))}&select=id&limit=500`,
@@ -223,17 +225,23 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
 
   // Todos (the app writes name; older rows may only have title)
   const open = (todos || []).map((t) => ({ ...t, title: t.name || t.title || 'Untitled' }));
-  // due today, and the ones put off (Later) whose day to come back is today:
-  // a Later has no day of its own, so its back day is what puts it on Today
-  // (the app's selectTodosDueToday)
+  // due today (its planned day, or with none its deadline: shared/todoDay.js),
+  // and the ones put off (Later) whose day to come back is today: a Later has
+  // no day of its own, so its back day is what puts it on Today (the app's
+  // selectTodosDueToday)
   const todosDue = open.filter(
-    (t) => t.due_day === today || (!t.due_day && t.resurface_at === today),
+    (t) => isTodoOn(t, today) || (!plannedDayOf(t) && t.resurface_at === today),
   );
   const overdue = open.filter(
-    (t) => t.due_day && t.due_day < today && !(t.resurface_at && t.resurface_at > today),
+    (t) => isTodoOverdue(t, today) && !(t.resurface_at && t.resurface_at > today),
   );
+  // no day planned and not yet due (a deadline only todo is on Today on its
+  // deadline, then overdue: the app's selectUndatedTodos)
   const unsortedTodos = open.filter(
-    (t) => !t.due_day && !(t.resurface_at && t.resurface_at > today),
+    (t) =>
+      !plannedDayOf(t) &&
+      !isTodoOnOrBefore(t, today) &&
+      !(t.resurface_at && t.resurface_at > today),
   );
   const unsorted = unsortedTodos.length + (notes || []).length;
 
@@ -349,12 +357,14 @@ export async function gatherBrief(env, userId, { at = new Date() } = {}) {
   // Their life right now, as every surface reads it (shared/lifePack.js, data
   // fabric stage 4d). The brief never waits on it: unread, the brief is
   // written from the day alone, and says why in the log.
-  const life = await loadLifePack(d, userId, { today, tz, personWords: personWordsOn(env) }).catch((err) => {
-    console.warn(
-      `[ALERT][DailyBrief] could not read their life for ${userId}: ${err?.message || err}`,
-    );
-    return null;
-  });
+  const life = await loadLifePack(d, userId, { today, tz, personWords: personWordsOn(env) }).catch(
+    (err) => {
+      console.warn(
+        `[ALERT][DailyBrief] could not read their life for ${userId}: ${err?.message || err}`,
+      );
+      return null;
+    },
+  );
 
   return {
     tz,

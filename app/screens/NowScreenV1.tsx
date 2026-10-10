@@ -66,6 +66,7 @@ import {
   useEventNotesForDate,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
+import { retryDrop } from '../../lib/minddrop/dropPipeline';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
@@ -79,7 +80,7 @@ import type {
   NowFutureItem,
   NowCompletedItem,
 } from '../../lib/now/nowTypes';
-import type { SweepCandidate } from '../../lib/today/sweepSelectors';
+import { candidateDays, type SweepCandidate } from '../../lib/today/sweepSelectors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Note } from '../../lib/types';
 import { useBriefUnread } from '../../lib/brief/todayThread';
@@ -138,33 +139,24 @@ function toCompletedItem(item: Todo | Habit): NowCompletedItem {
   };
 }
 
-/** Transform raw Todo to SweepCandidate */
+/**
+ * Transform raw Todo to SweepCandidate. Its day is the planned day, else the
+ * deadline (workers/shared/todoDay.js), so a deadline only todo reads as due
+ * on its deadline and overdue once it has passed.
+ */
 function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
-  const dueDay = todo.due_day ?? null;
-  const targetDate = (todo as any).target_date ?? null;
-  const isOverdue = dueDay !== null && dueDay < todayDayString;
-  const hasUnscheduledDeadline = targetDate !== null && dueDay === null;
-
-  // Calculate days until deadline
-  let daysUntilDeadline: number | null = null;
-  if (targetDate) {
-    daysUntilDeadline = getDateService().daysBetween(todayDayString, targetDate);
-  }
-
   return {
     id: todo.id,
     name: todo.name,
     type: 'todo',
-    due_day: dueDay,
+    due_day: todo.due_day ?? null,
     due_date: todo.due_date ?? null,
     status: 'active',
     carry_forward: (todo as any).carry_forward ?? false,
     completed_at: todo.completed_at ?? null,
     archived: todo.archived ?? false,
     created_at: todo.created_at ?? null,
-    isOverdue,
-    hasUnscheduledDeadline,
-    daysUntilDeadline,
+    ...candidateDays(todo as any, todayDayString),
     space_id: todo.space_id ?? null,
   };
 }
@@ -1113,6 +1105,9 @@ type OptimisticQuickAddCardProps = {
   title: string;
   onExitComplete?: () => void;
   isLeaving?: boolean;
+  /** it did not go through: the words stay, with Retry */
+  failed?: boolean;
+  onRetry?: () => void;
 };
 
 // Brand color for loading indicator
@@ -1124,6 +1119,8 @@ function OptimisticQuickAddCard({
   title,
   onExitComplete,
   isLeaving,
+  failed = false,
+  onRetry,
 }: OptimisticQuickAddCardProps) {
   // Animation refs for React Native Animated API
   const opacityRef = useRef(new Animated.Value(0));
@@ -1135,17 +1132,20 @@ function OptimisticQuickAddCard({
 
   // Animated dots interval
   useEffect(() => {
-    if (isLeaving) return; // Don't animate dots when leaving
+    if (isLeaving || failed) return; // Don't animate dots when leaving or stopped
 
     const interval = setInterval(() => {
       setDots((prev) => (prev.length >= 3 ? '' : prev + '.'));
     }, 500);
     return () => clearInterval(interval);
-  }, [isLeaving]);
+  }, [isLeaving, failed]);
 
   // Gentle text opacity pulse
   useEffect(() => {
-    if (isLeaving) return; // Stop pulse animation when leaving
+    if (isLeaving || failed) {
+      textOpacityRef.current.setValue(1);
+      return; // Stop pulse animation when leaving or stopped
+    }
 
     const animation = Animated.loop(
       Animated.sequence([
@@ -1165,7 +1165,7 @@ function OptimisticQuickAddCard({
     );
     animation.start();
     return () => animation.stop();
-  }, [isLeaving]);
+  }, [isLeaving, failed]);
 
   // Fade in on mount
   useEffect(() => {
@@ -1206,7 +1206,7 @@ function OptimisticQuickAddCard({
           transform: [{ translateY: translateYRef.current }],
         },
       ]}
-      accessibilityLabel={`Processing ${title}`}
+      accessibilityLabel={failed ? undefined : `Processing ${title}`}
     >
       <View style={styles.optimisticContent}>
         <View style={styles.optimisticTextContainer}>
@@ -1214,10 +1214,23 @@ function OptimisticQuickAddCard({
             {title}
           </Text>
           <Animated.Text style={[styles.optimisticSubtitle, { opacity: textOpacityRef.current }]}>
-            Working on it{dots}
+            {failed ? "That didn't go through." : `Working on it${dots}`}
           </Animated.Text>
         </View>
-        <ActivityIndicator size="small" color="#2E5540" />
+        {failed ? (
+          <Pressable
+            onPress={onRetry}
+            accessibilityRole="button"
+            accessibilityLabel={`Retry ${title}`}
+            hitSlop={8}
+            style={styles.optimisticRetry}
+            testID={`today-pending-retry-${id}`}
+          >
+            <Text style={styles.optimisticRetryText}>Retry</Text>
+          </Pressable>
+        ) : (
+          <ActivityIndicator size="small" color="#2E5540" />
+        )}
       </View>
     </Animated.View>
   );
@@ -1646,6 +1659,8 @@ function TodayFocusList({
           key={drop.localId}
           id={drop.localId}
           title={drop.smartTitle || drop.text}
+          failed={drop.phase === 'failed'}
+          onRetry={() => void retryDrop(drop.localId)}
         />
       ))}
 
@@ -1831,6 +1846,20 @@ const styles = StyleSheet.create({
     color: '#2E5540',
     marginTop: 2,
     fontStyle: 'italic',
+  },
+  optimisticRetry: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optimisticRetryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2E5540',
   },
   // Spacing for Overdue and Recent Drops sections
   sectionSpacing: {

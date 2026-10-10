@@ -1600,3 +1600,32 @@ describe('due_day canonical day logic', () => {
     expect(eligibleItems.filter((item) => item.id === 'todo-5pm')).toHaveLength(1);
   });
 });
+
+describe('a todo with a deadline and no day planned (stage 2c)', () => {
+  const testDate = new Date('2025-11-26T12:00:00Z');
+  const completionHistory = new Map<string, number>();
+  const deadline = (id: string, target_date: string) =>
+    createMockTodo({ id, due_day: null, scheduled_date: null, target_date } as Partial<Todo>);
+
+  it('is on Today on its deadline day, and not before or after', () => {
+    const items = getActiveTodayItems(
+      [
+        deadline('due-today', '2025-11-26'),
+        deadline('ahead', '2025-11-27'),
+        deadline('passed', '2025-11-25'),
+      ],
+      completionHistory,
+      testDate,
+    );
+    expect(items.map((i) => i.id)).toEqual(['due-today']);
+  });
+
+  it('counts towards today on its deadline day', () => {
+    const items = getProgressEligibleItems(
+      [deadline('due-today', '2025-11-26')],
+      completionHistory,
+      testDate,
+    );
+    expect(items.map((i) => i.id)).toEqual(['due-today']);
+  });
+});

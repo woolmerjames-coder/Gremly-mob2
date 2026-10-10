@@ -2,7 +2,13 @@ import React from 'react';
 import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { Calendar } from 'lucide-react-native';
 
-type Status = 'new' | 'unscheduled' | 'overdue' | 'due_today';
+type Status =
+  | 'new'
+  | 'unscheduled'
+  | 'overdue'
+  | 'due_today'
+  | 'deadline_today'
+  | 'deadline_passed';
 
 type ContextHeaderProps = {
   status: Status;
@@ -16,6 +22,9 @@ const STATUS_CONFIG: Record<Status, { label: string; badge: string; color: strin
   unscheduled: { label: 'SCHEDULE FOR', badge: 'unscheduled', color: '#2E5540' },
   due_today: { label: 'RESCHEDULE FOR', badge: 'was due today', color: '#C47A20' },
   overdue: { label: 'RESCHEDULE FOR', badge: 'overdue', color: '#C94040' },
+  // a todo with no day planned, on its day by its deadline
+  deadline_today: { label: 'SCHEDULE FOR', badge: 'due today', color: '#C47A20' },
+  deadline_passed: { label: 'SCHEDULE FOR', badge: 'overdue', color: '#C94040' },
 };
 
 export function ContextHeader({ status, label: labelOverride, icon, style }: ContextHeaderProps) {

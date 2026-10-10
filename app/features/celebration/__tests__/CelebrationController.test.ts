@@ -126,7 +126,7 @@ describe('the moment', () => {
     ]);
     const last = lastMoment(listener)!;
     expect(last.nextAge).toBe(7);
-    expect(last.ageLine).toBe('Seven. I feel different. Do I look it?');
+    expect(last.ageLine).toBe('Seven. I feel different. I think it shows.');
     expect(last.card).toBe(CARD_FALLBACK + ' ' + CARD_CLOSE);
     // it waits for Keep going
     jest.advanceTimersByTime(60000);

@@ -30,6 +30,8 @@ import { getFrequencyLabel } from '../../lib/sweep/habitHelpers';
 import { ampm, clock } from '../../lib/brief/dayCard';
 import { localDateOf, minutesOfDay } from '../../lib/brief/time';
 import { plannedMinutesOn } from '../../lib/now/sectionFor';
+// A deadline only todo is on Today on its deadline day (stage 2c, 9 Oct 2026)
+import { deadlineWords } from '../../workers/shared/todoDay';
 
 // Gremly face icon for completion messages
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -163,18 +165,23 @@ export function NowFocusRow({
     return day && day > today ? minutesOfDay(scheduledStartIso) : null;
   }, [scheduledStartIso, today, isFuture]);
 
-  // Compute second-line text: planned time range or estimate
+  // A todo here by its deadline, with no day planned, says so: Due today
+  // (workers/shared/todoDay.js deadlineWords)
+  const deadline = fullTodo && today ? deadlineWords(fullTodo, today) : null;
+
+  // Compute second-line text: the deadline words, then the planned time range
+  // or estimate
   const secondLineText = React.useMemo(() => {
+    let time: string | null = null;
     if (plannedStart !== null) {
       const end = plannedStart + (timeEstimateMinutes || 15);
       const fmt = (min: number) => `${clock(min)} ${ampm(min)}`;
-      return `${fmt(plannedStart)} – ${fmt(end)}`;
+      time = `${fmt(plannedStart)} – ${fmt(end)}`;
+    } else if (timeEstimateMinutes) {
+      time = `~${formatTimeEstimate(timeEstimateMinutes)}`;
     }
-    if (timeEstimateMinutes) {
-      return `~${formatTimeEstimate(timeEstimateMinutes)}`;
-    }
-    return null;
-  }, [plannedStart, timeEstimateMinutes]);
+    return [deadline, time].filter(Boolean).join(' · ') || null;
+  }, [deadline, plannedStart, timeEstimateMinutes]);
 
   // Compute frequency label using centralized helper from habitHelpers
   const frequencyLabel = React.useMemo(() => {

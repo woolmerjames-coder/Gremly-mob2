@@ -45,6 +45,13 @@
  */
 
 import { getDateService } from '../date';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import {
+  hasUnscheduledDeadline,
+  isTodoOnOrBefore,
+  isTodoOverdue,
+  plannedDayOf,
+} from '../../workers/shared/todoDay';
 
 export interface SweepCandidate {
   id: string;
@@ -73,7 +80,10 @@ export interface SweepCandidate {
   created_at?: string | null;
 
   // Computed fields
-  /** True if do date (scheduled_date/due_day) is strictly before today */
+  /**
+   * True once its day has passed: the do date, or with none the deadline
+   * (workers/shared/todoDay.js)
+   */
   isOverdue: boolean;
   /** True if has deadline but no do date scheduled */
   hasUnscheduledDeadline: boolean;
@@ -145,12 +155,26 @@ function getDaysUntilDeadline(todo: SweepEligibleTodo, todayDay: string): number
 }
 
 /**
- * Check if a todo has a deadline but no do date scheduled.
+ * The day fields a SweepCandidate carries, by the one rule for todo days
+ * (workers/shared/todoDay.js): overdue once its day has passed, its planned day
+ * or, with none, its deadline; a deadline with no planned day still waits for
+ * one. A caller that reads a legacy timestamp passes its own planned day.
  */
-function hasUnscheduledDeadline(todo: SweepEligibleTodo): boolean {
-  const hasDeadline = todo.target_date != null;
-  const hasDoDate = getEffectiveDoDate(todo) != null;
-  return hasDeadline && !hasDoDate;
+export function candidateDays(
+  todo: SweepEligibleTodo,
+  todayDay: string,
+  planned: string | null = plannedDayOf(todo),
+): Pick<
+  SweepCandidate,
+  'scheduled_date' | 'target_date' | 'isOverdue' | 'hasUnscheduledDeadline' | 'daysUntilDeadline'
+> {
+  return {
+    scheduled_date: todo.scheduled_date ?? null,
+    target_date: todo.target_date ?? null,
+    isOverdue: isTodoOverdue(todo, todayDay, planned),
+    hasUnscheduledDeadline: hasUnscheduledDeadline(todo, planned),
+    daysUntilDeadline: getDaysUntilDeadline(todo, todayDay),
+  };
 }
 
 /**
@@ -183,12 +207,12 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
 
   // Check: do date reached or overdue
   const doDate = getEffectiveDoDate(todo);
-  if (doDate && doDate <= todayDay) {
+  if (doDate && isTodoOnOrBefore(todo, todayDay, doDate)) {
     return true;
   }
 
   // Check: has deadline but no do date (needs scheduling prompt)
-  if (hasUnscheduledDeadline(todo)) {
+  if (hasUnscheduledDeadline(todo, doDate)) {
     return true;
   }
 
@@ -222,11 +246,9 @@ export function selectSweepCandidates(
   const candidates = todos
     .filter((todo) => isSweepEligible(todo, todayDay))
     .map((todo) => {
-      // Compute metadata
-      const doDate = getEffectiveDoDate(todo);
-      const isOverdue = doDate !== null && doDate < todayDay;
-      const unscheduledDeadline = hasUnscheduledDeadline(todo);
-      const daysUntilDeadline = getDaysUntilDeadline(todo, todayDay);
+      // Compute metadata: its day is the do date (reading the legacy
+      // timestamp too), else the deadline
+      const days = candidateDays(todo, todayDay, getEffectiveDoDate(todo));
 
       return {
         id: todo.id,
@@ -250,9 +272,9 @@ export function selectSweepCandidates(
         created_at: todo.created_at,
 
         // Computed
-        isOverdue,
-        hasUnscheduledDeadline: unscheduledDeadline,
-        daysUntilDeadline,
+        isOverdue: days.isOverdue,
+        hasUnscheduledDeadline: days.hasUnscheduledDeadline,
+        daysUntilDeadline: days.daysUntilDeadline,
       };
     });
 

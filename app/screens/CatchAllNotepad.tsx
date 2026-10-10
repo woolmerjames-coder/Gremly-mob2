@@ -81,12 +81,6 @@ import { teaserLine } from '../../lib/wrapup/words';
 import { dismissWrapNudge } from '../../lib/wrapup/dismiss';
 import { weekdayOf } from '../../lib/wrapup/day';
 import { ConfirmationPill } from '../../components/common/ConfirmationPill';
-import {
-  MidConfidenceChips,
-  type CategoryChip,
-  type TimingOption,
-  type TimingChip,
-} from '../components/minddrop/MidConfidenceChips';
 import { MIND_DROP_V2 } from '../../src/config/featureFlags';
 import { useActionToast } from '../../src/hooks/useActionToast';
 import { useTheme } from '../../src/theme/useTheme';
@@ -104,7 +98,6 @@ import { supabase } from '../../lib/supabase/client';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
 import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
-import type { CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useEchoSafeText } from '../../hooks/useEchoSafeText';
@@ -112,7 +105,6 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
 import { Lock, Camera, LogOut, User, Calendar, X } from 'lucide-react-native';
-// ClarificationIndicatorChip moved to badge position - import removed
 import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { env } from '../../lib/env';
 import {
@@ -125,7 +117,7 @@ import {
   getFirstVisitSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
-import { getFollowUpMessage } from '../../lib/speech/followUpMessages';
+import { reactionSpeechOf } from '../../lib/speech/reactionSpeech';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   appendLineageToWhyString,
@@ -167,7 +159,6 @@ import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 import { type Mood } from '../../lib/shared/moods';
 import RecentDropsMemo, {
   RecentDropsTestable as RecentDropsTestable,
-  resetAnimationTrackingForDrop,
   markDropAsRecentlyPromoted,
   useMaybeGlobalOverlay,
   noopOverlayController,
@@ -177,7 +168,7 @@ import RecentDropsMemo, {
 import { useBriefUnread } from '../../lib/brief/todayThread';
 import { briefReadyLine, todayThreadParams } from '../../lib/brief/pinned';
 import { isReturnDay, readDco } from '../../lib/brief/dco';
-export { RecentDropsTestable, resetAnimationTrackingForDrop, markDropAsRecentlyPromoted };
+export { RecentDropsTestable, markDropAsRecentlyPromoted };
 
 export const THINKING_DURATION = 1200;
 const MICROCOPY_FADE_MS = 300;
@@ -356,15 +347,6 @@ function formatPrefillChip(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   return `${PREFILL_MONTH_NAMES[m - 1]} ${d}`;
 }
-
-// Legacy UISuggestion stub - suggestion chips removed but code references remain
-type UISuggestion = {
-  type: string;
-  label?: string;
-  title?: string;
-  body?: string;
-  payload?: any;
-};
 
 type MindDropInputProps = {
   value: string;
@@ -996,116 +978,6 @@ export function isUrgent(input: string): boolean {
   return keywords.some((k) => input.toLowerCase().includes(k));
 }
 
-/**
- * Generates timing chip options based on current time
- */
-export function getTimingChips(): Array<{ option: TimingOption; label: string }> {
-  const now = getDateService().now();
-  const hour = now.getHours();
-  const day = now.getDay(); // 0 = Sunday, 5 = Friday
-
-  // Morning (6-10)
-  if (hour >= 6 && hour < 10) {
-    return [
-      { option: 'today', label: 'Today' },
-      { option: 'tomorrow', label: 'Tomorrow' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Evening (18-23)
-  if (hour >= 18 && hour < 23) {
-    return [
-      { option: 'tomorrow', label: 'Tomorrow' },
-      { option: 'today-actually', label: 'Today actually' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Late night (23-5)
-  if (hour >= 23 || hour < 5) {
-    return [
-      { option: 'tomorrow', label: 'Tomorrow' },
-      { option: 'later-this-week', label: 'Later this week' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Friday after 15:00
-  if (day === 5 && hour >= 15) {
-    return [
-      { option: 'monday', label: 'Monday' },
-      { option: 'this-weekend', label: 'This weekend' },
-      { option: 'someday', label: 'Someday' },
-    ];
-  }
-
-  // Default (rest of the time)
-  return [
-    { option: 'today', label: 'Today' },
-    { option: 'tomorrow', label: 'Tomorrow' },
-    { option: 'someday', label: 'Someday' },
-  ];
-}
-
-/**
- * Converts timing option to ISO date string
- */
-export function timingOptionToDate(option: TimingOption): string | null {
-  // counted from the person's day, so after midnight Today is still their today
-  const now = getDateService().dayNow();
-
-  switch (option) {
-    case 'today':
-    case 'today-actually': {
-      // Today at 17:00 local
-      const today = new Date(now);
-      today.setHours(17, 0, 0, 0);
-      return today.toISOString();
-    }
-
-    case 'tomorrow': {
-      // Tomorrow at 09:00 local
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(9, 0, 0, 0);
-      return tomorrow.toISOString();
-    }
-
-    case 'later-this-week': {
-      // +3 days at 09:00 local
-      const later = new Date(now);
-      later.setDate(later.getDate() + 3);
-      later.setHours(9, 0, 0, 0);
-      return later.toISOString();
-    }
-
-    case 'this-weekend': {
-      // Upcoming Saturday at 10:00 local
-      const dayOfWeek = now.getDay();
-      const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7; // 0-6, if 0 then next week
-      const saturday = new Date(now);
-      saturday.setDate(saturday.getDate() + daysUntilSaturday);
-      saturday.setHours(10, 0, 0, 0);
-      return saturday.toISOString();
-    }
-
-    case 'monday': {
-      // Next Monday at 09:00 local
-      const dayOfWeek = now.getDay();
-      const daysUntilMonday = (1 - dayOfWeek + 7) % 7 || 7; // If today is Monday, go to next Monday
-      const monday = new Date(now);
-      monday.setDate(monday.getDate() + daysUntilMonday);
-      monday.setHours(9, 0, 0, 0);
-      return monday.toISOString();
-    }
-
-    case 'someday':
-    default:
-      return null; // No due date
-  }
-}
-
 export type CatchAllNotepadProps = {
   trustRefreshMs?: number;
   // Optional P8: allow parent to pass network status if a hook exists elsewhere
@@ -1142,7 +1014,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const createTodo = useGremlyStore((s) => s.createTodo);
   const createNote = useGremlyStore((s) => s.createNote);
   const createHabit = useGremlyStore((s) => s.createHabit);
-  const updateTodo = useGremlyStore((s) => s.updateTodo);
   const updateNote = useGremlyStore((s) => s.updateNote);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
@@ -1342,8 +1213,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [microcopyIndex, setMicrocopyIndex] = useState(0);
   const [confirmations, setConfirmations] = useState<string[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [timingChips, setTimingChips] = useState<TimingChip[]>([]);
-  const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [pendingPhotoUris, setPendingPhotoUris] = useState<string[]>([]);
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [showRitualProgress, setShowRitualProgress] = useState(false);
@@ -1372,12 +1241,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const followUpTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const hasShownGreetingRef = useRef(false);
   const lastSpeechTimeRef = useRef<number | null>(null);
   const hasShownMeterSpeechRef = useRef(false);
-  const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
   const currentSubmissionHasPhotosRef = useRef(false);
   const pendingTrainingReactionRef = useRef<string | null>(null);
@@ -1404,9 +1271,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => {
       if (gremlySpeechTimeoutRef.current) {
         clearTimeout(gremlySpeechTimeoutRef.current);
-      }
-      if (followUpTimeoutRef.current) {
-        clearTimeout(followUpTimeoutRef.current);
       }
     };
   }, []);
@@ -1489,6 +1353,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return unsubscribe;
   }, [showGremlySpeech]);
 
+  // A line for the bubble from elsewhere: what a Mind Drop answer did (stage 6)
+  useEffect(
+    () =>
+      eventBus.on('gremly:speak', ({ message, duration }) => {
+        if (message?.trim()) showGremlySpeech(message, duration);
+      }),
+    [showGremlySpeech],
+  );
+
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
     if (hasShownGreetingRef.current) return;
@@ -1538,113 +1411,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     trainingDropStep,
   ]);
 
-  // Subscribe to AI reaction events from the pipeline (speech bubble)
+  // Gremly's reaction to a drop, as its card sorts (Mind Drop rethink stage 10):
+  // the only comment on a drop, with no follow up line (reactionSpeech.ts)
   useEffect(() => {
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
-      const { message, rawReaction, followUp } = payload;
-
-      // Training mode: handle speech for guided drops
       const storeState = useGremlyStore.getState();
-      if (
+      const inTraining =
         !storeState.graduatedAt &&
         storeState.trainingDropStep >= 1 &&
-        storeState.trainingDropStep <= 4
-      ) {
-        if (storeState.trainingDropStep === 1) {
-          // Step 1: stash RAW reaction for gauge modal dismiss
-          pendingTrainingReactionRef.current = rawReaction || null;
-        } else {
-          // Steps 2-4: combine RAW reaction + training prompt
-          const trainingPrompt = getTrainingDropPrompt(storeState.trainingDropStep + 1);
-          if (trainingPrompt) {
-            const reaction = rawReaction || '';
-            const combined = reaction
-              ? reaction + '\n\n' + trainingPrompt.message
-              : trainingPrompt.message;
-            setGremlySpeech({
-              message: combined,
-              variant: 'default',
-            });
-          }
-        }
+        storeState.trainingDropStep <= 4;
+      const speech = reactionSpeechOf(payload, {
+        trainingStep: inTraining ? storeState.trainingDropStep : null,
+        trainingPrompt: getTrainingDropPrompt,
+        poolLine: () => getGremlySpeech(buildSpeechContext('post_drop'))?.message || null,
+      });
+
+      if (speech.show === 'hold') {
+        // the first guided drop: the reaction waits for the gauge card to close
+        pendingTrainingReactionRef.current = speech.reaction;
+        return;
+      }
+      if (speech.show === 'training') {
+        setGremlySpeech({ message: speech.message, variant: 'default' });
         return;
       }
 
       console.log('[SpeechBubble] drop:reaction_ready received', {
         localId: payload.localId,
-        message: message?.substring(0, 30),
-        followUp,
+        message: payload.message?.substring(0, 30),
+        wasPoolFallback: speech.show === 'reaction' && speech.fromPool,
       });
-
-      // Cancel any pending follow-up from a previous drop
-      if (followUpTimeoutRef.current) {
-        clearTimeout(followUpTimeoutRef.current);
-        followUpTimeoutRef.current = null;
-      }
-
-      // Resolve beat 1: AI reaction — only fall back to pool when there's no follow-up
-      // (multi/clarify drops should NOT show a generic pool message)
-      const reactionMessage =
-        message ||
-        (!followUp
-          ? (() => {
-              const ctx = buildSpeechContext('post_drop');
-              const fallback = getGremlySpeech(ctx);
-              return fallback?.message || null;
-            })()
-          : null);
-
-      const recentSpeech = useGremlyStore.getState().recentSpeech;
-
-      console.log('[Speech] Displaying reaction:', {
-        message: reactionMessage,
-        followUp,
-        wasPoolFallback: !message,
-      });
-
-      if (reactionMessage && !followUp) {
-        // Single beat — just the reaction
-        const duration = calculateSpeechDuration(reactionMessage);
-        showGremlySpeech(reactionMessage, duration);
-        useGremlyStore.getState().pushRecentSpeech(reactionMessage);
-      } else if (reactionMessage && followUp) {
-        // Two beats — vary the order so it doesn't feel templated
-        const reactionFirst = Math.random() < 0.5;
-        const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
-        const first = reactionFirst ? reactionMessage : followUpMsg;
-        const second = reactionFirst ? followUpMsg : reactionMessage;
-        const firstDuration = reactionFirst
-          ? calculateSpeechDuration(reactionMessage)
-          : followUpMsg
-            ? calculateSpeechDuration(followUpMsg)
-            : 5000;
-        const secondDuration = reactionFirst
-          ? followUpMsg
-            ? calculateSpeechDuration(followUpMsg)
-            : 5000
-          : calculateSpeechDuration(reactionMessage);
-
-        if (first) showGremlySpeech(first, firstDuration);
-        useGremlyStore.getState().pushRecentSpeech(reactionMessage);
-
-        followUpTimeoutRef.current = setTimeout(() => {
-          followUpTimeoutRef.current = null;
-          if (second) showGremlySpeech(second, secondDuration);
-        }, firstDuration + 500);
-      } else if (!reactionMessage && followUp) {
-        // No reaction (e.g. multi parent) — just follow-up
-        const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
-        if (followUpMsg) showGremlySpeech(followUpMsg, calculateSpeechDuration(followUpMsg));
-      }
-      // If both null, no speech (shouldn't happen but safe)
+      if (speech.show !== 'reaction') return;
+      showGremlySpeech(speech.message, calculateSpeechDuration(speech.message));
+      useGremlyStore.getState().pushRecentSpeech(speech.message);
     });
 
-    return () => {
-      unsubscribe();
-      if (followUpTimeoutRef.current) {
-        clearTimeout(followUpTimeoutRef.current);
-      }
-    };
+    return unsubscribe;
   }, [showGremlySpeech, buildSpeechContext]);
 
   // Return-visit speech: fire when user returns to MindDrop after visiting another tab
@@ -2262,12 +2064,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return { submissionId, dropId };
   }, []);
 
+  /** Whether the drop went into the queue; the classifier sorts it after. */
   type SaveResult = {
-    created: { todos: string[]; notes: string[]; habits: string[] };
-    createdDetails: OrganizedDetail[];
-    suggestions?: UISuggestion[];
-    decisionMode?: CortexResponse['mode'];
-    decisionConfidence?: number;
+    submitted: boolean;
     justCrossedFed?: boolean;
   };
 
@@ -2285,7 +2084,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     if (!effectiveText) {
       resetState();
-      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+      return { submitted: false };
     }
 
     // Use the same dropId from CatchAllNotepad ref for pending item correlation
@@ -2316,38 +2115,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       dropIdRef.current = null;
       submissionIdRef.current = null;
 
-      // Map log subtype to UI-friendly format
-      const noteSubtype =
-        result.bucket === 'log'
-          ? result.subtype === 'journal'
-            ? 'journal'
-            : result.subtype === 'idea'
-              ? 'idea'
-              : 'general'
-          : undefined;
-
-      return {
-        created: {
-          todos: result.bucket === 'todo' ? [result.entityId!] : [],
-          notes: result.bucket === 'log' ? [result.entityId!] : [],
-          habits: result.bucket === 'habit' ? [result.entityId!] : [],
-        },
-        createdDetails: [
-          {
-            kind: result.bucket === 'log' ? 'note' : result.bucket!,
-            noteSubtype,
-          },
-        ],
-        decisionConfidence: result.confidence,
-        decisionMode: 'auto',
-        justCrossedFed: result.justCrossedFed,
-      };
+      return { submitted: true, justCrossedFed: result.justCrossedFed };
     } else {
       console.error('[MindDrop:NewPipeline] Submit failed:', result.error);
       // Also clear refs on failure so user can retry with fresh IDs
       dropIdRef.current = null;
       submissionIdRef.current = null;
-      return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
+      return { submitted: false };
     }
   }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds, prefillDate]);
 
@@ -2632,77 +2406,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     ],
   );
 
-  const handleTimingSelection = useCallback(
-    async (option: TimingOption) => {
-      const todoId = pendingTodoId;
-      if (!todoId) {
-        console.warn('[MindDrop][Timing] No pending todo id');
-        return;
-      }
-
-      try {
-        setTimingChips([]);
-        setPendingTodoId(null);
-
-        const dueDate = timingOptionToDate(option);
-
-        // Mind Drop timing chip path: PARTIAL update for due date only.
-        // This is intentionally separate from UnifiedOverlayV2's toCreateOrUpdateInput().
-        // Do NOT include title, name, tags, or other fields here — those remain controlled by:
-        // 1. Initial Mind Drop create (auto-actions path with AI tags)
-        // 2. Overlay edits via UnifiedOverlayV2 (user-initiated changes)
-        await updateTodo(todoId, {
-          due_date: dueDate,
-          undefined_due: !dueDate,
-        });
-
-        triggerRecentRefresh();
-
-        // Track timing selection (skip if this is auto-fallback which is already tracked)
-        if (option !== 'someday' || timingChips.length > 0) {
-          metricsRef.current.timingSelected += 1;
-          logMetrics('timing_selected', { todoId, option, dueDate });
-        }
-
-        if (TOASTS_ON) {
-          const label = option === 'someday' ? 'Added to list' : 'Scheduled ✓';
-          showActionToast({
-            type: 'success',
-            content: label,
-          });
-        }
-      } catch (error) {
-        console.error('[MindDrop][Timing] Failed to assign timing', error);
-      }
-    },
-    [
-      pendingTodoId,
-      updateTodo,
-      triggerRecentRefresh,
-      TOASTS_ON,
-      showActionToast,
-      timingChips.length,
-      logMetrics,
-    ],
-  );
-
-  // Auto-dismiss timing chips after configured interval
-  useEffect(() => {
-    if (!timingChips?.length) return;
-    // Auto-dismiss after 5s and assign 'Someday' (due null)
-    const timeout = setTimeout(() => {
-      setTimingChips([]);
-      if (pendingTodoId) {
-        // Auto-assign "Someday" (no due date)
-        metricsRef.current.timingFallback += 1;
-        logMetrics('timing_auto_fallback', { todoId: pendingTodoId });
-
-        handleTimingSelection('someday');
-      }
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [timingChips, pendingTodoId, logMetrics, handleTimingSelection]);
-
   const wakeOnInput = useWakeOnInput();
 
   const handleChangeText = useCallback(
@@ -2857,7 +2560,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setShowGaugeModal(true);
         }, 3000);
       }
-    } else if (result.createdDetails?.length > 0) {
+    } else if (result.submitted) {
       // During Day 1 training: skip generic speech, show training prompt instead
       if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 4) {
         advanceTrainingDropStep(); // synchronous, updates store immediately
@@ -3451,16 +3154,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             style={styles.helperCounter}
           >{`${note.length}/${MAX_INPUT_CHARACTERS}`}</Text>
         </View>
-      ) : null}
-
-      {timingChips.length > 0 && !chatMode ? (
-        <MidConfidenceChips
-          variant="timing"
-          timingChips={timingChips}
-          onTimingPick={handleTimingSelection}
-          prompt="When do you want to do this?"
-          autoDismissMs={5000}
-        />
       ) : null}
 
       {compactTyping ? null : (

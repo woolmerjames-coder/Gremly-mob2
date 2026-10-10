@@ -2,11 +2,12 @@
  * RelationToast: what happened after a yes to "is this one you already have?",
  * with Undo and a close button.
  *
- * The popup shows a short tick and gets out of the way; this small toast at
- * the top then says what changed ("Moved “Vet” to Thu 1 Oct, 4:00pm", "Drop
- * archived"), with an icon for what happened, for a few seconds. Tapping the
- * words opens the item; Undo sits in its own small button beside them. One
- * host lives in the OverlayProvider, so it shows over Mind Drop and Sweep.
+ * Once the card's strip has closed (or Sweep's popup has gone), this toast at
+ * the top says what changed in one line ("Moved “Vet” to Thu 1 Oct, 4:00pm ·
+ * Drop archived") for a few seconds. Tapping the words opens the item; Undo
+ * sits in its own button beside them. Styled as the prototype's toast (Mind
+ * Drop rethink stage 6): forest, linen words, radius 16. One host lives in the
+ * OverlayProvider, so it shows over Mind Drop and Sweep.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -19,19 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import {
-  Archive,
-  CalendarClock,
-  CircleCheck,
-  CopyCheck,
-  FilePlus2,
-  Flame,
-  Pencil,
-  Repeat,
-  RotateCcw,
-  X,
-} from 'lucide-react-native';
-import { lightTokens } from '../../design/tokens';
+import { Undo2, X } from 'lucide-react-native';
 import { eventBus, type EventMap } from '../../lib/events/EventBus';
 
 type Payload = EventMap['minddrop:relation_done'];
@@ -40,16 +29,7 @@ type Payload = EventMap['minddrop:relation_done'];
 export const TOAST_MS = 5000;
 const AFTER_UNDO_MS = 1400;
 
-const ICONS = {
-  moved: CalendarClock,
-  renamed: Pencil,
-  repeat: Repeat,
-  added: FilePlus2,
-  done: CircleCheck,
-  logged: Flame,
-  kept: CopyCheck,
-  removed: Archive,
-} as const;
+const C = { forest: '#1A3328', linen: '#F9F6F1', undo: 'rgba(249,246,241,0.14)' };
 
 type Target = NonNullable<Payload['target']>;
 
@@ -132,7 +112,6 @@ export function RelationToast({
     onOpen(target);
   }, [payload.target, onOpen, hide]);
 
-  const Icon = state === 'undone' ? RotateCcw : ICONS[payload.icon] || CircleCheck;
   const title =
     state === 'undone'
       ? 'Put back the way it was'
@@ -153,19 +132,10 @@ export function RelationToast({
           onPress={open}
           style={({ pressed }) => [styles.openArea, pressed && canOpen && styles.openPressed]}
         >
-          <View style={styles.iconWrap}>
-            <Icon size={16} color={lightTokens.colors.mossGreen} strokeWidth={2.25} />
-          </View>
-          <View style={styles.textWrap}>
-            <Text style={styles.title} numberOfLines={2}>
-              {title}
-            </Text>
-            {detail ? (
-              <Text style={styles.detail} numberOfLines={1}>
-                {detail}
-              </Text>
-            ) : null}
-          </View>
+          <Text style={styles.words} numberOfLines={3}>
+            {title}
+            {detail ? <Text testID="relation-toast-detail">{` · ${detail}`}</Text> : null}
+          </Text>
         </Pressable>
         {state === 'shown' ? (
           <Pressable
@@ -176,10 +146,11 @@ export function RelationToast({
             hitSlop={6}
             style={({ pressed }) => [styles.undo, pressed && styles.pressed]}
           >
+            <Undo2 size={15} strokeWidth={2.2} color={C.linen} />
             <Text style={styles.undoText}>Undo</Text>
           </Pressable>
         ) : state === 'undoing' ? (
-          <ActivityIndicator size="small" color={lightTokens.colors.mossGreen} />
+          <ActivityIndicator size="small" color={C.linen} />
         ) : null}
         <Pressable
           testID="relation-toast-close"
@@ -189,7 +160,7 @@ export function RelationToast({
           hitSlop={10}
           style={({ pressed }) => [styles.close, pressed && styles.pressed]}
         >
-          <X size={16} color={lightTokens.colors.subtle} />
+          <X size={16} color={C.linen} strokeWidth={2} />
         </Pressable>
       </Animated.View>
     </View>
@@ -235,52 +206,43 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: lightTokens.colors.surface,
+    gap: 12,
+    backgroundColor: C.forest,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(46,85,64,0.12)',
     paddingVertical: 10,
-    paddingLeft: 12,
-    paddingRight: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    paddingLeft: 16,
+    paddingRight: 10,
+    shadowColor: '#0A140F',
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: lightTokens.colors.sageMist,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textWrap: { flex: 1 },
-  title: {
+  words: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    fontWeight: '600',
-    color: lightTokens.colors.deepForest,
+    lineHeight: 19,
+    color: C.linen,
   },
-  detail: { fontSize: 12, color: lightTokens.colors.subtle, marginTop: 1 },
-  openArea: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  openPressed: { opacity: 0.6 },
-  // Undo in its own small button, so it reads apart from the tappable words
+  openArea: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  openPressed: { opacity: 0.7 },
+  // Undo in its own button, so it reads apart from the tappable words
   undo: {
+    minHeight: 36,
     paddingHorizontal: 12,
-    paddingVertical: 6,
     borderRadius: 12,
-    backgroundColor: 'rgba(191, 216, 192, 0.45)',
+    backgroundColor: C.undo,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   undoText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    fontWeight: '600',
-    color: lightTokens.colors.mossGreen,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 13.5,
+    color: C.linen,
   },
-  close: { padding: 6 },
+  close: { padding: 6, opacity: 0.7 },
   pressed: { opacity: 0.6 },
 });
 

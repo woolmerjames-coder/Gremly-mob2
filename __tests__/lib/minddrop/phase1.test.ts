@@ -504,6 +504,72 @@ describe('runClassifyV3', () => {
     expect(r!.multi.segments).toHaveLength(2);
   });
 
+  test('asks for piece questions and leaves the question writer for after the sort (stage 4)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ bucket: 'todo', is_multi: false, reminder_intent: true }),
+    });
+    const r = await runClassifyV3('remind me to call mum');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.piece_questions).toBe(true);
+    expect(body.write_question).toBe(false);
+    expect(r!.phase1.reminder_intent).toBe(true);
+  });
+
+  test('reads a clear split, the drop as one and a piece that asks (v3.8)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        bucket: 'todo',
+        is_multi: true,
+        split: 'clear',
+        as_one: { bucket: 'log', subtype: 'general', habitSubtype: null },
+        segments: [
+          { text: 'reschedule the dentist', bucket: 'todo', subtype: null, is_ambiguous: false },
+          {
+            text: 'gym',
+            bucket: 'log',
+            subtype: 'general',
+            is_ambiguous: true,
+            ambiguity_type: 'habit_or_todo',
+            clarification_question: 'One gym visit or a regular thing?',
+            clarification_options: [
+              { id: 'opt_1', label: 'Just once', bucket: 'todo', subtype: null },
+              { id: 'opt_2', label: 'Regularly', bucket: 'habit', habitSubtype: 'start_habit' },
+            ],
+          },
+        ],
+      }),
+    });
+    const r = await runClassifyV3('reschedule the dentist, gym');
+    expect(r!.multi.split).toBe('clear');
+    expect(r!.multi.as_one).toEqual({ bucket: 'log', subtype: 'general', habitSubtype: null });
+    expect(r!.multi.segments![0].is_ambiguous).toBe(false);
+    expect(r!.multi.segments![1]).toMatchObject({
+      is_ambiguous: true,
+      ambiguity_type: 'habit_or_todo',
+      clarification_question: 'One gym visit or a regular thing?',
+    });
+    expect(r!.multi.segments![1].clarification_options).toHaveLength(2);
+  });
+
+  test('a split the classifier did not grade is unsure, and a missing drop as one stays missing', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        bucket: 'todo',
+        is_multi: true,
+        segments: [
+          { text: 'a', bucket: 'todo' },
+          { text: 'b', bucket: 'todo' },
+        ],
+      }),
+    });
+    const r = await runClassifyV3('a and b');
+    expect(r!.multi.split).toBe('unsure');
+    expect(r!.multi.as_one).toBeNull();
+  });
+
   test('returns null when the worker is disabled or errors', async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
     expect(await runClassifyV3('buy milk')).toBeNull();

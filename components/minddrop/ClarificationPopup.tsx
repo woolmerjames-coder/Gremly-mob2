@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, parseISO } from 'date-fns';
+import { formatTime } from '../../lib/chat/dayWords';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -331,9 +332,7 @@ export function ClarificationPopup({
 
             <View style={styles.chipRow}>
               {renderChip(
-                whenTime
-                  ? format(parseISO(`${today}T${whenTime}`), 'h:mm a')
-                  : 'Add a time (optional)',
+                whenTime ? formatTime(whenTime) : 'Add a time (optional)',
                 !!whenTime,
                 () => setWhenPicker('time'),
                 'clarification-when-pick-time',
@@ -369,7 +368,12 @@ export function ClarificationPopup({
                       styles.skipButton,
                       pressed && styles.skipButtonPressed,
                     ]}
-                    onPress={() => setWhenPicker(null)}
+                    onPress={() => {
+                      // Done saves the time the wheel shows, moved or not (final check item 20)
+                      if (!whenTime) setWhenTime('09:00');
+                      setWhenPicker(null);
+                    }}
+                    testID="clarification-when-time-done"
                   >
                     <Text style={styles.skipText}>Done</Text>
                   </Pressable>

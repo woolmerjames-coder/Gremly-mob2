@@ -78,6 +78,8 @@ export function readTurnRequest(body) {
       kind: x.kind === 'habit' ? 'habit' : 'todo',
       title: trim(x.title, 100) || 'Untitled',
       due_day: isDay(x.due_day) ? x.due_day : null,
+      // no day planned: the deadline it is due on (workers/shared/todoDay.js)
+      deadline: x.kind !== 'habit' && !isDay(x.due_day) && isDay(x.deadline) ? x.deadline : null,
       due_time: parseHHMM(x.due_time) !== null ? toHHMM(parseHHMM(x.due_time)) : null,
       minutes: num(x.minutes, 5, 480),
       note: trim(x.note, 60),
@@ -209,7 +211,7 @@ export function renderTurnInput(req, person) {
       req.items
         .map(
           (x) =>
-            `${x.ref} | ${x.kind} | ${x.title} | ${x.due_day || 'no day'} | ${x.due_time || '-'} | ${x.minutes ? `${x.minutes} min` : '-'} | ${x.note || '-'}`,
+            `${x.ref} | ${x.kind} | ${x.title} | ${x.due_day || (x.deadline ? `no day, due by ${x.deadline}` : 'no day')} | ${x.due_time || '-'} | ${x.minutes ? `${x.minutes} min` : '-'} | ${x.note || '-'}`,
         )
         .join('\n') || '(none)'
     }`,

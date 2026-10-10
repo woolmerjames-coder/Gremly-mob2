@@ -14,6 +14,8 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date';
 import { format } from 'date-fns';
 import type { Todo, Habit, Note } from '../../lib/types';
+// Which day a todo is on: its planned day, else its deadline (stage 2c, 9 Oct 2026)
+import { isTodoOverdue } from '../../workers/shared/todoDay';
 
 // ═══════════════════════════════════════════════════════════════════
 // BRAND COLORS (matches AllItemsTable / brand.ts)
@@ -147,7 +149,7 @@ function getStatus(item: Todo | Habit | Note): 'active' | 'completed' | 'overdue
   if (item.type === 'todo') {
     const todo = item as Todo;
     if (todo.completed_at) return 'completed';
-    if (todo.due_day && todo.due_day < today) return 'overdue';
+    if (isTodoOverdue(todo, today)) return 'overdue';
     return 'active';
   }
 

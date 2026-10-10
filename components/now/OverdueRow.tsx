@@ -28,6 +28,9 @@ const GREMLY_FACE = require('../../assets/buttonforHP.png');
 // Brand green for completion message
 const BRAND_GREEN = '#2E5540';
 
+// Overdue, as Sweep's card words it (components/sweep/ContextHeader.tsx)
+const OVERDUE_RED = '#C94040';
+
 // Row height for compact list items
 const ROW_HEIGHT = 44;
 
@@ -105,6 +108,13 @@ export function OverdueRow({ item, index, onPressItem, onToggleComplete }: Overd
           >
             {item.name}
           </Text>
+
+          {/* A todo here by its deadline, with no day planned, says it is overdue */}
+          {item.hasUnscheduledDeadline ? (
+            <Text style={styles.deadlineText} testID={`overdue-deadline-${index}`}>
+              Overdue
+            </Text>
+          ) : null}
 
           {/* Checkbox */}
           <TouchableOpacity
@@ -188,6 +198,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     lineHeight: 18,
+  },
+  deadlineText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: OVERDUE_RED,
+    marginLeft: 8,
   },
   itemTitleCompleted: {
     textDecorationLine: 'line-through',

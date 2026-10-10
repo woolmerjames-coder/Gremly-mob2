@@ -1,863 +1,1084 @@
 /**
- * dropPhases Tests
+ * dropPhases: the new order (Mind Drop rethink stage 4).
  *
- * Tests for the drop pipeline phase handlers and helper functions:
- * - withTimeout: soft timeout with fallback
- * - mightBeMulti: multi-entity heuristic
- * - extractTemporal: date/time pattern extraction
- * - getPhaseHandler: phase router
- * - Phase handlers: handleQueued, handleClassified, handleMultiDetected, handleTitled, handleEnriched
+ * - queued: the title call and the already have it check start at the tap,
+ *   beside the classifier; reminder_intent is copied; the title call sends the
+ *   timezone and today's date.
+ * - sorted: the details start with the kind; the title call gets at most a
+ *   little longer; the drop is saved as its kind without waiting for the
+ *   details or the relation; an unclear drop saves its question, an unsure
+ *   split one item with views.split, a clear split its pieces.
+ * - saved: details in time are written with the settle; late ones after it;
+ *   an unclear drop takes the writer's words only when they are the writer's.
+ * - an older build's phases run the handler they move to.
+ * - the bubble (stage 10): every drop's reaction goes with its sort, a
+ *   split's too, never with a follow up line; one that comes later shows up
+ *   to the settle and is let go after it.
  */
 
-import type { QueuedDrop, DropPhase } from '../dropQueue';
+import type { QueuedDrop } from '../dropQueue';
 
-// Mock dependencies before importing
-jest.mock('../dropQueue', () => ({
-  saveDrop: jest.fn(),
-  getQueue: jest.fn().mockResolvedValue([]),
-}));
-jest.mock('../detectMulti', () => ({
-  detectMulti: jest.fn().mockResolvedValue({ is_multi: false }),
-}));
 jest.mock('../phase1', () => ({
-  runPhase1: jest.fn().mockResolvedValue({
-    bucket: 'todo',
-    subtype: null,
-    habitSubtype: null,
-    confidence: 0.95,
-    source: 'ai',
-  }),
-  // v3 unavailable by default in these tests: exercises the v2 fallback path
-  runClassifyV3: jest.fn().mockResolvedValue(null),
+  runClassifyV3: jest.fn(),
 }));
-jest.mock('../../config/featureFlags', () => ({
-  // v3 is off by default in the app; these tests exercise both paths, with
-  // runClassifyV3 returning null (v2 fallback) unless a test says otherwise.
-  FEATURE_FLAGS: { CLASSIFY_V3_ENABLED: true, HEURISTIC_LOGGING_ENABLED: false },
-}));
-jest.mock('../dropSync', () => ({
-  syncDropToSupabase: jest
-    .fn()
-    .mockResolvedValue({ success: true, supabaseId: 'sb-1', entityType: 'todo' }),
-  syncMultiDropToSupabase: jest
-    .fn()
-    .mockResolvedValue({ success: true, supabaseId: 'sb-2', entityType: 'note' }),
+jest.mock('../dropSync', () => {
+  const actual = jest.requireActual('../dropSync');
+  return {
+    splitPiecesView: actual.splitPiecesView,
+    kindWordOf: actual.kindWordOf,
+    detailBaseOf: actual.detailBaseOf,
+    syncDropToSupabase: jest.fn(),
+    insertSplitPieces: jest.fn(),
+    updateDropDetails: jest.fn().mockResolvedValue(true),
+    settleDropRow: jest.fn().mockResolvedValue(true),
+    updateDropWords: jest.fn().mockResolvedValue(true),
+    updateDropQuestion: jest.fn().mockResolvedValue(true),
+    attachDropRelation: jest.fn().mockResolvedValue('card'),
+    updateDropRow: jest.fn().mockResolvedValue(true),
+  };
+});
+jest.mock('../dropReminder', () => ({
+  scheduleDropReminder: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../../store/useGremlyStore', () => ({
-  useGremlyStore: {
+  useGremlyStore: Object.assign(() => ({}), {
     getState: () => ({
       userId: 'user-1',
-      pendingDrops: new Map(),
+      todos: [],
+      habits: [],
+      notes: [],
       recentSpeech: [],
       pushRecentSpeech: jest.fn(),
     }),
+    setState: jest.fn(),
+  }),
+}));
+jest.mock('../../supabase/client', () => ({
+  supabase: {
+    from: jest.fn(),
+    auth: { onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }) },
   },
+}));
+jest.mock('../../chat/entityCards', () => ({
+  applyEntityChange: jest.fn(),
+  formatDay: (d: string) => d,
+  formatTime: (t: string) => t,
+}));
+jest.mock('../../cortex/getSessionToken', () => ({
+  getSessionToken: () => Promise.resolve('tok'),
 }));
 jest.mock('../../date/DateService', () => ({
-  dateService: { today: () => '2026-03-30', now: () => new Date('2026-03-30T12:00:00') },
-  getDateService: () => ({ today: () => '2026-03-30', now: () => new Date('2026-03-30T12:00:00') }),
+  nowTimestamp: () => '2026-10-09T12:00:00Z',
+  dateService: { today: () => '2026-10-09', now: () => new Date('2026-10-09T12:00:00Z') },
+  getDateService: () => ({
+    today: () => '2026-10-09',
+    now: () => new Date('2026-10-09T12:00:00Z'),
+    dayNow: () => new Date('2026-10-09T12:00:00Z'),
+    getTimezone: () => 'Europe/London',
+  }),
 }));
 jest.mock('../../env', () => ({
-  env: { cortexUrl: 'https://test.cortex', supabaseAnonKey: 'test-key' },
-  getEnv: (key: string) => {
-    if (key === 'EXPO_PUBLIC_CORTEX_URL') return 'https://test.cortex';
-    if (key === 'EXPO_PUBLIC_SUPABASE_ANON_KEY') return 'test-key';
-    return undefined;
-  },
+  env: { cortexUrl: 'https://test.cortex' },
+  getEnv: (key: string) => (key === 'EXPO_PUBLIC_CORTEX_URL' ? 'https://test.cortex' : undefined),
 }));
 
 import {
-  withTimeout,
+  DROP_WAITS,
   getPhaseHandler,
   handleQueued,
-  handleClassified,
-  handleEnriched,
+  handleSaved,
+  handleSorted,
+  forgetDropCalls,
 } from '../dropPhases';
-import { runPhase1, runClassifyV3 } from '../phase1';
-import { detectMulti } from '../detectMulti';
-import { syncDropToSupabase, syncMultiDropToSupabase } from '../dropSync';
+import { runClassifyV3 } from '../phase1';
+import {
+  attachDropRelation,
+  insertSplitPieces,
+  settleDropRow,
+  syncDropToSupabase,
+  updateDropDetails,
+  updateDropQuestion,
+  updateDropWords,
+} from '../dropSync';
+import { scheduleDropReminder } from '../dropReminder';
 import { eventBus } from '../../events/EventBus';
 
-// ── Helpers ──────────────────────────────────────────────────────
+// ── A Worker that answers each call when the test says ───────────────────
 
-function makeDrop(overrides: Partial<QueuedDrop> = {}): QueuedDrop {
+type Gate = { gate: Promise<void>; open: () => void };
+function gate(): Gate {
+  let open = () => {};
+  const g = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { gate: g, open };
+}
+
+let replies: Record<string, unknown> = {};
+let gates: Record<string, Gate> = {};
+let sent: Array<Record<string, any>> = [];
+
+const realFetch = global.fetch;
+function installWorker() {
+  global.fetch = jest.fn(async (_url: string, init: any) => {
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    const g = gates[body.type];
+    if (g) await g.gate;
+    return { ok: true, json: async () => replies[body.type] ?? {} };
+  }) as any;
+}
+const sentTypes = () => sent.map((b) => b.type);
+const sentOf = (type: string) => sent.filter((b) => b.type === type);
+
+/** Let the started calls run up to their fetch. */
+const flush = async (n = 8) => {
+  for (let i = 0; i < n; i += 1) await new Promise((r) => setTimeout(r, 0));
+};
+
+const WORDS = { smart_title: 'Call mum about Sunday', confirmation_message: 'She will love that.' };
+const DETAILS = {
+  tags: ['family'],
+  time_estimate_minutes: 10,
+  time_window: 'evening',
+  people: ['Mum'],
+  energy_type: 'social',
+};
+const RELATION = {
+  enabled: true,
+  relation: {
+    kind: 'edit',
+    intent: 'complete',
+    entity: { id: 't1', type: 'todo', title: 'Book the pet sitter', due_day: null, due_time: null },
+    others: [],
+    confidence: 95,
+    change: { field: 'completed', from: null, to: 'done' },
+  },
+};
+
+let n = 0;
+function drop(over: Partial<QueuedDrop> = {}): QueuedDrop {
+  n += 1;
   return {
-    localId: 'test-drop-1',
-    text: 'Buy groceries',
+    localId: `d-${n}`,
+    text: 'call mum about sunday',
     spaceId: null,
     source: 'minddrop',
-    createdAt: '2026-03-30T12:00:00Z',
+    createdAt: '2026-10-09T12:00:00Z',
     status: 'queued',
     retryCount: 0,
     phase: 'queued',
-    ...overrides,
+    ...over,
   } as QueuedDrop;
 }
 
-// ── withTimeout ──────────────────────────────────────────────────
+function sorted(over: Partial<QueuedDrop> = {}): QueuedDrop {
+  return drop({
+    phase: 'sorted',
+    sortedAt: new Date('2026-10-09T12:00:00Z').getTime(),
+    classifyEngine: 'v3',
+    bucket: 'todo',
+    subtype: null,
+    needsClarification: false,
+    ...over,
+  });
+}
 
-describe('withTimeout', () => {
-  it('returns promise result when it resolves before timeout', async () => {
-    const result = await withTimeout(Promise.resolve('fast'), 1000, 'fallback');
-    expect(result).toBe('fast');
+const v3 = (
+  phase1: Record<string, unknown>,
+  multi: Record<string, unknown> = { is_multi: false },
+) => ({
+  phase1: { subtype: null, habitSubtype: null, confidence: 0.9, source: 'api', ...phase1 },
+  multi,
+  latencyMs: 10,
+});
+
+const reactions: any[] = [];
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  replies = {
+    'enrich-phase1-5a': WORDS,
+    'enrich-phase2': DETAILS,
+    'enrich-phase2b': {
+      auto_reminder: true,
+      reminder_date: '2026-10-10',
+      reminder_time: '09:00',
+      reminder_frequency: 'once',
+    },
+    'minddrop-relate': { enabled: true, relation: null },
+    'clarify-ambiguity': {
+      clarification_question: 'Is this something to do, or to remember?',
+      options: [
+        { id: 'opt_1', label: 'To do', bucket: 'todo' },
+        { id: 'opt_2', label: 'To remember', bucket: 'log', subtype: 'general' },
+      ],
+      question_source: 'model',
+      labels_source: 'model',
+    },
+  };
+  gates = {};
+  sent = [];
+  installWorker();
+  DROP_WAITS.wordsAfterSortMs = 30;
+  DROP_WAITS.settleMs = 80;
+  (syncDropToSupabase as jest.Mock).mockResolvedValue({
+    success: true,
+    supabaseId: 'row-1',
+    entityType: 'todo',
+  });
+  reactions.length = 0;
+  eventBus.clear();
+  eventBus.on('drop:reaction_ready', (p) => reactions.push(p));
+});
+
+afterEach(async () => {
+  // let every held call finish so nothing is left running
+  Object.values(gates).forEach((g) => g.open());
+  await flush();
+  global.fetch = realFetch;
+});
+
+// ── queued: the tap ──────────────────────────────────────────────────────
+
+describe('handleQueued', () => {
+  it('starts the title call and the already have it check at the tap, beside the classifier', async () => {
+    const classifier = gate();
+    (runClassifyV3 as jest.Mock).mockImplementation(async () => {
+      await classifier.gate;
+      return v3({ bucket: 'todo' });
+    });
+    const pending = handleQueued(drop());
+    await flush();
+    // both asked while the classifier was still out
+    expect(sentTypes()).toEqual(expect.arrayContaining(['enrich-phase1-5a', 'minddrop-relate']));
+    const words = sentOf('enrich-phase1-5a')[0];
+    expect(words.bucket).toBeUndefined();
+    expect(words.timezone).toBe('Europe/London');
+    expect(words.currentDate).toBe('2026-10-09');
+    classifier.open();
+    const out = await pending;
+    expect(out.phase).toBe('sorted');
+    expect(typeof out.sortedAt).toBe('number');
   });
 
-  it('returns fallback when promise takes longer than timeout', async () => {
-    const slowPromise = new Promise<string>((resolve) => setTimeout(() => resolve('slow'), 500));
-    const result = await withTimeout(slowPromise, 10, 'fallback');
-    expect(result).toBe('fallback');
+  it("copies the classifier's reminder_intent onto the drop", async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(v3({ bucket: 'todo', reminder_intent: true }));
+    const out = await handleQueued(drop({ text: 'remind me to call mum' }));
+    expect(out.reminderIntent).toBe(true);
   });
 
-  it('does not throw on timeout — returns fallback instead', async () => {
-    const neverResolves = new Promise<string>(() => {}); // never resolves
-    const result = await withTimeout(neverResolves, 10, 'safe');
-    expect(result).toBe('safe');
+  it('sorts with the title when the title call is already back, and sends the reaction once', async () => {
+    (runClassifyV3 as jest.Mock).mockImplementation(async () => {
+      await flush();
+      return v3({ bucket: 'todo' });
+    });
+    const out = await handleQueued(drop());
+    expect(out.smartTitle).toBe('Call mum about Sunday');
+    expect(out.confirmationMessage).toBe('She will love that.');
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+  });
+
+  it('keeps an unclear drop with its type and the classifier question', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3({
+        bucket: 'log',
+        subtype: 'general',
+        is_ambiguous: true,
+        ambiguity_type: null,
+        clarification_question: 'Booked yet?',
+        clarification_options: [
+          { id: 'a', label: 'Yes', action: {} },
+          { id: 'b', label: 'No', action: {} },
+        ],
+      }),
+    );
+    const out = await handleQueued(drop());
+    expect(out.needsClarification).toBe(true);
+    expect(out.ambiguityType).toBe('bucket');
+    expect(out.clarificationQuestion).toBe('Booked yet?');
+  });
+
+  it('records a split with how sure the classifier is and the drop as one', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3(
+        { bucket: 'todo' },
+        {
+          is_multi: true,
+          split: 'unsure',
+          as_one: { bucket: 'todo', subtype: null, habitSubtype: null },
+          segments: [
+            { text: 'buy milk', bucket: 'todo', subtype: null },
+            { text: 'walk daily', bucket: 'habit', habitSubtype: 'start_habit' },
+          ],
+        },
+      ),
+    );
+    const out = await handleQueued(drop({ text: 'buy milk, walk daily' }));
+    expect(out).toMatchObject({ phase: 'sorted', isMulti: true, split: 'unsure' });
+    expect(out.asOne).toEqual({ bucket: 'todo', subtype: null, habitSubtype: null });
+    expect(out.multiSegments).toHaveLength(2);
+    // the title call is still out: no split line, and the reaction waits for its words
+    expect(reactions).toEqual([]);
+  });
+
+  it('gives a split its reaction at the sort when the words are back, with no follow up line', async () => {
+    (runClassifyV3 as jest.Mock).mockImplementation(async () => {
+      await flush();
+      return v3(
+        { bucket: 'todo' },
+        {
+          is_multi: true,
+          split: 'clear',
+          as_one: null,
+          segments: [
+            { text: 'buy milk', bucket: 'todo', subtype: null },
+            { text: 'walk daily', bucket: 'habit', habitSubtype: 'start_habit' },
+          ],
+        },
+      );
+    });
+    const out = await handleQueued(drop({ text: 'buy milk, walk daily' }));
+    expect(out.confirmationMessage).toBe('She will love that.');
+    expect(reactions).toEqual([
+      {
+        localId: out.localId,
+        message: 'She will love that.',
+        rawReaction: 'She will love that.',
+      },
+    ]);
+  });
+
+  it('gives a piece that asks a question to show even when its own was unusable', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3(
+        { bucket: 'todo' },
+        {
+          is_multi: true,
+          split: 'clear',
+          as_one: null,
+          segments: [
+            { text: 'buy milk', bucket: 'todo' },
+            { text: 'gym', bucket: 'log', is_ambiguous: true, ambiguity_type: 'habit_or_todo' },
+          ],
+        },
+      ),
+    );
+    const out = await handleQueued(drop({ text: 'buy milk, gym' }));
+    const piece = out.multiSegments![1];
+    expect(piece.needsClarification).toBe(true);
+    expect(piece.ambiguityType).toBe('habit_or_todo');
+    expect(typeof piece.clarificationQuestion).toBe('string');
+    expect((piece.clarificationOptions || []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('throws when classify-v3 fails, so the runner tries again, with no weaker path (stage 11)', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(null);
+    await expect(handleQueued(drop({ text: 'buy milk' }))).rejects.toThrow('Classification');
+    // only the title call and the already have it check were asked, beside the classifier
+    expect(sentTypes()).not.toContain('detect-multi');
+    expect(sentTypes()).not.toContain('classify-phase1-v2');
   });
 });
 
-// ── getPhaseHandler ──────────────────────────────────────────────
+// ── sorted: details start, and the drop is saved as its kind ─────────────
+
+describe('handleSorted', () => {
+  it('starts the details with the kind, and the reminder when one was asked for', async () => {
+    gates['enrich-phase2'] = gate();
+    await handleSorted(sorted({ smartTitle: 'Call mum', reminderIntent: true }));
+    await flush();
+    expect(sentOf('enrich-phase2')[0]).toMatchObject({ bucket: 'todo', subtype: null });
+    expect(sentOf('enrich-phase2b')).toHaveLength(1);
+  });
+
+  it('saves without waiting for the details or the relation', async () => {
+    gates['enrich-phase2'] = gate();
+    gates['minddrop-relate'] = gate();
+    const d = sorted({ smartTitle: 'Call mum' });
+    const out = await handleSorted(d);
+    expect(syncDropToSupabase).toHaveBeenCalledTimes(1);
+    const [, enrichment, opts] = (syncDropToSupabase as jest.Mock).mock.calls[0];
+    expect(enrichment).toBeNull();
+    expect(opts).toMatchObject({ stage: 'saved', title: 'Call mum' });
+    expect(opts.kind).toEqual({ bucket: 'todo', subtype: null, habitSubtype: null });
+    expect(out).toMatchObject({
+      phase: 'saved',
+      supabaseId: 'row-1',
+      entityType: 'todo',
+      relationPending: true,
+    });
+    expect(typeof out.savedAt).toBe('number');
+  });
+
+  it('gives the title call a little longer, then saves the drop in its own words and updates it when the title lands', async () => {
+    gates['enrich-phase1-5a'] = gate();
+    (runClassifyV3 as jest.Mock).mockResolvedValue(v3({ bucket: 'todo' }));
+    // tapped in this run, so Gremly reacts when the words land
+    const d = await handleQueued(drop());
+    const out = await handleSorted(d);
+    expect(out.wordsPending).toBe(true);
+    expect((syncDropToSupabase as jest.Mock).mock.calls[0][2].title).toBe('Call mum about sunday');
+    expect(reactions).toHaveLength(0);
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(updateDropWords).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      { smartTitle: 'Call mum about Sunday', reaction: 'She will love that.' },
+      'Call mum about sunday',
+    );
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+  });
+
+  it('lets a title go that lands after the settle, as the reaction is (final check item 11)', async () => {
+    gates['enrich-phase1-5a'] = gate();
+    const out = await handleSorted(sorted());
+    expect(out.wordsPending).toBe(true);
+    await handleSaved(out);
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(updateDropWords).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      { smartTitle: null, reaction: 'She will love that.' },
+      'Call mum about sunday',
+    );
+    expect(reactions).toHaveLength(0);
+  });
+
+  it('saves the already have it answer on the item, of any kind, when it is in by the save', async () => {
+    replies['minddrop-relate'] = RELATION;
+    const d = sorted({ smartTitle: 'Booked the pet sitter' });
+    // asked at the tap
+    (runClassifyV3 as jest.Mock).mockResolvedValue(v3({ bucket: 'todo' }));
+    const q = await handleQueued({ ...d, phase: 'queued' });
+    await flush();
+    const out = await handleSorted({ ...q, smartTitle: 'Booked the pet sitter' });
+    const opts = (syncDropToSupabase as jest.Mock).mock.calls[0][2];
+    expect(opts.extraViews.relation).toMatchObject({
+      status: 'pending',
+      surface: 'card',
+      kind: 'edit',
+      classified: { bucket: 'todo' },
+    });
+    expect(out.relationPending).toBe(false);
+    // asked once, at the tap
+    expect(sentOf('minddrop-relate')).toHaveLength(1);
+  });
+
+  it('attaches the answer when it lands after the save', async () => {
+    replies['minddrop-relate'] = RELATION;
+    gates['minddrop-relate'] = gate();
+    const out = await handleSorted(sorted({ smartTitle: 'Booked the pet sitter' }));
+    expect(out.relationPending).toBe(true);
+    expect(attachDropRelation).not.toHaveBeenCalled();
+    gates['minddrop-relate'].open();
+    await flush();
+    expect(attachDropRelation).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      expect.objectContaining({ status: 'pending', kind: 'edit', intent: 'complete' }),
+    );
+  });
+
+  it('saves an unclear drop as a note with the classifier question, and asks the writer, not the details', async () => {
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'note-1',
+      entityType: 'note',
+    });
+    const d = sorted({
+      smartTitle: 'Dentist',
+      bucket: 'log',
+      subtype: 'general',
+      needsClarification: true,
+      ambiguityType: 'booking',
+      clarificationQuestion: 'Booked yet?',
+      clarificationOptions: [
+        { id: 'a', label: 'Yes', action: {} },
+        { id: 'b', label: 'No', action: {} },
+      ] as any,
+    });
+    await handleSorted(d);
+    await flush();
+    const [saved] = (syncDropToSupabase as jest.Mock).mock.calls[0];
+    expect(saved.clarificationQuestion).toBe('Booked yet?');
+    expect(sentTypes()).toContain('clarify-ambiguity');
+    expect(sentTypes()).not.toContain('enrich-phase2');
+    // (its reaction, with no follow up line, is the next test's: this drop was not tapped in this run)
+  });
+
+  it('a drop picked up after a restart gets no reaction: only one tapped in this run speaks (final check item 12)', async () => {
+    const out = await handleSorted(sorted());
+    await flush();
+    expect(out.phase).toBe('saved');
+    expect(reactions).toEqual([]);
+  });
+
+  it('gives an unclear drop its reaction at the save, with no follow up line', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3({ bucket: 'log', subtype: 'general', is_ambiguous: true, ambiguity_type: 'bucket' }),
+    );
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'note-1',
+      entityType: 'note',
+    });
+    const q = await handleQueued(drop());
+    expect(reactions).toEqual([]);
+    await handleSorted(q);
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+  });
+
+  it('gives an unsure split its reaction at the save when the words come after the sort', async () => {
+    (runClassifyV3 as jest.Mock).mockResolvedValue(
+      v3(
+        { bucket: 'todo' },
+        {
+          is_multi: true,
+          split: 'unsure',
+          as_one: { bucket: 'todo', subtype: null, habitSubtype: null },
+          segments: [
+            { text: 'buy milk', bucket: 'todo', subtype: null },
+            { text: 'walk daily', bucket: 'habit', habitSubtype: 'start_habit' },
+          ],
+        },
+      ),
+    );
+    const q = await handleQueued(drop({ text: 'buy milk, walk daily' }));
+    expect(reactions).toEqual([]);
+    await handleSorted(q);
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+  });
+
+  it('saves an unsure split as one item of its kind as one, with the pieces waiting', async () => {
+    const d = sorted({
+      smartTitle: 'Buy milk, walk daily',
+      isMulti: true,
+      split: 'unsure',
+      splitSaid: 'unsure',
+      asOne: { bucket: 'todo', subtype: null, habitSubtype: null },
+      multiSegments: [
+        { text: 'buy milk', bucket: 'todo', subtype: null },
+        { text: 'walk daily', bucket: 'habit', subtype: null, habitSubtype: 'start_habit' },
+      ],
+    });
+    const out = await handleSorted(d);
+    const opts = (syncDropToSupabase as jest.Mock).mock.calls[0][2];
+    expect(opts.kind).toEqual({ bucket: 'todo', subtype: null, habitSubtype: null });
+    expect(opts.extraViews.split).toEqual({
+      status: 'pending',
+      pieces: [
+        expect.objectContaining({ text: 'buy milk', kind: 'todo' }),
+        expect.objectContaining({ text: 'walk daily', kind: 'habit' }),
+      ],
+      // the classifier's own call, for the split telemetry (final check item 7)
+      classifier_said: 'unsure',
+    });
+    expect(out.bucket).toBe('todo');
+  });
+
+  it('saves an unsure split with no kind as one as a note', async () => {
+    const d = sorted({
+      smartTitle: 'Two things',
+      isMulti: true,
+      split: 'unsure',
+      asOne: null,
+      multiSegments: [
+        { text: 'a', bucket: 'todo', subtype: null },
+        { text: 'b', bucket: 'todo', subtype: null },
+      ],
+    });
+    await handleSorted(d);
+    expect((syncDropToSupabase as jest.Mock).mock.calls[0][2].kind).toEqual({
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+    });
+  });
+
+  const splitPieces = () => [
+    {
+      entityType: 'todo',
+      id: 'p0',
+      dropId: 'split-x-0',
+      index: 0,
+      text: 'a',
+      title: 'A',
+      bucket: 'todo',
+      subtype: null,
+    },
+    {
+      entityType: 'todo',
+      id: 'p1',
+      dropId: 'split-x-1',
+      index: 1,
+      text: 'b',
+      title: 'B',
+      bucket: 'todo',
+      subtype: null,
+    },
+  ];
+
+  it('saves a clear split as its pieces, and each gets its own details and title', async () => {
+    const pieces = splitPieces();
+    (insertSplitPieces as jest.Mock).mockResolvedValue(pieces);
+    const d = sorted({
+      isMulti: true,
+      split: 'clear',
+      multiSegments: [
+        { text: 'a', bucket: 'todo', subtype: null },
+        { text: 'b', bucket: 'todo', subtype: null },
+      ],
+    });
+    const out = await handleSorted(d);
+    expect(insertSplitPieces).toHaveBeenCalledWith(d);
+    expect(syncDropToSupabase).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ phase: 'saved', pieceRows: pieces });
+    const done = await handleSaved(out);
+    expect(done).toMatchObject({ phase: 'complete', detailsIn: 'in_time' });
+    // each piece: its own details, settled with them, and its own title (no reaction shown)
+    const detailed = (updateDropDetails as jest.Mock).mock.calls.map((c) => [c[0].id, c[3].settle]);
+    expect(detailed).toEqual(
+      expect.arrayContaining([
+        ['p0', true],
+        ['p1', true],
+      ]),
+    );
+    const titled = (updateDropWords as jest.Mock).mock.calls.map((c) => [c[0].id, c[1]]);
+    expect(titled).toEqual(
+      expect.arrayContaining([
+        ['p0', { smartTitle: 'Call mum about Sunday', reaction: null }],
+        ['p1', { smartTitle: 'Call mum about Sunday', reaction: null }],
+      ]),
+    );
+    // the whole drop's check found nothing, so no piece is checked on its own
+    expect(sentOf('minddrop-relate')).toHaveLength(1);
+    expect(attachDropRelation).not.toHaveBeenCalled();
+  });
+
+  const clearSplit = () =>
+    v3(
+      { bucket: 'todo' },
+      {
+        is_multi: true,
+        split: 'clear',
+        as_one: null,
+        segments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      },
+    );
+
+  it('sends a clear split’s reaction with its pieces, from the whole drop’s words', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    (runClassifyV3 as jest.Mock).mockResolvedValue(clearSplit());
+    const q = await handleQueued(drop({ text: 'a, b' }));
+    expect(reactions).toEqual([]);
+    const out = await handleSorted(q);
+    expect(out.phase).toBe('saved');
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+    await handleSaved(out);
+    await flush();
+    // the pieces' own words are never shown
+    expect(reactions).toHaveLength(1);
+  });
+
+  it('shows a clear split’s late reaction up to the settle', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    (runClassifyV3 as jest.Mock).mockResolvedValue(clearSplit());
+    gates['enrich-phase1-5a'] = gate();
+    const out = await handleSorted(await handleQueued(drop({ text: 'a, b' })));
+    expect(reactions).toEqual([]);
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(reactions).toEqual([expect.objectContaining({ message: 'She will love that.' })]);
+    await handleSaved(out);
+  });
+
+  it('lets a clear split’s reaction go when it lands after the settle', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    (runClassifyV3 as jest.Mock).mockResolvedValue(clearSplit());
+    gates['enrich-phase1-5a'] = gate();
+    const out = await handleSorted(await handleQueued(drop({ text: 'a, b' })));
+    const done = await handleSaved(out);
+    expect(done.phase).toBe('complete');
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(reactions).toHaveLength(0);
+  });
+
+  it('says nothing, and asks for no words, for a clear split sorted before a restart', async () => {
+    (insertSplitPieces as jest.Mock).mockResolvedValue(splitPieces());
+    await handleSorted(
+      sorted({
+        isMulti: true,
+        split: 'clear',
+        multiSegments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      }),
+    );
+    await flush();
+    expect(reactions).toHaveLength(0);
+    expect(sentOf('enrich-phase1-5a')).toHaveLength(0);
+  });
+
+  it('checks each piece on its own only when the whole drop’s check found something', async () => {
+    replies['minddrop-relate'] = RELATION;
+    const pieces = splitPieces();
+    (insertSplitPieces as jest.Mock).mockResolvedValue(pieces);
+    const out = await handleSorted(
+      sorted({
+        text: 'a, b',
+        isMulti: true,
+        split: 'clear',
+        multiSegments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      }),
+    );
+    await handleSaved(out);
+    await flush();
+    // the whole drop, then each piece
+    expect(sentOf('minddrop-relate').map((b) => b.text)).toEqual(['a, b', 'a', 'b']);
+    const attached = (attachDropRelation as jest.Mock).mock.calls.map((c) => c[0].id);
+    expect(attached.sort()).toEqual(['p0', 'p1']);
+  });
+
+  it('keeps whether an unsure split’s whole drop check found something, for a Split later', async () => {
+    replies['minddrop-relate'] = RELATION;
+    const { updateDropRow } = jest.requireMock('../dropSync');
+    await handleSorted(
+      sorted({
+        smartTitle: 'Two things',
+        isMulti: true,
+        split: 'unsure',
+        asOne: null,
+        multiSegments: [
+          { text: 'a', bucket: 'todo', subtype: null },
+          { text: 'b', bucket: 'todo', subtype: null },
+        ],
+      }),
+    );
+    await flush();
+    const call = (updateDropRow as jest.Mock).mock.calls.find((c) => c[2] === 'split_related');
+    expect(call).toBeDefined();
+    const patch = call[3]({ views: { split: { status: 'pending', pieces: [] } } });
+    expect(patch.views.split).toEqual({ status: 'pending', pieces: [], related: true });
+  });
+
+  it('throws when the save fails, so the runner tries again', async () => {
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: false,
+      error: new Error('offline'),
+    });
+    await expect(handleSorted(sorted({ smartTitle: 'Call mum' }))).rejects.toThrow('offline');
+  });
+});
+
+// ── saved: the details, and the settle ───────────────────────────────────
+
+describe('handleSaved', () => {
+  async function savedDrop(over: Partial<QueuedDrop> = {}) {
+    return handleSorted(sorted({ smartTitle: 'Call mum', ...over }));
+  }
+
+  it('writes details that are in time with the settle, and saves the reminder', async () => {
+    const d = await savedDrop({ reminderIntent: true });
+    const out = await handleSaved(d);
+    await flush();
+    expect(updateDropDetails).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      expect.objectContaining({ localId: d.localId }),
+      expect.objectContaining({ tags: ['family'], people: ['Mum'] }),
+      expect.objectContaining({
+        settle: true,
+        kind: { bucket: 'todo', subtype: null, habitSubtype: null },
+      }),
+    );
+    expect(settleDropRow).not.toHaveBeenCalled();
+    expect(scheduleDropReminder).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      expect.objectContaining({ auto_reminder: true, reminder_date: '2026-10-10' }),
+    );
+    expect(out).toMatchObject({ phase: 'complete', detailsIn: 'in_time', tags: ['family'] });
+    expect(typeof out.settledAt).toBe('number');
+  });
+
+  it('starts filing as soon as the drop is saved, with its words, title and kind (stage 9)', async () => {
+    gates['assign-worlds'] = gate();
+    const d = await savedDrop();
+    await flush();
+    // asked at the save, before the settle
+    expect(sentOf('assign-worlds')).toEqual([
+      expect.objectContaining({
+        entity_id: 'row-1',
+        entity_type: 'todo',
+        text: 'call mum about sunday',
+        smart_title: 'Call mum',
+        bucket: 'todo',
+      }),
+    ]);
+    gates['assign-worlds'].open();
+    const out = await handleSaved(d);
+    // the same filing, not a second one
+    expect(sentOf('assign-worlds')).toHaveLength(1);
+    expect(out.filingIn).toBe('in_time');
+  });
+
+  it('the settle waits for filing within the five seconds, and one that comes later is after the settle', async () => {
+    gates['assign-worlds'] = gate();
+    const d = await savedDrop();
+    let done = false;
+    const settling = handleSaved(d).then((out) => {
+      done = true;
+      return out;
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    // details are in; filing is not: still waiting
+    expect(done).toBe(false);
+    const out = await settling;
+    expect(out).toMatchObject({
+      phase: 'complete',
+      detailsIn: 'in_time',
+      filingIn: 'after_settle',
+    });
+  });
+
+  it('does not hold the details for a slow reminder call', async () => {
+    gates['enrich-phase2b'] = gate();
+    const d = await savedDrop({ reminderIntent: true });
+    const out = await handleSaved(d);
+    expect(out.detailsIn).toBe('in_time');
+    expect(scheduleDropReminder).not.toHaveBeenCalled();
+    gates['enrich-phase2b'].open();
+    await flush();
+    expect(scheduleDropReminder).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      expect.objectContaining({ auto_reminder: true }),
+    );
+  });
+
+  it('protects what the person changed with the row as it was saved', async () => {
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'row-1',
+      entityType: 'todo',
+      row: { id: 'row-1', due_day: null, tags: [], views: { people: null } },
+    });
+    const d = await savedDrop();
+    expect(d.savedBase).toMatchObject({ due_day: null, tags: [] });
+    await handleSaved(d);
+    expect((updateDropDetails as jest.Mock).mock.calls[0][3].base).toEqual(d.savedBase);
+  });
+
+  it('does not send a reaction that lands after the settle', async () => {
+    gates['enrich-phase1-5a'] = gate();
+    const d = await savedDrop({ smartTitle: undefined });
+    await handleSaved(d);
+    gates['enrich-phase1-5a'].open();
+    await flush();
+    expect(updateDropWords).toHaveBeenCalled();
+    expect(reactions).toHaveLength(0);
+  });
+
+  it('settles without the details when they are late, and writes them when they land', async () => {
+    gates['enrich-phase2'] = gate();
+    const d = await savedDrop();
+    const out = await handleSaved(d);
+    expect(settleDropRow).toHaveBeenCalledWith({ entityType: 'todo', id: 'row-1' });
+    expect(updateDropDetails).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ phase: 'complete', detailsIn: 'after_settle' });
+    gates['enrich-phase2'].open();
+    await flush();
+    expect(updateDropDetails).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      expect.anything(),
+      expect.objectContaining({ tags: ['family'] }),
+      expect.objectContaining({ settle: false }),
+    );
+  });
+
+  it("puts the writer's words on an unclear drop when they are the writer's own", async () => {
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'note-1',
+      entityType: 'note',
+    });
+    const d = await savedDrop({
+      bucket: 'log',
+      subtype: 'general',
+      needsClarification: true,
+      ambiguityType: 'bucket',
+      clarificationQuestion: 'Do or remember?',
+      clarificationOptions: [
+        { id: 'a', label: 'Do', action: {} },
+        { id: 'b', label: 'Remember', action: {} },
+      ] as any,
+    });
+    const out = await handleSaved(d);
+    expect(updateDropQuestion).toHaveBeenCalledWith(
+      { entityType: 'note', id: 'note-1' },
+      expect.objectContaining({ question: 'Is this something to do, or to remember?' }),
+      { settle: true },
+    );
+    expect(out).toMatchObject({ phase: 'complete', detailsIn: 'not_asked' });
+  });
+
+  it("keeps the classifier's question when the writer gave only the fixed copy", async () => {
+    replies['clarify-ambiguity'] = {
+      ...(replies['clarify-ambiguity'] as object),
+      question_source: 'fallback',
+      labels_source: 'fallback',
+    };
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'note-2',
+      entityType: 'note',
+    });
+    const d = await savedDrop({
+      bucket: 'log',
+      subtype: 'general',
+      needsClarification: true,
+      ambiguityType: 'bucket',
+    });
+    await handleSaved(d);
+    expect(updateDropQuestion).toHaveBeenCalledWith({ entityType: 'note', id: 'note-2' }, null, {
+      settle: true,
+    });
+  });
+
+  it('settles an unclear drop with its own question when the writer is late, and never changes it after', async () => {
+    gates['clarify-ambiguity'] = gate();
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'note-3',
+      entityType: 'note',
+    });
+    const d = await savedDrop({
+      bucket: 'log',
+      subtype: 'general',
+      needsClarification: true,
+      ambiguityType: 'bucket',
+    });
+    await handleSaved(d);
+    expect(settleDropRow).toHaveBeenCalledWith({ entityType: 'note', id: 'note-3' });
+    gates['clarify-ambiguity'].open();
+    await flush();
+    expect(updateDropQuestion).not.toHaveBeenCalled();
+  });
+
+  it('saves a drop an older build left with its details, settled, with its reminder', async () => {
+    const d = drop({
+      phase: 'saved',
+      classifyEngine: 'v3',
+      bucket: 'todo',
+      smartTitle: 'Old one',
+      tags: ['x'],
+      timeEstimateMinutes: 15,
+      autoReminder: true,
+      reminderDate: '2026-10-10',
+      reminderTime: '08:00',
+    });
+    const out = await handleSaved(d);
+    const [, enrichment, opts] = (syncDropToSupabase as jest.Mock).mock.calls[0];
+    expect(enrichment).toMatchObject({ tags: ['x'], time_estimate_minutes: 15 });
+    expect(opts.stage).toBe('settled');
+    expect(scheduleDropReminder).toHaveBeenCalled();
+    expect(out).toMatchObject({ phase: 'complete', supabaseId: 'row-1', resumed: true });
+  });
+
+  it('puts the title and answer on a row an earlier try had saved without them', async () => {
+    replies['minddrop-relate'] = RELATION;
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'row-1',
+      entityType: 'todo',
+      duplicate: true,
+    });
+    (runClassifyV3 as jest.Mock).mockResolvedValue(v3({ bucket: 'todo' }));
+    const q = await handleQueued(drop({ text: 'call mum about sunday' }));
+    await flush();
+    await handleSorted(q);
+    expect(updateDropWords).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      { smartTitle: 'Call mum about Sunday', reaction: 'She will love that.' },
+      'Call mum about sunday',
+    );
+    expect(attachDropRelation).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-1' },
+      expect.objectContaining({ kind: 'edit' }),
+    );
+  });
+
+  it('after a restart asks for a late title again, with the kind, and still settles', async () => {
+    const d = drop({
+      phase: 'saved',
+      classifyEngine: 'v3',
+      bucket: 'todo',
+      supabaseId: 'row-9',
+      entityType: 'todo',
+      smartTitle: 'Call mum about sunday',
+      wordsPending: true,
+      sortedAt: 1,
+      savedAt: 2,
+    });
+    const out = await handleSaved(d);
+    await flush();
+    expect(sentOf('enrich-phase1-5a')[0]).toMatchObject({ bucket: 'todo' });
+    expect(updateDropWords).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'row-9' },
+      expect.objectContaining({ smartTitle: 'Call mum about Sunday' }),
+      'Call mum about sunday',
+    );
+    expect(out).toMatchObject({ phase: 'complete', resumed: true, detailsIn: 'in_time' });
+    // nothing in the bubble about a drop from before the restart
+    expect(reactions).toHaveLength(0);
+  });
+
+  it('gives a drop sorted before a restart a fresh five seconds, and marks its timings', async () => {
+    gates['enrich-phase2'] = gate();
+    const d = sorted({ smartTitle: 'Call mum', sortedAt: 1 });
+    const saved = await handleSorted(d);
+    expect(saved.resumed).toBe(true);
+    const pending = handleSaved(saved);
+    await new Promise((r) => setTimeout(r, 20));
+    gates['enrich-phase2'].open();
+    const out = await pending;
+    // the old sortedAt does not count: the details were in time
+    expect(out.detailsIn).toBe('in_time');
+  });
+});
+
+// ── the router ───────────────────────────────────────────────────────────
 
 describe('getPhaseHandler', () => {
-  it('returns handler for queued phase', () => {
+  it('runs the new phases', () => {
     expect(getPhaseHandler('queued')).toBe(handleQueued);
-  });
-
-  it('returns handler for classified phase', () => {
-    expect(getPhaseHandler('classified')).toBeInstanceOf(Function);
-  });
-
-  it('returns handler for titled phase', () => {
-    expect(getPhaseHandler('titled')).toBeInstanceOf(Function);
-  });
-
-  it('returns handler for enriched phase', () => {
-    expect(getPhaseHandler('enriched')).toBe(handleEnriched);
-  });
-
-  it('returns handler for multi_detected phase', () => {
-    expect(getPhaseHandler('multi_detected')).toBeInstanceOf(Function);
-  });
-
-  it('returns null for terminal phases', () => {
+    expect(getPhaseHandler('sorted')).toBe(handleSorted);
+    expect(getPhaseHandler('saved')).toBe(handleSaved);
     expect(getPhaseHandler('complete')).toBeNull();
     expect(getPhaseHandler('failed')).toBeNull();
   });
 
-  it('returns null for multi_awaiting (legacy)', () => {
-    expect(getPhaseHandler('multi_awaiting')).toBeNull();
-  });
-
-  it('returns null for unknown phases', () => {
-    expect(getPhaseHandler('unknown' as DropPhase)).toBeNull();
-  });
-});
-
-// ── handleQueued ─────────────────────────────────────────────────
-
-describe('handleQueued', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (detectMulti as jest.Mock).mockResolvedValue({ is_multi: false });
-    (runPhase1 as jest.Mock).mockResolvedValue({
-      bucket: 'todo',
-      subtype: null,
-      habitSubtype: null,
-      confidence: 0.95,
-      source: 'ai',
-    });
-  });
-
-  it('transitions single drop from queued to classified', async () => {
-    const drop = makeDrop({ text: 'Buy groceries' });
-    const result = await handleQueued(drop);
-
-    expect(result.phase).toBe('classified');
-    expect(result.bucket).toBe('todo');
-    expect(result.confidence).toBe(0.95);
-    expect(result.retryCount).toBe(0);
-    expect(result.lastError).toBeNull();
-  });
-
-  it('transitions multi-entity drop from queued to multi_detected', async () => {
-    (detectMulti as jest.Mock).mockResolvedValue({
-      is_multi: true,
-      segments: [
-        { text: 'Buy groceries', bucket: 'todo', subtype: null },
-        { text: 'Feeling good', bucket: 'log', subtype: 'catchall' },
-      ],
-      dominant_bucket: 'log',
-    });
-
-    const drop = makeDrop({ text: 'Buy groceries and feeling good' });
-    const result = await handleQueued(drop);
-
-    expect(result.phase).toBe('multi_detected');
-    expect(result.isMulti).toBe(true);
-    expect(result.multiSegments).toHaveLength(2);
-  });
-
-  it('does not call detectMulti when text has no multi indicators', async () => {
-    const drop = makeDrop({ text: 'hello' });
-    await handleQueued(drop);
-
-    expect(detectMulti).not.toHaveBeenCalled();
-  });
-
-  it('calls detectMulti when text contains comma', async () => {
-    const drop = makeDrop({ text: 'buy milk, eggs' });
-    await handleQueued(drop);
-
-    expect(detectMulti).toHaveBeenCalled();
-  });
-
-  it('calls detectMulti when text contains " and "', async () => {
-    const drop = makeDrop({ text: 'buy milk and eggs' });
-    await handleQueued(drop);
-
-    expect(detectMulti).toHaveBeenCalled();
-  });
-
-  it('preserves classificationDegraded flag', async () => {
-    (runPhase1 as jest.Mock).mockResolvedValue({
-      bucket: 'log',
-      subtype: 'catchall',
-      confidence: 0.5,
-      source: 'client-fallback',
-      classificationDegraded: true,
-    });
-
-    const drop = makeDrop({ text: 'note to self' });
-    const result = await handleQueued(drop);
-
-    expect(result.classificationDegraded).toBe(true);
+  it("runs an older build's phase as the phase it moves to", () => {
+    expect(getPhaseHandler('classified')).toBe(handleSorted);
+    expect(getPhaseHandler('titled')).toBe(handleSorted);
+    expect(getPhaseHandler('multi_detected')).toBe(handleSorted);
+    expect(getPhaseHandler('enriched')).toBe(handleSaved);
+    expect(getPhaseHandler('syncing')).toBe(handleSaved);
   });
 });
 
-// ── handleEnriched ───────────────────────────────────────────────
-
-describe('handleEnriched', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (syncDropToSupabase as jest.Mock).mockResolvedValue({
-      success: true,
-      supabaseId: 'sb-1',
-      entityType: 'todo',
-    });
-    (syncMultiDropToSupabase as jest.Mock).mockResolvedValue({
-      success: true,
-      supabaseId: 'sb-2',
-      entityType: 'note',
-    });
-  });
-
-  it('transitions to complete after successful sync', async () => {
-    const drop = makeDrop({
-      phase: 'enriched',
-      bucket: 'todo',
-      text: 'Buy groceries',
-      tags: ['shopping'],
-    });
-
-    const result = await handleEnriched(drop);
-
-    expect(result.phase).toBe('complete');
-    expect(result.supabaseId).toBe('sb-1');
-    expect(result.entityType).toBe('todo');
-    expect(result.retryCount).toBe(0);
-    expect(result.lastError).toBeNull();
-  });
-
-  it('uses syncMultiDropToSupabase for multi drops', async () => {
-    const drop = makeDrop({
-      phase: 'enriched',
-      isMulti: true,
-      bucket: 'log',
-      text: 'Buy milk and feeling good',
-    });
-
-    const result = await handleEnriched(drop);
-
-    expect(syncMultiDropToSupabase).toHaveBeenCalled();
-    expect(result.phase).toBe('complete');
-  });
-
-  it('throws on sync failure so pipeline can retry', async () => {
-    (syncDropToSupabase as jest.Mock).mockResolvedValue({
-      success: false,
-      error: new Error('Network error'),
-    });
-
-    const drop = makeDrop({
-      phase: 'enriched',
-      bucket: 'todo',
-      text: 'Buy groceries',
-      tags: ['shopping'],
-    });
-
-    await expect(handleEnriched(drop)).rejects.toThrow('Network error');
-  });
-
-  it('builds enrichment from drop fields for single drops', async () => {
-    const drop = makeDrop({
-      phase: 'enriched',
-      bucket: 'todo',
-      text: 'Buy groceries tomorrow',
-      tags: ['shopping', 'errands'],
-      timeEstimateMinutes: 30,
-      timeWindow: 'morning',
-      extractedDate: '2026-03-31',
-    });
-
-    await handleEnriched(drop);
-
-    expect(syncDropToSupabase).toHaveBeenCalledWith(
-      expect.objectContaining({ bucket: 'todo' }),
-      expect.objectContaining({
-        tags: ['shopping', 'errands'],
-        time_estimate_minutes: 30,
-        time_window: 'morning',
-        extracted_date: '2026-03-31',
-      }),
-    );
-  });
-});
-
-// ── handleQueued: drop:reaction_ready emission ───────────────────
-
-describe('handleQueued — drop:reaction_ready emission', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    eventBus.clear();
-    (runPhase1 as jest.Mock).mockResolvedValue({
-      bucket: 'todo',
-      subtype: null,
-      habitSubtype: null,
-      confidence: 0.95,
-      source: 'ai',
-    });
-  });
-
-  it('emits drop:reaction_ready with null message/rawReaction and multi followUp for multi drops', async () => {
-    (detectMulti as jest.Mock).mockResolvedValue({
-      is_multi: true,
-      segments: [
-        { text: 'Buy milk', bucket: 'todo', subtype: null },
-        { text: 'Feeling good', bucket: 'log', subtype: 'catchall' },
-      ],
-      dominant_bucket: 'log',
-    });
-
-    const handler = jest.fn();
-    eventBus.on('drop:reaction_ready', handler);
-
-    const drop = makeDrop({ text: 'Buy milk, feeling good' });
-    await handleQueued(drop);
-
-    expect(handler).toHaveBeenCalledWith({
-      localId: 'test-drop-1',
-      message: null,
-      rawReaction: null,
-      followUp: 'multi',
-    });
-  });
-});
-
-// ── handleClassified — drop:reaction_ready emission ──────────────
-
-describe('handleClassified — drop:reaction_ready emission', () => {
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    eventBus.clear();
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
-
-  it('emits drop:reaction_ready with rawReaction from confirmation_message', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          smart_title: 'Walk Pepper',
-          card_note: 'Good pup time',
-          confirmation_message: 'Pepper time!',
-          speech_message: 'Nice one! Pepper time!',
-        }),
-    });
-
-    const handler = jest.fn();
-    eventBus.on('drop:reaction_ready', handler);
-
-    const drop = makeDrop({
-      phase: 'classified',
-      bucket: 'todo',
-      text: 'Walk the dog Pepper',
-      needsClarification: false,
-    });
-    await handleClassified(drop);
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith({
-      localId: 'test-drop-1',
-      message: 'Nice one! Pepper time!',
-      rawReaction: 'Pepper time!',
-      followUp: null,
-    });
-  });
-
-  it('sets rawReaction to confirmation_message even when speech_message differs', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          smart_title: 'Test Title',
-          card_note: null,
-          confirmation_message: 'Raw reaction here',
-          speech_message: 'Decorated opener + Raw reaction here',
-        }),
-    });
-
-    const handler = jest.fn();
-    eventBus.on('drop:reaction_ready', handler);
-
-    const drop = makeDrop({
-      phase: 'classified',
-      bucket: 'todo',
-      text: 'Test',
-      needsClarification: false,
-    });
-    await handleClassified(drop);
-
-    const payload = handler.mock.calls[0][0];
-    expect(payload.message).toBe('Decorated opener + Raw reaction here');
-    expect(payload.rawReaction).toBe('Raw reaction here');
-  });
-
-  it('sets rawReaction to null when no confirmation_message', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          smart_title: 'Test Title',
-          card_note: null,
-          confirmation_message: null,
-          speech_message: null,
-        }),
-    });
-
-    const handler = jest.fn();
-    eventBus.on('drop:reaction_ready', handler);
-
-    const drop = makeDrop({
-      phase: 'classified',
-      bucket: 'todo',
-      text: 'Test',
-      needsClarification: false,
-    });
-    await handleClassified(drop);
-
-    const payload = handler.mock.calls[0][0];
-    expect(payload.message).toBeNull();
-    expect(payload.rawReaction).toBeNull();
-  });
-
-  it('sets followUp to clarify when drop needs clarification', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          smart_title: 'Ambiguous Thing',
-          card_note: null,
-          confirmation_message: 'Got it',
-          speech_message: 'Got it',
-        }),
-    });
-
-    const handler = jest.fn();
-    eventBus.on('drop:reaction_ready', handler);
-
-    const drop = makeDrop({
-      phase: 'classified',
-      bucket: 'todo',
-      text: 'Do the thing',
-      needsClarification: true,
-    });
-    await handleClassified(drop);
-
-    const payload = handler.mock.calls[0][0];
-    expect(payload.followUp).toBe('clarify');
-  });
-
-  it('falls back to raw text title when Phase 1.5a times out', async () => {
-    global.fetch = jest
-      .fn()
-      .mockImplementation(
-        () =>
-          new Promise((resolve) =>
-            setTimeout(() => resolve({ ok: true, json: () => ({}) }), 10000),
-          ),
-      );
-
-    const drop = makeDrop({
-      phase: 'classified',
-      bucket: 'todo',
-      text: 'Buy groceries for the week ahead',
-      needsClarification: false,
-    });
-    const result = await handleClassified(drop);
-
-    expect(result.smartTitle).toBe('Buy groceries for the week ahead');
-  });
-});
-
-// ── handleQueued / handleClassified — Phase 1.5 clarification (stall fix) ──
-//
-// Regression cover for the "Gremly has a question" card stalling on
-// "Thinking...": clarification is now fetched inside the pipeline, before
-// sync, and always resolves to usable options.
-
-function routeFetch(handlers: Record<string, () => any>) {
-  return jest.fn().mockImplementation((_url: string, init: any) => {
-    const body = JSON.parse(init?.body || '{}');
-    const h = handlers[body.type];
-    if (!h) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    return h();
-  });
-}
-
-const phase15aOk = () =>
-  Promise.resolve({
-    ok: true,
-    json: () =>
-      Promise.resolve({
-        smart_title: 'Dentist Tuesday',
-        confirmation_message: 'Got it',
-        speech_message: 'Got it',
-      }),
-  });
-
-describe('handleQueued — ambiguity type defaulting', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('defaults ambiguityType to bucket when Phase 1 flags ambiguity without a type', async () => {
-    (runPhase1 as jest.Mock).mockResolvedValueOnce({
-      bucket: 'log',
-      subtype: 'general',
-      habitSubtype: null,
-      confidence: 0.6,
-      source: 'api',
-      is_ambiguous: true,
-      ambiguity_type: null,
-    });
-    const result = await handleQueued(makeDrop({ text: 'Text Mandy' }));
-    expect(result.needsClarification).toBe(true);
-    expect(result.ambiguityType).toBe('bucket');
-  });
-
-  it('keeps a valid ambiguity type from Phase 1', async () => {
-    (runPhase1 as jest.Mock).mockResolvedValueOnce({
-      bucket: 'log',
-      subtype: 'general',
-      habitSubtype: null,
-      confidence: 0.5,
-      source: 'api',
-      is_ambiguous: true,
-      ambiguity_type: 'date_type',
-    });
-    const result = await handleQueued(makeDrop({ text: 'Dentist Tuesday' }));
-    expect(result.ambiguityType).toBe('date_type');
-  });
-
-  it('carries inline clarification from classify-v3 onto the drop', async () => {
-    (runPhase1 as jest.Mock).mockResolvedValueOnce({
-      bucket: 'log',
-      subtype: 'general',
-      habitSubtype: null,
-      confidence: 0.5,
-      source: 'api',
-      is_ambiguous: true,
-      ambiguity_type: 'date_type',
-      clarification_question: 'Is the dentist booked already?',
-      clarification_options: [
-        { id: 'opt_1', label: 'Yes, booked', action: { bucket: 'log', subtype: 'event' } },
-        { id: 'opt_2', label: 'Need to book it', action: { bucket: 'todo', subtype: null } },
-      ],
-    });
-    const result = await handleQueued(makeDrop({ text: 'Dentist Tuesday' }));
-    expect(result.clarificationQuestion).toBe('Is the dentist booked already?');
-    expect(result.clarificationOptions).toHaveLength(2);
-  });
-
-  it('does not set ambiguityType for clear drops', async () => {
-    (runPhase1 as jest.Mock).mockResolvedValueOnce({
-      bucket: 'todo',
-      subtype: null,
-      habitSubtype: null,
-      confidence: 0.95,
-      source: 'api',
-    });
-    const result = await handleQueued(makeDrop({ text: 'Buy milk' }));
-    expect(result.needsClarification).toBe(false);
-    expect(result.ambiguityType).toBeUndefined();
-  });
-});
-
-describe('handleClassified — Phase 1.5 clarification (stall fix)', () => {
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    eventBus.clear();
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
-
-  it('puts worker question and options on the drop before it moves on', async () => {
-    global.fetch = routeFetch({
-      'enrich-phase1-5a': phase15aOk,
-      'clarify-ambiguity': () =>
-        Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              success: true,
-              clarification_question: 'Is the dentist booked already?',
-              options: [
-                {
-                  id: 'opt_1',
-                  label: 'Yes, it is booked',
-                  bucket: 'log',
-                  subtype: 'event',
-                  dateField: 'target_date',
-                },
-                {
-                  id: 'opt_2',
-                  label: 'No, I need to book it',
-                  bucket: 'todo',
-                  subtype: null,
-                  dateField: 'target_date',
-                },
-                { id: 'opt_3', label: 'Just holding the date', bucket: 'log', subtype: 'event' },
-              ],
-            }),
-        }),
-    });
-
-    const result = await handleClassified(
-      makeDrop({
-        phase: 'classified',
-        bucket: 'log',
-        subtype: 'general',
-        text: 'Dentist Tuesday',
-        needsClarification: true,
-        ambiguityType: 'date_type',
-      }),
-    );
-
-    expect(result.phase).toBe('titled');
-    expect(result.clarificationQuestion).toBe('Is the dentist booked already?');
-    expect(result.clarificationOptions).toHaveLength(3);
-    expect(result.clarificationOptions![1].action).toMatchObject({
-      bucket: 'todo',
-      target_date: true,
-    });
-  });
-
-  it('falls back to fixed options when the worker errors (never leaves the card empty)', async () => {
-    global.fetch = routeFetch({
-      'enrich-phase1-5a': phase15aOk,
-      'clarify-ambiguity': () => Promise.resolve({ ok: false, status: 500, json: () => ({}) }),
-    });
-
-    const result = await handleClassified(
-      makeDrop({
-        phase: 'classified',
-        bucket: 'log',
-        text: 'Vitamins',
-        needsClarification: true,
-        ambiguityType: 'bucket',
-      }),
-    );
-
-    expect(result.clarificationQuestion).toBeTruthy();
-    expect(result.clarificationOptions!.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('falls back when the worker returns fewer than two options', async () => {
-    global.fetch = routeFetch({
-      'enrich-phase1-5a': phase15aOk,
-      'clarify-ambiguity': () =>
-        Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({ success: true, clarification_question: 'Hmm?', options: [] }),
-        }),
-    });
-
-    const result = await handleClassified(
-      makeDrop({
-        phase: 'classified',
-        bucket: 'log',
-        text: 'Yoga',
-        needsClarification: true,
-        ambiguityType: 'habit_or_todo',
-      }),
-    );
-
-    expect(result.clarificationOptions).toHaveLength(2);
-    expect(result.clarificationOptions![0].action.bucket).toBe('todo');
-    expect(result.clarificationOptions![1].action.bucket).toBe('habit');
-  });
-
-  it('falls back when the worker throws', async () => {
-    global.fetch = routeFetch({
-      'enrich-phase1-5a': phase15aOk,
-      'clarify-ambiguity': () => Promise.reject(new Error('network down')),
-    });
-
-    const result = await handleClassified(
-      makeDrop({
-        phase: 'classified',
-        bucket: 'log',
-        text: 'Text Mandy',
-        needsClarification: true,
-      }),
-    );
-
-    expect(result.clarificationOptions!.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('does not call clarify-ambiguity when inline options already exist', async () => {
-    const fetchMock = routeFetch({ 'enrich-phase1-5a': phase15aOk });
-    global.fetch = fetchMock;
-
-    await handleClassified(
-      makeDrop({
-        phase: 'classified',
-        bucket: 'log',
-        text: 'Dentist Tuesday',
-        needsClarification: true,
-        ambiguityType: 'date_type',
-        clarificationQuestion: 'Is the dentist booked already?',
-        clarificationOptions: [
-          { id: 'opt_1', label: 'Yes', action: { bucket: 'log', subtype: 'event' } },
-          { id: 'opt_2', label: 'No', action: { bucket: 'todo', subtype: null } },
-        ] as any,
-      }),
-    );
-
-    const types = fetchMock.mock.calls.map((c: any[]) => JSON.parse(c[1].body).type);
-    expect(types).not.toContain('clarify-ambiguity');
-  });
-
-  it('does not call clarify-ambiguity for clear drops', async () => {
-    const fetchMock = routeFetch({ 'enrich-phase1-5a': phase15aOk });
-    global.fetch = fetchMock;
-
-    const result = await handleClassified(
-      makeDrop({
-        phase: 'classified',
-        bucket: 'todo',
-        text: 'Buy milk',
-        needsClarification: false,
-      }),
-    );
-
-    const types = fetchMock.mock.calls.map((c: any[]) => JSON.parse(c[1].body).type);
-    expect(types).not.toContain('clarify-ambiguity');
-    expect(result.clarificationOptions).toBeUndefined();
-  });
-});
-
-// ── handleQueued — classify-v3 single call with v2 fallback ─────────────────
-
-describe('handleQueued — classify-v3', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('uses the v3 result and skips detect-multi and Phase 1 v2', async () => {
-    (runClassifyV3 as jest.Mock).mockResolvedValueOnce({
-      phase1: {
-        bucket: 'todo',
-        subtype: null,
-        habitSubtype: null,
-        confidence: 0.9,
-        source: 'api',
-        engine: 'v3',
-        is_multi: false,
-      },
-      multi: { is_multi: false },
-      latencyMs: 1500,
-    });
-
-    const result = await handleQueued(makeDrop({ text: 'Text Mandy, about dinner' }));
-
-    expect(result.phase).toBe('classified');
-    expect(result.bucket).toBe('todo');
-    expect(result.classifyEngine).toBe('v3');
-    expect(runPhase1).not.toHaveBeenCalled();
-    expect(detectMulti).not.toHaveBeenCalled();
-  });
-
-  it('routes a v3 multi split to multi_detected with classified segments', async () => {
-    (runClassifyV3 as jest.Mock).mockResolvedValueOnce({
-      phase1: {
-        bucket: 'todo',
-        subtype: null,
-        habitSubtype: null,
-        confidence: 0.9,
-        source: 'api',
-        is_multi: false,
-      },
-      multi: {
-        is_multi: true,
-        segments: [
-          { text: 'text sarah about dinner', bucket: 'todo', subtype: null, habitSubtype: null },
-          {
-            text: 'drink more water every day',
-            bucket: 'habit',
-            subtype: null,
-            habitSubtype: 'start_habit',
-          },
-        ],
-        summary: 'text sarah about dinner. also drink more water every day',
-        dominant_bucket: 'todo',
-      },
-      latencyMs: 1800,
-    });
-
-    const result = await handleQueued(
-      makeDrop({ text: 'text sarah about dinner. also drink more water every day' }),
-    );
-
-    expect(result.phase).toBe('multi_detected');
-    expect(result.classifyEngine).toBe('v3');
-    expect(result.multiSegments).toHaveLength(2);
-    expect(detectMulti).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the v2 path when v3 returns null', async () => {
-    (runClassifyV3 as jest.Mock).mockResolvedValueOnce(null);
-    (runPhase1 as jest.Mock).mockResolvedValueOnce({
-      bucket: 'log',
-      subtype: 'journal',
-      habitSubtype: null,
-      confidence: 0.9,
-      source: 'api',
-    });
-
-    const result = await handleQueued(makeDrop({ text: 'feeling great today' }));
-
-    expect(runPhase1).toHaveBeenCalledTimes(1);
-    expect(result.bucket).toBe('log');
-    expect(result.classifyEngine).toBe('v2');
+describe('forgetDropCalls', () => {
+  it('asks again for a drop it has let go of', async () => {
+    const d = sorted({ smartTitle: 'Call mum' });
+    await handleSorted(d);
+    forgetDropCalls(d.localId);
+    await handleSorted(d);
+    await flush();
+    expect(sentOf('enrich-phase2')).toHaveLength(2);
   });
 });
