@@ -4,7 +4,7 @@
  * on the item; the server plans and sends it.
  */
 import { supabase } from '../supabase/client';
-import { useGremlyStore } from '../store/useGremlyStore';
+import { updateDropRow } from '../minddrop/dropSync';
 import { getDateService } from '../date/DateService';
 import type { ItemReminder } from '../types';
 import { cleanReminders, hhmm, localDay, newReminderId } from './reminders';
@@ -35,27 +35,30 @@ export function inMinutes(minutes: number, now: Date): ItemReminder {
   };
 }
 
-/** Adds the reminder to the item, keeping the ones it already has. */
+/**
+ * Adds the reminder to the item, keeping the ones it already has. A todo,
+ * habit or note is changed on its row as the database holds it now, in turn
+ * with every other write to that row (updateDropRow: a drop's late details or
+ * reminder never put it back), and through the store. Throws when the item
+ * has gone.
+ */
 export async function addReminderToItem(
   type: ReminderItemType,
   id: string,
   reminder: ItemReminder,
 ): Promise<void> {
   const now = getDateService().now();
-  const store = useGremlyStore.getState();
-  const inStore: any =
-    type === 'todo'
-      ? store.todos.find((t) => t.id === id)
-      : type === 'habit'
-        ? store.habits.find((h) => h.id === id)
-        : type === 'note'
-          ? store.notes.find((n) => n.id === id)
-          : undefined;
-  if (inStore) {
-    const reminders = [...cleanReminders(inStore.reminders, now), reminder];
-    if (type === 'todo') await store.updateTodo(id, { reminders } as any);
-    else if (type === 'habit') await store.updateHabit(id, { reminders } as any);
-    else await store.updateNote(id, { reminders } as any);
+  if (type !== 'person') {
+    const wrote = await updateDropRow(type, id, 'add_reminder', (row) => ({
+      reminders: [
+        ...cleanReminders(
+          Array.isArray(row.reminders_json) ? (row.reminders_json as ItemReminder[]) : [],
+          now,
+        ),
+        reminder,
+      ],
+    }));
+    if (!wrote) throw new Error(`[Reminders] the ${type} is no longer there`);
     return;
   }
   const { data } = await supabase

@@ -243,12 +243,15 @@ describe('turning an item into another kind', () => {
       to: 'todo',
       fields: { day: '2026-10-04' },
     });
+    note().created_at = '2026-10-01T08:00:00Z';
     const o = await applyChange(c, { source: 'chat' });
     expect(o).toMatchObject({ ok: true, createdId: 'todo-new', summary: 'Packing is now a todo.' });
     expect(mockState.createTodo).toHaveBeenCalledWith({
       name: 'Packing',
       body: 'For the trip',
       due_day: '2026-10-04',
+      // it keeps the day it was made, so its card keeps its place (final check item 4)
+      created_at: '2026-10-01T08:00:00Z',
     });
     expect(upsertDropWorldLinks).toHaveBeenCalledWith([
       expect.objectContaining({ drop_id: 'todo-new', world_id: 'w1', drop_type: 'todo' }),

@@ -33,6 +33,7 @@ import type { QueuedDrop } from './dropQueue';
 import { hasUsableClarification } from './clarification';
 import { keyedCalls, type StartedCall } from './dropCalls';
 import { updateDropRow } from './dropSync';
+import { DIDNT_GO, PlainError } from './plainError';
 import {
   changeForEntity,
   keepsDropAfterYes,
@@ -474,7 +475,7 @@ export async function applyDropRelation(
   dropId: string,
   picked?: RelationEntity,
 ): Promise<RelationOutcome> {
-  if (inFlight.has(dropId)) throw new Error('Already on it.');
+  if (inFlight.has(dropId)) throw new PlainError('Already on it.');
   inFlight.add(dropId);
   try {
     return await applyOnce(dropId, picked);
@@ -485,12 +486,13 @@ export async function applyDropRelation(
 
 async function applyOnce(dropId: string, picked?: RelationEntity): Promise<RelationOutcome> {
   const held = heldItem(dropId);
-  if (!held || held.rel.status !== 'pending') throw new Error('This one has already been sorted.');
+  if (!held || held.rel.status !== 'pending')
+    throw new PlainError('This one has already been sorted.');
   const { item: drop, rel, kind: dropKind } = held;
   const target = picked ?? (rel.kind === 'choose' ? null : rel.entity);
-  if (!target) throw new Error('Pick the one you meant.');
+  if (!target) throw new PlainError('Pick the one you meant.');
   const now = currentEntity(target);
-  if (!now.entity) throw new Error(now.gone || 'That one is no longer on your list.');
+  if (!now.entity) throw new PlainError(now.gone || 'That one is no longer on your list.');
   const entity = now.entity;
 
   let summary: string;
@@ -519,7 +521,7 @@ async function applyOnce(dropId: string, picked?: RelationEntity): Promise<Relat
   } else {
     const change = changeNow(rel, entity);
     if (!change) {
-      throw new Error(
+      throw new PlainError(
         rel.intent === 'logged'
           ? 'That day is already logged.'
           : 'There is nothing to change on that one.',
@@ -568,7 +570,7 @@ async function applyOnce(dropId: string, picked?: RelationEntity): Promise<Relat
     await setRelation(drop.id, { status: 'pending', summary: null, applied_to: null }).catch(
       () => {},
     );
-    throw new Error('That did not go through. Try again in a moment.');
+    throw new PlainError(DIDNT_GO);
   }
 
   return {

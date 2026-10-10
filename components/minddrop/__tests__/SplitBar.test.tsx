@@ -1,7 +1,7 @@
 /**
  * SplitBar: under a clear split's pieces (Mind Drop rethink stage 7). Split
  * into 3, and Keep as one: the pieces wait in place while one note is saved,
- * then fold into it, and Gremly's bubble says One note it is.
+ * then fold into it, and Gremly's bubble says what it was kept as (One todo it is.).
  */
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -27,6 +27,7 @@ jest.mock('../../../lib/minddrop/splitActions', () => ({
 import { SplitBar } from '../SplitBar';
 import { keepPiecesAsOne, piecesOf } from '../../../lib/minddrop/splitActions';
 import { eventBus } from '../../../lib/events/EventBus';
+import { DIDNT_GO } from '../../../lib/minddrop/plainError';
 import * as Haptics from 'expo-haptics';
 
 const flush = () =>
@@ -64,7 +65,8 @@ describe('the line under a clear split', () => {
   it('Keep as one holds the pieces, saves one note, then folds them into it and Gremly says so', async () => {
     jest.useFakeTimers();
     (keepPiecesAsOne as jest.Mock).mockResolvedValue({
-      noteId: 'n1',
+      itemId: 'k1',
+      kindWord: 'todo',
       pieceIds: ['p0', 'p1', 'p2'],
       stayed: [],
     });
@@ -80,7 +82,8 @@ describe('the line under a clear split', () => {
     await act(async () => {
       jest.runOnlyPendingTimers();
     });
-    expect(said).toContainEqual(['speak', 'One note it is.']);
+    // the kind it was kept as (final check item 2)
+    expect(said).toContainEqual(['speak', 'One todo it is.']);
     jest.useRealTimers();
   });
 
@@ -91,12 +94,15 @@ describe('the line under a clear split', () => {
     await flush();
     expect(said).toContainEqual(['stay', { ids: ['p0', 'p1', 'p2'] }]);
     expect(said.find((x) => (x as unknown[])[0] === 'go')).toBeUndefined();
-    expect(r.getByText('offline')).toBeTruthy();
+    // the error's own words are never shown (final check item 3)
+    expect(r.queryByText('offline')).toBeNull();
+    expect(r.getByText(DIDNT_GO)).toBeTruthy();
   });
 
   it('a piece that could not be archived stays, and the rest fold', async () => {
     (keepPiecesAsOne as jest.Mock).mockResolvedValue({
-      noteId: 'n1',
+      itemId: 'k1',
+      kindWord: 'todo',
       pieceIds: ['p0', 'p2'],
       stayed: ['p1'],
     });

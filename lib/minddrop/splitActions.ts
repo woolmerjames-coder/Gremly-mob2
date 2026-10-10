@@ -8,8 +8,10 @@
  * - splitDropNow: Split on an unsure split's card: its pieces are saved as
  *   their own items, filled as above, and the one item is archived ('split').
  * - keepSplitAsOne: Keep as one on an unsure split: the one item stays.
- * - keepPiecesAsOne: Keep as one under a clear split's pieces: one note with
- *   the drop's words, and the pieces archived ('kept_as_one').
+ * - keepPiecesAsOne: Keep as one under a clear split's pieces: one item of
+ *   the kind the classifier gave the drop as one (as_one), with the drop's
+ *   words, its details, filing and reminder, and the pieces archived
+ *   ('kept_as_one').
  * - logSplitAnswer: the split telemetry James asked for on 9 October: what the
  *   classifier said (clear or unsure) and what the person tapped (split, keep
  *   as one, not now), in app_events, with no words.
@@ -24,7 +26,9 @@ import { wordsAsTitle } from '../../workers/shared/titles';
 import type { MultiSegment, QueuedDrop, SavedPieceRow } from './dropQueue';
 import {
   attachDropRelation,
+  detailBaseOf,
   insertSplitPieces,
+  kindWordOf,
   settleDropRow,
   syncDropToSupabase,
   updateDropDetails,
@@ -34,7 +38,9 @@ import {
   type DropKind,
   type SavedDropRow,
 } from './dropSync';
-import { startDropDetails } from './dropDetails';
+import { startDropDetails, startDropReminder } from './dropDetails';
+import { scheduleDropReminder } from './dropReminder';
+import { DIDNT_GO, PlainError } from './plainError';
 import { dropWordsFor } from './dropWords';
 import {
   dropRelationFor,
@@ -172,6 +178,10 @@ export async function fillPieces(
       };
       // where it lives, filed as soon as the piece is saved (stage 9); a piece that asks too
       const filing = startDropFiling(drop);
+      // the reminder a remind me asked for, decided for each piece on its own
+      // words, saved whenever it lands (final check item 5); a piece that asks
+      // has none until it is answered
+      if (!piece.asks) whenPieceReminderLands(drop, saved, kind);
       try {
         const details = piece.asks ? null : startDropDetails(drop, kind);
         const words = piece.asks ? null : dropWordsFor(drop);
@@ -241,6 +251,20 @@ export async function fillPieces(
   return late ? 'after_settle' : 'in_time';
 }
 
+/** A piece's (or a kept item's) reminder, when the drop asked for one: saved when it lands. */
+function whenPieceReminderLands(drop: QueuedDrop, saved: SavedDropRow, kind: DropKind): void {
+  const call = startDropReminder(drop, kind);
+  if (!call) return;
+  void call.promise.then(
+    (reminder) => scheduleDropReminder(saved, reminder),
+    (err) =>
+      console.warn('[Split] a reminder call did not answer', {
+        piece: drop.localId,
+        error: String(err),
+      }),
+  );
+}
+
 /** The pieces an unsure split keeps in views.split, as the queue keeps them. */
 function segmentsOf(pieces: Array<Record<string, any>>): MultiSegment[] {
   return pieces.map((p) => ({
@@ -253,6 +277,20 @@ function segmentsOf(pieces: Array<Record<string, any>>): MultiSegment[] {
     clarificationQuestion: p.clarification_question ?? null,
     clarificationOptions: (p.clarification_options as unknown[] | null) ?? null,
   }));
+}
+
+/** An item's own kind, as the classifier's kinds are written. */
+function kindOfItem(kind: Kind, item: Item): DropKind {
+  if (kind === 'todo') return { bucket: 'todo', subtype: null, habitSubtype: null };
+  if (kind === 'habit') {
+    return {
+      bucket: 'habit',
+      subtype: null,
+      habitSubtype: (item.subtype ?? 'start_habit') as HabitSubtype,
+    };
+  }
+  const sub = item.subtype === 'catchall' || !item.subtype ? 'general' : item.subtype;
+  return { bucket: 'log', subtype: sub as LogSubtype, habitSubtype: null };
 }
 
 /** The item as a drop, for the save of its pieces. */
@@ -273,6 +311,9 @@ function parentOf(kind: Kind, item: Item, segments: MultiSegment[]): QueuedDrop 
     multiSegments: segmentsOf(segments as unknown as Array<Record<string, any>>),
     isMulti: true,
     split: 'unsure',
+    // the one item's kind is the drop's kind as one; a remind me carries over to the pieces
+    asOne: kindOfItem(kind, item),
+    reminderIntent: views.reminder_intent === true,
     entityType: kind,
     supabaseId: item.id,
   } as QueuedDrop;
@@ -288,20 +329,20 @@ function parentOf(kind: Kind, item: Item, segments: MultiSegment[]): QueuedDrop 
  */
 export async function splitDropNow(id: string): Promise<SavedPieceRow[]> {
   const found = findItem(id);
-  if (!found) throw new Error('That one is no longer on your list.');
+  if (!found) throw new PlainError('That one is no longer on your list.');
   const { kind, item } = found;
   const split = ((item.views || {}) as Record<string, any>).split as
     | { status?: string; pieces?: Array<Record<string, any>>; related?: boolean }
     | undefined;
   const pieces = Array.isArray(split?.pieces) ? split!.pieces : [];
-  if (pieces.length < 2) throw new Error('There is nothing to split here.');
+  if (pieces.length < 2) throw new PlainError('There is nothing to split here.');
 
   const marked = await updateDropRow(kind, item.id, 'split_now', (row) => {
     const views = (row.views as Record<string, any>) || {};
     if (views.split?.status !== 'pending') return null;
     return { views: { ...views, split: { ...views.split, status: 'split' } } };
   });
-  if (!marked) throw new Error('This one has already been sorted.');
+  if (!marked) throw new PlainError('This one has already been sorted.');
 
   const parent = parentOf(kind, item, pieces as unknown as MultiSegment[]);
   let saved: SavedPieceRow[];
@@ -398,16 +439,22 @@ export function piecesOf(groupId: string): Array<{ kind: Kind; item: Item }> {
 }
 
 /**
- * Keep as one, under a clear split's pieces: one note with the drop's words,
- * titled with them in sentence case (as the prototype's), settled with Kept
- * as one note where the pieces were, and the pieces archived ('kept_as_one').
- * Throws when the note cannot be saved (the pieces stay). Resolves to the
- * note and the pieces archived; a piece that could not be archived is in
- * `stayed` and stays on the list.
+ * Keep as one, under a clear split's pieces: one item of the kind the
+ * classifier gave the drop as one (split_group.as_one), with the drop's words
+ * as its title in sentence case (as the prototype's), settled with Kept as one
+ * where the pieces were, and the pieces archived ('kept_as_one'). Its details,
+ * filing and reminder run as a piece's do (fillPieces), and land on it when
+ * they come. A split saved before as_one was kept, or one the classifier gave
+ * no kind as one, is kept as a note, logged. Throws when the item cannot be
+ * saved (the pieces stay). Resolves to the item, its kind word, and the pieces
+ * archived; a piece that could not be archived is in `stayed` and stays on the list.
  */
-export async function keepPiecesAsOne(
-  groupId: string,
-): Promise<{ noteId: string; pieceIds: string[]; stayed: string[] } | null> {
+export async function keepPiecesAsOne(groupId: string): Promise<{
+  itemId: string;
+  kindWord: ReturnType<typeof kindWordOf>;
+  pieceIds: string[];
+  stayed: string[];
+} | null> {
   const pieces = piecesOf(groupId);
   if (!pieces.length) return null;
   const group = pieces[0].item.views.split_group as {
@@ -415,36 +462,60 @@ export async function keepPiecesAsOne(
     count?: number;
     said?: SplitSaid;
     at?: string;
+    as_one?: DropKind | null;
   };
   const text = String(group.text || '');
   const dropId = `kept-${groupId}`;
+  const asOne = readAsOne(group.as_one);
+  if (!asOne) {
+    console.warn('[Split] Keep as one: no kind as one was kept for this split; kept as a note', {
+      groupId,
+    });
+  }
+  const kind: DropKind = asOne ?? { bucket: 'log', subtype: 'general', habitSubtype: null };
+  // the item takes the pieces' place on the list
+  const at = group.at ?? pieces[0].item.created_at ?? null;
   const parent = {
     localId: dropId,
     text,
     source: 'minddrop',
     spaceId: pieces[0].item.space_id ?? null,
-    createdAt: nowTimestamp(),
+    createdAt: at ?? nowTimestamp(),
     status: 'queued',
     phase: 'saved',
     retryCount: 0,
     classifyEngine: 'v3',
+    bucket: kind.bucket,
+    subtype: kind.subtype,
+    habitSubtype: kind.habitSubtype,
+    // a remind me heard on the drop carries over to the item it is kept as
+    reminderIntent: pieces.some((p) => p.item.views?.reminder_intent === true),
   } as QueuedDrop;
-  // the note takes the pieces' place on the list
-  const at = group.at ?? pieces[0].item.created_at ?? null;
   keptGroupsNow.add(groupId);
   const result = await syncDropToSupabase(parent, null, {
     stage: 'settled',
     title: wordsAsTitle(text),
-    kind: { bucket: 'log', subtype: 'general', habitSubtype: null },
+    kind,
     dropId,
     text,
     extraViews: {
       kept_as_one: { group: groupId, count: group.count ?? pieces.length, ...(at ? { at } : {}) },
     },
   });
-  if (!result.success || !result.supabaseId) {
-    throw new Error(result.error?.message || 'That did not go through. Try again in a moment.');
+  if (!result.success || !result.supabaseId || !result.entityType) {
+    console.warn('[Split] Keep as one: the item could not be saved; the pieces stay', {
+      groupId,
+      error: String(result.error?.message ?? result.error ?? ''),
+    });
+    throw new PlainError(DIDNT_GO);
   }
+  const saved: SavedDropRow = { entityType: result.entityType, id: result.supabaseId };
+  fillKept(
+    { ...parent, supabaseId: saved.id, entityType: saved.entityType },
+    saved,
+    kind,
+    detailBaseOf(saved.entityType, result.row),
+  );
   const archived: string[] = [];
   const stayed: string[] = [];
   for (const p of pieces) {
@@ -460,8 +531,64 @@ export async function keepPiecesAsOne(
     }
   }
   logSplitAnswer(group.said ?? 'clear', 'keep_as_one', pieces.length, {
-    type: 'note',
-    id: result.supabaseId,
+    type: saved.entityType,
+    id: saved.id,
   });
-  return { noteId: result.supabaseId, pieceIds: archived, stayed };
+  return {
+    itemId: saved.id,
+    kindWord: kindWordOf(kind.bucket, kind.subtype),
+    pieceIds: archived,
+    stayed,
+  };
+}
+
+/** split_group.as_one, as saved; null when it is missing or not a kind. */
+function readAsOne(raw: unknown): DropKind | null {
+  const k = raw as Record<string, any> | null | undefined;
+  if (!k || typeof k !== 'object') return null;
+  if (k.bucket === 'todo') return { bucket: 'todo', subtype: null, habitSubtype: null };
+  if (k.bucket === 'habit') {
+    return {
+      bucket: 'habit',
+      subtype: null,
+      habitSubtype: (k.habitSubtype ?? 'start_habit') as HabitSubtype,
+    };
+  }
+  if (k.bucket === 'log') {
+    return { bucket: 'log', subtype: (k.subtype ?? 'general') as LogSubtype, habitSubtype: null };
+  }
+  return null;
+}
+
+/**
+ * The kept item's details, filing and reminder, as a piece's (fillPieces): it
+ * is on the list settled already, so each lands on it when it comes. Never rejects.
+ */
+function fillKept(
+  drop: QueuedDrop,
+  saved: SavedDropRow,
+  kind: DropKind,
+  base: ReturnType<typeof detailBaseOf>,
+): void {
+  try {
+    void startDropFiling(drop);
+    whenPieceReminderLands(drop, saved, kind);
+    const details = startDropDetails(drop, kind);
+    void details.promise.then(
+      (enrichment) =>
+        enrichment
+          ? updateDropDetails(saved, drop, enrichment, { settle: false, kind, base: base ?? null })
+          : false,
+      (err) =>
+        console.warn('[Split] the kept item’s details did not come', {
+          id: saved.id,
+          error: String(err),
+        }),
+    );
+  } catch (err) {
+    console.warn('[Split] the kept item could not be filled; it stays as it is', {
+      id: saved.id,
+      error: String(err),
+    });
+  }
 }

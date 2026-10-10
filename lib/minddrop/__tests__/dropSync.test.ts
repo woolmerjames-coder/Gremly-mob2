@@ -440,6 +440,10 @@ describe('saving at the sort and updating the saved row', () => {
   it('saves the drop as its kind with no details yet, and puts it in the store', async () => {
     const { saved } = await saveTodo();
     const row = inserts()[0];
+    // the moment of the tap, so the card keeps its place (final check item 4)
+    expect(row.created_at).toBe('2026-03-30T12:00:00Z');
+    // no remind me was heard
+    expect(row.views.reminder_intent).toBeUndefined();
     expect(row.views.minddrop_stage).toBe('saved');
     expect(row.tags).toEqual([]);
     expect(row.time_estimate_minutes).toBeNull();
@@ -714,6 +718,9 @@ describe('saving at the sort and updating the saved row', () => {
     const drop = makeDrop({
       localId: 'drop-9',
       text: 'buy milk, gym',
+      createdAt: '2026-10-09T09:00:00Z',
+      reminderIntent: true,
+      asOne: { bucket: 'todo', subtype: null, habitSubtype: null },
       isMulti: true,
       split: 'clear',
       multiSegments: [
@@ -751,9 +758,16 @@ describe('saving at the sort and updating the saved row', () => {
         count: 2,
         text: 'buy milk, gym',
         said: 'clear',
+        // the drop's kind as one, for Keep as one (final check item 2)
+        as_one: { bucket: 'todo', subtype: null, habitSubtype: null },
       },
       confirmation_message: null,
+      // the remind me carries to each piece (final check item 5)
+      reminder_intent: true,
     });
+    // each piece keeps the moment of the tap (final check item 4)
+    expect(first.created_at).toBe('2026-10-09T09:00:00Z');
+    expect(second.created_at).toBe('2026-10-09T09:00:00Z');
     expect(second.views.minddrop_stage).toBe('settled');
     expect(pieces[1].asks).toBe(true);
     expect(pieces[0].asks).toBeFalsy();

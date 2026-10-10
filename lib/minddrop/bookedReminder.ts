@@ -12,6 +12,7 @@
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
 import { addReminderToItem, beforeReminder } from '../reminders/save';
+import { PlainError } from './plainError';
 
 export type BookedReminder = 'evening' | 'hour';
 
@@ -76,7 +77,7 @@ export async function remindBefore(id: string, which: BookedReminder): Promise<v
       : habit
         ? { type: 'habit' as const, id: habit.id }
         : null;
-  if (!found) throw new Error('That one is no longer on your list.');
+  if (!found) throw new PlainError('That one is no longer on your list.');
   const reminder = beforeReminder(which === 'evening' ? 24 * 60 : 60, getDateService().now());
   await addReminderToItem(found.type, found.id, reminder);
 }

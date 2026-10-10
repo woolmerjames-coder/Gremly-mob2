@@ -11,6 +11,7 @@ import { eventBus } from '../../events';
 import { buildFallbackClarification } from '../../minddrop/clarification';
 import type { Note } from '../../types';
 import { CLARIFY_CONFIRM_MS, POPUP_FADE_MS } from '../../minddrop/popupTiming';
+import { remindAfterAnswer } from '../../minddrop/dropReminder';
 
 jest.mock('../../supabase/client', () => {
   const makeQueryChain = (): any => {
@@ -66,6 +67,8 @@ jest.mock('../../supabase/client', () => {
     },
   };
 });
+
+jest.mock('../../minddrop/dropReminder', () => ({ remindAfterAnswer: jest.fn() }));
 
 function makeDropNote(id: string, body: string, ambiguityType: string): Note {
   const clar = buildFallbackClarification(ambiguityType);
@@ -229,5 +232,48 @@ describe('resolveEntityClarification: when is it?', () => {
     const note = useGremlyStore.getState().notes.find((n) => n.id === 'b2') as any;
     expect(note.views.target_date).toBe('2026-10-03');
     expect(note.views.event_time).toBeUndefined();
+  });
+});
+
+describe('resolveEntityClarification: a remind me (final check item 5)', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as any;
+    useGremlyStore.setState({ notes: [], todos: [], habits: [], userId: 'user-1' });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('runs the reminder call once the question is answered, when a remind me was heard', async () => {
+    const note = makeDropNote('b3', 'Dentist, remind me', 'booking');
+    (note.views as any).reminder_intent = true;
+    useGremlyStore.setState({ notes: [note] });
+
+    await act(async () => {
+      await useGremlyStore
+        .getState()
+        .resolveEntityClarification('b3', 'opt_1', false, { date: '2026-10-03', time: null });
+    });
+
+    expect(remindAfterAnswer).toHaveBeenCalledWith(
+      { entityType: 'note', id: 'b3' },
+      'Dentist, remind me',
+      expect.objectContaining({ bucket: 'log' }),
+    );
+  });
+
+  it('runs no reminder call when none was heard', async () => {
+    useGremlyStore.setState({ notes: [makeDropNote('b4', 'Dentist', 'booking')] });
+
+    await act(async () => {
+      await useGremlyStore
+        .getState()
+        .resolveEntityClarification('b4', 'opt_1', false, { date: '2026-10-03', time: null });
+    });
+
+    expect(remindAfterAnswer).not.toHaveBeenCalled();
   });
 });

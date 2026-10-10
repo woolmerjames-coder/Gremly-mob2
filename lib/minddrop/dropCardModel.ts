@@ -56,6 +56,16 @@ export const KIND_WORDS: Record<DropCardKind, string> = {
   ask: 'One quick question',
 };
 
+/**
+ * The kind a split was kept as, mid sentence: Kept as one todo, and Gremly's
+ * One todo it is (final check item 2).
+ */
+export function keptAsOneWord(kind: DropCardKind): string {
+  if (kind === 'journal') return 'journal entry';
+  if (kind === 'ask') return 'note';
+  return kind;
+}
+
 /** The kind's wash (tile) and ink (icon and kind word), from the prototype. */
 export const KIND_COLORS: Record<DropCardKind, { wash: string; ink: string }> = {
   todo: { wash: '#EAF2E8', ink: '#2E5540' },
@@ -257,7 +267,8 @@ function outcomePart(item: CardItem, kind: DropCardKind): MetaPart | null {
  * The parts of the meta line after the kind word, in order. A question sent
  * off the card with Not now reads Kept as it is (an unsure split, Kept as
  * one) and Sweep will ask again until it is answered or lets go (Mind Drop
- * rethink stages 6 and 7). A split kept as one note reads Kept as one note.
+ * rethink stages 6 and 7). A split kept as one reads Kept as one and its
+ * kind (Kept as one todo).
  */
 export function metaParts(item: CardItem, kind: DropCardKind): MetaPart[] {
   const parts: MetaPart[] = [];
@@ -270,7 +281,7 @@ export function metaParts(item: CardItem, kind: DropCardKind): MetaPart[] {
   }
   if (kind === 'ask') return parts;
   if (item.views?.kept_as_one)
-    parts.push({ key: 'kept', icon: 'sticky-note', text: 'Kept as one note' });
+    parts.push({ key: 'kept', icon: 'sticky-note', text: `Kept as one ${keptAsOneWord(kind)}` });
   const outcome = outcomePart(item, kind);
   if (outcome) parts.push(outcome);
   const when = whenWords(item, kind);

@@ -68,6 +68,7 @@ import { cardDupeAsk, cardStripAsk } from '../../../lib/minddrop/asks';
 import { keepSplitAsOne, logSplitAnswer, splitDropNow } from '../../../lib/minddrop/splitActions';
 import { remindBefore, remindersAheadNow } from '../../../lib/minddrop/bookedReminder';
 import { buildFallbackClarification } from '../../../lib/minddrop/clarification';
+import { DIDNT_GO, PlainError } from '../../../lib/minddrop/plainError';
 import { parseISO } from 'date-fns';
 import { eventBus } from '../../../lib/events/EventBus';
 import { getDateService } from '../../../lib/date/DateService';
@@ -439,7 +440,7 @@ describe('a drop about something they already have', () => {
   it('says why when the yes could not be made, and lets the cards stay', async () => {
     const stays: unknown[] = [];
     const off = eventBus.on('minddrop:cards_stay', (p) => stays.push(p));
-    (answerAsk as jest.Mock).mockRejectedValue(new Error('That one is already done.'));
+    (answerAsk as jest.Mock).mockRejectedValue(new PlainError('That one is already done.'));
     const item = moveTo();
     const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
     fireEvent.press(r.getByTestId('minddrop-ask-d1-yes'));
@@ -448,6 +449,19 @@ describe('a drop about something they already have', () => {
     expect(r.getByText('That one is already done.')).toBeTruthy();
     expect(stays).toEqual([{ ids: ['d1'] }]);
     off();
+  });
+
+  it('never shows an error’s own words: anything but our plain messages reads That did not go through', async () => {
+    (answerAsk as jest.Mock).mockRejectedValue(
+      new Error('new row violates row-level security policy for table "todos"'),
+    );
+    const item = moveTo();
+    const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
+    fireEvent.press(r.getByTestId('minddrop-ask-d1-yes'));
+    await tick(ASK_CHOSEN_MS);
+    await tick(ASK_SWAP_MS);
+    expect(r.getByText(DIDNT_GO)).toBeTruthy();
+    expect(r.queryByText(/row-level security/)).toBeNull();
   });
 
   it('Not that one offers the others that fit, then None of these keeps it as new', async () => {
@@ -663,7 +677,9 @@ describe('an unsure split asks on its card', () => {
   it('says why when the split could not be made, and the card stays', async () => {
     const stays: unknown[] = [];
     const off = eventBus.on('minddrop:cards_stay', (p) => stays.push(p));
-    (splitDropNow as jest.Mock).mockRejectedValue(new Error('This one has already been sorted.'));
+    (splitDropNow as jest.Mock).mockRejectedValue(
+      new PlainError('This one has already been sorted.'),
+    );
     const item = unsure();
     const r = render(<CardAsk item={item} ask={cardStripAsk(item)} />);
     fireEvent.press(r.getByTestId('minddrop-ask-s1-split'));

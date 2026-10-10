@@ -204,6 +204,9 @@ export function buildDropRow(
     classify_engine: drop.classifyEngine || null,
     ai_degraded: drop.classificationDegraded || false,
     classification_source: drop.classificationSource || 'unknown',
+    // the classifier heard a remind me: the reminder call runs for this item
+    // after a question is answered, and for each piece of a split (final check item 5)
+    ...(drop.reminderIntent === true ? { reminder_intent: true } : {}),
   };
   const dateViews = {
     target_date: enrichment?.target_date || null,
@@ -236,6 +239,8 @@ export function buildDropRow(
       entityType,
       payload: {
         owner_id: userId,
+        // the moment of the tap, so the card keeps its place once saved
+        created_at: drop.createdAt,
         name: title,
         body: text,
         space_id: spaceId,
@@ -277,6 +282,8 @@ export function buildDropRow(
       entityType,
       payload: {
         owner_id: userId,
+        // the moment of the tap, so the card keeps its place once saved
+        created_at: drop.createdAt,
         name: title,
         title,
         notes: text,
@@ -310,6 +317,8 @@ export function buildDropRow(
     entityType,
     payload: {
       owner_id: userId,
+      // the moment of the tap, so the card keeps its place once saved
+      created_at: drop.createdAt,
       title,
       body: text,
       subtype: noteSubtypeOf(kind.subtype),
@@ -522,6 +531,8 @@ export async function insertSplitPieces(
           count: pieces.length,
           text: drop.text,
           said: opts.said,
+          // the drop's kind as one item, for Keep as one (null when the classifier gave none)
+          as_one: drop.asOne ?? null,
           // a Split on a card later: where the card was, so the pieces take its place
           ...(opts.at ? { at: opts.at } : {}),
         },

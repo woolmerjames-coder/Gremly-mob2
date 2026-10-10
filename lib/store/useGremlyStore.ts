@@ -1344,6 +1344,24 @@ const initialState = {
   currentDate: getDateService().today(),
 };
 
+/**
+ * The reminder a drop asked for, once its question is answered (the planning
+ * chat's final check, item 5): an unclear drop has none until then. Only when
+ * the classifier heard a remind me on it (views.reminder_intent). Loaded when
+ * it runs, as lib/minddrop/dropReminder.ts reads this store.
+ */
+function remindOnceAnswered(
+  views: Record<string, unknown> | null | undefined,
+  saved: { entityType: 'todo' | 'habit' | 'note'; id: string },
+  text: string,
+  kind: { bucket: 'todo' | 'habit' | 'log'; subtype: string | null },
+): void {
+  if (views?.reminder_intent !== true) return;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { remindAfterAnswer } = require('../minddrop/dropReminder');
+  void remindAfterAnswer(saved, text, kind);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORE IMPLEMENTATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -8378,6 +8396,12 @@ export const useGremlyStore = create<GremlyState>()(
             });
 
             console.log('[GremlyStore] Same bucket clarification resolved:', { entityId });
+            remindOnceAnswered(
+              views,
+              { entityType: entityType as 'todo' | 'habit' | 'note', id: entityId },
+              originalText,
+              { bucket: targetBucket, subtype: newSubtype },
+            );
             return;
           }
 
@@ -8406,6 +8430,8 @@ export const useGremlyStore = create<GremlyState>()(
             // CRITICAL: Set ai_pending: true so the card shows shimmer animation while Phase 2 runs
             const commonFields = {
               owner_id: entity.owner_id,
+              // it keeps the day it was made, so its card keeps its place
+              created_at: (entity as any).created_at,
               tags: entity.tags || [],
               origin: (entity as any).origin || 'catchall',
               drop_id: (entity as any).drop_id,
@@ -8646,6 +8672,16 @@ export const useGremlyStore = create<GremlyState>()(
               type: targetBucket,
               source: 'clarification-bucket-change',
             });
+            remindOnceAnswered(
+              views,
+              {
+                entityType:
+                  targetBucket === 'todo' ? 'todo' : targetBucket === 'habit' ? 'habit' : 'note',
+                id: insertedEntity.id,
+              },
+              originalText,
+              { bucket: targetBucket, subtype: newSubtype },
+            );
 
             // ─────────────────────────────────────────────────────────────────────
             // PHASE 2 ENRICHMENT: Now call Phase 2 with the correct bucket

@@ -19,8 +19,9 @@ import { Split, Undo2 } from 'lucide-react-native';
 import { eventBus } from '../../lib/events/EventBus';
 import { useReducedMotion } from '../../design/animations';
 import { keepPiecesAsOne, piecesOf } from '../../lib/minddrop/splitActions';
+import { keptAsOneWord } from '../../lib/minddrop/dropCardModel';
+import { DIDNT_GO, PlainError, wordsForError } from '../../lib/minddrop/plainError';
 
-const DIDNT_GO = 'That did not go through. Try again in a moment.';
 /** The pieces fold into the note (RecentDrops' fold), then Gremly says so. */
 const FOLD_MS = 420;
 const BUBBLE_MS = 4000;
@@ -67,12 +68,16 @@ export function SplitBar({
     }
     try {
       const kept = await keepPiecesAsOne(groupId);
-      if (!kept) throw new Error(DIDNT_GO);
+      if (!kept) throw new PlainError(DIDNT_GO);
       // a piece that could not be archived stays where it is
       if (kept.stayed.length) eventBus.emit('minddrop:cards_stay', { ids: kept.stayed });
       eventBus.emit('minddrop:cards_go', { ids: kept.pieceIds });
       setTimeout(
-        () => eventBus.emit('gremly:speak', { message: 'One note it is.', duration: BUBBLE_MS }),
+        () =>
+          eventBus.emit('gremly:speak', {
+            message: `One ${keptAsOneWord(kept.kindWord)} it is.`,
+            duration: BUBBLE_MS,
+          }),
         reduced ? 0 : FOLD_MS,
       );
     } catch (err) {
@@ -81,7 +86,7 @@ export function SplitBar({
         error: String(err),
       });
       if (ids.length) eventBus.emit('minddrop:cards_stay', { ids });
-      setError(err instanceof Error && err.message ? err.message : DIDNT_GO);
+      setError(wordsForError(err));
       busyRef.current = false;
       setBusy(false);
     }

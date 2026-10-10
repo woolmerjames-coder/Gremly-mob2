@@ -89,6 +89,7 @@ import {
 } from '../../lib/minddrop/splitActions';
 import { wordsAsTitle } from '../../workers/shared/titles';
 import { WhenPicker } from './WhenPicker';
+import { DIDNT_GO, wordsForError } from '../../lib/minddrop/plainError';
 import {
   remindBefore,
   remindersAheadNow,
@@ -103,7 +104,6 @@ const LOGGED_POP_MS = 650;
 /** Keep just one: the drop glides into the one they had (the prototype's .52s), then it pulses. */
 export const GLIDE_MS = 520;
 const BUBBLE_MS = 4000;
-const DIDNT_GO = 'That did not go through. Try again in a moment.';
 
 type Step =
   | { name: 'main' }
@@ -553,7 +553,7 @@ export function CardAsk({
       } catch (err) {
         busy.current = false;
         if (leaving.length) eventBus.emit('minddrop:cards_stay', { ids: leaving });
-        setError(err instanceof Error && err.message ? err.message : DIDNT_GO);
+        setError(wordsForError(err));
       }
     };
     const no = () => {
@@ -678,7 +678,7 @@ export function CardAsk({
         busy.current = false;
         eventBus.emit('minddrop:cards_stay', { ids: [id] });
         console.warn('[CardAsk] the split did not go through', { id, error: String(err) });
-        setError(err instanceof Error && err.message ? err.message : DIDNT_GO);
+        setError(wordsForError(err));
       }
     };
     const keep = () => {
@@ -929,7 +929,7 @@ export function CardDupe({ item, ask, testID }: { item: UnifiedDrop; ask: Ask; t
       afterYes(outcome, leaving, outcome.targetId, GLIDE_MS);
     } catch (err) {
       if (leaving.length) eventBus.emit('minddrop:cards_stay', { ids: leaving });
-      setError(err instanceof Error && err.message ? err.message : DIDNT_GO);
+      setError(wordsForError(err));
       busyRef.current = false;
       setBusy(false);
     }

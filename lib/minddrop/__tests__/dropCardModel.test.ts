@@ -236,10 +236,16 @@ describe('the meta line', () => {
     ]);
   });
 
-  it('a split kept as one note says so (stage 7)', () => {
+  it('a split kept as one says so, with the kind it was kept as (stage 7, final check item 2)', () => {
     expect(metaParts({ views: { kept_as_one: { group: 'd1', count: 3 } } } as any, 'note')).toEqual(
       [{ key: 'kept', icon: 'sticky-note', text: 'Kept as one note' }],
     );
+    expect(
+      metaParts({ views: { kept_as_one: { group: 'd1', count: 3 } } } as any, 'todo')[0],
+    ).toEqual({ key: 'kept', icon: 'sticky-note', text: 'Kept as one todo' });
+    expect(
+      metaParts({ views: { kept_as_one: { group: 'd1', count: 2 } } } as any, 'journal')[0],
+    ).toEqual({ key: 'kept', icon: 'sticky-note', text: 'Kept as one journal entry' });
   });
 
   it('a journal entry that stays after an answer says what happened to it', () => {

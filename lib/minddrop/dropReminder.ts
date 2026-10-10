@@ -8,13 +8,12 @@
  * reminder_intent was never copied onto the drop, so this never ran.
  */
 import { useGremlyStore } from '../store/useGremlyStore';
-import { supabase } from '../supabase/client';
-import { getDateService, nowTimestamp } from '../date/DateService';
+import { getDateService } from '../date/DateService';
 import { maybeAsk } from '../notifications/ask';
 import { hhmm, localDay } from '../reminders/reminders';
 import type { ItemReminder } from '../types';
-import type { ReminderDetails } from './dropDetails';
-import type { SavedDropRow } from './dropSync';
+import { callPhase2b, type ReminderDetails } from './dropDetails';
+import { updateDropRow, type DropKind, type SavedDropRow } from './dropSync';
 
 export async function scheduleDropReminder(
   saved: SavedDropRow,
@@ -53,29 +52,16 @@ export async function scheduleDropReminder(
         })();
 
     // Reminders the person set themselves stay; an earlier automatic one for
-    // this drop is replaced (a drop asked again after a restart adds no second)
-    const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-    const { data: row, error: readError } = await supabase
-      .from(table)
-      .select('reminders_json')
-      .eq('id', entityId)
-      .single();
-    if (readError) throw readError;
-    const kept = (Array.isArray(row?.reminders_json) ? row.reminders_json : []).filter(
-      (r: ItemReminder) => !String(r?.id ?? '').startsWith('auto-'),
-    );
-    const reminders = [...kept, reminderToSave];
-    const { error } = await supabase
-      .from(table)
-      .update({ reminders_json: reminders, updated_at: nowTimestamp() })
-      .eq('id', entityId);
-    if (error) throw error;
-
-    useGremlyStore.setState((state) => ({
-      [table]: (state[table] as any[]).map((item: any) =>
-        item.id === entityId ? { ...item, reminders } : item,
-      ),
-    }));
+    // this drop is replaced (a drop asked again after a restart adds no second).
+    // Written on the row as the database holds it now, in turn with every other
+    // write to it (updateDropRow), so a late reminder never puts back an answer.
+    const wrote = await updateDropRow(entityType, entityId, 'reminder', (row) => {
+      const kept = (Array.isArray(row.reminders_json) ? row.reminders_json : []).filter(
+        (r: ItemReminder) => !String(r?.id ?? '').startsWith('auto-'),
+      );
+      return { reminders: [...kept, reminderToSave] };
+    });
+    if (!wrote) return;
 
     console.log('[DropReminder] Auto-reminder saved', {
       entityId,
@@ -87,5 +73,26 @@ export async function scheduleDropReminder(
     void maybeAsk('bell');
   } catch (err) {
     console.warn('[DropReminder] Auto-reminder failed', { error: String(err) });
+  }
+}
+
+/**
+ * The reminder call for an item whose question was just answered (final check
+ * item 5): an unclear drop has no reminder until then. Runs only when the
+ * classifier heard a remind me on the drop; never rejects.
+ */
+export async function remindAfterAnswer(
+  saved: SavedDropRow,
+  text: string,
+  kind: Pick<DropKind, 'bucket' | 'subtype'>,
+): Promise<void> {
+  try {
+    const reminder = await callPhase2b(text, kind.bucket, kind.subtype);
+    await scheduleDropReminder(saved, reminder);
+  } catch (err) {
+    console.warn('[DropReminder] the reminder after an answer did not go through', {
+      id: saved.id,
+      error: String(err),
+    });
   }
 }

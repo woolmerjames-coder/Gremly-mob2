@@ -20,6 +20,8 @@ jest.mock('../../store/useGremlyStore', () => ({
 }));
 jest.mock('../dropSync', () => ({
   attachDropRelation: jest.fn(),
+  detailBaseOf: jest.fn(),
+  kindWordOf: jest.requireActual('../dropSync').kindWordOf,
   insertSplitPieces: jest.fn(),
   settleDropRow: jest.fn(),
   syncDropToSupabase: jest.fn(),
@@ -27,7 +29,8 @@ jest.mock('../dropSync', () => ({
   updateDropRow: jest.fn(),
   updateDropWords: jest.fn(),
 }));
-jest.mock('../dropDetails', () => ({ startDropDetails: jest.fn() }));
+jest.mock('../dropDetails', () => ({ startDropDetails: jest.fn(), startDropReminder: jest.fn() }));
+jest.mock('../dropReminder', () => ({ scheduleDropReminder: jest.fn() }));
 jest.mock('../dropWords', () => ({ dropWordsFor: jest.fn() }));
 jest.mock('../relationActions', () => ({
   dropRelationFor: jest.fn(),
@@ -57,7 +60,9 @@ import {
   updateDropRow,
   updateDropWords,
 } from '../dropSync';
-import { startDropDetails } from '../dropDetails';
+import { startDropDetails, startDropReminder } from '../dropDetails';
+import { scheduleDropReminder } from '../dropReminder';
+import { DIDNT_GO } from '../plainError';
 import { dropWordsFor } from '../dropWords';
 import {
   dropRelationFor,
@@ -127,6 +132,8 @@ beforeEach(() => {
   (dropRelationFor as jest.Mock).mockImplementation(() => answered(null));
   (heldRelationFor as jest.Mock).mockImplementation((_d, r) => ({ ...r, status: 'pending' }));
   (startDropFiling as jest.Mock).mockImplementation(() => answered(null));
+  (startDropReminder as jest.Mock).mockReturnValue(null);
+  (scheduleDropReminder as jest.Mock).mockResolvedValue(undefined);
   (logAppEvent as jest.Mock).mockResolvedValue(undefined);
 });
 
@@ -220,6 +227,23 @@ describe('each piece is filled on its own', () => {
     late.land(null);
     await filled;
     expect(settledAt).toBeGreaterThan(0);
+  });
+
+  it('a remind me on the drop: each piece that does not ask gets its own reminder call, saved when it lands', async () => {
+    const reminder = { auto_reminder: true, reminder_date: '2026-10-12', reminder_time: '09:00' };
+    (startDropReminder as jest.Mock).mockImplementation((d: QueuedDrop) =>
+      d.reminderIntent ? answered(reminder) : null,
+    );
+    await fillPieces(
+      { ...parentDrop, reminderIntent: true },
+      [piece(0), piece(1, { asks: true })],
+      { deadline: Date.now() + 200, related: false },
+    );
+    await flush();
+    expect((startDropReminder as jest.Mock).mock.calls.map((c) => c[0].localId)).toEqual([
+      'split-d1-0',
+    ]);
+    expect(scheduleDropReminder).toHaveBeenCalledWith({ entityType: 'todo', id: 'p0' }, reminder);
   });
 
   it('a piece that asks keeps its question and gets no details call', async () => {
@@ -330,6 +354,17 @@ describe('Split, on an unsure split’s card', () => {
     ]);
   });
 
+  it('carries a remind me and the item’s kind over to the pieces', async () => {
+    rows.t9 = { ...item, views: { ...item.views, reminder_intent: true } };
+    mockState.todos = [rows.t9];
+    await splitDropNow('t9');
+    const [parent] = (insertSplitPieces as jest.Mock).mock.calls[0];
+    expect(parent).toMatchObject({
+      reminderIntent: true,
+      asOne: { bucket: 'todo', subtype: null, habitSubtype: null },
+    });
+  });
+
   it('splits only once: a second tap finds it already sorted', async () => {
     rows.t9 = { ...item, views: { split: { ...item.views.split, status: 'split' } } };
     await expect(splitDropNow('t9')).rejects.toThrow('already been sorted');
@@ -391,13 +426,14 @@ describe('Split, on an unsure split’s card', () => {
 });
 
 describe('Keep as one, under a clear split’s pieces', () => {
-  const group = (index: number) => ({
+  const group = (index: number, asOne: unknown = { bucket: 'todo', subtype: null }) => ({
     id: 'd1',
     index,
     count: 2,
     text: 'clean out the garage, sort the donations pile',
     title: null,
     said: 'clear',
+    as_one: asOne,
   });
 
   beforeEach(() => {
@@ -408,8 +444,8 @@ describe('Keep as one, under a clear split’s pieces', () => {
     ];
     (syncDropToSupabase as jest.Mock).mockResolvedValue({
       success: true,
-      supabaseId: 'n1',
-      entityType: 'note',
+      supabaseId: 'k1',
+      entityType: 'todo',
     });
   });
 
@@ -417,18 +453,24 @@ describe('Keep as one, under a clear split’s pieces', () => {
     expect(piecesOf('d1').map((p) => p.item.id)).toEqual(['p0', 'p1']);
   });
 
-  it('saves one note with the drop’s words where the pieces were, and archives the pieces', async () => {
+  it('saves one item of the kind the drop was as one, with its words, where the pieces were, and archives the pieces', async () => {
     await expect(keepPiecesAsOne('d1')).resolves.toEqual({
-      noteId: 'n1',
+      itemId: 'k1',
+      kindWord: 'todo',
       pieceIds: ['p0', 'p1'],
       stayed: [],
     });
     const [drop, , opts] = (syncDropToSupabase as jest.Mock).mock.calls[0];
-    expect(drop).toMatchObject({ localId: 'kept-d1', text: group(0).text });
+    expect(drop).toMatchObject({
+      localId: 'kept-d1',
+      text: group(0).text,
+      // it keeps the pieces' place
+      createdAt: '2026-10-09T09:00:00Z',
+    });
     expect(opts).toMatchObject({
       stage: 'settled',
       title: 'Clean out the garage, sort the donations pile',
-      kind: { bucket: 'log', subtype: 'general', habitSubtype: null },
+      kind: { bucket: 'todo', subtype: null, habitSubtype: null },
       dropId: 'kept-d1',
       extraViews: { kept_as_one: { group: 'd1', count: 2, at: '2026-10-09T09:00:00Z' } },
     });
@@ -439,9 +481,58 @@ describe('Keep as one, under a clear split’s pieces', () => {
     expect(keptGroupsNow.has('d1')).toBe(true);
     expect(logAppEvent).toHaveBeenCalledWith(
       'split_answer',
-      { type: 'note', id: 'n1' },
+      { type: 'todo', id: 'k1' },
       { said: 'clear', tapped: 'keep_as_one', pieces: 2 },
     );
+  });
+
+  it('runs its details, filing and reminder as a piece’s, and writes the details when they land', async () => {
+    mockState.todos[0].views.reminder_intent = true;
+    const reminder = { auto_reminder: true, reminder_date: '2026-10-12', reminder_time: '09:00' };
+    (startDropReminder as jest.Mock).mockReturnValue(answered(reminder));
+    await keepPiecesAsOne('d1');
+    await flush();
+    const kind = { bucket: 'todo', subtype: null, habitSubtype: null };
+    expect(startDropFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ localId: 'kept-d1', supabaseId: 'k1', entityType: 'todo' }),
+    );
+    expect(startDropDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ localId: 'kept-d1' }),
+      kind,
+    );
+    expect(updateDropDetails).toHaveBeenCalledWith(
+      { entityType: 'todo', id: 'k1' },
+      expect.objectContaining({ localId: 'kept-d1' }),
+      DETAILS,
+      expect.objectContaining({ settle: false, kind }),
+    );
+    expect(startDropReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ localId: 'kept-d1', reminderIntent: true }),
+      kind,
+    );
+    expect(scheduleDropReminder).toHaveBeenCalledWith({ entityType: 'todo', id: 'k1' }, reminder);
+  });
+
+  it('is kept as a note, logged, when the split has no kind as one', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockState.todos = [
+      { id: 'p0', created_at: '2026-10-09T09:00:00Z', views: { split_group: group(0, null) } },
+      { id: 'p1', created_at: '2026-10-09T09:00:01Z', views: { split_group: group(1, null) } },
+    ];
+    (syncDropToSupabase as jest.Mock).mockResolvedValue({
+      success: true,
+      supabaseId: 'n1',
+      entityType: 'note',
+    });
+    await expect(keepPiecesAsOne('d1')).resolves.toMatchObject({ itemId: 'n1', kindWord: 'note' });
+    expect((syncDropToSupabase as jest.Mock).mock.calls[0][2]).toMatchObject({
+      kind: { bucket: 'log', subtype: 'general', habitSubtype: null },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('no kind as one'),
+      expect.objectContaining({ groupId: 'd1' }),
+    );
+    warn.mockRestore();
   });
 
   it('a piece that could not be archived stays, and the rest are kept as one', async () => {
@@ -449,18 +540,19 @@ describe('Keep as one, under a clear split’s pieces', () => {
       if (id === 'p1') throw new Error('offline');
     });
     await expect(keepPiecesAsOne('d1')).resolves.toEqual({
-      noteId: 'n1',
+      itemId: 'k1',
+      kindWord: 'todo',
       pieceIds: ['p0'],
       stayed: ['p1'],
     });
   });
 
-  it('keeps the pieces when the note could not be saved', async () => {
+  it('keeps the pieces when the item could not be saved, and never shows the database’s words', async () => {
     (syncDropToSupabase as jest.Mock).mockResolvedValue({
       success: false,
-      error: new Error('offline'),
+      error: new Error('duplicate key value violates unique constraint'),
     });
-    await expect(keepPiecesAsOne('d1')).rejects.toThrow('offline');
+    await expect(keepPiecesAsOne('d1')).rejects.toThrow(DIDNT_GO);
     expect(mockState.archiveTodo).not.toHaveBeenCalled();
   });
 });
