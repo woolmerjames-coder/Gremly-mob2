@@ -7371,6 +7371,56 @@ export const useGremlyStore = create<GremlyState>()(
           const cutoffTime = new Date(now - STUCK_THRESHOLD_MS).toISOString();
 
           try {
+            // A drop saved at the sort settles within seconds (Mind Drop rethink
+            // stage 4). One still at 'saved' after 30s lost its settle (the app
+            // stopped and the drop did not come back, or the write failed): it
+            // settles as it is, with whatever details it has, logged.
+            for (const table of ['todos', 'habits', 'notes'] as const) {
+              const { data: unsettled } = await supabase
+                .from(table)
+                .select('id, views')
+                .eq('owner_id', userId)
+                .eq('views->>minddrop_stage', 'saved')
+                .lt('updated_at', cutoffTime);
+              if (!unsettled?.length) continue;
+              console.warn('[GremlyStore] settling Mind Drop items left at saved', {
+                table,
+                count: unsettled.length,
+              });
+              for (const row of unsettled) {
+                const views = {
+                  ...(row.views as Record<string, unknown>),
+                  minddrop_stage: 'settled',
+                };
+                const { error } = await supabase.from(table).update({ views }).eq('id', row.id);
+                if (error) {
+                  console.warn('[GremlyStore] could not settle a Mind Drop item', {
+                    table,
+                    id: row.id,
+                    error: error.message,
+                  });
+                  continue;
+                }
+                set(
+                  (state) =>
+                    ({
+                      [table]: (state[table] as Array<{ id: string; views?: unknown }>).map(
+                        (item) =>
+                          item.id === row.id
+                            ? {
+                                ...item,
+                                views: {
+                                  ...(item.views as Record<string, unknown>),
+                                  minddrop_stage: 'settled',
+                                },
+                              }
+                            : item,
+                      ),
+                    }) as Partial<GremlyState>,
+                );
+              }
+            }
+
             // Find todos stuck in enrichment (views->minddrop_stage is streaming, enriching, or pending)
             const { data: stuckTodos } = await supabase
               .from('todos')

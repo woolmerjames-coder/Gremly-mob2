@@ -3,8 +3,10 @@
  * you already have?" (types and words in dropRelation.ts).
  *
  * - fetchDropRelation: the Worker's answer, or null (off, slow, unsure, failed).
- * - holdDropForRelation: the drop is filed as a note that carries the question,
- *   so no new todo or habit appears before the user decides.
+ * - heldRelationFor: the answer as the saved item carries it (from stage 4 the
+ *   drop is saved as its own kind and the answer attaches to it whenever it
+ *   lands). holdDropForRelation, which filed the drop as a note carrying the
+ *   question, is an older build's way, kept until stage 11.
  * - applyDropRelation: the user said yes. The change goes through the chat
  *   card's own applyEntityChange (lib/chat/entityCards.ts), so sync, rollback
  *   and Undo behave the same in both places.
@@ -25,6 +27,7 @@ import { dateService } from '../date/DateService';
 import { env, getEnv } from '../env';
 import type { QueuedDrop } from './dropQueue';
 import { hasUsableClarification } from './clarification';
+import { keyedCalls, type StartedCall } from './dropCalls';
 import {
   changeForEntity,
   keepsDropAfterYes,
@@ -71,30 +74,61 @@ export function shouldRelate(drop: QueuedDrop): boolean {
 }
 
 /**
- * The check only needs the drop's words, so it starts alongside
- * classification and is usually back before the drop needs it. Kept in memory
- * by the drop's local id; after an app restart the drop simply asks again.
+ * The check only needs the drop's words, so it starts at the tap, beside the
+ * classifier and the title call, and attaches to the saved item whenever it
+ * lands (Mind Drop rethink stage 4). Kept in memory by the drop's local id
+ * (dropCalls.ts); after an app restart the drop simply asks again.
  */
-const early = new Map<string, Promise<DropRelation | null>>();
+const early = keyedCalls<DropRelation>();
 
 /** Start the check as soon as a Mind Drop box drop is queued. */
 export function startDropRelation(drop: QueuedDrop): void {
   if (drop.source !== 'minddrop' || drop.dueDayOverride || drop.prefillDate) return;
-  if (!drop.text?.trim() || early.has(drop.localId)) return;
-  if (early.size > 50) early.clear();
-  early.set(drop.localId, fetchDropRelation(drop.text));
+  if (!drop.text?.trim()) return;
+  early.start(drop.localId, () => fetchDropRelation(drop.text));
+}
+
+/** The check started at the tap, or one started now (after an app restart). */
+export function dropRelationFor(drop: QueuedDrop): StartedCall<DropRelation> {
+  return early.get(drop.localId) ?? early.start(drop.localId, () => fetchDropRelation(drop.text));
 }
 
 /** The answer started early, or a fresh ask when there is none. */
 export function takeDropRelation(drop: QueuedDrop): Promise<DropRelation | null> {
   const started = early.get(drop.localId);
-  early.delete(drop.localId);
-  return started ?? fetchDropRelation(drop.text);
+  early.forget(drop.localId);
+  return started ? started.promise : fetchDropRelation(drop.text);
 }
 
 /** The drop turned out not to need the check (several items, or addressed to Gremly). */
 export function forgetDropRelation(localId: string): void {
-  early.delete(localId);
+  early.forget(localId);
+}
+
+/**
+ * The answer as the saved item carries it in views.relation: pending, with how
+ * the drop was saved (its kind and any question), so the answers in stage 6
+ * and an older build's keep both work. The surface is added at the attach.
+ */
+export function heldRelationFor(
+  drop: QueuedDrop,
+  relation: DropRelation,
+  kind: {
+    bucket: RelationClassified['bucket'];
+    subtype: string | null;
+    habitSubtype: string | null;
+  },
+): Omit<HeldRelation, 'surface'> {
+  const classified: RelationClassified = {
+    bucket: kind.bucket,
+    subtype: kind.subtype ?? null,
+    habitSubtype: kind.habitSubtype ?? null,
+    needsClarification: !!drop.needsClarification,
+    ambiguityType: drop.ambiguityType ?? null,
+    clarificationQuestion: drop.clarificationQuestion ?? null,
+    clarificationOptions: (drop.clarificationOptions as unknown[] | null | undefined) ?? null,
+  };
+  return { ...relation, status: 'pending', classified } as Omit<HeldRelation, 'surface'>;
 }
 
 function deviceTimezone(): string | undefined {
@@ -155,6 +189,10 @@ export async function fetchDropRelation(
  * how it was classified. A note drop keeps its kind (an event stays an event);
  * a todo or habit waits as a plain note, so nothing new appears in their lists
  * before they answer.
+ *
+ * No longer called by the pipeline: from stage 4 a drop is saved as its own
+ * kind and the answer attaches to it (heldRelationFor). Kept until stage 11's
+ * impact audit; the relation tests build their held relations with it.
  */
 export function holdDropForRelation(drop: QueuedDrop, relation: DropRelation): QueuedDrop {
   const classified: RelationClassified = {

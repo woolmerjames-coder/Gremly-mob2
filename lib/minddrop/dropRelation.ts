@@ -85,6 +85,12 @@ export type HeldRelation = DropRelation & {
   classified: RelationClassified;
   /** the closing line once the user said yes */
   summary?: string | null;
+  /**
+   * Where it is asked (Mind Drop rethink stage 4): 'card' when the answer
+   * reached the saved item before its card settled, 'sweep' after. Missing on
+   * a drop an older build held as a note.
+   */
+  surface?: 'card' | 'sweep';
 };
 
 const INTENTS = new Set(['same', 'edit', 'add', 'complete', 'logged', 'remove']);

@@ -15,6 +15,7 @@ import {
   formatDropMessage,
   normalizeClassifyV3,
   parseModelJson,
+  wantsQuestionWriter,
 } from '../classifyV3.js';
 
 describe('prompts', () => {
@@ -749,5 +750,17 @@ describe('normalizeClassifyV3: splits and pieces (v3.8)', () => {
     expect(r.segments[1]).toMatchObject({ bucket: 'log', subtype: 'general' });
     expect(r.segments[1].clarification_question).toBeUndefined();
     expect(r.segments[1].is_ambiguous).toBeUndefined();
+  });
+});
+
+describe('wantsQuestionWriter (stage 4)', () => {
+  it('skips the writer only when the app says write_question: false', () => {
+    expect(wantsQuestionWriter({ write_question: false })).toBe(false);
+  });
+
+  it('keeps the writer for builds already out, which never send it', () => {
+    expect(wantsQuestionWriter({})).toBe(true);
+    expect(wantsQuestionWriter({ write_question: true })).toBe(true);
+    expect(wantsQuestionWriter(null)).toBe(true);
   });
 });

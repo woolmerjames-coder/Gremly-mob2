@@ -24,7 +24,12 @@ const card = (
 
 describe('computeSweepCardMeta: a todo with a deadline and no day planned', () => {
   const ds = getDateService();
-  const today = ds.today();
+  // read inside each test, after the test setup sets the day's end, so the
+  // hour the suite runs at never matters
+  let today = '';
+  beforeEach(() => {
+    today = ds.today();
+  });
 
   it('is due today on its deadline, worded as a deadline', () => {
     const meta = computeSweepCardMeta(

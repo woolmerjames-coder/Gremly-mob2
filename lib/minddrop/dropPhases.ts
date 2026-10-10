@@ -1,42 +1,78 @@
 /**
- * dropPhases.ts — Phase handlers for the drop pipeline state machine
+ * dropPhases.ts: the phase handlers for the drop pipeline.
  *
- * Each handler executes ONE phase transition:
- * - Takes a QueuedDrop at phase X
- * - Makes network call(s) with timeout
- * - Returns updated QueuedDrop at phase X+1
- * - Throws on hard failure (pipeline runner handles retry)
+ * The order (Mind Drop rethink stage 4, 9 Oct 2026): every call starts the
+ * moment it can, and the drop is saved as its kind as soon as it is sorted.
  *
- * Handlers do NOT persist to AsyncStorage or update Zustand directly.
- * The pipeline runner (dropPipeline.ts) handles persistence after each transition.
+ *   queued   The tap. The title and reaction call (dropWords.ts), the already
+ *            have it check (relationActions.ts) and the classifier start
+ *            together. The classifier no longer waits for the question writer.
+ *   sorted   About 2.0s. The kind is known. The details (and any reminder)
+ *            start with it, or the question writer for an unclear drop; the
+ *            title call gets at most a second more; then the drop is saved as
+ *            its kind, as one item that asks for an unsure split, or as its
+ *            pieces for a clear split. The reaction goes to the bubble as the
+ *            card sorts, once the kind and the words are both in.
+ *   saved    About 2.3s. The card waits for the details (for an unclear drop,
+ *            the writer's words) until five seconds after the sort, writes them
+ *            in one update and settles. Details that come later are written when
+ *            they land.
+ *   complete Settled; dequeued by the runner (dropPipeline.ts handleComplete).
+ *
+ * The already have it answer attaches to the saved item whenever it lands,
+ * for the card when it arrives before the settle and for Sweep after. A title
+ * that arrives after the save replaces the drop's own words on the item.
+ *
+ * Each handler takes a drop at one phase and returns it at the next, or throws
+ * so the runner tries the same phase again. Every call is kept in memory by
+ * the drop's id (dropCalls.ts), so a retry never asks twice; after an app
+ * restart a drop asks again, and its saved row is found by its drop id.
  */
 
-import type { QueuedDrop, DropPhase } from './dropQueue';
-import { saveDrop, getQueue } from './dropQueue';
+import type { QueuedDrop, DropPhase, MultiSegment } from './dropQueue';
+import { LEGACY_PHASES } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1, runClassifyV3 } from './phase1';
 import { FEATURE_FLAGS } from '../config/featureFlags';
-import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
-import type { Phase2MetadataResult } from './dropSync';
-import { syncDropToSupabase, syncMultiDropToSupabase } from './dropSync';
-import { useGremlyStore } from '../store/useGremlyStore';
-import { eventBus } from '../events/EventBus';
-import { dateService, getDateService } from '../date/DateService';
-import { env, getEnv } from '../env';
-import { getSessionToken } from '../cortex/getSessionToken';
+import type { HeldRelation } from './dropRelation';
+import type { DropKind, Phase2MetadataResult, SavedDropRow } from './dropSync';
 import {
-  fetchClarification,
+  attachDropRelation,
+  detailBaseOf,
+  insertSplitPieces,
+  settleDropRow,
+  splitPiecesView,
+  syncDropToSupabase,
+  updateDropDetails,
+  updateDropQuestion,
+  updateDropWords,
+} from './dropSync';
+import { eventBus } from '../events/EventBus';
+import { getDateService } from '../date/DateService';
+import {
+  buildFallbackClarification,
+  forgetDropClarification,
   hasUsableClarification,
   normalizeAmbiguityType,
-  CLARIFY_TIMEOUT_MS,
+  startDropClarification,
 } from './clarification';
 import {
+  dropRelationFor,
   forgetDropRelation,
-  holdDropForRelation,
+  heldRelationFor,
   shouldRelate,
   startDropRelation,
-  takeDropRelation,
 } from './relationActions';
+import { dropWordsFor, forgetDropWords, startDropWords, type DropWords } from './dropWords';
+import {
+  forgetDropDetails,
+  startDropDetails,
+  startDropReminder,
+  type ReminderDetails,
+} from './dropDetails';
+import { within, type StartedCall } from './dropCalls';
+import { scheduleDropReminder } from './dropReminder';
+import { fallbackTitle, wordsAsTitle } from '../../workers/shared/titles';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // withTimeout helper
@@ -44,7 +80,7 @@ import {
 
 /**
  * Wrap a promise with a timeout. If the timeout fires first, returns the fallback value.
- * Does NOT throw on timeout — returns the fallback for soft degradation.
+ * Does NOT throw on timeout; returns the fallback for soft degradation.
  */
 export async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   const timer = new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms));
@@ -52,19 +88,7 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: 
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Environment readers
-// ──────────────────────────────────────────────────────────────────────────────
-
-const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
-
-const readCortexUrl = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
-  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-// mightBeMulti heuristic
+// mightBeMulti heuristic (the v2 fallback only; retired with v2 in stage 11)
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function mightBeMulti(text: string): boolean {
@@ -89,11 +113,8 @@ export function mightBeMulti(text: string): boolean {
   );
 }
 
-// Dedup tracking is now unified in the Zustand store (recentSpeech).
-// See useGremlyStore.pushRecentSpeech().
-
 // ──────────────────────────────────────────────────────────────────────────────
-// Temporal extraction (for Phase 1.5 background)
+// Temporal extraction (unused since the details call; kept for stage 11's audit)
 // ──────────────────────────────────────────────────────────────────────────────
 
 const TEMPORAL_PATTERN =
@@ -105,223 +126,321 @@ export function extractTemporal(text: string): string | null {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// API Call Helpers (NO internal timeouts — withTimeout applied by handlers)
-// ──────────────────────────────────────────────────────────────────────────────
-
-async function callPhase1_5a(
-  text: string,
-  bucket: MindDropBucket,
-  subtype: LogSubtype | null,
-): Promise<{
-  smart_title: string | null;
-  card_note: string | null;
-  confirmation_message: string | null;
-  speech_message: string | null;
-} | null> {
-  const cortexUrl = readCortexUrl();
-  if (!cortexUrl) return null;
-
-  try {
-    const sessionToken = await getSessionToken();
-    const res = await fetch(cortexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionToken}`,
-      },
-      body: JSON.stringify({
-        type: 'enrich-phase1-5a',
-        text,
-        bucket,
-        subtype,
-        recentReactions: [...useGremlyStore.getState().recentSpeech],
-      }),
-    });
-
-    if (!res.ok) {
-      console.log('[DropPhases] Phase 1.5a API error', { status: res.status });
-      return null;
-    }
-
-    const json = await res.json();
-    console.log('[card_note:1] Worker returned:', {
-      card_note: json.card_note,
-      speech_message: json.speech_message,
-    });
-    const result = {
-      smart_title: json.smart_title || null,
-      card_note: json.card_note || null,
-      confirmation_message: json.confirmation_message || null,
-      speech_message: json.speech_message || null,
-    };
-
-    console.log('[Phase1.5a] Raw reaction:', {
-      text: text.substring(0, 40),
-      confirmation_message: result.confirmation_message,
-    });
-
-    if (result.confirmation_message) {
-      useGremlyStore.getState().pushRecentSpeech(result.confirmation_message);
-    }
-
-    return result;
-  } catch (err) {
-    console.log('[DropPhases] Phase 1.5a error', { error: String(err) });
-    return null;
-  }
-}
-
-async function callPhase2(
-  text: string,
-  bucket: MindDropBucket,
-  subtype: LogSubtype | null,
-  prefillDate: string | null,
-): Promise<Phase2MetadataResult | null> {
-  const cortexUrl = readCortexUrl();
-  if (!cortexUrl) return null;
-
-  try {
-    const sessionToken = await getSessionToken();
-    const currentDate = dateService.today();
-    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      timeZone: getDateService().getTimezone(),
-    }).format(getDateService().dayNow());
-    const timezone = getDateService().getTimezone();
-
-    console.log('[PrefillDate:4-Phase2] Sending userSelectedDate:', prefillDate || null);
-    const res = await fetch(cortexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionToken}`,
-      },
-      body: JSON.stringify({
-        type: 'enrich-phase2',
-        text,
-        bucket,
-        subtype,
-        currentDate,
-        dayOfWeek,
-        timezone,
-        hasUserSelectedDate: !!prefillDate,
-        userSelectedDate: prefillDate || null,
-      }),
-    });
-
-    if (!res.ok) {
-      console.log('[DropPhases] Phase 2 API error', { status: res.status });
-      return null;
-    }
-
-    const json = await res.json();
-    if (!json || typeof json !== 'object') return null;
-
-    // Validate time_window and energy_type (same as dropProcessor)
-    const validTimeWindows = ['morning', 'day', 'evening'] as const;
-    const time_window = validTimeWindows.includes(json.time_window) ? json.time_window : null;
-
-    const validEnergyTypes = [
-      'deep_focus',
-      'administrative',
-      'physical',
-      'social',
-      'quick',
-    ] as const;
-    const energy_type = validEnergyTypes.includes(json.energy_type) ? json.energy_type : null;
-
-    return {
-      tags: Array.isArray(json.tags) ? json.tags : [],
-      time_estimate_minutes: json.time_estimate_minutes ?? null,
-      time_window,
-      extracted_date: json.extracted_date ?? null,
-      extracted_start_date: json.extracted_start_date ?? null,
-      extracted_frequency: json.extracted_frequency ?? null,
-      extracted_days: json.extracted_days ?? null,
-      people: Array.isArray(json.people) ? json.people : [],
-      mood: json.mood ?? null,
-      energy_type,
-      priority_kind: ['action', 'blocker', 'waiting', 'decision', 'momentum'].includes(
-        json.priority_kind,
-      )
-        ? json.priority_kind
-        : null,
-      target_date: json.target_date ?? null,
-      scheduled_date: json.scheduled_date ?? null,
-      event_time: json.event_time ?? null,
-      date_type_ambiguous: json.date_type_ambiguous ?? false,
-      end_date: json.end_date ?? null,
-      smart_title: json.smart_title ?? null,
-      dateConfidence: json.dateConfidence ?? null,
-    };
-  } catch (err) {
-    console.log('[DropPhases] Phase 2 error', { error: String(err) });
-    return null;
-  }
-}
-
-interface Phase2bResult {
-  auto_reminder: boolean;
-  reminder_date: string | null;
-  reminder_time: string | null;
-  reminder_frequency: 'once' | 'daily' | null;
-}
-
-async function callPhase2b(
-  text: string,
-  bucket: MindDropBucket,
-  subtype: string | null,
-): Promise<Phase2bResult | null> {
-  const cortexUrl = readCortexUrl();
-  if (!cortexUrl) return null;
-
-  try {
-    const sessionToken = await getSessionToken();
-    const currentDate = dateService.today();
-    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      timeZone: getDateService().getTimezone(),
-    }).format(getDateService().dayNow());
-    const timezone = getDateService().getTimezone();
-
-    const res = await fetch(cortexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionToken}`,
-      },
-      body: JSON.stringify({
-        type: 'enrich-phase2b',
-        text,
-        bucket,
-        subtype,
-        currentDate,
-        dayOfWeek,
-        timezone,
-      }),
-    });
-
-    if (!res.ok) return null;
-
-    const json = await res.json();
-    return {
-      auto_reminder: json.auto_reminder === true,
-      reminder_date: json.reminder_date ?? null,
-      reminder_time: json.reminder_time ?? null,
-      reminder_frequency: json.reminder_frequency ?? null,
-    };
-  } catch (err) {
-    console.warn('[DropPhases] Phase 2b error', { error: String(err) });
-    return null;
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Phase Handlers (exported)
+// Timings
 // ──────────────────────────────────────────────────────────────────────────────
 
 // App side budget for classify-v3 (worker worst case is 5s primary + 4s fallback).
 export const CLASSIFY_V3_TIMEOUT_MS = 10000;
+
+/**
+ * How long the pipeline waits (a plain object so a test can shorten them).
+ * wordsAfterSortMs: the title call's extra time once the drop is sorted.
+ * settleMs: from the sort to the settle, at most.
+ */
+export const DROP_WAITS = { wordsAfterSortMs: 1000, settleMs: 5000 };
+
+const now = () => getDateService().now().getTime();
+
+// ──────────────────────────────────────────────────────────────────────────────
+// In memory, by the drop's local id
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Drops this run of the app has taken from the tap; any other was picked up after a restart. */
+const queuedThisRun = new Set<string>();
+/**
+ * When this run of the app saved each drop, from the sort: the settle is five
+ * seconds after it. A drop picked up at 'saved' after a restart is not here.
+ */
+const sortStarted = new Map<string, number>();
+/** Late parts already waited on (words, relation, details, reminder), so a retry never waits twice. */
+const waiting = new Set<string>();
+/** The reaction goes to the bubble once per drop, and never after its card settles. */
+const reactionSent = new Set<string>();
+const settledIds = new Set<string>();
+
+function remember(set: Set<string>, key: string): void {
+  if (set.size >= 200) set.clear();
+  set.add(key);
+}
+
+/** Let go of everything kept for a drop (called once it is complete). Late parts still land. */
+export function forgetDropCalls(localId: string): void {
+  forgetDropWords(localId);
+  forgetDropDetails(localId);
+  forgetDropClarification(localId);
+  forgetDropRelation(localId);
+  queuedThisRun.delete(localId);
+  sortStarted.delete(localId);
+  for (const part of ['words', 'relation', 'details', 'reminder']) {
+    waiting.delete(`${localId}:${part}`);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+const BUCKETS = ['todo', 'habit', 'log'];
+
+function isClearSplit(drop: QueuedDrop): boolean {
+  return !!drop.isMulti && drop.split === 'clear' && (drop.multiSegments?.length ?? 0) > 1;
+}
+
+function isUnclear(drop: QueuedDrop): boolean {
+  return !drop.isMulti && !!drop.needsClarification;
+}
+
+/**
+ * What the drop is saved as: its kind; for an unsure split the classifier's
+ * kind for the drop as one, or a note when it gave none.
+ */
+export function saveKindOf(drop: QueuedDrop): DropKind {
+  if (drop.isMulti && drop.split !== 'clear') {
+    return drop.asOne ?? { bucket: 'log', subtype: 'general', habitSubtype: null };
+  }
+  const known = !!drop.bucket && BUCKETS.includes(drop.bucket);
+  if (!known) {
+    console.warn('[DropPhases] drop with no kind it can be saved as; saved as a note', {
+      localId: drop.localId,
+      bucket: drop.bucket ?? null,
+    });
+  }
+  const bucket = known ? drop.bucket! : 'log';
+  return {
+    bucket,
+    subtype: bucket === 'log' ? (drop.subtype ?? 'general') : null,
+    habitSubtype: bucket === 'habit' ? (drop.habitSubtype ?? 'start_habit') : null,
+  };
+}
+
+/** A piece as the queue keeps it; a piece that asks always has a question to show. */
+function toSegment(seg: any): MultiSegment {
+  const raw = BUCKETS.includes(seg?.bucket)
+    ? seg.bucket
+    : BUCKETS.includes(seg?.likely_bucket)
+      ? seg.likely_bucket
+      : 'log';
+  const asks = seg?.is_ambiguous === true;
+  const type = asks ? normalizeAmbiguityType(seg.ambiguity_type) : null;
+  const usable =
+    asks && hasUsableClarification(seg.clarification_question, seg.clarification_options);
+  const fixed = asks && !usable ? buildFallbackClarification(type) : null;
+  if (fixed) {
+    console.warn('[DropPhases] a piece that asks had no usable question; the fixed one is used', {
+      ambiguityType: type,
+    });
+  }
+  return {
+    text: String(seg?.text || ''),
+    bucket: raw,
+    subtype: raw === 'log' ? (seg.subtype ?? seg.likely_subtype ?? 'general') : null,
+    habitSubtype: raw === 'habit' ? (seg.habitSubtype ?? 'start_habit') : null,
+    needsClarification: asks,
+    ambiguityType: type,
+    clarificationQuestion: asks ? (usable ? seg.clarification_question : fixed!.question) : null,
+    clarificationOptions: asks ? (usable ? seg.clarification_options : fixed!.options) : null,
+  };
+}
+
+/** The question an unclear drop is saved with: the classifier's, or the fixed copy for its type. */
+function questionToSave(drop: QueuedDrop): Partial<QueuedDrop> {
+  if (hasUsableClarification(drop.clarificationQuestion, drop.clarificationOptions)) return {};
+  const fixed = buildFallbackClarification(drop.ambiguityType);
+  console.warn('[DropPhases] unclear drop with no usable question; the fixed one is saved', {
+    localId: drop.localId,
+    ambiguityType: fixed.ambiguityType,
+  });
+  return {
+    ambiguityType: fixed.ambiguityType,
+    clarificationQuestion: fixed.question,
+    clarificationOptions: fixed.options as QueuedDrop['clarificationOptions'],
+  };
+}
+
+/** The title call's answer as the drop keeps it; a call that failed leaves the drop's own words (logged). */
+function wordsOf(
+  drop: QueuedDrop,
+  words: DropWords | null,
+): { smartTitle: string; reaction: string | null } {
+  return {
+    smartTitle: words?.smartTitle || fallbackTitle(drop.text, 'enrich-phase1-5a'),
+    reaction: words?.reaction ?? null,
+  };
+}
+
+/** Gremly's reaction for the bubble, once per drop, when the kind and the words are both in. */
+function sendReaction(drop: QueuedDrop, reaction: string | null): void {
+  if (reactionSent.has(drop.localId)) return;
+  remember(reactionSent, drop.localId);
+  const followUp: 'multi' | 'clarify' | null = drop.isMulti
+    ? 'multi'
+    : drop.needsClarification
+      ? 'clarify'
+      : null;
+  const message = drop.isMulti ? null : reaction;
+  eventBus.emit('drop:reaction_ready', {
+    localId: drop.localId,
+    message,
+    rawReaction: message,
+    followUp,
+  });
+}
+
+/** The details as the drop keeps them (filing reads the tags, people and date). */
+function detailsOntoDrop(
+  enrichment: Phase2MetadataResult | null,
+  reminder: ReminderDetails | null,
+): Partial<QueuedDrop> {
+  const out: Partial<QueuedDrop> = {};
+  if (enrichment) {
+    Object.assign(out, {
+      tags: enrichment.tags || [],
+      timeEstimateMinutes: enrichment.time_estimate_minutes || null,
+      timeWindow: enrichment.time_window || null,
+      energyType: enrichment.energy_type || null,
+      priorityKind: enrichment.priority_kind ?? null,
+      extractedDate: enrichment.extracted_date || null,
+      extractedStartDate: enrichment.extracted_start_date || null,
+      extractedFrequency: enrichment.extracted_frequency || null,
+      extractedDays: enrichment.extracted_days || null,
+      people: enrichment.people || [],
+      mood: enrichment.mood || null,
+      targetDate: enrichment.target_date || null,
+      scheduledDate: enrichment.scheduled_date || null,
+      eventTime: enrichment.event_time || null,
+      dateTypeAmbiguous: enrichment.date_type_ambiguous || false,
+      endDate: enrichment.end_date || null,
+    });
+  }
+  if (reminder) {
+    Object.assign(out, {
+      autoReminder: reminder.auto_reminder || false,
+      reminderDate: reminder.reminder_date || null,
+      reminderTime: reminder.reminder_time || null,
+      reminderFrequency: reminder.reminder_frequency || null,
+    });
+  }
+  return out;
+}
+
+/** An older build's details, as it kept them on the drop. */
+function enrichmentFromDrop(drop: QueuedDrop): Phase2MetadataResult | null {
+  if (!drop.tags) return null;
+  return {
+    tags: drop.tags || [],
+    time_estimate_minutes: drop.timeEstimateMinutes || null,
+    time_window: drop.timeWindow || null,
+    extracted_date: drop.extractedDate || null,
+    extracted_start_date: drop.extractedStartDate || null,
+    extracted_frequency: drop.extractedFrequency || null,
+    extracted_days: drop.extractedDays || null,
+    people: drop.people || [],
+    mood: drop.mood || null,
+    energy_type: (drop.energyType || null) as Phase2MetadataResult['energy_type'],
+    priority_kind: drop.priorityKind ?? null,
+    target_date: drop.targetDate || null,
+    scheduled_date: drop.scheduledDate || null,
+    event_time: drop.eventTime || null,
+    date_type_ambiguous: drop.dateTypeAmbiguous || false,
+    end_date: drop.endDate || null,
+    smart_title: null,
+    dateConfidence: null,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Parts that land after the save
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** The title and reaction, when the title call answers after the save. */
+function whenWordsLand(drop: QueuedDrop, saved: SavedDropRow, wordsTitle: string): void {
+  const key = `${drop.localId}:words`;
+  if (waiting.has(key)) return;
+  remember(waiting, key);
+  void dropWordsFor(drop).promise.then(async (words) => {
+    try {
+      if (!words?.smartTitle) fallbackTitle(drop.text, 'enrich-phase1-5a');
+      // the bubble speaks up to the settle; after it, Gremly lets the drop go
+      if (!settledIds.has(drop.localId)) sendReaction(drop, words?.reaction ?? null);
+      else
+        console.log('[DropPhases] reaction came after the settle; not shown', {
+          localId: drop.localId,
+        });
+      await updateDropWords(saved, words, wordsTitle);
+    } catch (err) {
+      console.warn('[DropPhases] the late title could not be saved', {
+        localId: drop.localId,
+        error: String(err),
+      });
+    }
+  });
+}
+
+/** The already have it answer, whenever it lands (for the card before the settle, Sweep after). */
+function whenRelationLands(drop: QueuedDrop, saved: SavedDropRow, kind: DropKind): void {
+  const key = `${drop.localId}:relation`;
+  if (waiting.has(key)) return;
+  remember(waiting, key);
+  void dropRelationFor(drop).promise.then(async (relation) => {
+    if (!relation) return;
+    try {
+      const surface = await attachDropRelation(saved, heldRelationFor(drop, relation, kind));
+      console.log('[DropPhases] Drop relates to an existing item', {
+        localId: drop.localId,
+        kind: relation.kind,
+        intent: relation.intent,
+        surface,
+      });
+    } catch (err) {
+      console.warn('[DropPhases] the already have it answer could not be saved', {
+        localId: drop.localId,
+        error: String(err),
+      });
+    }
+  });
+}
+
+/** Details that come after the settle are written when they land. */
+function whenDetailsLand(
+  drop: QueuedDrop,
+  saved: SavedDropRow,
+  kind: DropKind,
+  call: StartedCall<Phase2MetadataResult>,
+): void {
+  const key = `${drop.localId}:details`;
+  if (waiting.has(key)) return;
+  remember(waiting, key);
+  void call.promise.then(async (enrichment) => {
+    if (!enrichment) return;
+    console.log('[DropPhases] details came after the settle', { localId: drop.localId });
+    try {
+      await updateDropDetails(saved, drop, enrichment, {
+        settle: false,
+        kind,
+        base: drop.savedBase ?? null,
+      });
+    } catch (err) {
+      console.warn('[DropPhases] the late details could not be saved', {
+        localId: drop.localId,
+        error: String(err),
+      });
+    }
+  });
+}
+
+/** The reminder a drop asked for, saved whenever its call lands. */
+function whenReminderLands(drop: QueuedDrop, saved: SavedDropRow, kind: DropKind): void {
+  const call = startDropReminder(drop, kind);
+  if (!call) return;
+  const key = `${drop.localId}:reminder`;
+  if (waiting.has(key)) return;
+  remember(waiting, key);
+  void call.promise.then((reminder) => scheduleDropReminder(saved, reminder));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// queued: the tap
+// ──────────────────────────────────────────────────────────────────────────────
 
 async function classifyV2(drop: QueuedDrop) {
   const shouldCheckMulti = mightBeMulti(drop.text);
@@ -338,16 +457,21 @@ async function classifyV2(drop: QueuedDrop) {
 }
 
 export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
+  remember(queuedThisRun, drop.localId);
+  // When this run first took it up (an offline drop waits in the queue first)
+  const startedAt = drop.startedAt ?? now();
+
+  // The title and reaction call, and the already have it check, only need the
+  // words: both start now, beside the classifier
+  const words = startDropWords(drop);
+  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) startDropRelation(drop);
+
   let multiResult: any = { is_multi: false };
   let phase1Result: any = null;
   let engine: 'v2' | 'v3' = 'v2';
 
-  // "Is this one you already have?" only needs the words: start it now, beside
-  // classification, so it is back before the drop needs it (relationActions.ts)
-  if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) startDropRelation(drop);
-
-  // v3: one call for classification + multi + clarification. Any failure
-  // (null) drops through to the v2 path below for this drop.
+  // v3: one call for the kind, the split and any question. Any failure (null)
+  // drops through to the v2 path below for this drop.
   if (FEATURE_FLAGS.CLASSIFY_V3_ENABLED) {
     const v3 = await withTimeout(
       runClassifyV3(
@@ -373,402 +497,369 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
     throw new Error('Classification timeout');
   }
 
-  console.log('[DropPhases] handleQueued complete', {
+  console.log('[DropPhases] sorted', {
     localId: drop.localId,
     engine,
-    isMulti: (multiResult as any).is_multi,
+    isMulti: multiResult.is_multi,
+    split: multiResult.split ?? null,
     bucket: phase1Result.bucket,
     source: phase1Result.source,
   });
 
-  // Multi path
-  if ((multiResult as any).is_multi && (multiResult as any).segments?.length > 1) {
-    forgetDropRelation(drop.localId);
-    // Emit multi follow-up for speech bubble (no AI reaction for multi parent)
-    console.log('[SpeechBubble] Emitting drop:reaction_ready for multi', { localId: drop.localId });
-    eventBus.emit('drop:reaction_ready', {
-      localId: drop.localId,
-      message: null,
-      rawReaction: null,
-      followUp: 'multi',
-    });
+  const base: QueuedDrop = {
+    ...drop,
+    phase: 'sorted',
+    startedAt,
+    sortedAt: now(),
+    classifyEngine: engine,
+    // the classifier heard a remind me: the reminder call runs with the details
+    reminderIntent: phase1Result.reminder_intent === true,
+    retryCount: 0,
+    lastError: null,
+  };
 
-    return {
-      ...drop,
-      phase: 'multi_detected',
-      classifyEngine: engine,
+  // Several things in one drop: a clear split is saved as its pieces, an
+  // unsure one as one item that asks
+  if (multiResult.is_multi && multiResult.segments?.length > 1) {
+    forgetDropRelation(drop.localId);
+    const split: 'clear' | 'unsure' = multiResult.split === 'clear' ? 'clear' : 'unsure';
+    const asOne = multiResult.as_one ?? null;
+    if (split === 'unsure' && !asOne) {
+      console.warn('[DropPhases] unsure split with no kind for the drop as one; saved as a note', {
+        localId: drop.localId,
+        engine,
+      });
+    }
+    const sorted: QueuedDrop = {
+      ...base,
       isMulti: true,
-      multiSegments: (multiResult as any).segments,
-      multiSummary: (multiResult as any).summary || drop.text.substring(0, 60),
-      dominantBucket: (multiResult as any).dominant_bucket || 'log',
-      dominantSubtype: (multiResult as any).dominant_subtype || null,
+      split,
+      asOne,
+      multiSegments: multiResult.segments.map(toSegment),
+      multiSummary: multiResult.summary || drop.text.substring(0, 60),
+      dominantBucket: multiResult.dominant_bucket || 'log',
+      dominantSubtype: multiResult.dominant_subtype || null,
       bucket: phase1Result.bucket,
       subtype: phase1Result.subtype,
-      retryCount: 0,
-      lastError: null,
+      ...(words.done ? { smartTitle: wordsOf(drop, words.value).smartTitle } : {}),
     };
+    // The bubble's split line, with no reaction, as before (stage 7 changes it)
+    sendReaction(sorted, null);
+    return sorted;
   }
 
-  // Single path — store ambiguity_type for handleClassified to use
-  const resultDrop: QueuedDrop = {
-    ...drop,
-    phase: 'classified',
-    classifyEngine: engine,
+  const sorted: QueuedDrop = {
+    ...base,
     bucket: phase1Result.bucket,
     subtype: phase1Result.subtype,
     habitSubtype: phase1Result.habitSubtype,
     confidence: phase1Result.confidence,
-    classificationSource: (phase1Result as any).classificationSource || phase1Result.source,
-    classificationDegraded: (phase1Result as any).classificationDegraded || false,
-    needsClarification: (phase1Result as any).is_ambiguous || false,
-    ambiguityReason: (phase1Result as any).ambiguity_reason || null,
-    plausibleInterpretations: (phase1Result as any).plausible_interpretations || null,
-    retryCount: 0,
-    lastError: null,
+    classificationSource: phase1Result.classificationSource || phase1Result.source,
+    classificationDegraded: phase1Result.classificationDegraded || false,
+    needsClarification: phase1Result.is_ambiguous || false,
+    ambiguityReason: phase1Result.ambiguity_reason || null,
+    plausibleInterpretations: phase1Result.plausible_interpretations || null,
   };
 
-  // Stash ambiguity_type so handleClassified can fetch Phase 1.5.
-  // A drop flagged ambiguous WITHOUT a type used to skip clarification
-  // entirely (the card then sat on "Thinking..." forever). Default to
-  // 'bucket', the generic "what did you have in mind" question.
-  if (resultDrop.needsClarification) {
-    resultDrop.ambiguityType = normalizeAmbiguityType((phase1Result as any).ambiguity_type);
+  // A drop flagged unclear without a type gets the generic question type
+  // ('bucket'), so it is never left without a question.
+  if (sorted.needsClarification) {
+    sorted.ambiguityType = normalizeAmbiguityType(phase1Result.ambiguity_type);
   }
 
-  // classify-v3 returns the clarification in the same response.
-  const inlineQuestion = (phase1Result as any).clarification_question;
-  const inlineOptions = (phase1Result as any).clarification_options;
-  if (resultDrop.needsClarification && hasUsableClarification(inlineQuestion, inlineOptions)) {
-    resultDrop.clarificationQuestion = inlineQuestion;
-    resultDrop.clarificationOptions = inlineOptions;
+  // classify-v3 gives the classifier's own question in the same reply; the
+  // writer's words follow from the sort (clarify-ambiguity)
+  const inlineQuestion = phase1Result.clarification_question;
+  const inlineOptions = phase1Result.clarification_options;
+  if (sorted.needsClarification && hasUsableClarification(inlineQuestion, inlineOptions)) {
+    sorted.clarificationQuestion = inlineQuestion;
+    sorted.clarificationOptions = inlineOptions;
   }
 
-  return resultDrop;
+  // The title call is often back by now: the card sorts with its title
+  if (words.done) {
+    const { smartTitle, reaction } = wordsOf(drop, words.value);
+    sorted.smartTitle = smartTitle;
+    sorted.confirmationMessage = reaction;
+    sendReaction(sorted, reaction);
+  }
+
+  return sorted;
 }
 
-export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
-  // Phase 1.5 clarification runs IN the pipeline, in parallel with Phase 1.5a,
-  // so the question and options are on the drop before it syncs. It never
-  // rejects and always resolves to usable options (worker or fixed fallback),
-  // so an ambiguous card can no longer be left without a question.
-  const needsClarificationFetch =
-    !!drop.needsClarification &&
-    !hasUsableClarification(drop.clarificationQuestion, drop.clarificationOptions);
+// ──────────────────────────────────────────────────────────────────────────────
+// sorted: start the details, and save the drop as its kind
+// ──────────────────────────────────────────────────────────────────────────────
 
-  // Start clarification first so it overlaps with Phase 1.5a...
-  const clarificationPromise = needsClarificationFetch
-    ? fetchClarification({
-        text: drop.text,
-        ambiguityType: drop.ambiguityType,
-        ambiguityReason: drop.ambiguityReason,
-        bucket: drop.bucket as 'todo' | 'habit' | 'log' | undefined,
-        timeoutMs: CLARIFY_TIMEOUT_MS,
-      })
-    : Promise.resolve(null);
-
-  // Is this drop about something they already have? Runs alongside, never
-  // rejects, and null (off, slow, unsure) files the drop exactly as before.
-  const relates = shouldRelate(drop);
-  if (!relates) forgetDropRelation(drop.localId);
-  const relationPromise = relates ? takeDropRelation(drop) : Promise.resolve(null);
-
-  // Phase 1.5a: get title + confirmation (soft timeout, fallback to raw text)
-  const result = await withTimeout(
-    callPhase1_5a(drop.text, drop.bucket!, drop.subtype || null),
-    6000,
-    null,
-  );
-
-  const smartTitle = result?.smart_title || drop.text.substring(0, 50);
-  const cardNote = result?.card_note || null;
-  const confirmationMessage = result?.confirmation_message || null;
-  const speechMessage = result?.speech_message || result?.confirmation_message || null;
-  const rawReaction = result?.confirmation_message || null;
-
-  // Determine follow-up signal for speech bubble
-  const followUpSignal: 'multi' | 'clarify' | null = drop.needsClarification ? 'clarify' : null;
-
-  // ...but emit the speech bubble reaction as soon as 1.5a is back, without
-  // waiting for the clarification call.
-  eventBus.emit('drop:reaction_ready', {
-    localId: drop.localId,
-    message: speechMessage,
-    rawReaction: rawReaction,
-    followUp: followUpSignal,
-  });
-
-  const clarification = await clarificationPromise;
-  if (clarification) {
-    console.log('[DropPhases] Phase 1.5 clarification ready', {
-      localId: drop.localId,
-      source: clarification.source,
-      ambiguityType: clarification.ambiguityType,
-      optionsCount: clarification.options.length,
-    });
-    drop = {
-      ...drop,
-      ambiguityType: clarification.ambiguityType,
-      clarificationQuestion: clarification.question,
-      clarificationOptions: clarification.options,
-    };
+export async function handleSorted(drop: QueuedDrop): Promise<QueuedDrop> {
+  if (!sortStarted.has(drop.localId)) {
+    if (sortStarted.size >= 200) sortStarted.clear();
+    sortStarted.set(drop.localId, now());
   }
+  const sortedAt = drop.sortedAt ?? now();
+  // sorted before a restart (or by an older build): its timings are not like for like
+  const resumed = !queuedThisRun.has(drop.localId) || undefined;
 
-  // A drop about one of their items waits as a note carrying the question,
-  // so nothing new appears in their lists before they answer.
-  const relation = await relationPromise;
-  if (relation) {
-    console.log('[DropPhases] Drop relates to an existing item', {
+  // A clear split is saved as its pieces, each settled as it is (stage 7 gives
+  // each piece its own title and details)
+  if (isClearSplit(drop)) {
+    const pieceRows = await insertSplitPieces(drop);
+    console.log('[DropPhases] saved as its pieces', {
       localId: drop.localId,
-      kind: relation.kind,
-      intent: relation.intent,
-    });
-    drop = holdDropForRelation(drop, relation);
-  }
-
-  console.log('[DropPhases] handleClassified complete', {
-    localId: drop.localId,
-    hasTitle: !!result?.smart_title,
-    hasMessage: !!confirmationMessage,
-  });
-
-  console.log('[card_note:2] Stored on drop:', {
-    cardNote: cardNote,
-    localId: drop.localId,
-  });
-
-  return {
-    ...drop,
-    phase: 'titled',
-    smartTitle,
-    cardNote: cardNote ?? undefined,
-    confirmationMessage: confirmationMessage ?? undefined,
-    followUpSignal: followUpSignal ?? undefined,
-    retryCount: 0,
-    lastError: null,
-  };
-}
-
-export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop> {
-  const segments = drop.multiSegments || [];
-
-  // Run Phase 1 + Phase 1.5a on each segment for accurate classification and titles
-  // This matches the old dropProcessor behavior — classify segments but do NOT create child drops
-  const classifiedSegments = await Promise.all(
-    segments.map(async (seg: any) => {
-      let phase1;
-      let phase15a: {
-        smart_title: string | null;
-        card_note: string | null;
-        confirmation_message: string | null;
-        speech_message: string | null;
-      } | null = null;
-
-      try {
-        // classify-v3 already classified each segment in the same call;
-        // only v2 segments need their own Phase 1 round trip.
-        const v3Classified =
-          drop.classifyEngine === 'v3' && ['todo', 'habit', 'log'].includes(seg.bucket);
-        phase1 = v3Classified
-          ? {
-              bucket: seg.bucket,
-              subtype: seg.subtype ?? null,
-              habitSubtype: seg.habitSubtype ?? null,
-              confidence: 0.85,
-              source: 'api',
-              is_multi: false,
-            }
-          : await withTimeout(runPhase1(seg.text, { hasAttachments: false }), 8000, {
-              bucket: seg.likely_bucket || seg.bucket || 'log',
-              subtype: seg.likely_subtype || seg.subtype || null,
-              habitSubtype: null,
-              confidence: 0.5,
-              source: 'phase1-fallback',
-              is_multi: false,
-            });
-
-        phase15a = await withTimeout(
-          callPhase1_5a(seg.text, phase1.bucket, phase1.subtype || null),
-          6000,
-          null,
-        );
-      } catch (err) {
-        console.warn('[DropPhases] Multi segment classification failed', {
-          text: seg.text?.substring(0, 30),
-          error: String(err),
-        });
-        phase1 = {
-          bucket: seg.likely_bucket || seg.bucket || 'log',
-          subtype: seg.likely_subtype || seg.subtype || null,
-          habitSubtype: null,
-        };
-      }
-
-      const smartTitle = phase15a?.smart_title || null;
-      const confirmationMessage = phase15a?.confirmation_message || null;
-
-      return {
-        text: seg.text,
-        bucket: phase1.bucket,
-        subtype: phase1.subtype || null,
-        habitSubtype: phase1.habitSubtype || null,
-        smart_title: smartTitle,
-        confirmation_message: confirmationMessage,
-      };
-    }),
-  );
-
-  console.log('[DropPhases] handleMultiDetected: segments classified', {
-    localId: drop.localId,
-    segmentCount: classifiedSegments.length,
-    segments: classifiedSegments.map((s: any) => ({
-      text: s.text?.substring(0, 20),
-      bucket: s.bucket,
-      smart_title: s.smart_title,
-    })),
-  });
-
-  // Advance directly to enriched — skip titled phase (multi drops don't need their own title)
-  // handleEnriched will call syncMultiDropToSupabase which creates ONE note with multi_items
-  return {
-    ...drop,
-    phase: 'enriched',
-    multiSegments: classifiedSegments as any,
-    retryCount: 0,
-    lastError: null,
-  };
-}
-
-export async function handleTitled(drop: QueuedDrop): Promise<QueuedDrop> {
-  // Skip Phase 2 for ambiguous items — will run after user clarifies
-  if (drop.needsClarification) {
-    console.log('[DropPhases] handleTitled: skipping Phase 2 for ambiguous item', {
-      localId: drop.localId,
+      pieces: pieceRows.length,
     });
     return {
       ...drop,
-      phase: 'enriched',
+      phase: 'saved',
+      sortedAt,
+      savedAt: now(),
+      pieceRows,
+      resumed: drop.resumed || resumed,
       retryCount: 0,
       lastError: null,
     };
   }
 
-  // Phase 2 + Phase 2b in parallel (2b only if reminder intent detected)
-  const reminderIntent = (drop as any).reminderIntent === true;
+  const kind = saveKindOf(drop);
+  const unclear = isUnclear(drop);
 
-  console.log('[PrefillDate:3-Phases] Calling Phase 2 with prefillDate:', drop.prefillDate || null);
-  const [enrichment, phase2b] = await Promise.all([
-    withTimeout(
-      callPhase2(drop.text, drop.bucket!, drop.subtype || null, drop.prefillDate || null),
-      12000,
-      null, // timeout → no metadata (soft failure, still advances)
-    ),
-    reminderIntent
-      ? withTimeout(callPhase2b(drop.text, drop.bucket!, drop.subtype || null), 8000, null)
-      : Promise.resolve(null),
-  ]);
+  // The details (and any reminder) start with the kind; an unclear drop has
+  // none until it is answered, and asks the writer for its question's words
+  if (unclear) startDropClarification({ ...drop, bucket: kind.bucket });
+  else {
+    startDropDetails(drop, kind);
+    startDropReminder(drop, kind);
+  }
 
-  console.log('[DropPhases] handleTitled complete', {
+  // The title call gets at most a second more
+  let smartTitle = drop.smartTitle ?? null;
+  let reaction = drop.confirmationMessage ?? null;
+  let wordsPending = false;
+  if (!smartTitle) {
+    const words = await within(dropWordsFor(drop), DROP_WAITS.wordsAfterSortMs);
+    if (words === undefined) wordsPending = true;
+    else ({ smartTitle, reaction } = wordsOf(drop, words));
+  }
+  const title = smartTitle ?? wordsAsTitle(drop.text);
+  if (!wordsPending) sendReaction(drop, reaction);
+
+  // The already have it answer, if it is in by now; otherwise it attaches when it lands.
+  // A drop an older build held as a note keeps the answer it had.
+  let relation: Omit<HeldRelation, 'surface'> | null = null;
+  let relationPending = false;
+  if (drop.relation) {
+    forgetDropRelation(drop.localId);
+  } else if (shouldRelate(drop)) {
+    const call = dropRelationFor(drop);
+    if (call.done) relation = call.value ? heldRelationFor(drop, call.value, kind) : null;
+    else relationPending = true;
+  } else {
+    forgetDropRelation(drop.localId);
+  }
+
+  const toSave: QueuedDrop = {
+    ...drop,
+    ...(unclear ? questionToSave(drop) : {}),
+    smartTitle: title,
+    confirmationMessage: reaction,
+  };
+  const extraViews: Record<string, unknown> = {};
+  if (drop.relation) extraViews.relation = drop.relation;
+  else if (relation) extraViews.relation = { ...relation, surface: 'card' };
+  // An unsure split is one item that asks whether to split (stage 7 draws the strip)
+  if (drop.isMulti) {
+    extraViews.split = { status: 'pending', pieces: splitPiecesView(drop.multiSegments || []) };
+  }
+
+  const result = await syncDropToSupabase(toSave, null, {
+    stage: 'saved',
+    title,
+    kind,
+    extraViews,
+  });
+  if (!result.success || !result.supabaseId || !result.entityType) {
+    // the runner tries again; the insert is safe to repeat by drop id
+    throw new Error(result.error?.message || 'Supabase sync failed');
+  }
+  const saved: SavedDropRow = { entityType: result.entityType, id: result.supabaseId };
+
+  // An earlier try had saved it, before this one had the title or the answer:
+  // they go on the row as late parts would
+  if (result.duplicate) {
+    console.warn('[DropPhases] the drop was already saved by an earlier try', {
+      localId: drop.localId,
+    });
+    if (!wordsPending && smartTitle) {
+      await updateDropWords(saved, { smartTitle, reaction }, wordsAsTitle(drop.text));
+    }
+    if (relation) await attachDropRelation(saved, relation);
+  }
+
+  if (wordsPending) whenWordsLand(drop, saved, title);
+  if (relationPending) whenRelationLands(drop, saved, kind);
+  if (!unclear) whenReminderLands(drop, saved, kind);
+
+  console.log('[DropPhases] saved', {
     localId: drop.localId,
-    hasEnrichment: !!enrichment,
-    hasReminder: !!phase2b?.auto_reminder,
+    supabaseId: saved.id,
+    entityType: saved.entityType,
+    wordsPending,
+    relationPending,
+    relation: !!relation,
   });
 
   return {
-    ...drop,
-    phase: 'enriched',
-    tags: enrichment?.tags || [],
-    timeEstimateMinutes: enrichment?.time_estimate_minutes || null,
-    timeWindow: enrichment?.time_window || null,
-    energyType: enrichment?.energy_type || null,
-    priorityKind: enrichment?.priority_kind ?? null,
-    extractedDate: enrichment?.extracted_date || null,
-    extractedStartDate: enrichment?.extracted_start_date || null,
-    extractedFrequency: enrichment?.extracted_frequency || null,
-    extractedDays: enrichment?.extracted_days || null,
-    people: enrichment?.people || [],
-    mood: enrichment?.mood || null,
-    targetDate: enrichment?.target_date || null,
-    scheduledDate: enrichment?.scheduled_date || null,
-    eventTime: enrichment?.event_time || null,
-    dateTypeAmbiguous: enrichment?.date_type_ambiguous || false,
-    endDate: enrichment?.end_date || null,
-    autoReminder: phase2b?.auto_reminder || false,
-    reminderDate: phase2b?.reminder_date || null,
-    reminderTime: phase2b?.reminder_time || null,
-    reminderFrequency: phase2b?.reminder_frequency || null,
+    ...toSave,
+    phase: 'saved',
+    bucket: kind.bucket,
+    subtype: kind.subtype,
+    habitSubtype: kind.habitSubtype,
+    sortedAt,
+    savedAt: now(),
+    supabaseId: saved.id,
+    entityType: saved.entityType,
+    savedBase: detailBaseOf(saved.entityType, result.row),
+    wordsPending,
+    relationPending,
+    resumed: drop.resumed || resumed,
     retryCount: 0,
     lastError: null,
   };
 }
 
-export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
-  // Build enrichment result from drop fields (for syncDropToSupabase compatibility)
-  const enrichment: Phase2MetadataResult | null = drop.tags
-    ? {
-        tags: drop.tags || [],
-        time_estimate_minutes: drop.timeEstimateMinutes || null,
-        time_window: drop.timeWindow || null,
-        extracted_date: drop.extractedDate || null,
-        extracted_start_date: drop.extractedStartDate || null,
-        extracted_frequency: drop.extractedFrequency || null,
-        extracted_days: drop.extractedDays || null,
-        people: drop.people || [],
-        mood: drop.mood || null,
-        energy_type: (drop.energyType || null) as Phase2MetadataResult['energy_type'],
-        priority_kind: drop.priorityKind ?? null,
-        target_date: drop.targetDate || null,
-        scheduled_date: drop.scheduledDate || null,
-        event_time: drop.eventTime || null,
-        date_type_ambiguous: drop.dateTypeAmbiguous || false,
-        end_date: drop.endDate || null,
-        smart_title: null,
-        dateConfidence: null,
-      }
-    : null;
+// ──────────────────────────────────────────────────────────────────────────────
+// saved: wait for the details, write them, and settle
+// ──────────────────────────────────────────────────────────────────────────────
 
-  // Read latest clarification data from queue — Phase 1.5 background
-  // may have populated these after the pipeline's QueuedDrop was saved
-  if (drop.needsClarification && !drop.isMulti) {
-    const queue = await getQueue();
-    const latest = queue.find((d) => d.localId === drop.localId);
-    if (latest?.clarificationQuestion) {
-      drop = {
-        ...drop,
-        clarificationQuestion: latest.clarificationQuestion,
-        clarificationOptions: latest.clarificationOptions as any,
-      };
-    }
-  }
-
-  let syncResult;
-
-  if (drop.isMulti) {
-    // Multi-entity parent — sync as wrapper note
-    syncResult = await syncMultiDropToSupabase(drop);
-  } else {
-    // Single drop — sync as todo/habit/note
-    syncResult = await syncDropToSupabase(drop, enrichment);
-  }
-
-  if (!syncResult.success) {
-    // Hard failure — throw so pipeline runner retries this phase
-    throw new Error(syncResult.error?.message || 'Supabase sync failed');
-  }
-
-  console.log('[DropPhases] handleEnriched: synced', {
-    localId: drop.localId,
-    supabaseId: syncResult.supabaseId,
-    entityType: syncResult.entityType,
-  });
-
+function settled(drop: QueuedDrop, extra: Partial<QueuedDrop>): QueuedDrop {
+  remember(settledIds, drop.localId);
   return {
     ...drop,
+    ...extra,
     phase: 'complete',
-    supabaseId: syncResult.supabaseId,
-    entityType: syncResult.entityType,
+    settledAt: now(),
     retryCount: 0,
     lastError: null,
   };
+}
+
+/**
+ * A drop with no row yet at 'saved': an older build's drop (from 'enriched',
+ * with its details already on it), or one whose save never landed. Saved as
+ * its kind, settled, safe to repeat by drop id.
+ */
+async function saveOlderDrop(drop: QueuedDrop): Promise<QueuedDrop> {
+  const kind = saveKindOf(drop);
+  const enrichment = enrichmentFromDrop(drop);
+  const extraViews: Record<string, unknown> = {};
+  // a drop an older build held as a note while it asked "already have it"
+  if (drop.relation) extraViews.relation = drop.relation;
+  if (drop.isMulti && !isClearSplit(drop)) {
+    extraViews.split = { status: 'pending', pieces: splitPiecesView(drop.multiSegments || []) };
+  }
+  const result = await syncDropToSupabase(
+    { ...drop, ...(isUnclear(drop) ? questionToSave(drop) : {}) },
+    enrichment,
+    { stage: 'settled', kind, extraViews },
+  );
+  if (!result.success || !result.supabaseId || !result.entityType) {
+    throw new Error(result.error?.message || 'Supabase sync failed');
+  }
+  const saved: SavedDropRow = { entityType: result.entityType, id: result.supabaseId };
+  if (drop.autoReminder) {
+    void scheduleDropReminder(saved, {
+      auto_reminder: true,
+      reminder_date: drop.reminderDate ?? null,
+      reminder_time: drop.reminderTime ?? null,
+      reminder_frequency: drop.reminderFrequency ?? null,
+    });
+  }
+  console.log('[DropPhases] saved a drop left by an older build', {
+    localId: drop.localId,
+    supabaseId: saved.id,
+  });
+  return settled(
+    {
+      ...drop,
+      bucket: kind.bucket,
+      subtype: kind.subtype,
+      habitSubtype: kind.habitSubtype,
+      supabaseId: saved.id,
+      entityType: saved.entityType,
+      savedAt: now(),
+    },
+    { detailsIn: enrichment ? 'in_time' : 'none', resumed: true },
+  );
+}
+
+export async function handleSaved(drop: QueuedDrop): Promise<QueuedDrop> {
+  // A clear split's pieces are saved and settled
+  if (drop.pieceRows?.length) return settled(drop, { detailsIn: 'not_asked' });
+
+  if (!drop.supabaseId || !drop.entityType) return saveOlderDrop(drop);
+
+  const saved: SavedDropRow = { entityType: drop.entityType, id: drop.supabaseId };
+  const kind = saveKindOf(drop);
+
+  // Picked up after an app restart: the late parts are asked for again, and
+  // Gremly says nothing about a drop from before
+  const started = sortStarted.get(drop.localId);
+  const resumed = started === undefined;
+  if (resumed) {
+    remember(reactionSent, drop.localId);
+    if (drop.wordsPending) whenWordsLand(drop, saved, drop.smartTitle || wordsAsTitle(drop.text));
+    if (drop.relationPending && shouldRelate(drop)) whenRelationLands(drop, saved, kind);
+    if (!isUnclear(drop)) whenReminderLands(drop, saved, kind);
+  }
+
+  // Five seconds from when this run sorted it (a fresh five after a restart)
+  const deadline = (started ?? now()) + DROP_WAITS.settleMs;
+  const timeLeft = () => Math.max(0, deadline - now());
+
+  // An unclear drop settles with the writer's words when they are in time;
+  // otherwise the classifier's question stays (a question never arrives later)
+  if (isUnclear(drop)) {
+    const call = startDropClarification({ ...drop, bucket: kind.bucket });
+    const words = await within(call, timeLeft());
+    if (words === undefined) {
+      await settleDropRow(saved);
+      void call.promise.then(() =>
+        console.log("[DropPhases] question words came after the settle; the classifier's stay", {
+          localId: drop.localId,
+        }),
+      );
+    } else {
+      await updateDropQuestion(
+        saved,
+        words?.writerWords ? { question: words.question, options: words.options } : null,
+        { settle: true },
+      );
+    }
+    return settled(drop, { detailsIn: 'not_asked', resumed: drop.resumed || resumed || undefined });
+  }
+
+  const call = startDropDetails(drop, kind);
+  const enrichment = await within(call, timeLeft());
+  if (enrichment === undefined) {
+    // settles without its details; they are written when they land
+    await settleDropRow(saved);
+    whenDetailsLand(drop, saved, kind, call);
+    return settled(drop, {
+      detailsIn: 'after_settle',
+      resumed: drop.resumed || resumed || undefined,
+    });
+  }
+
+  await updateDropDetails(saved, drop, enrichment, {
+    settle: true,
+    kind,
+    base: drop.savedBase ?? null,
+  });
+  return settled(drop, {
+    ...detailsOntoDrop(enrichment, null),
+    detailsIn: enrichment ? 'in_time' : 'none',
+    resumed: drop.resumed || resumed || undefined,
+  });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -776,30 +867,20 @@ export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Get the handler function for a given phase.
- * Returns null for terminal phases (complete, failed) and multi_awaiting
- * when children aren't done yet.
+ * The handler for a phase, or null for the terminal ones (complete, failed).
+ * An older build's phase runs the handler it moves to (migrateDropPhases moves
+ * them all at start; this covers one that slips past).
  */
 export function getPhaseHandler(
   phase: DropPhase,
 ): ((drop: QueuedDrop) => Promise<QueuedDrop>) | null {
-  switch (phase) {
+  switch (LEGACY_PHASES[phase] ?? phase) {
     case 'queued':
       return handleQueued;
-    case 'classified':
-      return handleClassified;
-    case 'multi_detected':
-      return handleMultiDetected;
-    case 'multi_awaiting':
-      return null; // Legacy — no longer used
-    case 'titled':
-      return handleTitled;
-    case 'enriched':
-      return handleEnriched;
-    case 'complete':
-      return null; // terminal
-    case 'failed':
-      return null; // terminal
+    case 'sorted':
+      return handleSorted;
+    case 'saved':
+      return handleSaved;
     default:
       return null;
   }

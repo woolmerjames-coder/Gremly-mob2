@@ -2,7 +2,13 @@
  * titles.js: Mind Drop's titles in the Worker and the two logged backstops on
  * Gremly's reaction. Formatting only: none of them reads what the words say.
  */
-import { dashBackstop, fallbackTitle, lengthBackstop, sentenceCase } from '../titles.js';
+import {
+  dashBackstop,
+  fallbackTitle,
+  lengthBackstop,
+  sentenceCase,
+  wordsAsTitle,
+} from '../titles.js';
 
 let warn;
 beforeEach(() => {
@@ -83,5 +89,20 @@ describe('the reaction backstops', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(lengthBackstop('short', 70, 'r')).toBe('short');
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('wordsAsTitle (the app, stage 4)', () => {
+  it('cuts at a whole word near 60 characters, in sentence case, without a log', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const long =
+      'call the bank about the mortgage renewal and ask whether the rate can be fixed for five years';
+    const t = wordsAsTitle(long);
+    expect(t.length).toBeLessThanOrEqual(60);
+    expect(long.startsWith(t.toLowerCase())).toBe(true);
+    expect(t[0]).toBe('C');
+    expect(wordsAsTitle('  buy   milk ')).toBe('Buy milk');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

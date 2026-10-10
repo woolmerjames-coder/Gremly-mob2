@@ -19,6 +19,8 @@ import {
   cleanupSynced,
   getQueueStats,
   clearQueue,
+  migrateDropPhases,
+  isDropSaved,
   type QueuedDrop,
 } from '../dropQueue';
 
@@ -760,6 +762,93 @@ describe('dropQueue', () => {
       const savedQueue = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
       expect(savedQueue[0].multiSegments[0].smart_title).toBe('Buy Milk');
       expect(savedQueue[0].multiSegments[1].smart_title).toBe('Morning Run');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // An older build's drops resume in the new order (Mind Drop rethink stage 4)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('migrateDropPhases', () => {
+    const base = {
+      text: 'call mum',
+      spaceId: null,
+      source: 'minddrop' as const,
+      createdAt: '2026-10-09T10:00:00Z',
+      retryCount: 0,
+    };
+
+    it("moves an older build's phases onto sorted and saved", async () => {
+      const queue: QueuedDrop[] = [
+        { ...base, localId: 'a', status: 'classified', phase: 'classified' },
+        { ...base, localId: 'b', status: 'classified', phase: 'titled' },
+        { ...base, localId: 'c', status: 'classified', phase: 'multi_detected' },
+        { ...base, localId: 'd', status: 'enriched', phase: 'enriched' },
+        { ...base, localId: 'e', status: 'enriched', phase: 'syncing' },
+        { ...base, localId: 'f', status: 'failed', phase: 'failed', failedAtPhase: 'titled' },
+        { ...base, localId: 'g', status: 'queued', phase: 'queued' },
+        { ...base, localId: 'h', status: 'queued', phase: 'sorted' },
+      ];
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(queue));
+
+      const moved = await migrateDropPhases();
+
+      expect(moved).toBe(6);
+      const saved = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]) as QueuedDrop[];
+      const phaseOf = (id: string) => saved.find((d) => d.localId === id)!;
+      expect(phaseOf('a').phase).toBe('sorted');
+      expect(phaseOf('b').phase).toBe('sorted');
+      expect(phaseOf('c').phase).toBe('sorted');
+      expect(phaseOf('d').phase).toBe('saved');
+      expect(phaseOf('e').phase).toBe('saved');
+      expect(phaseOf('f')).toMatchObject({ phase: 'failed', failedAtPhase: 'sorted' });
+      expect(phaseOf('g').phase).toBe('queued');
+      expect(phaseOf('h').phase).toBe('sorted');
+    });
+
+    it('gives a drop with no phase one from its status, in the new names', async () => {
+      const queue = [
+        { ...base, localId: 'a', status: 'classified' },
+        { ...base, localId: 'b', status: 'enriched' },
+        { ...base, localId: 'c', status: 'enrichment_failed' },
+      ];
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(queue));
+      await migrateDropPhases();
+      const saved = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]) as QueuedDrop[];
+      expect(saved.map((d) => d.phase)).toEqual(['sorted', 'saved', 'saved']);
+    });
+
+    it('changes nothing the second time', async () => {
+      const queue: QueuedDrop[] = [
+        { ...base, localId: 'a', status: 'queued', phase: 'sorted' },
+        { ...base, localId: 'b', status: 'queued', phase: 'saved', supabaseId: 'row-1' },
+      ];
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(queue));
+      expect(await migrateDropPhases()).toBe(0);
+      expect(mockAsyncStorage.setItem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isDropSaved', () => {
+    it('is true once the drop has its own row, or its pieces', () => {
+      expect(isDropSaved({})).toBe(false);
+      expect(isDropSaved({ supabaseId: 'row-1' })).toBe(true);
+      expect(
+        isDropSaved({
+          pieceRows: [
+            {
+              entityType: 'todo',
+              id: 'p0',
+              dropId: 'split-x-0',
+              index: 0,
+              text: 'a',
+              title: 'A',
+              bucket: 'todo',
+              subtype: null,
+            },
+          ],
+        }),
+      ).toBe(true);
     });
   });
 });

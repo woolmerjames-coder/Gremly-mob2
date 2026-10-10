@@ -117,7 +117,10 @@ export interface Habit {
       | 'prefilled'
       | 'multi_pending'
       | 'enriched'
-      | 'enrichment_failed';
+      | 'enrichment_failed'
+      // Mind Drop rethink stage 4: saved as its kind, then settled
+      | 'saved'
+      | 'settled';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -254,7 +257,10 @@ export interface Todo {
       | 'prefilled'
       | 'multi_pending'
       | 'enriched'
-      | 'enrichment_failed';
+      | 'enrichment_failed'
+      // Mind Drop rethink stage 4: saved as its kind, then settled
+      | 'saved'
+      | 'settled';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -368,7 +374,10 @@ export interface Note {
       | 'prefilled'
       | 'multi_pending'
       | 'enriched'
-      | 'enrichment_failed';
+      | 'enrichment_failed'
+      // Mind Drop rethink stage 4: saved as its kind, then settled
+      | 'saved'
+      | 'settled';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags

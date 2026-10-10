@@ -1,6 +1,8 @@
 /**
- * titles.js: Mind Drop's titles in the Worker, and the two backstops on
- * Gremly's reaction (Mind Drop rethink stage 2, 9 Oct 2026).
+ * titles.js: Mind Drop's titles, and the two backstops on Gremly's reaction
+ * (Mind Drop rethink stage 2, 9 Oct 2026). Shared by the cortex Worker and the
+ * app (stage 4: the app saves a drop before its title call may have answered,
+ * with the same rule for its own words as a title).
  *
  * Formatting only: nothing here reads what the words say. The prompts in
  * minddropPrompts.js decide the words; these only put a capital first, stand
@@ -19,23 +21,33 @@ export function sentenceCase(s) {
 }
 
 /**
- * The drop's own words as its title, only for a title call that failed or
- * returned nothing: in sentence case, cut at the last whole word within 60
- * characters. A single word longer than that is kept whole.
+ * The drop's own words as a title: in sentence case, cut at the last whole word
+ * within 60 characters. A single word longer than that is kept whole. Quiet:
+ * the app uses it for a drop saved before its title call has answered, which
+ * the title then replaces.
  */
-export function fallbackTitle(text, route) {
+export function wordsAsTitle(text) {
   const t = String(text ?? '')
     .trim()
     .split(/\s+/)
     .filter(Boolean)
     .join(' ');
+  if (t.length <= FALLBACK_TITLE_MAX) return sentenceCase(t);
+  const space = t.lastIndexOf(' ', FALLBACK_TITLE_MAX);
+  return sentenceCase(space > 0 ? t.slice(0, space) : t.split(' ')[0]);
+}
+
+/**
+ * The drop's own words as its title, only for a title call that failed or
+ * returned nothing (wordsAsTitle), logged every time.
+ */
+export function fallbackTitle(text, route) {
+  const t = String(text ?? '').trim();
   console.warn("[MindDropTitle] title call gave no title; using the drop's own words", {
     route,
     length: t.length,
   });
-  if (t.length <= FALLBACK_TITLE_MAX) return sentenceCase(t);
-  const space = t.lastIndexOf(' ', FALLBACK_TITLE_MAX);
-  return sentenceCase(space > 0 ? t.slice(0, space) : t.split(' ')[0]);
+  return wordsAsTitle(t);
 }
 
 /** The dash swap James agreed: a dash in the reaction becomes a comma, logged. */

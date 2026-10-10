@@ -1023,7 +1023,7 @@ export const Row3Chips: React.FC<{
   // For legacy items: no stage tracking at all
   const chipDataReady = item.views?.chip_data_ready === true;
   const minddropStage = item.views?.minddrop_stage;
-  const isEntityEnriched = minddropStage === 'enriched';
+  const isEntityEnriched = minddropStage === 'enriched' || minddropStage === 'settled';
   const isLegacyItem =
     minddropStage === undefined &&
     item.views?.ai_pending !== true &&
@@ -2770,9 +2770,24 @@ const RecentDrops: React.FC<{
   // UnifiedDrop references for unchanged drops (prevents unnecessary re-renders)
   const prevDropMappingRef = React.useRef<Map<QueuedDrop, UnifiedDrop>>(new Map());
 
+  // Drops whose saved item is already in the list (Mind Drop rethink stage 4:
+  // a drop is saved at the sort, and from then its own item is its card)
+  const savedDropIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of items) if (item.drop_id) ids.add(item.drop_id);
+    return ids;
+  }, [items]);
+
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
+    const hasSavedItem = (drop: QueuedDrop) =>
+      savedDropIds.has(drop.localId) ||
+      (drop.pieceRows ?? []).some((piece) => savedDropIds.has(piece.dropId));
     const activeDrops = queueItems.filter(
-      (drop) => drop.phase !== 'complete' && drop.phase !== 'failed',
+      (drop) =>
+        drop.phase !== 'complete' &&
+        drop.phase !== 'failed' &&
+        // saved (isDropSaved in dropQueue.ts) and its item is in the list
+        !((!!drop.supabaseId || !!drop.pieceRows?.length) && hasSavedItem(drop)),
     );
 
     const newMapping = new Map<QueuedDrop, UnifiedDrop>();
@@ -2808,21 +2823,27 @@ const RecentDrops: React.FC<{
         const minddropStage =
           !drop.phase || drop.phase === 'queued'
             ? 'pending'
-            : drop.phase === 'classified' && hasEnrichmentFields
-              ? 'streaming'
-              : drop.phase === 'classified'
-                ? 'enriching'
-                : drop.phase === 'titled'
+            : drop.phase === 'sorted'
+              ? hasEnrichmentFields
+                ? 'streaming'
+                : 'enriching'
+              : drop.phase === 'saved'
+                ? 'streaming'
+                : drop.phase === 'classified' && hasEnrichmentFields
                   ? 'streaming'
-                  : drop.phase === 'enriched'
-                    ? 'enriched'
-                    : drop.phase === 'multi_detected'
-                      ? 'classifying'
-                      : drop.phase === 'multi_awaiting'
-                        ? 'enriching'
-                        : drop.phase === 'failed'
-                          ? 'enrichment_failed'
-                          : 'pending';
+                  : drop.phase === 'classified'
+                    ? 'enriching'
+                    : drop.phase === 'titled'
+                      ? 'streaming'
+                      : drop.phase === 'enriched'
+                        ? 'enriched'
+                        : drop.phase === 'multi_detected'
+                          ? 'classifying'
+                          : drop.phase === 'multi_awaiting'
+                            ? 'enriching'
+                            : drop.phase === 'failed'
+                              ? 'enrichment_failed'
+                              : 'pending';
 
         const bucketConfirmed = !!drop.bucket && drop.phase !== 'queued';
 
@@ -2895,7 +2916,7 @@ const RecentDrops: React.FC<{
 
     prevDropMappingRef.current = newMapping;
     return result;
-  }, [queueItems]);
+  }, [queueItems, savedDropIds]);
 
   // Get drop_ids of all pending items to filter out duplicates from real items
   const pendingDropIds = React.useMemo(() => {
@@ -2903,10 +2924,18 @@ const RecentDrops: React.FC<{
   }, [pendingItems]);
 
   // Filter real items to exclude any that still have a pending version
-  // This prevents the "jolt" when a pending item is promoted to a real entity
+  // This prevents the "jolt" when a pending item is promoted to a real entity.
+  // A clear split's pieces (drop id split-<localId>-<index>) wait for their
+  // parent's card to go, so the drop never shows twice.
   const filteredItems = React.useMemo(() => {
     if (pendingDropIds.size === 0) return items;
-    return items.filter((item) => !item.drop_id || !pendingDropIds.has(item.drop_id));
+    const splitPrefixes = [...pendingDropIds].map((id) => `split-${id}-`);
+    return items.filter(
+      (item) =>
+        !item.drop_id ||
+        (!pendingDropIds.has(item.drop_id) &&
+          !splitPrefixes.some((prefix) => item.drop_id!.startsWith(prefix))),
+    );
   }, [items, pendingDropIds]);
 
   // Memoized combined list: merge pending + real items, sort, deduplicate.

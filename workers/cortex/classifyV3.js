@@ -1041,6 +1041,17 @@ export function normalizeClassifyV3(parsed, text = '', opts = {}) {
   return result;
 }
 
+/**
+ * Whether classify-v3 runs the question writer for an unclear drop. Builds from
+ * the Mind Drop rethink (stage 4) send write_question: false and ask
+ * clarify-ambiguity for the writer's words once the drop is sorted, so the
+ * writer never holds up the kind; builds already out never send it and keep
+ * the writer inside this call.
+ */
+export function wantsQuestionWriter(body) {
+  return !(body && body.write_question === false);
+}
+
 /** Build the user turn: optional context block, then the raw drop. */
 export function formatDropMessage(text, { currentDate, dayOfWeek, hasUserSelectedDate } = {}) {
   const clean = String(text || '')

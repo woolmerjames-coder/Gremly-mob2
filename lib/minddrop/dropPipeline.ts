@@ -7,7 +7,10 @@
  *
  * Two trigger modes:
  * - Event-driven: triggerProcessing() called when a new drop is enqueued
- * - Tick fallback: sweeps every 2s for retries, multi_awaiting checks, crash recovery
+ * - Tick fallback: sweeps every 2s for retries and crash recovery
+ *
+ * The phases and what each does are in dropPhases.ts (queued → sorted → saved
+ * → complete, Mind Drop rethink stage 4).
  */
 
 import {
@@ -19,7 +22,8 @@ import {
   migrateDropPhases,
   loadQueueIntoZustand,
 } from './dropQueue';
-import { getPhaseHandler } from './dropPhases';
+import { forgetDropCalls, getPhaseHandler } from './dropPhases';
+import { kindWordOf } from './dropSync';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { runPhase1 } from './phase1';
 import { supabase } from '../supabase/client';
@@ -27,9 +31,7 @@ import { nowTimestamp, getDateService } from '../date/DateService';
 import { filingFromReply } from './filing';
 import { eventBus } from '../events/EventBus';
 import { networkStatus } from '../network/NetworkStatus';
-import { maybeAsk } from '../notifications/ask';
-import { hhmm, localDay } from '../reminders/reminders';
-import type { ItemReminder } from '../types';
+import { logAppEvent } from '../appEvents';
 import { env } from '../env';
 import { getSessionToken } from '../cortex/getSessionToken';
 
@@ -58,12 +60,12 @@ let lastEnqueueTime = 0;
 
 async function handleComplete(drop: QueuedDrop): Promise<void> {
   // Queue item is removed by dequeue() below, which updates queueItems in Zustand.
-  // The real entity was already added to todos/habits/notes by syncDropToSupabase.
+  // The saved item (or a clear split's pieces) is already in the store (dropSync.ts).
 
   // Remove from AsyncStorage queue (also updates queueItems via syncQueueToZustand)
   await dequeue(drop.localId);
 
-  // 3. Increment drop count for gauge / ritual progress
+  // Increment drop count for gauge / ritual progress
   try {
     const { didAgeUp, newAge } = await useGremlyStore.getState().incrementDropCount();
     if (didAgeUp) {
@@ -73,84 +75,70 @@ async function handleComplete(drop: QueuedDrop): Promise<void> {
     console.warn('[Pipeline] Failed to increment drop count', { error: String(err) });
   }
 
-  // 4. Schedule auto-reminder if Phase 2b detected one (fire-and-forget)
-  // Note: entity:created event is already emitted by syncDropToSupabase with full data
-  if (drop.autoReminder && drop.supabaseId && drop.entityType) {
-    void scheduleAutoReminderForDrop(drop);
+  // The reminder a drop asked for is saved when its details land (dropPhases.ts,
+  // dropReminder.ts), not here.
+
+  // Assign drop to worlds/chapters/life contexts (fire-and-forget); a clear
+  // split's pieces each find their own place
+  if (drop.pieceRows?.length) {
+    for (const piece of drop.pieceRows) {
+      void assignDropToGraph({
+        ...drop,
+        supabaseId: piece.id,
+        entityType: piece.entityType,
+        text: piece.text,
+        smartTitle: piece.title,
+        bucket: piece.bucket,
+        subtype: piece.subtype,
+        tags: undefined,
+        people: undefined,
+        extractedDate: undefined,
+      });
+    }
+  } else {
+    void assignDropToGraph(drop);
   }
 
-  // Assign drop to worlds/chapters/life contexts (fire-and-forget)
-  void assignDropToGraph(drop);
+  void logDropTiming(drop);
+  forgetDropCalls(drop.localId);
 
   console.log('[Pipeline] Drop complete', {
     localId: drop.localId,
     supabaseId: drop.supabaseId,
     entityType: drop.entityType,
+    pieces: drop.pieceRows?.length ?? 0,
   });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Auto-Reminder Scheduling (fire and forget)
+// Timing (one app_events row per drop, no words), for stage 12's comparison
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function scheduleAutoReminderForDrop(drop: QueuedDrop): Promise<void> {
-  try {
-    const entityType = drop.entityType!;
-    const entityId = drop.supabaseId!;
+export function dropTimingMeta(drop: QueuedDrop): Record<string, unknown> {
+  const tapped = Date.parse(drop.createdAt);
+  const since = (at?: number) =>
+    typeof at === 'number' && Number.isFinite(tapped) ? Math.max(0, at - tapped) : null;
+  const kind = drop.pieceRows?.length
+    ? 'split'
+    : kindWordOf(drop.bucket ?? null, drop.subtype ?? null);
+  return {
+    // from the tap to when the app took it up: long for a drop that waited offline
+    started_ms: since(drop.startedAt),
+    sorted_ms: since(drop.sortedAt),
+    saved_ms: since(drop.savedAt),
+    settled_ms: since(drop.settledAt),
+    details: drop.detailsIn ?? null,
+    engine: drop.classifyEngine ?? null,
+    kind: drop.needsClarification && !drop.isMulti ? 'question' : kind,
+    split: drop.isMulti ? (drop.split ?? 'unsure') : null,
+    pieces: drop.pieceRows?.length ?? null,
+    resumed: drop.resumed === true,
+    source: drop.source,
+  };
+}
 
-    // Skip external calendar events
-    if (entityType === 'note') {
-      const note = useGremlyStore.getState().notes.find((n) => n.id === entityId);
-      if (note?.external_source != null) return;
-    }
-
-    const frequency = drop.reminderFrequency === 'daily' ? ('daily' as const) : ('once' as const);
-    const hasDate = !!drop.reminderDate;
-
-    const reminderToSave: ItemReminder = hasDate
-      ? {
-          id: `auto-${getDateService().now().getTime()}`,
-          time: drop.reminderTime || '09:00',
-          frequency,
-          date: frequency === 'once' ? drop.reminderDate! : undefined,
-        }
-      : (() => {
-          // two hours from now, on the right day even near midnight
-          const at = new Date(getDateService().now().getTime() + 2 * 60 * 60 * 1000);
-          return {
-            id: `auto-quick-${getDateService().now().getTime()}`,
-            time: hhmm(at.getHours(), at.getMinutes()),
-            frequency: 'once' as const,
-            date: localDay(at),
-          };
-        })();
-
-    // Persist to Supabase
-    const table = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-    await supabase
-      .from(table)
-      .update({ reminders_json: [reminderToSave], updated_at: nowTimestamp() })
-      .eq('id', entityId);
-
-    // Update Zustand
-    const storeKey = entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-    useGremlyStore.setState((state) => ({
-      [storeKey]: (state[storeKey] as any[]).map((item: any) =>
-        item.id === entityId ? { ...item, reminders: [reminderToSave] } : item,
-      ),
-    }));
-
-    console.log('[Pipeline] Auto-reminder saved', {
-      entityId,
-      date: reminderToSave.date,
-      time: reminderToSave.time,
-    });
-
-    // The server sends it. If notifications are off, this is the moment to ask.
-    void maybeAsk('bell');
-  } catch (err) {
-    console.warn('[Pipeline] Auto-reminder failed', { error: String(err) });
-  }
+async function logDropTiming(drop: QueuedDrop): Promise<void> {
+  await logAppEvent('drop_timing', { type: 'drop', id: drop.localId }, dropTimingMeta(drop));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

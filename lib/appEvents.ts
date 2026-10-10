@@ -13,14 +13,22 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from './supabase/client';
 import { getDateService } from './date/DateService';
 
-export type AppEventKind = 'app_open' | 'world_view' | 'chapter_view' | 'story_view';
+export type AppEventKind =
+  | 'app_open'
+  | 'world_view'
+  | 'chapter_view'
+  | 'story_view'
+  // One per Mind Drop: how long it took to sort, save and settle, with no words
+  // (Mind Drop rethink stage 4; stage 12 compares it with the baseline)
+  | 'drop_timing';
 
-// How long the same event for the same thing counts once.
+// How long the same event for the same thing counts once (0: every one counts).
 const THROTTLE_MS: Record<AppEventKind, number> = {
   app_open: 30 * 60 * 1000,
   world_view: 10 * 60 * 1000,
   chapter_view: 10 * 60 * 1000,
   story_view: 10 * 60 * 1000,
+  drop_timing: 0,
 };
 
 const lastLogged = new Map<string, number>();
@@ -35,7 +43,7 @@ export async function logAppEvent(
     const key = `${kind}:${target?.type ?? ''}:${target?.id ?? ''}`;
     const last = lastLogged.get(key);
     if (last != null && now - last < THROTTLE_MS[kind]) return;
-    lastLogged.set(key, now);
+    if (THROTTLE_MS[kind] > 0) lastLogged.set(key, now);
 
     const { data } = await supabase.auth.getSession();
     const userId = data.session?.user?.id;

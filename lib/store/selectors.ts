@@ -1638,8 +1638,15 @@ import type { QueuedDrop } from '../minddrop/dropQueue';
 export function useTodayPendingDrops(): QueuedDrop[] {
   return useGremlyStore(
     useShallow((state) => {
+      // Once saved, the todo itself is on Today (Mind Drop rethink stage 4), so
+      // the pending row goes rather than show twice (isDropSaved in dropQueue.ts)
       return state.queueItems.filter(
-        (d) => d.source === 'today' && d.phase !== 'complete' && d.phase !== 'failed',
+        (d) =>
+          d.source === 'today' &&
+          d.phase !== 'complete' &&
+          d.phase !== 'failed' &&
+          !d.supabaseId &&
+          !d.pieceRows?.length,
       );
     }),
   );

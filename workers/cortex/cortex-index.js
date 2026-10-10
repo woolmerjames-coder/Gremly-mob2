@@ -169,7 +169,7 @@ import {
   detailsPrompt,
   runningSummaryPrompt,
 } from './minddropPrompts.js';
-import { sentenceCase, fallbackTitle, dashBackstop, lengthBackstop } from './titles.js';
+import { sentenceCase, fallbackTitle, dashBackstop, lengthBackstop } from '../shared/titles.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import { briefTurnResponse } from './agent/brief.js';
 import { weekReadResponse } from './weekRead.js';
@@ -198,6 +198,7 @@ import {
   formatDropMessage,
   normalizeClassifyV3,
   parseModelJson,
+  wantsQuestionWriter,
   AMBIGUITY_TYPES,
   PROMPT_VERSION,
   PROMPT_VERSIONS,
@@ -8464,6 +8465,9 @@ Segment rules:
           splitAuto: String(env.CLASSIFY_SPLIT_AUTO ?? 'true') !== 'false',
           version: promptVersion,
         };
+        // Builds from stage 4 ask for the question's words after the sort
+        // (clarify-ambiguity), so the writer never holds up the kind
+        const writeQuestion = wantsQuestionWriter(body);
 
         let result;
         try {
@@ -8556,6 +8560,7 @@ Segment rules:
         // or its words fail the checks, the classifier's own words stay.
         if (
           normalized?.is_ambiguous &&
+          writeQuestion &&
           String(env.CLARIFY_WRITER_ENABLED || 'true') !== 'false' &&
           timeLeft() >= 1500
         ) {
@@ -8639,7 +8644,7 @@ Segment rules:
           wasFallback: result.wasFallback,
           gate: normalized.gate || null,
           second_opinion: steps.second_opinion,
-          writer: steps.writer,
+          writer: writeQuestion ? steps.writer : 'not_asked',
           cache_read_tokens: result.usage?.cache_read_input_tokens ?? null,
           latency_ms: latency,
         });
@@ -8726,6 +8731,11 @@ Segment rules:
           ambiguity_type: clar.ambiguity_type,
           clarification_question: clar.clarification_question,
           options: clar.clarification_options,
+          // Where the words came from (stage 4): the app puts the writer's own
+          // words in place of the classifier's, and keeps the classifier's
+          // over the fixed copy. Builds already out ignore these.
+          question_source: clar.question_source,
+          labels_source: clar.labels_source,
           latency_ms: latency,
         });
       }

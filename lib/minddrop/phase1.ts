@@ -285,10 +285,40 @@ export interface ClassifyV3Multi {
     habitSubtype: HabitSubtype | null;
     likely_bucket?: string;
     likely_subtype?: string | null;
+    /** a piece the classifier could not settle, with its own question (piece_questions) */
+    is_ambiguous?: boolean;
+    ambiguity_type?: string | null;
+    clarification_question?: string | null;
+    clarification_options?: ReturnType<typeof mapWorkerOptions>;
   }>;
   summary?: string;
   dominant_bucket?: string;
   dominant_subtype?: string | null;
+  /** v3.8: clear splits are saved as their pieces, unsure ones as one item that asks */
+  split?: 'clear' | 'unsure' | null;
+  /** v3.8: the drop's kind kept as one item (null when the classifier gave none) */
+  as_one?: {
+    bucket: MindDropBucket;
+    subtype: LogSubtype | null;
+    habitSubtype: HabitSubtype | null;
+  } | null;
+}
+
+function readKind(raw: unknown): {
+  bucket: MindDropBucket;
+  subtype: LogSubtype | null;
+  habitSubtype: HabitSubtype | null;
+} | null {
+  const k = raw as Record<string, any> | null;
+  if (!k || typeof k !== 'object' || !['todo', 'habit', 'log'].includes(k.bucket)) return null;
+  const bucket = k.bucket as MindDropBucket;
+  return {
+    bucket,
+    subtype: (bucket === 'log' ? (k.subtype ?? 'general') : null) as LogSubtype | null,
+    habitSubtype: (bucket === 'habit'
+      ? (k.habitSubtype ?? 'start_habit')
+      : null) as HabitSubtype | null,
+  };
 }
 
 export interface ClassifyV3Result {
@@ -341,6 +371,11 @@ export async function runClassifyV3(
         currentDate: dateService.today(),
         dayOfWeek,
         timezone: ds.getTimezone(),
+        // Mind Drop rethink stage 4: a piece of a split may ask its own question,
+        // and the question writer runs after the sort (clarify-ambiguity), so it
+        // never holds up the kind
+        piece_questions: true,
+        write_question: false,
       }),
       ...(controller ? { signal: controller.signal } : {}),
     });
@@ -391,17 +426,33 @@ export async function runClassifyV3(
       json.is_multi === true && segments.length > 1
         ? {
             is_multi: true,
-            segments: segments.map((seg: any) => ({
-              text: String(seg.text || ''),
-              bucket: (validBuckets.includes(seg.bucket) ? seg.bucket : 'log') as MindDropBucket,
-              subtype: seg.subtype ?? null,
-              habitSubtype: seg.habitSubtype ?? null,
-              likely_bucket: seg.likely_bucket ?? seg.bucket,
-              likely_subtype: seg.likely_subtype ?? seg.subtype ?? null,
-            })),
+            segments: segments.map((seg: any) => {
+              const pieceAsks = seg.is_ambiguous === true;
+              return {
+                text: String(seg.text || ''),
+                bucket: (validBuckets.includes(seg.bucket) ? seg.bucket : 'log') as MindDropBucket,
+                subtype: seg.subtype ?? null,
+                habitSubtype: seg.habitSubtype ?? null,
+                likely_bucket: seg.likely_bucket ?? seg.bucket,
+                likely_subtype: seg.likely_subtype ?? seg.subtype ?? null,
+                is_ambiguous: pieceAsks,
+                ambiguity_type: pieceAsks ? normalizeAmbiguityType(seg.ambiguity_type) : null,
+                clarification_question:
+                  pieceAsks && typeof seg.clarification_question === 'string'
+                    ? seg.clarification_question
+                    : null,
+                clarification_options: pieceAsks
+                  ? mapWorkerOptions(seg.clarification_options, 'log')
+                  : null,
+              };
+            }),
             summary: json.summary || text.substring(0, 60),
             dominant_bucket: json.dominant_bucket || 'log',
             dominant_subtype: json.dominant_subtype ?? null,
+            // The classifier decides; a missing split asks (unsure), and a
+            // missing kind as one stays missing (saved as a note, logged by the caller)
+            split: json.split === 'clear' ? 'clear' : 'unsure',
+            as_one: readKind(json.as_one),
           }
         : { is_multi: false };
 
@@ -411,6 +462,7 @@ export async function runClassifyV3(
       is_ambiguous: isAmbiguous,
       ambiguity_type: phase1.ambiguity_type,
       is_multi: multi.is_multi,
+      split: multi.split ?? null,
       model: json.model,
       latency_ms: json.latency_ms,
     });
