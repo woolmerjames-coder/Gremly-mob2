@@ -998,7 +998,6 @@ const AnimatedMindDropCard = React.memo<{
       'clarification_question',
       'clarification_options',
       'is_multi',
-      'multi_summary_title',
     ];
     for (const f of fields) if (a[f] !== b[f]) return false;
     if ((a.days_active || []).join(',') !== (b.days_active || []).join(',')) return false;
@@ -1016,7 +1015,6 @@ const AnimatedMindDropCard = React.memo<{
       'ai_pending',
       'ai_failed',
       'is_multi',
-      'multi_summary_title',
       // the ask rules (stage 6)
       'ask_since',
       'ask_on_card',
@@ -1042,7 +1040,7 @@ export type GlobalOverlayController = Pick<
   | 'close'
   | 'openClarificationPopup'
   | 'closeClarificationPopup'
-> & { openRelationPopup?: OverlayContextValue['openRelationPopup'] };
+>;
 
 export const noopOverlayController: GlobalOverlayController = {
   openCreate: () => {},
@@ -1443,8 +1441,6 @@ const RecentDrops: React.FC<{
             // A drop with several things in it is sorted into one item that asks,
             // or its pieces (stage 4); the old split modal is for older notes only
             is_multi: false,
-            multi_segments: drop.multiSegments,
-            multi_summary: drop.multiSummary,
             needs_clarification: drop.needsClarification,
             clarification_type: drop.clarificationType,
             clarification_question: drop.clarificationQuestion,
@@ -1460,16 +1456,6 @@ const RecentDrops: React.FC<{
           days_active: drop.extractedDays ?? null,
           mood: drop.mood ? (drop.mood as any) : null,
           is_multi: false,
-          multi_items: drop.multiSegments?.map((seg) => ({
-            text: seg.text,
-            bucket: seg.bucket,
-            subtype: seg.subtype ?? null,
-            habitSubtype: null,
-            preview_title: seg.smart_title || seg.text.substring(0, 40),
-            smart_title: seg.smart_title ?? null,
-            confirmation_message: seg.confirmation_message ?? null,
-          })),
-          multi_summary_title: drop.multiSummary,
         };
 
         newMapping.set(drop, unified);
@@ -1648,8 +1634,6 @@ const RecentDrops: React.FC<{
           reminders: record.reminders ?? record.reminders_json ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: record.views?.is_multi === true,
-          multi_items: record.views?.multi_items ?? undefined,
-          multi_summary_title: record.views?.multi_summary_title ?? undefined,
         };
         return [newItem, ...prev];
       }
@@ -1712,8 +1696,6 @@ const RecentDrops: React.FC<{
           target_per_period: (record as any).target_per_period ?? item.target_per_period ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: views?.is_multi === true,
-          multi_items: views?.multi_items ?? item.multi_items ?? undefined,
-          multi_summary_title: views?.multi_summary_title ?? item.multi_summary_title ?? undefined,
           // Clarification fields - CRITICAL for removing the Clarify chip after resolution
           needs_clarification:
             (record as any).needs_clarification ??
@@ -1851,8 +1833,6 @@ const RecentDrops: React.FC<{
             event_time: noteAny?.event_time ?? noteAny?.views?.event_time ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: noteAny?.views?.is_multi === true,
-            multi_items: noteAny?.views?.multi_items ?? undefined,
-            multi_summary_title: noteAny?.views?.multi_summary_title ?? undefined,
           };
         });
 
@@ -2288,8 +2268,6 @@ const RecentDrops: React.FC<{
             reminders: entity.reminders ?? entity.reminders_json ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: entity.views?.is_multi === true,
-            multi_items: entity.views?.multi_items ?? undefined,
-            multi_summary_title: entity.views?.multi_summary_title ?? undefined,
           };
 
           // console.log('[CatchAllNotepad] Adding new entity to items list', {

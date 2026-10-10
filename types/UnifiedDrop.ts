@@ -1,5 +1,4 @@
 import type { Mood } from '../lib/shared/moods';
-import type { MultiDropItem } from '../lib/minddrop/types';
 
 export type UnifiedDrop = {
   id: string;
@@ -36,8 +35,6 @@ export type UnifiedDrop = {
   priority_kind?: string | null; // Classifier-assigned structural role for todos
   // Multi-entity support
   is_multi?: boolean; // True if this drop contains multiple items
-  multi_items?: MultiDropItem[]; // The parsed items array
-  multi_summary_title?: string; // Summary title for display (e.g., "Groceries + Running Habit")
   // Phase 2: Clarification fields
   needs_clarification?: boolean; // True if AI needs user to disambiguate
   clarification_resolved?: boolean; // True once user responds to clarification
